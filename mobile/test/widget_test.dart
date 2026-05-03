@@ -144,6 +144,78 @@ void main() {
     expect(debugShouldPollAfterApproval(idle), isFalse);
   });
 
+  test('historical sessions do not count as explicit workspace selection', () {
+    expect(
+        debugHasExplicitWorkspaceSelection(
+          workspaceConfirmedForSession: false,
+          activeRunId: null,
+          hasLocalSessions: true,
+        ),
+        isFalse);
+    expect(
+        debugHasExplicitWorkspaceSelection(
+          workspaceConfirmedForSession: true,
+          activeRunId: null,
+          hasLocalSessions: false,
+        ),
+        isTrue);
+    expect(
+        debugHasExplicitWorkspaceSelection(
+          workspaceConfirmedForSession: false,
+          activeRunId: 'conv_1',
+          hasLocalSessions: false,
+        ),
+        isTrue);
+  });
+
+  test('approval cards only show the current blocking approval', () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const conversation = ConversationSummary(
+      id: 'conv_1',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'waiting_approval',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:02.000Z',
+      blockingItem: ConversationBlockingItem(
+        type: 'approval_request',
+        approvalId: 'ap2',
+        toolName: 'Bash',
+        summary: 'python intro.py',
+      ),
+    );
+    final events = <Map<String, Object?>>[
+      const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'approvalId': 'ap1',
+        'toolName': 'Write',
+        'summary': r'C:\Users\W2830\intro.py'
+      },
+      const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'ap2',
+        'toolName': 'Bash',
+        'summary': r'python intro.py'
+      },
+    ];
+
+    expect(debugVisibleApprovalIdsForConversation(events, conversation),
+        const <String>['ap2']);
+  });
+
   testWidgets('running composer shows stop action instead of send',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildRunningComposerPreview());

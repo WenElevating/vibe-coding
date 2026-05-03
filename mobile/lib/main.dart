@@ -126,6 +126,30 @@ bool debugShouldPollAfterApproval(ConversationSummary conversation) =>
     _shouldPollAfterApproval(conversation);
 
 @visibleForTesting
+bool debugHasExplicitWorkspaceSelection({
+  required bool workspaceConfirmedForSession,
+  required String? activeRunId,
+  required bool hasLocalSessions,
+}) =>
+    _hasExplicitWorkspaceSelectionState(
+      workspaceConfirmedForSession: workspaceConfirmedForSession,
+      activeRunId: activeRunId,
+      hasLocalSessions: hasLocalSessions,
+    );
+
+@visibleForTesting
+List<String> debugVisibleApprovalIdsForConversation(
+    List<Map<String, Object?>> events, ConversationSummary conversation) {
+  final state = const ConversationViewState().apply(events
+      .map((event) => ConversationEvent.fromJson(event))
+      .toList(growable: false));
+  return _messagesForConversationSnapshot(state.messages, conversation)
+      .where((message) => message.role == 'approval')
+      .map((message) => message.approvalId ?? '')
+      .toList(growable: false);
+}
+
+@visibleForTesting
 Widget buildRunningComposerPreview() => MaterialApp(
     locale: _zhHansCnLocale,
     supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
@@ -1323,7 +1347,8 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             streamOutput: widget.streamOutput);
         _messages
           ..clear()
-          ..addAll(_conversationState.messages
+          ..addAll(_messagesForConversationSnapshot(
+                  _conversationState.messages, _activeConversation)
               .where((message) => message.role != 'question_hidden')
               .map(_workbenchMessageFromConversation));
       });
@@ -1346,22 +1371,39 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     final current = _activeConversation;
     if (current == null) return;
     var status = current.status;
+    ConversationBlockingItem? blockingItem = current.blockingItem;
     if (event.type == 'conversation.status_changed') {
       status = event.raw['status'] as String? ?? status;
     } else if (event.type == 'assistant.message') {
       status = 'idle';
+      blockingItem = null;
     } else if (event.type == 'assistant.question') {
       status = 'waiting_input';
+      blockingItem = ConversationBlockingItem(
+          type: 'input_request',
+          questionId: event.questionId,
+          text: event.text,
+          suggestions: event.suggestions);
     } else if (event.type == 'approval.requested') {
       status = 'waiting_approval';
+      blockingItem = ConversationBlockingItem(
+          type: 'approval_request',
+          approvalId: event.approvalId,
+          toolName: event.toolName,
+          summary: event.summary,
+          input: event.input);
     } else if (event.type == 'approval.resolved') {
       status = 'running';
+      blockingItem = null;
     } else if (event.type == 'conversation.cancelled') {
       status = 'cancelled';
+      blockingItem = null;
     } else if (event.type == 'run.error') {
       status = 'failed';
+      blockingItem = null;
     }
-    _activeConversation = _copyConversationStatus(current, status);
+    _activeConversation =
+        _copyConversationStatus(current, status, blockingItem: blockingItem);
   }
 
   // ignore: unused_element
@@ -1518,9 +1560,11 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   }
 
   bool get _hasExplicitWorkspaceSelection {
-    return _workspaceConfirmedForSession ||
-        _activeRunId != null ||
-        _localSessions.isNotEmpty;
+    return _hasExplicitWorkspaceSelectionState(
+      workspaceConfirmedForSession: _workspaceConfirmedForSession,
+      activeRunId: _activeRunId,
+      hasLocalSessions: _localSessions.isNotEmpty,
+    );
   }
 
   Future<void> _confirmWorkspaceBeforeFirstRun() async {
@@ -3019,8 +3063,34 @@ String _runStatusFromConversation(String status) {
 bool _shouldPollAfterApproval(ConversationSummary conversation) =>
     conversation.status == 'running' || conversation.status == 'waiting_input';
 
+bool _hasExplicitWorkspaceSelectionState({
+  required bool workspaceConfirmedForSession,
+  required String? activeRunId,
+  required bool hasLocalSessions,
+}) =>
+    workspaceConfirmedForSession || activeRunId != null;
+
+List<ConversationMessage> _messagesForConversationSnapshot(
+    List<ConversationMessage> messages, ConversationSummary? conversation) {
+  final blockingItem = conversation?.blockingItem;
+  if (conversation?.status != 'waiting_approval' ||
+      blockingItem?.type != 'approval_request') {
+    return messages
+        .where((message) => message.role != 'approval')
+        .toList(growable: false);
+  }
+  final currentApprovalId = blockingItem?.approvalId;
+  return messages
+      .where((message) =>
+          message.role != 'approval' ||
+          (currentApprovalId != null &&
+              message.approvalId == currentApprovalId))
+      .toList(growable: false);
+}
+
 ConversationSummary _copyConversationStatus(
-    ConversationSummary conversation, String status) {
+    ConversationSummary conversation, String status,
+    {ConversationBlockingItem? blockingItem}) {
   return ConversationSummary(
       id: conversation.id,
       workspaceId: conversation.workspaceId,
@@ -3030,7 +3100,7 @@ ConversationSummary _copyConversationStatus(
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       cliSessionId: conversation.cliSessionId,
-      blockingItem: conversation.blockingItem,
+      blockingItem: blockingItem,
       idleExpiresAt: conversation.idleExpiresAt);
 }
 
