@@ -122,6 +122,10 @@ String debugConversationPendingStatusText(String status) =>
     _conversationPendingStatusText(status, const <ConversationEvent>[]);
 
 @visibleForTesting
+bool debugShouldPollAfterApproval(ConversationSummary conversation) =>
+    _shouldPollAfterApproval(conversation);
+
+@visibleForTesting
 Widget buildRunningComposerPreview() => MaterialApp(
     locale: _zhHansCnLocale,
     supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
@@ -1290,10 +1294,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         });
       }
       _scrollToBottom();
-      await _pollEvents();
-      _poller?.cancel();
-      _poller = Timer.periodic(
-          const Duration(milliseconds: 900), (_) => _pollEvents());
+      await _restartConversationPolling();
     } catch (err) {
       setState(() => _error = err.toString());
     } finally {
@@ -1331,6 +1332,14 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     } catch (err) {
       if (mounted) setState(() => _error = err.toString());
     }
+  }
+
+  Future<void> _restartConversationPolling() async {
+    _poller?.cancel();
+    await _pollEvents();
+    if (!mounted || _activeConversationId == null || _isTerminal) return;
+    _poller = Timer.periodic(
+        const Duration(milliseconds: 900), (_) => _pollEvents());
   }
 
   void _applyConversationStatusEvent(ConversationEvent event) {
@@ -1597,6 +1606,10 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
           _messages.add(_WorkbenchMessage.status('已拒绝权限请求'));
         }
       });
+      final conversation = _activeConversation;
+      if (conversation != null && _shouldPollAfterApproval(conversation)) {
+        await _restartConversationPolling();
+      }
     } catch (err) {
       setState(() => _error = err.toString());
     }
@@ -3002,6 +3015,9 @@ String _runStatusFromConversation(String status) {
   if (status == 'cancelled' || status == 'failed') return status;
   return 'running';
 }
+
+bool _shouldPollAfterApproval(ConversationSummary conversation) =>
+    conversation.status == 'running' || conversation.status == 'waiting_input';
 
 ConversationSummary _copyConversationStatus(
     ConversationSummary conversation, String status) {

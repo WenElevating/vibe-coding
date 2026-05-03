@@ -113,6 +113,37 @@ void main() {
         const <String>['conv_local', 'conv_persisted', 'run_legacy']);
   });
 
+  test('approval response resumes polling only for active conversations', () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const running = ConversationSummary(
+      id: 'conv_running',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'running',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:01.000Z',
+    );
+    const idle = ConversationSummary(
+      id: 'conv_idle',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'idle',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:01.000Z',
+    );
+
+    expect(debugShouldPollAfterApproval(running), isTrue);
+    expect(debugShouldPollAfterApproval(idle), isFalse);
+  });
+
   testWidgets('running composer shows stop action instead of send',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildRunningComposerPreview());
