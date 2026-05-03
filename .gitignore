@@ -1,0 +1,52 @@
+# Local agent/session state
+.agents/
+.claude/
+.codex/
+.dart-appdata/
+.omc/
+.omx/
+.superpowers/
+
+# Runtime data
+data/**/*.sqlite
+data/**/*.sqlite-*
+
+# Flutter / Dart generated files
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.flutter_tool_state
+**/.packages
+**/build/
+**/coverage/
+mobile/.flutter
+mobile/android/local.properties
+
+# IDE / machine files
+**/.idea/
+**/*.iml
+
+# Logs and command output
+*.log
+stdout
+
+# Local smoke/manual scripts and scratch files
+check-msbuild.bat
+debug-claude-config.bat
+run-claude-cli-manual.bat
+run-python-sdk-smoke.bat
+run-real-mobile-e2e.bat
+run-win-build.bat
+setup-claude-python-sdk-venv.bat
+hello.txt
+python_intro.py
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Manual/e2e helper scripts
+scripts/real-mobile-e2e.js
+scripts/smoke-claude-adapter.js
+mobile/run-dart-tests.bat
+mobile/run-flutter-tests.bat

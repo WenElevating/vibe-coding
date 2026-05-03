@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Codex-style Mobile Agent UI - Compact Composer</title>
+<style>
+:root{
+  --bg:#020304;
+  --device:#08090b;
+  --screen:#0a0b0d;
+  --surface:#111214;
+  --surface2:#161719;
+  --surface3:#1d1e21;
+  --line:rgba(255,255,255,.085);
+  --line2:rgba(255,255,255,.14);
+  --text:#f1f1f1;
+  --soft:#d7d7d7;
+  --muted:#9a9a9a;
+  --dim:#6f737a;
+  --green:#32d583;
+  --blue:#8ab4ff;
+  --purple:#a78bfa;
+  --amber:#f2c572;
+  --red:#ff6b6b;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:var(--sans);background:var(--bg);color:var(--text)}
+body{
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:
+    radial-gradient(circle at 20% -10%,rgba(167,139,250,.10),transparent 32%),
+    radial-gradient(circle at 90% 16%,rgba(50,213,131,.07),transparent 34%),
+    #020304;
+}
+.phone{
+  width:390px;
+  height:844px;
+  position:relative;
+  overflow:hidden;
+  border-radius:34px;
+  border:1px solid rgba(255,255,255,.10);
+  background:
+    linear-gradient(180deg,#101113 0%,#08090b 72%,#060708 100%);
+  box-shadow:0 40px 130px rgba(0,0,0,.66), inset 0 0 0 1px rgba(255,255,255,.025);
+}
+.status{
+  position:absolute;
+  left:0;right:0;top:0;
+  height:42px;
+  z-index:6;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 18px;
+  color:#fff;
+  font-size:13px;
+  font-weight:650;
+}
+.icons{display:flex;gap:7px;align-items:center}.i{display:block;background:#fff;border-radius:4px}
+.sig{width:16px;height:9px;clip-path:polygon(0 100%,20% 70%,40% 100%,60% 35%,80% 100%,100% 0,100% 100%)}
+.wifi{width:13px;height:9px;clip-path:polygon(50% 0,100% 42%,78% 62%,50% 38%,22% 62%,0 42%)}
+.bat{width:20px;height:10px;border:1.5px solid #fff;background:transparent;position:relative}
+.bat:before{content:"";position:absolute;inset:2px 5px 2px 2px;background:#fff;border-radius:2px}
+.bat:after{content:"";position:absolute;right:-4px;top:2px;width:2px;height:5px;background:#fff;border-radius:2px}
+
+.topbar{
+  position:absolute;
+  top:42px;left:0;right:0;
+  height:58px;
+  z-index:5;
+  padding:8px 14px 9px;
+  border-bottom:1px solid rgba(255,255,255,.075);
+  background:rgba(10,11,13,.92);
+  backdrop-filter:blur(20px);
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:12px;
+  align-items:center;
+}
+.thread-meta{min-width:0;display:grid;grid-template-columns:31px 1fr;gap:10px;align-items:center}
+.project-mark{
+  width:31px;height:31px;border-radius:10px;
+  display:grid;place-items:center;
+  color:#d6d6d6;
+  background:#191a1d;
+  border:1px solid var(--line);
+  font:900 14px var(--mono);
+}
+.thread-title{min-width:0}
+.thread-title b{
+  display:block;
+  font-size:13.5px;
+  letter-spacing:-.015em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.thread-title span{
+  display:block;
+  margin-top:2px;
+  color:var(--muted);
+  font:10.5px var(--mono);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.agent-pill{
+  height:35px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#141518;
+  color:#ececec;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 10px;
+  cursor:pointer;
+}
+.agent-pill .dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 12px rgba(50,213,131,.8);
+}
+.agent-pill b{font:760 11px var(--mono);line-height:1;display:block}
+.agent-pill span{display:block;color:#8b8f96;font:9.5px var(--mono);margin-top:3px;line-height:1}
+
+.thread{
+  position:absolute;
+  inset:100px 0 126px;
+  overflow:auto;
+  padding:18px 15px 22px;
+  scroll-behavior:smooth;
+}
+.thread::-webkit-scrollbar{width:0}
+.notice{
+  margin:0 0 18px;
+  border:1px solid rgba(255,255,255,.075);
+  background:#101113;
+  border-radius:14px;
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  color:#b9b9b9;
+  font-size:12px;
+}
+.notice-left{display:flex;align-items:center;gap:8px;min-width:0}
+.notice-dot{width:7px;height:7px;border-radius:50%;background:#777}
+.notice code{font:10.5px var(--mono);color:#8c8f95}
+
+.message{
+  margin-bottom:18px;
+}
+.user{
+  display:flex;
+  justify-content:flex-end;
+}
+.user .bubble{
+  max-width:78%;
+  padding:11px 14px;
+  border-radius:18px 18px 6px 18px;
+  background:#191a1e;
+  border:1px solid rgba(255,255,255,.085);
+  color:#f4f4f4;
+  font-size:15px;
+  line-height:1.45;
+}
+.assistant{
+  color:#e9e9e9;
+}
+.assistant p{
+  margin:0 0 12px;
+  font-size:15px;
+  line-height:1.7;
+}
+.assistant code{
+  font:13px var(--mono);
+  background:#18191c;
+  border:1px solid rgba(255,255,255,.075);
+  color:#e6e6e6;
+  padding:2px 6px;
+  border-radius:7px;
+}
+.event{
+  margin:0 0 12px;
+  border:1px solid rgba(255,255,255,.08);
+  background:#101113;
+  border-radius:16px;
+  overflow:hidden;
+}
+.event-head{
+  padding:11px 12px;
+  display:grid;
+  grid-template-columns:24px 1fr auto;
+  align-items:center;
+  gap:9px;
+}
+.event-ico{
+  width:24px;height:24px;border-radius:8px;
+  display:grid;place-items:center;
+  background:#17181b;
+  color:#b8b8b8;
+  font:800 12px var(--mono);
+}
+.event.command .event-ico{color:var(--blue)}
+.event.diff .event-ico{color:var(--green)}
+.event.approval .event-ico{color:var(--amber)}
+.event-title{min-width:0}
+.event-title b{
+  display:block;
+  font-size:13px;
+  letter-spacing:-.01em;
+}
+.event-title span{
+  display:block;
+  margin-top:3px;
+  color:#8b8f96;
+  font:10.5px var(--mono);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.event-time{
+  color:#7b7f87;
+  font:10.5px var(--mono);
+}
+.cmd-box{
+  margin:0 12px 12px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:12px;
+  background:#0c0d0f;
+  padding:10px 11px;
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+  align-items:center;
+}
+.cmd-box code{
+  color:#d7d7d7;
+  font:12.5px var(--mono);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.ok{color:var(--green);font:11px var(--mono)}
+.approval-body{
+  padding:0 12px 12px;
+}
+.approval-body p{
+  color:#b5b5b5;
+  font-size:12.5px;
+  line-height:1.55;
+  margin:0 0 11px;
+}
+.path{
+  display:block;
+  margin-top:4px;
+  font:11.5px var(--mono);
+  color:#dcdcdc;
+  word-break:break-all;
+}
+.actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:9px;
+}
+.btn{
+  height:39px;
+  border-radius:12px;
+  background:#121316;
+  border:1px solid var(--line);
+  color:#d9d9d9;
+  font-size:13px;
+  font-weight:760;
+}
+.btn.deny{color:#ff777a;border-color:rgba(255,117,120,.30)}
+.btn.approve{
+  color:#050607;
+  border-color:transparent;
+  background:#e8e8e8;
+}
+.diff-list{
+  border-top:1px solid rgba(255,255,255,.055);
+}
+.file-row{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+  padding:10px 12px;
+  border-top:1px solid rgba(255,255,255,.045);
+}
+.file-row:first-child{border-top:0}
+.file-row b{
+  min-width:0;
+  color:#dcdcdc;
+  font:12px var(--mono);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.delta{font:11px var(--mono)}
+.plus{color:var(--green)}
+.minus{color:var(--red);margin-left:5px}
+.pending{
+  position:sticky;
+  bottom:0;
+  margin-top:16px;
+  border:1px solid rgba(255,255,255,.09);
+  background:rgba(17,18,20,.95);
+  backdrop-filter:blur(18px);
+  border-radius:16px;
+  padding:10px 11px;
+  display:grid;
+  grid-template-columns:17px 1fr auto;
+  align-items:center;
+  gap:9px;
+  box-shadow:0 -18px 35px rgba(0,0,0,.42);
+}
+.spin{
+  width:15px;height:15px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.18);
+  border-top-color:#f0f0f0;
+  animation:spin .82s linear infinite;
+}
+.pending b{font-size:12.5px;display:block}
+.pending span{font:10.5px var(--mono);color:#8b8f96;display:block;margin-top:2px}
+.bars{display:flex;gap:3px;align-items:center}
+.bars i{width:3px;height:11px;border-radius:999px;background:#e7e7e7;opacity:.28;animation:beat .82s ease-in-out infinite}
+.bars i:nth-child(2){animation-delay:.12s}.bars i:nth-child(3){animation-delay:.24s}
+
+.composer{
+  position:absolute;
+  left:10px;right:10px;bottom:10px;
+  z-index:7;
+  border-radius:20px;
+  background:#17181b;
+  border:1px solid rgba(255,255,255,.105);
+  box-shadow:0 -18px 50px rgba(0,0,0,.5);
+  padding:8px;
+}
+.input{
+  height:34px;
+  display:flex;
+  align-items:center;
+  padding:0 4px;
+  color:#777d86;
+  font-size:13.5px;
+}
+.composer-row{
+  height:44px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.mode{
+  min-width:0;
+  max-width:174px;
+  height:34px;
+  border:1px solid rgba(255,255,255,.075);
+  background:#121316;
+  color:#eeeeee;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:0 9px;
+  border-radius:999px;
+  cursor:pointer;
+}
+.mode-ico{
+  width:20px;height:20px;
+  display:grid;
+  place-items:center;
+  border-radius:7px;
+  background:rgba(255,255,255,.045);
+  font:900 12px var(--mono);
+  color:#d7d7d7;
+  flex:0 0 auto;
+}
+.mode-text{
+  min-width:0;
+  text-align:left;
+  display:flex;
+  align-items:baseline;
+  gap:5px;
+}
+.mode-text b{
+  font-size:12px;
+  display:block;
+  line-height:1;
+  max-width:46px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.mode-text span{
+  display:block;
+  max-width:86px;
+  color:#8c9098;
+  font:9.5px var(--mono);
+  line-height:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.composer-tools{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+}
+.toolbtn{
+  width:34px;height:34px;
+  border-radius:12px;
+  display:grid;place-items:center;
+  color:#c9c9c9;
+  background:transparent;
+  font-size:18px;
+}
+.send-hit{
+  width:44px;height:44px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+}
+.send{
+  width:34px;height:34px;
+  border:0;
+  border-radius:50%;
+  display:grid;place-items:center;
+  background:#f1f1f1;
+  color:#08090b;
+  font-size:19px;
+  font-weight:900;
+  box-shadow:0 6px 18px rgba(0,0,0,.25);
+}
+.scrim{
+  position:absolute;inset:0;
+  z-index:10;
+  background:rgba(0,0,0,.48);
+  opacity:0;pointer-events:none;
+  transition:.22s var(--ease);
+}
+.sheet{
+  position:absolute;
+  z-index:11;
+  left:10px;right:10px;bottom:10px;
+  max-height:620px;
+  border-radius:24px;
+  background:#111216;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 -30px 90px rgba(0,0,0,.68);
+  overflow:hidden;
+  transform:translateY(22px);
+  opacity:0;pointer-events:none;
+  transition:.24s var(--ease);
+}
+.scrim.open,.sheet.open{opacity:1;pointer-events:auto;transform:translateY(0)}
+.sheet-head{
+  padding:14px 15px 10px;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.sheet-title{
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+}
+.sheet-title b{font-size:15px}
+.close{border:0;background:transparent;color:#9aa0aa;font-size:22px}
+.search{
+  height:38px;border-radius:13px;
+  border:1px solid rgba(255,255,255,.07);
+  background:#0b0c0e;
+  display:flex;align-items:center;
+  padding:0 11px;
+  color:#727983;
+  font-size:12.5px;
+}
+.sheet-body{padding:10px;max-height:520px;overflow:auto}
+.sheet-body::-webkit-scrollbar{width:0}
+.label{margin:8px 5px;color:#777d86;font:10px var(--mono);text-transform:uppercase;letter-spacing:.08em}
+.adapter{
+  margin-bottom:9px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:17px;
+  background:#15161a;
+  overflow:hidden;
+}
+.adapter-head{
+  display:grid;
+  grid-template-columns:28px 1fr auto;
+  gap:9px;
+  align-items:center;
+  padding:10px;
+}
+.adot{
+  width:24px;height:24px;border-radius:9px;
+  display:grid;place-items:center;
+  color:#f1f1f1;
+  background:#202126;
+  font:800 11px var(--mono);
+}
+.adapter-main{min-width:0}
+.adapter-main b{font-size:13px;display:block}
+.adapter-main span{
+  color:#858a94;
+  font:10.5px var(--mono);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  display:block;margin-top:2px;
+}
+.tag{
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:999px;
+  padding:4px 6px;
+  color:#9a9fa8;
+  font:10px var(--mono);
+}
+.tag.active{color:#08090b;background:#f0f0f0;border-color:transparent}
+.models{border-top:1px solid rgba(255,255,255,.05);padding:6px}
+.model{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+  align-items:center;
+  padding:9px 10px;
+  border-radius:12px;
+}
+.model.active{background:rgba(255,255,255,.055)}
+.model b{font-size:12.5px}
+.model span{display:block;margin-top:2px;color:#818690;font:10px var(--mono)}
+.check{font:12px var(--mono);color:#f3f3f3}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes beat{0%,100%{opacity:.25;transform:scaleY(.55)}50%{opacity:.95;transform:scaleY(1.18)}}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="status">
+    <span>9:41</span>
+    <div class="icons"><span class="i sig"></span><span class="i wifi"></span><span class="i bat"></span></div>
+  </div>
+
+  <header class="topbar">
+    <div class="thread-meta">
+      <div class="project-mark">⌘</div>
+      <div class="thread-title">
+        <b>现在的 UI 很丑，帮我按 Codex 风格重做</b>
+        <span>vibe-coding · ~/AIProject/vibe-coding</span>
+      </div>
+    </div>
+    <button class="agent-pill" id="agentOpen">
+      <span class="dot"></span>
+      <span><b>Codex</b><span>gpt-5.1-codex</span></span>
+    </button>
+  </header>
+
+  <main class="thread">
+    <div class="notice">
+      <div class="notice-left"><span class="notice-dot"></span><span>本地模式 · workspace-write · approval on demand</span></div>
+      <code>live</code>
+    </div>
+
+    <div class="message user">
+      <div class="bubble">检查权限卡和运行状态 UI，按 Codex 桌面风格适配到移动端。</div>
+    </div>
+
+    <section class="message assistant">
+      <p>我会把界面改成单线程工作流：消息、命令、审批和 diff 都在同一条任务流里展示，右侧 inspector 会折叠为底部详情面板。</p>
+    </section>
+
+    <section class="event command">
+      <div class="event-head">
+        <div class="event-ico">›</div>
+        <div class="event-title"><b>Ran 2 commands</b><span>cwd resolved · permissions checked</span></div>
+        <span class="event-time">2.1s</span>
+      </div>
+      <div class="cmd-box"><code>npm run lint && npm test</code><span class="ok">ok</span></div>
+    </section>
+
+    <section class="event approval">
+      <div class="event-head">
+        <div class="event-ico">!</div>
+        <div class="event-title"><b>需要审批</b><span>Edit request · write access</span></div>
+        <span class="event-time">10:43</span>
+      </div>
+      <div class="approval-body">
+        <p>Codex 请求修改文件：<span class="path">mobile/lib/src/state/run_detail_state.dart</span></p>
+        <div class="actions">
+          <button class="btn deny">拒绝</button>
+          <button class="btn approve">批准</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="message assistant">
+      <p>批准后我会继续写入，并把文件变更压缩成可审阅的 diff summary。</p>
+    </section>
+
+    <section class="event diff">
+      <div class="event-head">
+        <div class="event-ico">Δ</div>
+        <div class="event-title"><b>4 个文件已更改</b><span>ready for review</span></div>
+        <span class="event-time"><span class="plus">+201</span><span class="minus">-82</span></span>
+      </div>
+      <div class="diff-list">
+        <div class="file-row"><b>daemon/src/claude-adapter.js</b><span class="delta"><span class="plus">+16</span><span class="minus">-10</span></span></div>
+        <div class="file-row"><b>mobile/lib/main.dart</b><span class="delta"><span class="plus">+148</span><span class="minus">-71</span></span></div>
+        <div class="file-row"><b>mobile/test/protocol_compatibility_test.dart</b><span class="delta"><span class="plus">+24</span><span class="minus">-0</span></span></div>
+      </div>
+    </section>
+
+    <div class="pending">
+      <div class="spin"></div>
+      <div><b>Codex 正在运行</b><span>waiting for next event…</span></div>
+      <div class="bars"><i></i><i></i><i></i></div>
+    </div>
+  </main>
+
+  <section class="composer">
+    <div class="input">要求后续变更…</div>
+    <div class="composer-row">
+      <button class="mode" id="modeOpen">
+        <span class="mode-ico">&lt;/&gt;</span>
+        <span class="mode-text"><b>Codex</b><span>gpt-5.1-codex</span></span>
+      </button>
+      <div class="composer-tools">
+        <span class="toolbtn">＋</span>
+        <span class="toolbtn">⌘</span>
+        <span class="send-hit"><button class="send">↑</button></span>
+      </div>
+    </div>
+  </section>
+
+  <div class="scrim" id="scrim"></div>
+  <section class="sheet" id="sheet">
+    <div class="sheet-head">
+      <div class="sheet-title"><b>切换 CLI / 模型</b><button class="close" id="close">×</button></div>
+      <div class="search">搜索 CLI、模型、provider…</div>
+    </div>
+    <div class="sheet-body">
+      <div class="label">Pinned</div>
+      <div class="adapter">
+        <div class="adapter-head">
+          <span class="adot">X</span>
+          <div class="adapter-main"><b>Codex CLI</b><span>local agent · approval / sandbox</span></div>
+          <span class="tag active">active</span>
+        </div>
+        <div class="models">
+          <div class="model active"><div><b>gpt-5.1-codex</b><span>coding agent default</span></div><span class="check">✓</span></div>
+          <div class="model"><div><b>gpt-5.1</b><span>general reasoning</span></div><span></span></div>
+        </div>
+      </div>
+
+      <div class="adapter">
+        <div class="adapter-head">
+          <span class="adot">C</span>
+          <div class="adapter-main"><b>Claude Code</b><span>stream-json · local session</span></div>
+          <span class="tag">ready</span>
+        </div>
+        <div class="models">
+          <div class="model"><div><b>sonnet-4.5</b><span>balanced coding</span></div><span></span></div>
+          <div class="model"><div><b>opus-4.1</b><span>deep reasoning</span></div><span></span></div>
+        </div>
+      </div>
+
+      <div class="adapter">
+        <div class="adapter-head">
+          <span class="adot">O</span>
+          <div class="adapter-main"><b>OpenCode</b><span>server mode · provider/model</span></div>
+          <span class="tag">ready</span>
+        </div>
+        <div class="models">
+          <div class="model"><div><b>anthropic/claude-sonnet-4-5</b><span>provider model</span></div><span></span></div>
+          <div class="model"><div><b>openai/gpt-5.1</b><span>configured provider</span></div><span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const sheet = document.getElementById('sheet');
+const scrim = document.getElementById('scrim');
+function openSheet(){ sheet.classList.add('open'); scrim.classList.add('open'); }
+function closeSheet(){ sheet.classList.remove('open'); scrim.classList.remove('open'); }
+document.getElementById('agentOpen').onclick = openSheet;
+document.getElementById('modeOpen').onclick = openSheet;
+document.getElementById('close').onclick = closeSheet;
+scrim.onclick = closeSheet;
+</script>
+</body>
+</html>

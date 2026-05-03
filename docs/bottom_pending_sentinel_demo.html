@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bottom Pending Sentinel Demo</title>
+<style>
+:root{
+  --bg:#06080c;
+  --phone:#080b10;
+  --screen:#0b0f16;
+  --panel:#101720;
+  --panel2:#0d131b;
+  --line:rgba(255,255,255,.085);
+  --line2:rgba(255,255,255,.14);
+  --text:#edf3ff;
+  --muted:#7d8aa0;
+  --dim:#536175;
+  --accent:#72f6c7;
+  --gold:#e8bf73;
+  --blue:#88a5ff;
+  --red:#ff6d6d;
+  --green:#54df95;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;color:var(--text);
+  background:
+    radial-gradient(circle at 18% 0%,rgba(114,246,199,.13),transparent 32%),
+    radial-gradient(circle at 88% 16%,rgba(232,191,115,.11),transparent 34%),
+    #05070a;
+}
+.stage{display:grid;grid-template-columns:390px minmax(300px,570px);gap:28px;align-items:center}
+.phone{
+  width:390px;height:844px;border-radius:44px;padding:13px;
+  background:linear-gradient(145deg,rgba(255,255,255,.14),rgba(255,255,255,.025) 34%,rgba(0,0,0,.42)),#070a0f;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 30px 100px rgba(0,0,0,.56)
+}
+.screen{
+  height:100%;border-radius:34px;overflow:hidden;position:relative;
+  border:1px solid rgba(255,255,255,.07);
+  background:linear-gradient(180deg,#0b1018,#070a0f 70%,#06080c)
+}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:13px}
+.icons{display:flex;gap:7px}.i{background:white;border-radius:4px}.sig{width:16px;height:9px;clip-path:polygon(0 100%,20% 70%,40% 100%,60% 35%,80% 100%,100% 0,100% 100%)}.wifi{width:13px;height:9px;clip-path:polygon(50% 0,100% 42%,78% 62%,50% 38%,22% 62%,0 42%)}.bat{width:20px;height:10px;background:transparent;border:1.5px solid #fff;position:relative}.bat:before{content:"";position:absolute;inset:2px 5px 2px 2px;background:#fff}.bat:after{content:"";position:absolute;right:-4px;top:2px;width:2px;height:5px;background:#fff;border-radius:2px}
+.app{
+  height:calc(100% - 44px);
+  display:grid;
+  grid-template-rows:auto auto 1fr auto;
+  padding:10px 14px 86px;
+  gap:10px;
+}
+.top{display:flex;align-items:center;justify-content:space-between}
+h1{margin:0;font-size:20px;letter-spacing:-.035em}
+.sub{margin-top:3px;font-size:12px;color:var(--muted)}
+.alive{display:inline-block;width:7px;height:7px;border-radius:99px;background:var(--accent);box-shadow:0 0 12px var(--accent);margin-right:5px}
+.round{width:38px;height:38px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text)}
+.tabs{display:flex;gap:8px;align-items:center}
+.pill{font-size:12px;border:1px solid var(--line);background:rgba(255,255,255,.035);color:#aab5c9;border-radius:999px;padding:8px 10px}
+.pill.on{background:#dfffea;color:#06110e;font-weight:800;border-color:rgba(114,246,199,.45)}
+.feed-wrap{
+  min-height:0;
+  position:relative;
+  border:1px solid rgba(255,255,255,.055);
+  background:rgba(255,255,255,.018);
+  border-radius:24px;
+  overflow:hidden;
+}
+.feed{
+  height:100%;
+  overflow:auto;
+  padding:12px 10px 12px;
+  scroll-behavior:smooth;
+}
+.feed::-webkit-scrollbar{width:0}
+.item{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.035);
+  border-radius:17px;
+  padding:11px 12px;
+  margin-bottom:9px;
+  animation:insert .36s var(--ease) both;
+}
+.item.user{
+  border-color:rgba(114,246,199,.18);
+  background:linear-gradient(180deg,rgba(114,246,199,.07),rgba(255,255,255,.026));
+}
+.item .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.kind{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
+.user .kind{color:var(--accent)}
+.time{font:10px ui-monospace,Menlo,Consolas,monospace;color:#68768b}
+.text{font-size:13px;line-height:1.55;color:#e9f0fb;margin:0}
+.tool{display:grid;grid-template-columns:28px 1fr auto;gap:9px;align-items:center}
+.toolicon{width:28px;height:28px;border-radius:11px;background:rgba(136,165,255,.09);display:grid;place-items:center;color:var(--blue);font-size:13px}
+.tool b{font-size:13px}.tool small{display:block;font-size:11px;color:var(--muted);margin-top:2px}.tag{font:10px ui-monospace,Menlo,Consolas,monospace;color:#95a3b7;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:4px 6px;background:rgba(0,0,0,.15)}
+.diff{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.diff strong{font-size:13px}.diff small{display:block;color:var(--muted);font-size:11px;margin-top:2px}.delta{font:11px ui-monospace,Menlo,Consolas,monospace;color:var(--accent)}
+.pending{
+  margin-bottom:2px;
+  border:1px solid rgba(114,246,199,.18);
+  background:
+    linear-gradient(180deg,rgba(114,246,199,.07),rgba(255,255,255,.025)),
+    rgba(0,0,0,.1);
+  border-radius:17px;
+  padding:10px 11px;
+  display:grid;
+  grid-template-columns:24px 1fr auto;
+  gap:10px;
+  align-items:center;
+  position:sticky;
+  bottom:0;
+  z-index:2;
+  backdrop-filter:blur(18px);
+  box-shadow:0 -16px 30px rgba(5,7,10,.42);
+}
+.pending:before{
+  content:"";position:absolute;left:12px;right:12px;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(114,246,199,.7),transparent);
+  animation:scan 1400ms var(--ease) infinite;
+}
+.spinner{
+  width:18px;height:18px;border-radius:50%;
+  border:2px solid rgba(114,246,199,.18);border-top-color:var(--accent);
+  animation:spin .82s linear infinite;
+}
+.pending-title{font-size:12px;font-weight:800}
+.pending-sub{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:215px}
+.pulse{display:flex;gap:4px;align-items:center}
+.pulse i{width:4px;height:12px;border-radius:99px;background:var(--accent);opacity:.35;animation:bars .8s ease-in-out infinite}
+.pulse i:nth-child(2){animation-delay:.12s}.pulse i:nth-child(3){animation-delay:.24s}
+.composer{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.04);
+  border-radius:22px;
+  padding:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.input{flex:1;color:#7f8da3;font-size:13px;padding-left:4px}
+.send{width:42px;height:42px;border:0;border-radius:15px;background:linear-gradient(135deg,var(--accent),var(--gold));font-weight:900;color:#06110e;cursor:pointer}
+.nav{
+  position:absolute;left:14px;right:14px;bottom:12px;height:66px;border:1px solid rgba(255,255,255,.08);
+  background:rgba(9,13,20,.78);backdrop-filter:blur(20px);border-radius:24px;
+  display:grid;grid-template-columns:repeat(5,1fr);align-items:center;padding:0 5px
+}
+.navitem{font-size:10px;color:#748198;display:flex;flex-direction:column;align-items:center;gap:4px}
+.navicon{width:24px;height:24px;display:grid;place-items:center}
+.center{color:var(--accent);font-weight:800}
+.center .navicon{width:46px;height:46px;margin-top:-22px;border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--gold));color:#06110e;box-shadow:0 16px 35px rgba(114,246,199,.16)}
+.panel{
+  border:1px solid var(--line);background:rgba(12,18,27,.62);border-radius:28px;padding:26px;
+  box-shadow:0 28px 90px rgba(0,0,0,.35)
+}
+.panel h2{margin:0 0 10px;font-size:30px;letter-spacing:-.04em}
+.panel p{margin:0 0 18px;color:#9aa8bd;line-height:1.7}
+.btns{display:flex;gap:10px;margin-bottom:16px}.primary,.ghost{border-radius:14px;padding:10px 13px;cursor:pointer}.primary{border:0;background:linear-gradient(135deg,var(--accent),var(--gold));font-weight:900;color:#06110e}.ghost{border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--text)}
+.notes{display:grid;gap:10px}.notes div{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.035);padding:12px}.notes b{font-size:13px}.notes span{display:block;color:var(--muted);font-size:12px;line-height:1.5;margin-top:4px}
+@keyframes insert{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes scan{0%{opacity:0;transform:translateX(-20%)}50%{opacity:1}100%{opacity:0;transform:translateX(20%)}}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes bars{0%,100%{transform:scaleY(.5);opacity:.3}50%{transform:scaleY(1.15);opacity:1}}
+@media(max-width:860px){body{padding:18px}.stage{grid-template-columns:1fr;justify-items:center}.panel{width:min(390px,100%)}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="stage">
+<section class="phone">
+  <div class="screen">
+    <div class="status"><span>9:41</span><div class="icons"><span class="i sig"></span><span class="i wifi"></span><span class="i bat"></span></div></div>
+    <div class="app">
+      <div class="top">
+        <div><h1>AI 助手</h1><div class="sub"><span class="alive"></span>DESKTOP-DEV · run_8F2A</div></div>
+        <button class="round">⌘</button>
+      </div>
+      <div class="tabs"><span class="pill on">Claude</span><span class="pill">Codex</span><span class="pill">OpenCode</span></div>
+
+      <div class="feed-wrap">
+        <div class="feed" id="feed">
+          <article class="item user">
+            <div class="head"><span class="kind">Submitted prompt</span><span class="time">00.0s</span></div>
+            <p class="text">修复 auth_service.dart 的登录边界条件，并补充对应测试。</p>
+          </article>
+
+          <div class="pending" id="pending">
+            <div class="spinner"></div>
+            <div>
+              <div class="pending-title" id="pendingTitle">Claude Code 正在运行</div>
+              <div class="pending-sub" id="pendingSub">等待下一条事件…</div>
+            </div>
+            <div class="pulse"><i></i><i></i><i></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer"><div class="input">运行中，输入将作为后续指令排队…</div><button class="send" id="send">↗</button></div>
+    </div>
+    <nav class="nav">
+      <div class="navitem"><div class="navicon">⌂</div><span>首页</span></div>
+      <div class="navitem"><div class="navicon">◷</div><span>运行</span></div>
+      <div class="navitem center"><div class="navicon">AI</div><span>助手</span></div>
+      <div class="navitem"><div class="navicon">▣</div><span>文件</span></div>
+      <div class="navitem"><div class="navicon">⚙</div><span>设置</span></div>
+    </nav>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>底部 Pending Sentinel</h2>
+  <p>这版才是你说的结构：对话还没结束时，最底部始终有一条运行中的过渡动画；每次 CLI 输出、工具调用、diff summary 都插入在它上面。它不是等待首条消息的大卡片，也不是头像 typing。</p>
+  <div class="btns"><button class="primary" id="replay">重播事件流</button><button class="ghost" id="add">插入一条事件</button></div>
+  <div class="notes">
+    <div><b>核心规则</b><span>pending indicator 永远是 timeline 最后一项；新事件插入到 pending 前面。</span></div>
+    <div><b>视觉</b><span>小 spinner + 状态文案 + 三条 pulse bar，保持低干扰。</span></div>
+    <div><b>Flutter</b><span>用 AnimatedList.insertItem(index) 插入到 pendingIndex 前，底部 indicator 作为固定尾项。</span></div>
+  </div>
+</section>
+</main>
+
+<script>
+const feed=document.getElementById('feed');
+const pending=document.getElementById('pending');
+const title=document.getElementById('pendingTitle');
+const sub=document.getElementById('pendingSub');
+
+const events=[
+  {type:'assistant',html:`<article class="item"><div class="head"><span class="kind">Assistant</span><span class="time">01.2s</span></div><p class="text">我先检查认证服务和现有测试覆盖，确认失败边界。</p></article>`,status:'正在分析代码结构…'},
+  {type:'tool',html:`<article class="item"><div class="tool"><div class="toolicon">R</div><div><b>Read file</b><small>lib/services/auth_service.dart</small></div><span class="tag">tool</span></div></article>`,status:'读取 auth_service.dart…'},
+  {type:'tool',html:`<article class="item"><div class="tool"><div class="toolicon">R</div><div><b>Read file</b><small>test/services/auth_service_test.dart</small></div><span class="tag">tool</span></div></article>`,status:'读取测试文件…'},
+  {type:'assistant',html:`<article class="item"><div class="head"><span class="kind">Assistant</span><span class="time">04.6s</span></div><p class="text">发现空 token、过期 refresh token、网络异常三个分支缺少断言。</p></article>`,status:'准备修改测试…'},
+  {type:'tool',html:`<article class="item"><div class="tool"><div class="toolicon">E</div><div><b>Edit file</b><small>test/services/auth_service_test.dart</small></div><span class="tag">edit</span></div></article>`,status:'写入测试用例…'},
+  {type:'diff',html:`<article class="item"><div class="diff"><div><strong>Diff summary</strong><small>test/services/auth_service_test.dart</small></div><span class="delta">+42 -3</span></div></article>`,status:'汇总文件变更…'},
+  {type:'tool',html:`<article class="item"><div class="tool"><div class="toolicon">✓</div><div><b>Command template</b><small>dart test test/services/auth_service_test.dart</small></div><span class="tag">daemon</span></div></article>`,status:'等待测试结果…'}
+];
+let i=0,timers=[];
+function insertEvent(ev){
+  const temp=document.createElement('template');
+  temp.innerHTML=ev.html.trim();
+  const node=temp.content.firstChild;
+  feed.insertBefore(node,pending);
+  title.textContent='Claude Code 正在运行';
+  sub.textContent=ev.status;
+  feed.scrollTop=feed.scrollHeight;
+}
+function reset(){
+  timers.forEach(clearTimeout);timers=[];
+  [...feed.querySelectorAll('.item:not(.user)')].forEach(n=>n.remove());
+  i=0;title.textContent='Claude Code 正在运行';sub.textContent='等待下一条事件…';feed.scrollTop=feed.scrollHeight;
+}
+function play(){
+  reset();
+  events.forEach((ev,idx)=>{
+    timers.push(setTimeout(()=>{insertEvent(ev);i=idx+1;if(i===events.length){sub.textContent='仍在运行，等待下一条事件…'}},700+idx*1250));
+  });
+}
+document.getElementById('replay').onclick=play;
+document.getElementById('add').onclick=()=>{insertEvent(events[i%events.length]);i++};
+document.getElementById('send').onclick=()=>{insertEvent({html:`<article class="item user"><div class="head"><span class="kind">Follow-up queued</span><span class="time">now</span></div><p class="text">顺便把错误信息也统一成中文。</p></article>`,status:'后续指令已排队…'});}
+setTimeout(play,650);
+</script>
+</body>
+</html>

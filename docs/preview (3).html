@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Codex Mobile Session List Navigation</title>
+<style>
+:root{--bg:#020304;--screen:#090a0c;--surface:#111214;--line:rgba(255,255,255,.075);--line2:rgba(255,255,255,.13);--text:#f1f1f1;--muted:#8d929b;--dim:#6c727c;--green:#35d486;--yellow:#f0c36e;--red:#ff7070;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--sans);background:var(--bg);color:var(--text)}body{display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 18% -10%,rgba(255,255,255,.045),transparent 30%),radial-gradient(circle at 86% 18%,rgba(53,212,134,.055),transparent 35%),var(--bg)}
+.phone{width:390px;height:844px;position:relative;overflow:hidden;border-radius:34px;border:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg,#101113 0%,#08090b 72%,#060708 100%);box-shadow:0 40px 130px rgba(0,0,0,.66),inset 0 0 0 1px rgba(255,255,255,.025)}
+.status{height:42px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:650;color:#fff}.icons{display:flex;gap:7px;align-items:center}.i{display:block;background:#fff;border-radius:4px}.sig{width:16px;height:9px;clip-path:polygon(0 100%,20% 70%,40% 100%,60% 35%,80% 100%,100% 0,100% 100%)}.wifi{width:13px;height:9px;clip-path:polygon(50% 0,100% 42%,78% 62%,50% 38%,22% 62%,0 42%)}.bat{width:20px;height:10px;border:1.5px solid #fff;background:transparent;position:relative}.bat:before{content:"";position:absolute;inset:2px 5px 2px 2px;background:#fff;border-radius:2px}.bat:after{content:"";position:absolute;right:-4px;top:2px;width:2px;height:5px;background:#fff;border-radius:2px}
+.view{position:absolute;left:0;right:0;top:42px;bottom:0;transition:transform .32s var(--ease),opacity .28s var(--ease);background:linear-gradient(180deg,#101113 0%,#08090b 74%,#060708 100%)}#newSession{transform:translateX(0)}#sessionList{transform:translateX(-102%);opacity:.75}.phone.show-list #newSession{transform:translateX(20%);opacity:.45}.phone.show-list #sessionList{transform:translateX(0);opacity:1}
+.session-header{height:54px;border-bottom:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:54px 1fr 54px;align-items:center}.back,.close{width:38px;height:38px;margin-left:14px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:#141518;color:#d9d9d9;font-size:24px;display:grid;place-items:center;cursor:pointer}.title{text-align:center;font-size:15.5px;font-weight:760;letter-spacing:-.01em}.more{width:38px;height:38px;margin-right:14px;justify-self:end;display:grid;place-items:center;color:#9298a2;font-size:20px}
+.empty-thread{position:absolute;left:0;right:0;top:54px;bottom:126px;display:grid;place-items:center;padding:24px}.empty-copy{text-align:center;max-width:280px;color:#727983;font-size:13px;line-height:1.6}.empty-copy b{display:block;color:#d9d9d9;font-size:15px;margin-bottom:6px}
+.composer{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;border-radius:22px;background:#17181b;border:1px solid rgba(255,255,255,.105);box-shadow:0 -18px 50px rgba(0,0,0,.5);padding:9px}.input{height:36px;display:flex;align-items:center;padding:0 2px;color:#777d86;font-size:15px}.composer-row{height:42px;display:flex;align-items:center;justify-content:space-between;gap:8px}.mode{min-width:0;max-width:174px;height:34px;border:1px solid rgba(255,255,255,.075);background:#121316;color:#eee;display:flex;align-items:center;gap:7px;padding:0 9px;border-radius:999px}.mode-ico{width:20px;height:20px;display:grid;place-items:center;border-radius:7px;background:rgba(255,255,255,.045);font:900 12px var(--mono);color:#d7d7d7;flex:0 0 auto}.mode-text{min-width:0;text-align:left;display:flex;align-items:baseline;gap:5px}.mode-text b{font-size:12px;line-height:1;max-width:46px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mode-text span{display:block;max-width:86px;color:#8c9098;font:9.5px var(--mono);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tools{display:flex;align-items:center;gap:6px}.toolbtn{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;color:#c9c9c9;font-size:18px}.send-hit{width:44px;height:44px;display:grid;place-items:center;border-radius:50%}.send{width:34px;height:34px;border:0;border-radius:50%;background:#f1f1f1;color:#08090b;font-size:19px;font-weight:900;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.list-top{height:60px;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07)}.close{margin-left:0}.list-title{min-width:0;text-align:center}.list-title b{display:block;font-size:15px;letter-spacing:-.01em}.list-title span{display:block;margin-top:2px;color:#868b94;font:10.5px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.new-btn{width:36px;height:36px;border-radius:13px;border:0;background:#f0f0f0;color:#08090b;font-size:22px;font-weight:800}.list-body{position:absolute;top:60px;bottom:0;left:0;right:0;overflow:auto;padding:12px 12px 20px}.list-body::-webkit-scrollbar{width:0}.search{height:40px;border:1px solid rgba(255,255,255,.075);background:#101113;border-radius:14px;display:flex;align-items:center;padding:0 12px;color:#737983;font-size:13px;margin-bottom:14px}
+.group{margin-bottom:16px}.group-head{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 2px;color:#d8d8d8;font-size:12.5px;font-weight:760}.group-head span{color:#6f757e;font:10.5px var(--mono)}.stack{border:1px solid rgba(255,255,255,.075);background:#101113;border-radius:16px;overflow:hidden}.session-row{min-height:66px;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.045)}.session-row:last-child{border-bottom:0}.sico{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;background:#18191c;color:#b8b8b8;font:800 12px var(--mono)}.sico.live{color:#35d486}.sico.review{color:#f0c36e}.sico.done{color:#a0a0a0}.smain{min-width:0}.smain b{display:block;color:#e9e9e9;font-size:12.7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.smain span{display:block;margin-top:4px;color:#858a94;font:10.5px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.smeta{color:#777d86;font:10.5px var(--mono);text-align:right}.smeta.review{color:#f0c36e}.smeta.live{color:#35d486}
+.project-card{border:1px solid rgba(255,255,255,.075);background:#101113;border-radius:16px;padding:11px 12px;display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center}.pico{width:26px;height:26px;display:grid;place-items:center;border-radius:9px;background:#18191c;font:900 12px var(--mono)}.pmain{min-width:0}.pmain b{display:block;font-size:12.8px}.pmain span{display:block;margin-top:3px;color:#858a94;font:10.5px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pmeta{color:#6f757e;font:10.5px var(--mono)}.hint{margin:14px 4px 0;color:#666d77;font-size:11.5px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="status"><span>9:41</span><div class="icons"><span class="i sig"></span><span class="i wifi"></span><span class="i bat"></span></div></div>
+
+  <section class="view" id="newSession">
+    <header class="session-header">
+      <button class="back" id="openList">‹</button>
+      <div class="title">新的编码会话</div>
+      <div class="more">·</div>
+    </header>
+    <main class="empty-thread">
+      <div class="empty-copy"><b>选择历史会话，或直接开始新任务</b>返回键会打开当前项目的会话列表；输入内容会创建新的 daemon run。</div>
+    </main>
+    <section class="composer">
+      <div class="input">Add feedback...</div>
+      <div class="composer-row">
+        <button class="mode"><span class="mode-ico">&lt;/&gt;</span><span class="mode-text"><b>Claude</b><span>sonnet-4.5</span></span></button>
+        <div class="tools"><span class="toolbtn">＋</span><span class="toolbtn">⌘</span><span class="send-hit"><button class="send">↑</button></span></div>
+      </div>
+    </section>
+  </section>
+
+  <section class="view" id="sessionList">
+    <header class="list-top">
+      <button class="close" id="closeList">‹</button>
+      <div class="list-title"><b>会话列表</b><span>vibe-coding · ~/AIProject/vibe-coding</span></div>
+      <button class="new-btn" id="newSessionBtn">＋</button>
+    </header>
+    <main class="list-body">
+      <div class="search">搜索会话、命令、文件路径…</div>
+      <section class="group">
+        <div class="group-head">当前项目 <span>vibe-coding</span></div>
+        <div class="stack">
+          <div class="session-row"><div class="sico review">!</div><div class="smain"><b>修复权限确认卡片</b><span>Claude · sonnet-4.5 · 等待审批</span></div><div class="smeta review">待处理</div></div>
+          <div class="session-row"><div class="sico live">●</div><div class="smain"><b>设计 Codex 风格移动端 UI</b><span>Codex · gpt-5.1-codex · 运行中</span></div><div class="smeta live">live</div></div>
+          <div class="session-row"><div class="sico done">✓</div><div class="smain"><b>优化底部 composer</b><span>Codex · compact mobile controls</span></div><div class="smeta">完成</div></div>
+          <div class="session-row"><div class="sico done">✓</div><div class="smain"><b>同步 SDK cwd / PWD</b><span>Claude · local daemon adapter</span></div><div class="smeta">2 天</div></div>
+        </div>
+      </section>
+      <section class="group">
+        <div class="group-head">其它项目 <span>最近</span></div>
+        <div class="project-card"><div class="pico">⌘</div><div class="pmain"><b>ts-learning</b><span>你是哪个模型 · Claude · 2 天前</span></div><div class="pmeta">1</div></div>
+        <div style="height:8px"></div>
+        <div class="project-card"><div class="pico">⌘</div><div class="pmain"><b>wpf-ui-design</b><span>你是谁？ · Codex · 4 天前</span></div><div class="pmeta">2</div></div>
+      </section>
+      <p class="hint">会话列表只展示归属和状态；文件 diff、命令输出、审批详情进入具体会话后再展开。</p>
+    </main>
+  </section>
+</div>
+<script>
+const phone=document.getElementById('phone');
+document.getElementById('openList').onclick=()=>phone.classList.add('show-list');
+document.getElementById('closeList').onclick=()=>phone.classList.remove('show-list');
+document.getElementById('newSessionBtn').onclick=()=>phone.classList.remove('show-list');
+</script>
+</body>
+</html>

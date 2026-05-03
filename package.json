@@ -1,0 +1,14 @@
+{
+  "name": "flutter-lan-ai-cli-control",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LAN-only controller for mobile Claude Code run control.",
+  "scripts": {
+    "test": "node scripts/run-tests.js",
+    "start:daemon": "node daemon/src/main.js",
+    "lint": "node scripts/check-js.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
