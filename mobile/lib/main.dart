@@ -14,6 +14,9 @@ const _panelHi = Color(0xF2161719);
 const _stroke = Color(0x16FFFFFF);
 const _purple = Color(0xFFA78BFA);
 const _purple2 = Color(0xFF8AB4FF);
+const _active = Color(0xFFE3E6EA);
+const _activePanel = Color(0xFF1B2027);
+const _activeStroke = Color(0xFF44505C);
 const _green = Color(0xFF32D583);
 const _amber = Color(0xFFF2C572);
 const _red = Color(0xFFFF6B6B);
@@ -2620,12 +2623,11 @@ class _WorkspaceChoiceRow extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
-              color:
-                  selected ? const Color(0xFF181A20) : const Color(0xFF101113),
+              color: selected ? _activePanel : const Color(0xFF101113),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                   color: selected
-                      ? _purple.withValues(alpha: .48)
+                      ? _activeStroke.withValues(alpha: .9)
                       : Colors.white.withValues(alpha: .075))),
           child: Row(children: [
             Container(
@@ -2634,15 +2636,15 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: selected
-                        ? _purple.withValues(alpha: .18)
+                        ? const Color(0xFF242B34)
                         : const Color(0xFF18191C),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                         color: selected
-                            ? _purple.withValues(alpha: .26)
+                            ? _activeStroke.withValues(alpha: .55)
                             : Colors.white.withValues(alpha: .055))),
                 child: Icon(Icons.folder_rounded,
-                    color: selected ? _purple : _muted, size: 17)),
+                    color: selected ? _active : _muted, size: 17)),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -2670,10 +2672,10 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                   height: 22,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                      color: _purple.withValues(alpha: .22),
+                      color: _active.withValues(alpha: .16),
                       borderRadius: BorderRadius.circular(11)),
                   child:
-                      const Icon(Icons.check_rounded, color: _purple, size: 15))
+                      const Icon(Icons.check_rounded, color: _active, size: 15))
           ])));
 }
 
@@ -4780,26 +4782,13 @@ class _SettingsPage extends StatelessWidget {
     return _PageScroll(
       children: [
         const _TopBar(title: '设置'),
-        SizedBox(height: 18),
-        _Subhead('连接'),
-        _SettingsCard(children: [
-          _SettingsRow(
-              title: '当前设备',
-              value: data.workspace.name,
-              subtitle: data.workspace.path,
-              ok: true),
-          _SettingsRow(title: '切换设备', value: '›'),
-        ]),
-        SizedBox(height: 18),
-        _Subhead('安全'),
-        _SettingsCard(children: [
-          _SettingsRow(
-              title: '安全模式',
-              value: data.health.mode,
-              subtitle: 'LAN: ${data.health.lanMode}'),
-        ]),
-        SizedBox(height: 18),
-        _Subhead('编码'),
+        const SizedBox(height: 14),
+        _SettingsConnectionCard(
+            workspace: data.workspace,
+            mode: data.health.mode,
+            lanMode: data.health.lanMode),
+        const SizedBox(height: 20),
+        _Subhead('编码控制'),
         _SettingsCard(children: [
           _PermissionModeRow(
               value: permissionMode, onChanged: onPermissionModeChanged),
@@ -4814,8 +4803,8 @@ class _SettingsPage extends StatelessWidget {
               value: expandThinking,
               onChanged: onExpandThinkingChanged),
         ]),
-        SizedBox(height: 18),
-        _Subhead('隐私与数据'),
+        const SizedBox(height: 20),
+        _Subhead('数据状态'),
         _SettingsCard(children: [
           _SettingsRow(
               title: '代码诊断', value: '${data.diagnostics.diagnostics.length} 条'),
@@ -4825,25 +4814,29 @@ class _SettingsPage extends StatelessWidget {
                   ? '干净'
                   : '${data.gitStatus?.files.length ?? 0} 文件'),
         ]),
-        SizedBox(height: 18),
+        const SizedBox(height: 20),
         _Subhead('关于'),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
           _SettingsRow(title: '扩展', value: '${data.extensions.length} 个'),
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
         Row(children: [
           Expanded(
-              child: _PrimaryButton('适配器状态',
+              child: _SettingsActionButton('适配器',
+                  icon: Icons.extension_rounded,
                   onTap: () => open(_RoutePage.adapters))),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
-              child: _PrimaryButton('通知',
+              child: _SettingsActionButton('通知',
+                  icon: Icons.notifications_rounded,
                   onTap: () => open(_RoutePage.notifications))),
         ]),
-        const SizedBox(height: 8),
-        _GhostButton('生成诊断信息',
-            color: _purple, onTap: () => open(_RoutePage.diagnostics)),
+        const SizedBox(height: 10),
+        _SettingsActionButton('生成诊断信息',
+            icon: Icons.health_and_safety_rounded,
+            fullWidth: true,
+            onTap: () => open(_RoutePage.diagnostics)),
       ],
     );
   }
@@ -4966,11 +4959,11 @@ class _BottomNav extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(items[i].icon,
-                          color: i == selected ? _purple : _muted, size: 22),
+                          color: i == selected ? _active : _muted, size: 22),
                       const SizedBox(height: 4),
                       Text(items[i].label,
                           style: TextStyle(
-                              color: i == selected ? _purple : _muted,
+                              color: i == selected ? _active : _muted,
                               fontSize: 11,
                               fontWeight: i == selected
                                   ? FontWeight.w800
@@ -5341,52 +5334,180 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GlassCard(
-      padding: EdgeInsets.zero,
-      child: Column(children: [
-        for (var i = 0; i < children.length; i++) ...[
-          children[i],
-          if (i != children.length - 1) const _Hairline()
-        ],
-      ]),
+    return Container(
+      decoration: BoxDecoration(
+          color: const Color(0xFF101113),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: .07))),
+      child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(children: [
+            for (var i = 0; i < children.length; i++) ...[
+              children[i],
+              if (i != children.length - 1) const _Hairline()
+            ],
+          ])),
     );
   }
 }
 
+class _SettingsConnectionCard extends StatelessWidget {
+  const _SettingsConnectionCard(
+      {required this.workspace, required this.mode, required this.lanMode});
+  final WorkspaceSummary workspace;
+  final String mode;
+  final bool lanMode;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: const Color(0xFF101113),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white.withValues(alpha: .075))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: const Color(0xFF18191C),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .055))),
+              child: const Icon(Icons.lan_rounded, color: _active, size: 18)),
+          const SizedBox(width: 11),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const Text('当前连接',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text(workspace.path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Color(0xFF858A94),
+                        fontSize: 11.5,
+                        fontFamily: 'Consolas')),
+              ])),
+          const _SettingsPill('已连接')
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(
+              child: _SettingsMetric(
+                  label: '工作区', value: _workspaceDisplayName(workspace))),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _SettingsMetric(
+                  label: '安全模式', value: lanMode ? 'LAN' : mode)),
+        ]),
+      ]));
+}
+
+class _SettingsMetric extends StatelessWidget {
+  const _SettingsMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+          color: const Color(0xFF0B0C0E),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: .055))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label,
+            style: const TextStyle(color: _faint, fontSize: 10.5, height: 1)),
+        const SizedBox(height: 7),
+        Text(value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style:
+                const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900)),
+      ]));
+}
+
+class _SettingsPill extends StatelessWidget {
+  const _SettingsPill(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+          color: _active.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: _active.withValues(alpha: .16))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const _Dot(color: _green, size: 5),
+        const SizedBox(width: 6),
+        Text(text,
+            style: const TextStyle(
+                color: _active, fontSize: 11, fontWeight: FontWeight.w900)),
+      ]));
+}
+
+class _SettingsActionButton extends StatelessWidget {
+  const _SettingsActionButton(this.text,
+      {required this.icon, required this.onTap, this.fullWidth = false});
+  final String text;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool fullWidth;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+          height: 46,
+          width: fullWidth ? double.infinity : null,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+              color: const Color(0xFF101113),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.white.withValues(alpha: .075))),
+          child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: _active, size: 16),
+                const SizedBox(width: 8),
+                Text(text,
+                    style: const TextStyle(
+                        color: _active,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900)),
+              ])));
+}
+
 class _SettingsRow extends StatelessWidget {
-  const _SettingsRow(
-      {required this.title,
-      required this.value,
-      this.subtitle,
-      this.ok = false});
+  const _SettingsRow({required this.title, required this.value});
   final String title;
   final String value;
-  final String? subtitle;
-  final bool ok;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       child: Row(children: [
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-          if (subtitle != null) ...[
-            const SizedBox(height: 6),
-            Text(subtitle!, style: const TextStyle(color: _muted, fontSize: 12))
-          ]
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
         ])),
         Text(value,
-            style: TextStyle(
-                color: ok ? _green : _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700)),
-        if (ok)
-          const Padding(
-              padding: EdgeInsets.only(left: 5),
-              child: _Dot(color: _green, size: 5)),
+            style: const TextStyle(
+                color: _muted, fontSize: 12, fontWeight: FontWeight.w700)),
       ]),
     );
   }
@@ -5399,27 +5520,26 @@ class _PermissionModeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(children: [
-        const Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('权限模式',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
-          SizedBox(height: 4),
-          Text('默认模式会弹出 CLI 权限确认；自动模式由 CLI 自动处理。',
-              style: TextStyle(color: _muted, fontSize: 12, height: 1.35)),
-        ])),
-        const SizedBox(width: 12),
-        _PermissionChip(
-            label: '默认',
-            selected: value == 'default',
-            onTap: () => onChanged('default')),
-        const SizedBox(width: 8),
-        _PermissionChip(
-            label: '自动',
-            selected: value == 'auto',
-            onTap: () => onChanged('auto')),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Expanded(
+              child: Text('权限模式',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14))),
+          _PermissionChip(
+              label: '默认',
+              selected: value == 'default',
+              onTap: () => onChanged('default')),
+          const SizedBox(width: 8),
+          _PermissionChip(
+              label: '自动',
+              selected: value == 'auto',
+              onTap: () => onChanged('auto')),
+        ]),
+        const SizedBox(height: 8),
+        const Text('默认会请求 CLI 权限确认；自动模式由 CLI 处理。',
+            style: TextStyle(
+                color: Color(0xFF858A94), fontSize: 11.5, height: 1.35)),
       ]));
 }
 
@@ -5438,14 +5558,15 @@ class _PermissionChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color: selected
-                  ? _purple.withValues(alpha: .22)
-                  : Colors.white.withValues(alpha: .04),
+              color:
+                  selected ? _activePanel : Colors.white.withValues(alpha: .04),
               border: Border.all(
-                  color: selected ? _purple.withValues(alpha: .48) : _stroke)),
+                  color: selected
+                      ? _activeStroke.withValues(alpha: .9)
+                      : _stroke)),
           child: Text(label,
               style: TextStyle(
-                  color: selected ? _text : _muted,
+                  color: selected ? _active : _muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w900))));
 }
@@ -5464,19 +5585,23 @@ class _SettingsSwitchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       child: Row(children: [
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
-          Text(subtitle, style: const TextStyle(color: _muted, fontSize: 12))
+          Text(subtitle,
+              style: const TextStyle(
+                  color: Color(0xFF858A94), fontSize: 11.5, height: 1.35))
         ])),
         Switch(
             value: value,
-            activeThumbColor: _purple,
-            activeTrackColor: _purple.withValues(alpha: .35),
+            activeThumbColor: _active,
+            activeTrackColor: _activeStroke.withValues(alpha: .55),
             inactiveThumbColor: _faint,
             inactiveTrackColor: _panelHi,
             onChanged: onChanged),
