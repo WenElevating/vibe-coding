@@ -277,8 +277,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) =>
-            _AddWorkspaceSheet(client: widget.client));
+        builder: (context) => _AddWorkspaceSheet(client: widget.client));
     if (workspace == null || !mounted) return;
     setState(() {
       _upsertWorkspace(workspace);
