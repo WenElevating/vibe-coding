@@ -326,10 +326,11 @@ class DaemonClient {
   Future<ConversationSummary> answerConversationQuestion(
       String conversationId, String questionId, String text) async {
     final response = await _post(
-        '/api/conversations/$conversationId/questions/respond', <String, Object?>{
-      'questionId': questionId,
-      'text': text,
-    });
+        '/api/conversations/$conversationId/questions/respond',
+        <String, Object?>{
+          'questionId': questionId,
+          'text': text,
+        });
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);
   }

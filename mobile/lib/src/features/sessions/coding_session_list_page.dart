@@ -6,20 +6,19 @@ class _CodingSessionListPage extends StatelessWidget {
       required this.items,
       required this.currentWorkspace,
       required this.onNewSession,
-      required this.onSelectItem});
+      required this.onSelectItem,
+      required this.onBackToWorkspaces});
   final _AppSnapshot data;
   final List<_SessionItem> items;
   final WorkspaceSummary currentWorkspace;
   final VoidCallback onNewSession;
   final ValueChanged<_SessionItem> onSelectItem;
+  final VoidCallback onBackToWorkspaces;
 
   @override
   Widget build(BuildContext context) {
     final currentItems = items
         .where((item) => item.run.workspaceId == currentWorkspace.id)
-        .toList(growable: false);
-    final otherWorkspaces = data.workspaces
-        .where((workspace) => workspace.id != currentWorkspace.id)
         .toList(growable: false);
     return Column(key: const ValueKey('coding-session-list'), children: [
       Container(
@@ -31,7 +30,14 @@ class _CodingSessionListPage extends StatelessWidget {
                   bottom:
                       BorderSide(color: Colors.white.withValues(alpha: .07)))),
           child: Row(children: [
-            const SizedBox(width: 36),
+            InkWell(
+                onTap: onBackToWorkspaces,
+                borderRadius: BorderRadius.circular(12),
+                child: const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: Icon(Icons.chevron_left_rounded,
+                        color: _muted, size: 24))),
             Expanded(
                 child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -66,7 +72,7 @@ class _CodingSessionListPage extends StatelessWidget {
                 title: '当前项目', meta: _workspaceDisplayName(currentWorkspace)),
             const SizedBox(height: 6),
             if (currentItems.isEmpty)
-              const _EmptySessionStack()
+              _EmptySessionStack(onNewSession: onNewSession)
             else
               _SessionStack(
                   children: currentItems
@@ -74,19 +80,10 @@ class _CodingSessionListPage extends StatelessWidget {
                           run: item.run, onTap: () => onSelectItem(item)))
                       .toList(growable: false)),
             const SizedBox(height: 16),
-            const _SessionGroupHeader(title: '其它项目', meta: '最近'),
-            const SizedBox(height: 6),
-            for (final workspace in otherWorkspaces) ...[
-              _ProjectSessionCard(
-                  workspace: workspace,
-                  runCount: items
-                      .where((item) => item.run.workspaceId == workspace.id)
-                      .length),
-              const SizedBox(height: 8),
-            ],
             const Padding(
                 padding: EdgeInsets.fromLTRB(4, 6, 4, 0),
-                child: Text('会话列表只展示归属和状态；文件 diff、命令输出、审批详情进入具体会话后再展开。',
+                child: Text(
+                    'This list only shows sessions in the current workspace.',
                     style: TextStyle(
                         color: Color(0xFF666D77),
                         fontSize: 11.5,
@@ -170,16 +167,22 @@ class _SessionStack extends StatelessWidget {
 }
 
 class _EmptySessionStack extends StatelessWidget {
-  const _EmptySessionStack();
+  const _EmptySessionStack({required this.onNewSession});
+  final VoidCallback onNewSession;
 
   @override
-  Widget build(BuildContext context) => _SessionStack(children: const [
+  Widget build(BuildContext context) => _SessionStack(children: [
         Padding(
-            padding: EdgeInsets.all(14),
-            child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('暂无会话。点击右上角 + 新建编码会话。',
-                    style: TextStyle(color: _muted, fontSize: 12.5))))
+            padding: const EdgeInsets.all(14),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('No sessions in this workspace yet',
+                  style: TextStyle(
+                      color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              _TinyActionButton('New Session',
+                  onTap: onNewSession, primary: true),
+            ]))
       ]);
 }
 
@@ -245,54 +248,6 @@ class _SessionRunRow extends StatelessWidget {
                       fontFamily: 'Consolas')),
             ])));
   }
-}
-
-class _ProjectSessionCard extends StatelessWidget {
-  const _ProjectSessionCard({required this.workspace, required this.runCount});
-  final WorkspaceSummary workspace;
-  final int runCount;
-
-  @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-          color: const Color(0xFF101113),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: .075))),
-      child: Row(children: [
-        Container(
-            width: 26,
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: const Color(0xFF18191C),
-                borderRadius: BorderRadius.circular(9)),
-            child: const Icon(Icons.keyboard_command_key_rounded,
-                color: _muted, size: 14)),
-        const SizedBox(width: 10),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_workspaceDisplayName(workspace),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: _text, fontSize: 12.8, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 3),
-          Text(_compactWorkspacePath(workspace.path),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Color(0xFF858A94),
-                  fontSize: 10.5,
-                  fontFamily: 'Consolas')),
-        ])),
-        Text('$runCount',
-            style: const TextStyle(
-                color: Color(0xFF6F757E),
-                fontSize: 10.5,
-                fontFamily: 'Consolas')),
-      ]));
 }
 
 class _SessionRunVisualState {

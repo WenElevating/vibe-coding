@@ -586,10 +586,12 @@ class ConversationBlockingItem {
         text: json['text'] as String?,
         toolName: json['toolName'] as String?,
         summary: json['summary'] as String?,
-        suggestions: ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
-            .map((item) => item.toString())
-            .toList(),
-        input: (json['input'] as Map<String, Object?>?) ?? const <String, Object?>{},
+        suggestions:
+            ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
+                .map((item) => item.toString())
+                .toList(),
+        input: (json['input'] as Map<String, Object?>?) ??
+            const <String, Object?>{},
         multiSelect: json['multiSelect'] as bool? ?? false,
         createdAt: json['createdAt'] as String?,
         expiresAt: json['expiresAt'] as String?,
@@ -707,10 +709,12 @@ class ConversationEvent {
         toolUseId: json['toolUseId'] as String?,
         toolName: json['toolName'] as String?,
         summary: json['summary'] as String?,
-        suggestions: ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
-            .map((item) => item.toString())
-            .toList(),
-        input: (json['input'] as Map<String, Object?>?) ?? const <String, Object?>{},
+        suggestions:
+            ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
+                .map((item) => item.toString())
+                .toList(),
+        input: (json['input'] as Map<String, Object?>?) ??
+            const <String, Object?>{},
         exitCode: json['exitCode'] as int?,
         isError: json['isError'] as bool? ?? false,
         durationMs: json['durationMs'] as int?,

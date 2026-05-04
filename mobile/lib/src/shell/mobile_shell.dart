@@ -443,7 +443,6 @@ class _RunsPage extends StatelessWidget {
   }
 }
 
-
 class _QueuePage extends StatelessWidget {
   const _QueuePage({required this.data});
   final _AppSnapshot data;
@@ -503,7 +502,6 @@ class _QueuePage extends StatelessWidget {
     );
   }
 }
-
 
 class _Tabs extends StatelessWidget {
   const _Tabs({required this.labels});

@@ -1,4 +1,4 @@
-﻿import '../models/protocol.dart';
+import '../models/protocol.dart';
 
 class DashboardState {
   const DashboardState({
@@ -18,6 +18,8 @@ class DashboardState {
   final List<RunSummary> runs;
 
   bool get hasVersionMismatch => !version.daemonVersion.startsWith('1.3.');
-  bool get securityBoundaryVisible => health.security['ptyEnabled'] == false && health.security['rawCommandApiEnabled'] == false;
+  bool get securityBoundaryVisible =>
+      health.security['ptyEnabled'] == false &&
+      health.security['rawCommandApiEnabled'] == false;
   bool get hasQueuedRuns => queue.isNotEmpty;
 }

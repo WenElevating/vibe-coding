@@ -23,6 +23,8 @@ class _CodingWorkbenchPage extends StatefulWidget {
   State<_CodingWorkbenchPage> createState() => _CodingWorkbenchPageState();
 }
 
+enum _WorkbenchListMode { workspaces, sessions, conversation }
+
 class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
@@ -43,16 +45,57 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   String? _error;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
-  bool _showSessionList = true;
+  _WorkbenchListMode _listMode = _WorkbenchListMode.workspaces;
   late int _handledOpenSessionListRequest;
 
   List<_SessionItem> get _sessionItems => _mergeSessionItems(
       _localSessions, widget.data.conversations, widget.data.runs);
 
+  void _syncWorkspacesFromSnapshot(List<WorkspaceSummary> snapshot) {
+    if (snapshot.isEmpty) return;
+    _workspaces = List<WorkspaceSummary>.of(snapshot);
+    final stillExists =
+        _workspaces.any((workspace) => workspace.id == _selectedWorkspace.id);
+    if (stillExists) return;
+    _selectedWorkspace = _workspaces.first;
+    _resetConversationState();
+    _error = null;
+    _workspaceConfirmedForSession = false;
+    _listMode = _WorkbenchListMode.workspaces;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onSessionListChanged(true);
+    });
+  }
+
+  bool get _isListOpen => _listMode != _WorkbenchListMode.conversation;
+
   void _setSessionListOpen(bool open) {
-    if (_showSessionList == open) return;
-    setState(() => _showSessionList = open);
+    final nextMode =
+        open ? _WorkbenchListMode.sessions : _WorkbenchListMode.conversation;
+    if (_listMode == nextMode) return;
+    setState(() => _listMode = nextMode);
     widget.onSessionListChanged(open);
+  }
+
+  void _openWorkspaceList() {
+    if (_isRunningCli) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('CLI is running; workspace cannot be switched right now'),
+          duration: Duration(seconds: 2)));
+      return;
+    }
+    setState(() => _listMode = _WorkbenchListMode.workspaces);
+    widget.onSessionListChanged(true);
+  }
+
+  void _openWorkspaceSessions(WorkspaceSummary workspace) {
+    setState(() {
+      _selectedWorkspace = workspace;
+      _workspaceConfirmedForSession = true;
+      _listMode = _WorkbenchListMode.sessions;
+    });
+    widget.onSessionListChanged(true);
   }
 
   void _rememberRun(RunSummary run) {
@@ -91,7 +134,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       _selectedWorkspace = _workspaceForId(item.run.workspaceId);
       _workspaceConfirmedForSession = true;
       _error = null;
-      _showSessionList = false;
+      _listMode = _WorkbenchListMode.conversation;
     });
     widget.onSessionListChanged(false);
     if (item.conversation == null) return;
@@ -143,17 +186,19 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     _selectedAdapter = _preferredAdapter()?.adapter;
     _workspaces = List<WorkspaceSummary>.of(widget.data.workspaces);
     _selectedWorkspace = widget.data.workspace;
+    _syncWorkspacesFromSnapshot(widget.data.workspaces);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.onSessionListChanged(_showSessionList);
+      if (mounted) widget.onSessionListChanged(_isListOpen);
     });
   }
 
   @override
   void didUpdateWidget(covariant _CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncWorkspacesFromSnapshot(widget.data.workspaces);
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
-    if (_showSessionList) return;
+    if (_isListOpen) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setSessionListOpen(true);
     });
@@ -216,40 +261,27 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             }));
   }
 
-  void _showWorkspacePicker() {
-    if (_isRunningCli) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('CLI 运行中，当前工作区暂不可切换'), duration: Duration(seconds: 2)));
-      return;
-    }
-    showModalBottomSheet<void>(
+  void _showWorkspacePicker() => _openWorkspaceList();
+
+  Future<void> _showCreateWorkspaceFromWorkspaceList() async {
+    final workspace = await showModalBottomSheet<WorkspaceSummary>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => _WorkspacePickerSheet(
-            workspaces: _workspaces,
-            selected: _selectedWorkspace,
-            client: widget.client,
-            onSelected: (workspace) {
-              setState(() {
-                _selectedWorkspace = workspace;
-                _resetConversationState();
-                _error = null;
-                _workspaceConfirmedForSession = true;
-              });
-              Navigator.of(context).pop();
-            },
-            onCreated: (workspace) {
-              setState(() {
-                if (!_workspaces.any((item) => item.id == workspace.id)) {
-                  _workspaces.add(workspace);
-                }
-                _selectedWorkspace = workspace;
-                _resetConversationState();
-                _error = null;
-                _workspaceConfirmedForSession = true;
-              });
-            }));
+        builder: (context) =>
+            _CreateFirstRunWorkspaceSheet(client: widget.client));
+    if (workspace == null || !mounted) return;
+    setState(() {
+      if (!_workspaces.any((item) => item.id == workspace.id)) {
+        _workspaces.add(workspace);
+      }
+      _selectedWorkspace = workspace;
+      _workspaceConfirmedForSession = true;
+      _listMode = _WorkbenchListMode.sessions;
+      _resetConversationState();
+      _error = null;
+    });
+    widget.onSessionListChanged(true);
   }
 
   String get _pendingStatusText => _conversationPendingStatusText(
@@ -335,8 +367,9 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             orElse: () => null);
     final pendingQuestionId = pendingQuestion?.questionId;
     if (_activeRunId == null && !_hasExplicitWorkspaceSelection) {
-      await _confirmWorkspaceBeforeFirstRun();
-      if (!_hasExplicitWorkspaceSelection || !mounted) return;
+      setState(() => _listMode = _WorkbenchListMode.workspaces);
+      widget.onSessionListChanged(true);
+      return;
     }
     setState(() {
       _sending = true;
@@ -643,41 +676,13 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     );
   }
 
-  Future<void> _confirmWorkspaceBeforeFirstRun() async {
-    final selected = await _pickFirstRunWorkspace();
-    if (selected == null || !mounted) return;
+  void _startNewSessionFromList() {
     setState(() {
-      if (!_workspaces.any((item) => item.id == selected.id)) {
-        _workspaces.add(selected);
-      }
-      _selectedWorkspace = selected;
-      _workspaceConfirmedForSession = true;
-    });
-  }
-
-  Future<WorkspaceSummary?> _pickFirstRunWorkspace() =>
-      showModalBottomSheet<WorkspaceSummary>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (context) => _FirstRunWorkspaceSheet(
-              workspaces: _workspaces,
-              selected: _selectedWorkspace,
-              client: widget.client));
-
-  Future<void> _startNewSessionFromList() async {
-    final selected = await _pickFirstRunWorkspace();
-    if (selected == null || !mounted) return;
-    setState(() {
-      if (!_workspaces.any((item) => item.id == selected.id)) {
-        _workspaces.add(selected);
-      }
-      _selectedWorkspace = selected;
-      _showSessionList = false;
       _resetConversationState();
       _error = null;
       _workspaceConfirmedForSession = true;
       _prompt.clear();
+      _listMode = _WorkbenchListMode.conversation;
     });
     widget.onSessionListChanged(false);
   }
@@ -742,13 +747,21 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_showSessionList) {
+    if (_listMode == _WorkbenchListMode.workspaces) {
+      return _WorkspaceListPage(
+          workspaces: _workspaces,
+          selected: _selectedWorkspace,
+          onSelected: _openWorkspaceSessions,
+          onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
+    }
+    if (_listMode == _WorkbenchListMode.sessions) {
       return _CodingSessionListPage(
           data: widget.data,
           items: _sessionItems,
           currentWorkspace: _selectedWorkspace,
           onNewSession: _startNewSessionFromList,
-          onSelectItem: _openSession);
+          onSelectItem: _openSession,
+          onBackToWorkspaces: _openWorkspaceList);
     }
     final adapter = _selectedAdapter;
     final canSend = adapter != null && !_sending;

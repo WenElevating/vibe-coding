@@ -130,11 +130,8 @@ Widget buildRunningComposerPreview() => MaterialApp(
 Widget buildNewSessionWorkspacePickerPreview() {
   const workspace = WorkspaceSummary(
       id: 'workspace_1',
-      name: 'vibe-coding',
+      name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
-  final client = DaemonClient(
-      baseUri: Uri.parse('http://127.0.0.1:4317'),
-      tokenStore: MemoryTokenStore());
   return MaterialApp(
       locale: _zhHansCnLocale,
       supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
@@ -146,17 +143,11 @@ Widget buildNewSessionWorkspacePickerPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: Builder(
-              builder: (context) => Center(
-                  child: _SessionNewButton(
-                      onTap: () => showModalBottomSheet<WorkspaceSummary>(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => _FirstRunWorkspaceSheet(
-                              workspaces: const <WorkspaceSummary>[workspace],
-                              selected: workspace,
-                              client: client)))))));
+          body: _WorkspaceListPage(
+              workspaces: const <WorkspaceSummary>[workspace],
+              selected: workspace,
+              onSelected: (_) {},
+              onAddWorkspace: () {})));
 }
 
 @visibleForTesting
@@ -300,66 +291,50 @@ String _conversationPendingStatusText(
 Widget buildCodingSessionListPreview() {
   const current = WorkspaceSummary(
       id: 'workspace_1',
-      name: 'vibe-coding',
+      name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
   const other = WorkspaceSummary(
-      id: 'workspace_2',
-      name: 'ts-learning',
-      path: r'D:\AiProject\ts-learning');
-  final data = _AppSnapshot(
-      health: DaemonHealth.fromJson(const <String, Object?>{
-        'status': 'ok',
-        'daemonVersion': 'test',
-        'mode': 'test',
-        'lanMode': false,
-        'bindAddress': '127.0.0.1',
-        'port': 4317,
-        'security': {'tokenRequired': false}
-      }),
-      workspaces: const <WorkspaceSummary>[current, other],
-      workspace: current,
-      overview: const ProjectOverview(
-          workspaceId: 'workspace_1',
-          name: 'vibe-coding',
-          path: r'D:\AiProject\vibe-coding',
-          fileCount: 0,
-          codeLineCount: 0,
-          symbolCount: 0,
-          analysisScore: 0,
-          recentFiles: <RecentFileSummary>[]),
-      adapters: const <AdapterStatus>[],
-      runs: const <RunSummary>[
-        RunSummary(
-            id: 'run_approval',
-            tool: 'claude',
-            workspaceId: 'workspace_1',
-            status: 'pending',
-            cliSessionId: 'session-approval'),
-        RunSummary(
-            id: 'run_live',
-            tool: 'codex',
-            workspaceId: 'workspace_1',
-            status: 'running'),
-        RunSummary(
-            id: 'run_done',
-            tool: 'claude',
-            workspaceId: 'workspace_2',
-            status: 'completed'),
-      ],
-      conversations: const <ConversationSummary>[],
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: const GitStatusSummary(
-          workspaceId: 'workspace_1', clean: true, files: <GitStatusFile>[]),
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: const FileTreeResponse(
-          workspaceId: 'workspace_1', root: '', entries: <FileTreeEntry>[]),
-      diagnostics: const CodeDiagnosticsSummary(
-          workspaceId: 'workspace_1',
-          available: true,
-          diagnostics: <CodeDiagnostic>[]),
-      extensions: const <ExtensionSummary>[]);
+      id: 'workspace_2', name: 'Other Project', path: r'D:\AiProject\other');
+  return MaterialApp(
+      locale: _zhHansCnLocale,
+      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: _appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: _appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: _bg,
+          body: _WorkspaceListPage(
+              workspaces: const <WorkspaceSummary>[current, other],
+              selected: current,
+              onSelected: (_) {},
+              onAddWorkspace: () {})));
+}
+
+@visibleForTesting
+Widget buildWorkspaceScopedSessionPreview() {
+  const current = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding');
+  const other = WorkspaceSummary(
+      id: 'workspace_2', name: 'Other Project', path: r'D:\AiProject\other');
+  const currentRun = RunSummary(
+      id: 'current-1',
+      tool: 'claude',
+      workspaceId: 'workspace_1',
+      status: 'completed');
+  const otherRun = RunSummary(
+      id: 'other-1',
+      tool: 'claude',
+      workspaceId: 'workspace_2',
+      status: 'completed');
+  final data = _previewSnapshot(
+      current,
+      const <WorkspaceSummary>[current, other],
+      const <RunSummary>[currentRun, otherRun]);
   return MaterialApp(
       locale: _zhHansCnLocale,
       supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
@@ -377,14 +352,83 @@ Widget buildCodingSessionListPreview() {
                   const <_SessionItem>[], data.conversations, data.runs),
               currentWorkspace: current,
               onNewSession: () {},
-              onSelectItem: (_) {})));
+              onSelectItem: (_) {},
+              onBackToWorkspaces: () {})));
 }
+
+@visibleForTesting
+Widget buildMissingWorkspaceFallbackPreview() {
+  const current = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding');
+  return MaterialApp(
+      locale: _zhHansCnLocale,
+      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: _appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: _appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: _bg,
+          body: _WorkspaceListPage(
+              workspaces: const <WorkspaceSummary>[current],
+              selected: current,
+              onSelected: (_) {},
+              onAddWorkspace: () {})));
+}
+
+_AppSnapshot _previewSnapshot(WorkspaceSummary current,
+        List<WorkspaceSummary> workspaces, List<RunSummary> runs) =>
+    _AppSnapshot(
+        health: DaemonHealth.fromJson(const <String, Object?>{
+          'status': 'ok',
+          'daemonVersion': 'test',
+          'mode': 'test',
+          'lanMode': false,
+          'bindAddress': '127.0.0.1',
+          'port': 4317,
+          'security': {'tokenRequired': false}
+        }),
+        workspaces: workspaces,
+        workspace: current,
+        overview: ProjectOverview(
+            workspaceId: current.id,
+            name: current.name,
+            path: current.path,
+            fileCount: 0,
+            codeLineCount: 0,
+            symbolCount: 0,
+            analysisScore: 0,
+            recentFiles: const <RecentFileSummary>[]),
+        adapters: const <AdapterStatus>[],
+        runs: runs,
+        conversations: const <ConversationSummary>[],
+        queue: const <QueueItem>[],
+        templates: const <CommandTemplate>[],
+        gitStatus: GitStatusSummary(
+            workspaceId: current.id,
+            clean: true,
+            files: const <GitStatusFile>[]),
+        diffs: const <DiffSummary>[],
+        commits: const <GitCommitSummary>[],
+        fileTree: FileTreeResponse(
+            workspaceId: current.id,
+            root: '',
+            entries: const <FileTreeEntry>[]),
+        diagnostics: CodeDiagnosticsSummary(
+            workspaceId: current.id,
+            available: true,
+            diagnostics: const <CodeDiagnostic>[]),
+        extensions: const <ExtensionSummary>[]);
 
 @visibleForTesting
 Widget buildCodingWorkbenchEntryPreview() {
   const current = WorkspaceSummary(
       id: 'workspace_1',
-      name: 'vibe-coding',
+      name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
   final data = _AppSnapshot(
       health: DaemonHealth.fromJson(const <String, Object?>{

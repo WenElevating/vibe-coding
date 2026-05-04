@@ -486,7 +486,6 @@ class _WaitingRow extends StatelessWidget {
   }
 }
 
-
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge(this.text, {required this.color});
   final String text;
@@ -592,7 +591,6 @@ class _NavSpec {
   final IconData icon;
   final String label;
 }
-
 
 class _PrimaryButton extends StatelessWidget {
   const _PrimaryButton(this.text, {required this.onTap});

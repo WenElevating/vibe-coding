@@ -52,7 +52,6 @@ class _RunDetailPage extends StatelessWidget {
   }
 }
 
-
 class _Timeline extends StatelessWidget {
   const _Timeline(this.title, this.body, this.time, this.icon, this.color);
   final String title, body, time;

@@ -61,7 +61,6 @@ const _appLocalizationsDelegates = <LocalizationsDelegate<Object>>[
   GlobalWidgetsLocalizations.delegate,
 ];
 
-
 class LanAiCliControlApp extends StatelessWidget {
   const LanAiCliControlApp({super.key});
 

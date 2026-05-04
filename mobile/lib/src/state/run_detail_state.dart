@@ -1,4 +1,4 @@
-﻿import '../models/protocol.dart';
+import '../models/protocol.dart';
 
 class RunDetailState {
   const RunDetailState({
@@ -14,16 +14,20 @@ class RunDetailState {
   final int pendingApprovalCount;
 
   RunDetailState mergeEvents(Iterable<AgentEvent> incoming) {
-    final bySeq = <int, AgentEvent>{for (final event in events) event.seq: event};
+    final bySeq = <int, AgentEvent>{
+      for (final event in events) event.seq: event
+    };
     for (final event in incoming) {
       bySeq[event.seq] = event;
     }
-    final merged = bySeq.values.toList()..sort((a, b) => a.seq.compareTo(b.seq));
+    final merged = bySeq.values.toList()
+      ..sort((a, b) => a.seq.compareTo(b.seq));
     return RunDetailState(
       events: merged,
-      connectionState: merged.any((event) => isTerminalAgentEventType(event.type))
-          ? RunConnectionState.disconnected
-          : connectionState,
+      connectionState:
+          merged.any((event) => isTerminalAgentEventType(event.type))
+              ? RunConnectionState.disconnected
+              : connectionState,
       lastSeq: merged.isEmpty ? lastSeq : merged.last.seq,
       pendingApprovalCount: unresolvedApprovalCount(merged),
     );
@@ -52,14 +56,17 @@ int unresolvedApprovalCount(Iterable<AgentEvent> events) {
 }
 
 class NotificationPreferenceState {
-  const NotificationPreferenceState({required this.permissionGranted, this.privacyMode = true});
+  const NotificationPreferenceState(
+      {required this.permissionGranted, this.privacyMode = true});
 
   final bool permissionGranted;
   final bool privacyMode;
 
   String messageFor(AgentEvent event) {
     if (privacyMode) {
-      if (event.type == 'approval.required') return 'Approval required for a LAN AI CLI run.';
+      if (event.type == 'approval.required') {
+        return 'Approval required for a LAN AI CLI run.';
+      }
       if (event.type == 'run.completed') return 'LAN AI CLI run completed.';
       if (event.type == 'run.failed') return 'LAN AI CLI run failed.';
     }
@@ -67,4 +74,10 @@ class NotificationPreferenceState {
   }
 }
 
-enum RunConnectionState { disconnected, connecting, connected, reconnecting, stale }
+enum RunConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  reconnecting,
+  stale
+}

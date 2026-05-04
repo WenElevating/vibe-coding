@@ -24,23 +24,56 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('coding back target renders session list',
+  testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
-    expect(find.text('live'), findsOneWidget);
-    expect(find.text('ts-learning'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Current Project'), findsOneWidget);
+    expect(find.text('Other Project'), findsOneWidget);
   });
 
-  testWidgets('coding entry defaults to session list',
+  testWidgets('coding entry defaults to workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingWorkbenchEntryPreview());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
     expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
+  });
+
+  testWidgets('tapping current project opens workspace session list',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCodingWorkbenchEntryPreview());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.text('New Session'), findsOneWidget);
+    expect(find.text('Select workspace for this coding session'), findsNothing);
+  });
+
+  testWidgets('session list shows only selected workspace sessions',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildWorkspaceScopedSessionPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('current-1'), findsWidgets);
+    expect(find.textContaining('other-1'), findsNothing);
+  });
+
+  testWidgets('missing selected workspace falls back to workspace list',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildMissingWorkspaceFallbackPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Current Project'), findsOneWidget);
+    expect(find.text('Stale Workspace'), findsNothing);
   });
 
   test('newly created coding runs appear before snapshot runs', () {
@@ -224,15 +257,13 @@ void main() {
     expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
   });
 
-  testWidgets('new coding session opens workspace picker first',
+  testWidgets('new coding session workspace preview shows workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildNewSessionWorkspacePickerPreview());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.add_rounded));
-    await tester.pumpAndSettle();
-
-    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Current Project'), findsOneWidget);
   });
 
   testWidgets('completed command card shows duration and ok status',

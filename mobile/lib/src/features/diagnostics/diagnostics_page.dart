@@ -37,7 +37,6 @@ class _DiagnosticsPage extends StatelessWidget {
       ]);
 }
 
-
 class _DiagRow extends StatelessWidget {
   const _DiagRow(this.title, this.size);
   final String title, size;

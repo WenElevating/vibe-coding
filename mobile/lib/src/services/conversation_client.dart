@@ -70,10 +70,11 @@ class ConversationClient {
   Future<ConversationSummary> answerQuestion(
       String conversationId, String questionId, String text) async {
     final response = await _post(
-        '/api/conversations/$conversationId/questions/respond', <String, Object?>{
-      'questionId': questionId,
-      'text': text,
-    });
+        '/api/conversations/$conversationId/questions/respond',
+        <String, Object?>{
+          'questionId': questionId,
+          'text': text,
+        });
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);
   }
@@ -83,8 +84,8 @@ class ConversationClient {
     final response = await _post(
         '/api/conversations/$conversationId/approvals/$approvalId/respond',
         <String, Object?>{
-      'decision': decision,
-    });
+          'decision': decision,
+        });
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);
   }

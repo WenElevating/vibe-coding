@@ -13,7 +13,9 @@ void main() {
       'protocolVersion': 2,
       'requestedPermissionMode': 'auto',
       'effectivePermissionMode': 'default',
-      'permissionSupport': {'permissionModes': ['default', 'plan']},
+      'permissionSupport': {
+        'permissionModes': ['default', 'plan']
+      },
       'capabilities': {'waitingInput': true, 'waitingApproval': true},
       'blockingItem': {
         'type': 'input_request',
@@ -231,7 +233,8 @@ void main() {
     expect(event.raw['raw'], isA<Map<String, Object?>>());
   });
 
-  test('RunDetailState stays terminal when late raw events arrive after result', () {
+  test('RunDetailState stays terminal when late raw events arrive after result',
+      () {
     final completed = AgentEvent.fromJson(const <String, Object?>{
       'type': 'run.completed',
       'seq': 3,
@@ -255,9 +258,9 @@ void main() {
       },
     });
 
-    final state = const RunDetailState(
-            connectionState: RunConnectionState.connected)
-        .mergeEvents(<AgentEvent>[completed, lateNoise]);
+    final state =
+        const RunDetailState(connectionState: RunConnectionState.connected)
+            .mergeEvents(<AgentEvent>[completed, lateNoise]);
 
     expect(isTerminalAgentEventType(completed.type), isTrue);
     expect(isTerminalAgentEventType(lateNoise.type), isFalse);
@@ -283,8 +286,8 @@ void main() {
       'decision': 'allow',
     });
 
-    final state = const RunDetailState()
-        .mergeEvents(<AgentEvent>[required, responded]);
+    final state =
+        const RunDetailState().mergeEvents(<AgentEvent>[required, responded]);
 
     expect(state.pendingApprovalCount, 0);
   });

@@ -34,7 +34,6 @@ class _AdaptersPage extends StatelessWidget {
       ]);
 }
 
-
 class _AdapterRow extends StatelessWidget {
   const _AdapterRow(this.name, this.protocol, this.version, this.color);
   final String name, protocol, version;

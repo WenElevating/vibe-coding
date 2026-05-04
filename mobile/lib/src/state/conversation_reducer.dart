@@ -337,8 +337,8 @@ int _commandIndexForCorrelation(List<ConversationMessage> messages,
 int _commandIndexForToolUseId(
     List<ConversationMessage> messages, String? toolUseId) {
   if (toolUseId == null || toolUseId.isEmpty) return -1;
-  return messages.indexWhere((message) =>
-      message.role == 'command' && message.toolUseId == toolUseId);
+  return messages.indexWhere(
+      (message) => message.role == 'command' && message.toolUseId == toolUseId);
 }
 
 String _mergeCommandOutput(String? current, String incoming) {
@@ -354,7 +354,9 @@ String? _approvalCommandText(ConversationEvent event) {
   if (command is String && command.trim().isNotEmpty) return command.trim();
   final summary = event.summary;
   if (summary != null && summary.trim().isNotEmpty) return summary.trim();
-  final file = event.input['file_path'] ?? event.input['path'] ?? event.input['filename'];
+  final file = event.input['file_path'] ??
+      event.input['path'] ??
+      event.input['filename'];
   if (file is String && file.trim().isNotEmpty) {
     final toolName = event.toolName ?? 'Tool';
     return '$toolName ${file.trim()}';
@@ -365,7 +367,9 @@ String? _approvalCommandText(ConversationEvent event) {
 String _toolCommandText(ConversationEvent event) {
   final command = event.input['command'];
   if (command is String && command.trim().isNotEmpty) return command.trim();
-  final file = event.input['file_path'] ?? event.input['path'] ?? event.input['filename'];
+  final file = event.input['file_path'] ??
+      event.input['path'] ??
+      event.input['filename'];
   if (file is String && file.trim().isNotEmpty) {
     return '${event.toolName ?? 'Tool'} ${file.trim()}';
   }
@@ -378,7 +382,8 @@ void _upsertThinkingMessage(
     List<ConversationMessage> messages, ConversationMessage incoming) {
   final text = incoming.text.trim();
   if (text.isEmpty) return;
-  final lastIndex = messages.lastIndexWhere((message) => message.role == 'thinking');
+  final lastIndex =
+      messages.lastIndexWhere((message) => message.role == 'thinking');
   if (lastIndex < 0 || lastIndex != messages.length - 1) {
     messages.add(incoming);
     return;

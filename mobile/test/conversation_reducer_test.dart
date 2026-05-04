@@ -105,12 +105,9 @@ void main() {
 
     expect(state.messages, hasLength(1));
     expect(state.messages.single.role, 'thinking');
-    expect(state.messages.single.text,
-        contains('advanced Python script'));
-    expect(state.messages.single.text,
-        contains('clarify the goal'));
-    expect(state.messages.single.text,
-        contains('one focused question'));
+    expect(state.messages.single.text, contains('advanced Python script'));
+    expect(state.messages.single.text, contains('clarify the goal'));
+    expect(state.messages.single.text, contains('one focused question'));
   });
 
   test('ConversationViewState separates questions from approval requests', () {
@@ -207,7 +204,9 @@ void main() {
     expect(state.messages.single.isError, true);
   });
 
-  test('ConversationViewState keeps interleaved tool outputs separate and ignores missing ids', () {
+  test(
+      'ConversationViewState keeps interleaved tool outputs separate and ignores missing ids',
+      () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{
         'seq': 1,
@@ -252,8 +251,10 @@ void main() {
       })
     ]);
 
-    final npm = state.messages.firstWhere((message) => message.text == 'npm test');
-    final read = state.messages.firstWhere((message) => message.text.contains('README.md'));
+    final npm =
+        state.messages.firstWhere((message) => message.text == 'npm test');
+    final read = state.messages
+        .firstWhere((message) => message.text.contains('README.md'));
     expect(npm.output, contains('tests passed'));
     expect(npm.output, isNot(contains('readme body')));
     expect(npm.output, isNot(contains('must not attach')));

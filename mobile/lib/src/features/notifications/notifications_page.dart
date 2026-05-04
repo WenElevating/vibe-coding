@@ -33,7 +33,6 @@ class _NotificationsPage extends StatelessWidget {
       ]);
 }
 
-
 class _Notice extends StatelessWidget {
   const _Notice(this.icon, this.title, this.body, this.time, this.color);
   final IconData icon;

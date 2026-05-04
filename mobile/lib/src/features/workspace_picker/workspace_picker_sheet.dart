@@ -48,6 +48,82 @@ class _AdapterPickerSheet extends StatelessWidget {
               ])));
 }
 
+class _WorkspaceListPage extends StatelessWidget {
+  const _WorkspaceListPage({
+    required this.workspaces,
+    required this.selected,
+    required this.onSelected,
+    required this.onAddWorkspace,
+  });
+
+  final List<WorkspaceSummary> workspaces;
+  final WorkspaceSummary selected;
+  final ValueChanged<WorkspaceSummary> onSelected;
+  final VoidCallback onAddWorkspace;
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(key: const ValueKey('workspace-list'), children: [
+        Container(
+            height: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+                color: const Color(0xEE0A0B0D),
+                border: Border(
+                    bottom: BorderSide(
+                        color: Colors.white.withValues(alpha: .07)))),
+            child: Row(children: [
+              const SizedBox(width: 36),
+              Expanded(
+                  child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                    const Text('Workspaces',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: _text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -.15)),
+                    const SizedBox(height: 3),
+                    Text(_compactWorkspacePath(selected.path),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: _faint,
+                            fontSize: 10.5,
+                            fontFamily: 'Consolas')),
+                  ])),
+              _TinyActionButton('Add', onTap: onAddWorkspace, primary: true),
+            ])),
+        Expanded(
+            child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                children: [
+              const _SessionSearchBox(),
+              const SizedBox(height: 14),
+              _WorkspaceSectionHeader(
+                  title: 'Available Workspaces', meta: '${workspaces.length}'),
+              const SizedBox(height: 8),
+              for (final workspace in workspaces)
+                _WorkspaceChoiceRow(
+                    workspace: workspace,
+                    selected: workspace.id == selected.id,
+                    allowSelectedTap: true,
+                    onTap: () => onSelected(workspace)),
+              const Padding(
+                  padding: EdgeInsets.fromLTRB(4, 6, 4, 0),
+                  child: Text(
+                      'Choose the folder where CLI commands will run, then open or create a session inside it.',
+                      style: TextStyle(
+                          color: Color(0xFF666D77),
+                          fontSize: 11.5,
+                          height: 1.5))),
+            ])),
+      ]);
+}
+
 class _AdapterChoiceRow extends StatelessWidget {
   const _AdapterChoiceRow(
       {required this.adapter, required this.selected, required this.onTap});
@@ -222,68 +298,6 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
               ])));
 }
 
-class _FirstRunWorkspaceSheet extends StatelessWidget {
-  const _FirstRunWorkspaceSheet(
-      {required this.workspaces, required this.selected, required this.client});
-  final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary selected;
-  final DaemonClient client;
-
-  Future<void> _createWorkspace(BuildContext context) async {
-    final workspace = await showModalBottomSheet<WorkspaceSummary>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => _CreateFirstRunWorkspaceSheet(client: client));
-    if (workspace != null && context.mounted) {
-      Navigator.of(context).pop(workspace);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => SafeArea(
-      top: false,
-      child: Container(
-          margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          decoration: BoxDecoration(
-              color: const Color(0xFF0D0E10),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: Colors.white.withValues(alpha: .08)),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: .45),
-                    blurRadius: 28,
-                    offset: const Offset(0, 18))
-              ]),
-          child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('选择本次编码工作区',
-                    style: TextStyle(
-                        color: _text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                const Text('新会话会在你选定的文件夹内调用真实 CLI，避免落到用户目录。',
-                    style:
-                        TextStyle(color: _muted, fontSize: 12, height: 1.35)),
-                const SizedBox(height: 12),
-                _TinyActionButton('添加 / 浏览文件夹',
-                    onTap: () => _createWorkspace(context), primary: true),
-                const SizedBox(height: 10),
-                Flexible(
-                    child: ListView(shrinkWrap: true, children: [
-                  for (final workspace in workspaces)
-                    _WorkspaceChoiceRow(
-                        workspace: workspace,
-                        selected: workspace.id == selected.id,
-                        onTap: () => Navigator.of(context).pop(workspace)),
-                ])),
-              ])));
-}
-
 class _CreateFirstRunWorkspaceSheet extends StatefulWidget {
   const _CreateFirstRunWorkspaceSheet({required this.client});
   final DaemonClient client;
@@ -436,14 +450,18 @@ class _WorkspaceSectionHeader extends StatelessWidget {
 
 class _WorkspaceChoiceRow extends StatelessWidget {
   const _WorkspaceChoiceRow(
-      {required this.workspace, required this.selected, required this.onTap});
+      {required this.workspace,
+      required this.selected,
+      required this.onTap,
+      this.allowSelectedTap = false});
   final WorkspaceSummary workspace;
   final bool selected;
   final VoidCallback onTap;
+  final bool allowSelectedTap;
 
   @override
   Widget build(BuildContext context) => InkWell(
-      onTap: selected ? null : onTap,
+      onTap: selected && !allowSelectedTap ? null : onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
           margin: const EdgeInsets.only(bottom: 8),
