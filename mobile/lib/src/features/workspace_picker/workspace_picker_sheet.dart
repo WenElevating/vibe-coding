@@ -95,7 +95,7 @@ class _WorkspaceListPage extends StatelessWidget {
                             fontSize: 10.5,
                             fontFamily: 'Consolas')),
                   ])),
-              _TinyActionButton('Add', onTap: onAddWorkspace, primary: true),
+              _WorkspaceAddIconButton(onTap: onAddWorkspace),
             ])),
         Expanded(
             child: ListView(
@@ -521,6 +521,27 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                   child:
                       const Icon(Icons.check_rounded, color: _active, size: 15))
           ])));
+}
+
+class _WorkspaceAddIconButton extends StatelessWidget {
+  const _WorkspaceAddIconButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+      message: 'Add workspace',
+      child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: _purple.withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _purple.withValues(alpha: .42))),
+              child: const Icon(Icons.add_rounded, color: _text, size: 24))));
 }
 
 class _DirectoryBrowserSheet extends StatefulWidget {
