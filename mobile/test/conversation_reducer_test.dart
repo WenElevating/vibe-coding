@@ -140,6 +140,126 @@ void main() {
         const <String>['Scraper', 'Data analysis']);
   });
 
+  test('ConversationViewState keeps system notices non-blocking', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-04T00:00:00.000Z',
+        'text': 'Claude retry 1/3',
+        'summary': 'retry'
+      })
+    ]);
+
+    expect(state.status, isNot('waiting_input'));
+    expect(state.status, isNot('waiting_approval'));
+    expect(state.messages.single.role, 'notice');
+    expect(state.messages.single.text, 'Claude retry 1/3');
+  });
+
+  test('ConversationViewState correlates tool output by toolUseId', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-04T00:00:00.000Z',
+        'toolUseId': 'toolu_a',
+        'toolName': 'Bash',
+        'input': {'command': 'npm test'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.delta',
+        'createdAt': '2026-05-04T00:00:01.000Z',
+        'toolUseId': 'toolu_a',
+        'text': 'running tests'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-04T00:00:02.000Z',
+        'toolUseId': 'toolu_a',
+        'text': '1 failing test',
+        'exitCode': 1,
+        'isError': true
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-04T00:00:03.000Z',
+        'toolUseId': 'toolu_a',
+        'exitCode': 1,
+        'isError': true
+      })
+    ]);
+
+    expect(state.messages.single.role, 'command');
+    expect(state.messages.single.text, 'npm test');
+    expect(state.messages.single.output, contains('running tests'));
+    expect(state.messages.single.output, contains('1 failing test'));
+    expect(state.messages.single.completed, true);
+    expect(state.messages.single.exitCode, 1);
+    expect(state.messages.single.isError, true);
+  });
+
+  test('ConversationViewState keeps interleaved tool outputs separate and ignores missing ids', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-04T00:00:00.000Z',
+        'toolUseId': 'toolu_a',
+        'toolName': 'Bash',
+        'input': {'command': 'npm test'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-04T00:00:01.000Z',
+        'toolUseId': 'toolu_b',
+        'toolName': 'Read',
+        'input': {'file_path': 'README.md'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-04T00:00:02.000Z',
+        'toolUseId': 'toolu_b',
+        'text': 'readme body'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-04T00:00:03.000Z',
+        'toolUseId': 'toolu_a',
+        'text': 'tests passed'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 5,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-04T00:00:04.000Z',
+        'text': 'must not attach'
+      })
+    ]);
+
+    final npm = state.messages.firstWhere((message) => message.text == 'npm test');
+    final read = state.messages.firstWhere((message) => message.text.contains('README.md'));
+    expect(npm.output, contains('tests passed'));
+    expect(npm.output, isNot(contains('readme body')));
+    expect(npm.output, isNot(contains('must not attach')));
+    expect(read.output, contains('readme body'));
+  });
+
   test('ConversationViewState preserves full AskUserQuestion display text', () {
     const questionText = '请帮我明确需求：\n\n你有什么类型的推荐吗？\n\n'
         '- 数据处理/分析 — 批量文件处理、数据清洗、爬虫\n'

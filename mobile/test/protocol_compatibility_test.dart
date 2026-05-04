@@ -10,19 +10,33 @@ void main() {
       'adapter': 'claude',
       'status': 'waiting_input',
       'cliSessionId': 'session_1',
+      'protocolVersion': 2,
+      'requestedPermissionMode': 'auto',
+      'effectivePermissionMode': 'default',
+      'permissionSupport': {'permissionModes': ['default', 'plan']},
       'capabilities': {'waitingInput': true, 'waitingApproval': true},
       'blockingItem': {
         'type': 'input_request',
         'questionId': 'q1',
         'text': 'Pick one',
-        'suggestions': ['A', 'B']
+        'suggestions': ['A', 'B'],
+        'multiSelect': true,
+        'createdAt': '2026-05-04T00:00:00.000Z',
+        'expiresAt': '2026-05-04T00:01:00.000Z',
+        'input': {'multiSelect': true}
       }
     });
 
     expect(summary.id, 'conv_1');
     expect(summary.status, 'waiting_input');
+    expect(summary.protocolVersion, 2);
+    expect(summary.requestedPermissionMode, 'auto');
+    expect(summary.effectivePermissionMode, 'default');
+    expect(summary.permissionSupport['permissionModes'], isA<List<Object?>>());
     expect(summary.blockingItem?.type, 'input_request');
     expect(summary.blockingItem?.suggestions, const <String>['A', 'B']);
+    expect(summary.blockingItem?.multiSelect, true);
+    expect(summary.blockingItem?.expiresAt, '2026-05-04T00:01:00.000Z');
     expect(summary.capabilities.waitingInput, true);
   });
 
@@ -51,6 +65,27 @@ void main() {
     expect(question.suggestions, const <String>['A']);
     expect(approval.approvalId, 'ap1');
     expect(approval.summary, 'dir scripts');
+  });
+
+  test('ConversationEvent parses tool correlation fields', () {
+    final output = ConversationEvent.fromJson(const <String, Object?>{
+      'seq': 3,
+      'conversationId': 'conv_1',
+      'type': 'tool.output',
+      'createdAt': '2026-05-04T00:00:02.000Z',
+      'toolUseId': 'toolu_a',
+      'toolName': 'Bash',
+      'text': '1 failing test',
+      'exitCode': 1,
+      'isError': true,
+      'durationMs': 250
+    });
+
+    expect(output.toolUseId, 'toolu_a');
+    expect(output.toolName, 'Bash');
+    expect(output.exitCode, 1);
+    expect(output.isError, true);
+    expect(output.durationMs, 250);
   });
 
   test('ExtensionSummary accepts nullable daemon adapter fields', () {

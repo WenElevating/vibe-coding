@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter/services.dart';
 
 import 'lan_ai_cli_control.dart';
 
@@ -107,13 +108,12 @@ List<String> debugMergeSessionRunIds(
 }
 
 @visibleForTesting
-List<String> debugMergeSessionIds(List<RunSummary> localRuns,
+List<String> debugMergeSessionIds(
+        List<RunSummary> localRuns,
         List<ConversationSummary> snapshotConversations,
         List<RunSummary> snapshotRuns) =>
-    _mergeSessionItems(
-            localRuns.map((run) => _SessionItem(run: run)).toList(),
-            snapshotConversations,
-            snapshotRuns)
+    _mergeSessionItems(localRuns.map((run) => _SessionItem(run: run)).toList(),
+            snapshotConversations, snapshotRuns)
         .map((item) => item.id)
         .toList(growable: false);
 
@@ -147,6 +147,30 @@ List<String> debugVisibleApprovalIdsForConversation(
       .where((message) => message.role == 'approval')
       .map((message) => message.approvalId ?? '')
       .toList(growable: false);
+}
+
+@visibleForTesting
+List<String> debugWorkbenchMessageRolesForConversationEvents(
+    List<Map<String, Object?>> events, ConversationSummary? conversation) {
+  final state = const ConversationViewState().apply(events
+      .map((event) => ConversationEvent.fromJson(event))
+      .toList(growable: false));
+  return _messagesForConversationSnapshot(state.messages, conversation)
+      .where((message) => message.role != 'question_hidden')
+      .map(_workbenchMessageFromConversation)
+      .map((message) => '${message.role}:${message.body}')
+      .toList(growable: false);
+}
+
+@visibleForTesting
+String? debugEmptyConversationCompletionDiagnostic(
+    List<Map<String, Object?>> events, ConversationSummary conversation) {
+  final parsed = events
+      .map((event) => ConversationEvent.fromJson(event))
+      .toList(growable: false);
+  final state = const ConversationViewState().apply(parsed);
+  return _emptyConversationCompletionDiagnostic(parsed, state.messages,
+      conversation.status == 'idle' || conversation.status == 'failed');
 }
 
 @visibleForTesting
@@ -420,8 +444,8 @@ Widget buildCodingSessionListPreview() {
           backgroundColor: _bg,
           body: _CodingSessionListPage(
               data: data,
-              items: _mergeSessionItems(const <_SessionItem>[],
-                  data.conversations, data.runs),
+              items: _mergeSessionItems(
+                  const <_SessionItem>[], data.conversations, data.runs),
               currentWorkspace: current,
               onNewSession: () {},
               onSelectItem: (_) {})));
@@ -999,8 +1023,11 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
 
   void _rememberConversation(ConversationSummary conversation) {
     _localSessions.removeWhere((item) => item.id == conversation.id);
-    _localSessions.insert(0, _SessionItem(
-        run: _runSummaryFromConversation(conversation), conversation: conversation));
+    _localSessions.insert(
+        0,
+        _SessionItem(
+            run: _runSummaryFromConversation(conversation),
+            conversation: conversation));
   }
 
   void _resetConversationState() {
@@ -1351,6 +1378,12 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
                   _conversationState.messages, _activeConversation)
               .where((message) => message.role != 'question_hidden')
               .map(_workbenchMessageFromConversation));
+        final emptyCompletionDiagnostic =
+            _emptyConversationCompletionDiagnostic(
+                _conversationEvents, _conversationState.messages, _isTerminal);
+        if (emptyCompletionDiagnostic != null) {
+          _messages.add(_WorkbenchMessage.status(emptyCompletionDiagnostic));
+        }
       });
       _scrollToBottom();
       if (!_isRunningCli) _poller?.cancel();
@@ -1363,8 +1396,8 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     _poller?.cancel();
     await _pollEvents();
     if (!mounted || _activeConversationId == null || _isTerminal) return;
-    _poller = Timer.periodic(
-        const Duration(milliseconds: 900), (_) => _pollEvents());
+    _poller =
+        Timer.periodic(const Duration(milliseconds: 900), (_) => _pollEvents());
   }
 
   void _applyConversationStatusEvent(ConversationEvent event) {
@@ -1382,13 +1415,16 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       blockingItem = ConversationBlockingItem(
           type: 'input_request',
           questionId: event.questionId,
+          toolUseId: event.toolUseId,
           text: event.text,
-          suggestions: event.suggestions);
+          suggestions: event.suggestions,
+          input: event.input);
     } else if (event.type == 'approval.requested') {
       status = 'waiting_approval';
       blockingItem = ConversationBlockingItem(
           type: 'approval_request',
           approvalId: event.approvalId,
+          toolUseId: event.toolUseId,
           toolName: event.toolName,
           summary: event.summary,
           input: event.input);
@@ -1516,6 +1552,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       _messages[existingIndex] = current.copyWith(
           body: body,
           completed: current.completed || message.completed,
+          isError: current.isError || message.isError,
           duration: message.duration ?? current.duration);
     } else {
       _messages.add(message);
@@ -2287,45 +2324,51 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
       top: false,
       child: Container(
           margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * .78),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
           decoration: BoxDecoration(
-              color: const Color(0xFF0D131D),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: Colors.white.withValues(alpha: .08)),
+              color: const Color(0xF608090B),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white.withValues(alpha: .075)),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withValues(alpha: .45),
-                    blurRadius: 28,
-                    offset: const Offset(0, 18))
+                    color: Colors.black.withValues(alpha: .56),
+                    blurRadius: 34,
+                    offset: const Offset(0, 20))
               ]),
           child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('工作区',
-                    style: TextStyle(
-                        color: _text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                const Text('切换已有工作区，或输入路径/浏览文件夹添加新的工作区。',
-                    style:
-                        TextStyle(color: _muted, fontSize: 12, height: 1.35)),
+                const _WorkspaceSheetHeader(
+                    title: '工作区', subtitle: '切换 CLI 执行目录，当前会话会继续保留。'),
                 const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                      child: _MiniInput(controller: _path, hint: '输入或浏览文件夹路径')),
-                  const SizedBox(width: 8),
-                  _TinyActionButton('浏览', onTap: _browse),
-                ]),
-                const SizedBox(height: 8),
-                Row(children: [
-                  Expanded(
-                      child: _MiniInput(controller: _name, hint: '名称（可选）')),
-                  const SizedBox(width: 8),
-                  _TinyActionButton(_creating ? '创建中' : '创建',
-                      onTap: _creating ? null : _create, primary: true),
-                ]),
+                Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFF101113),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: .075))),
+                    child: Column(children: [
+                      Row(children: [
+                        Expanded(
+                            child: _MiniInput(
+                                controller: _path, hint: '输入或浏览文件夹路径')),
+                        const SizedBox(width: 8),
+                        _TinyActionButton('浏览', onTap: _browse),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(
+                            child:
+                                _MiniInput(controller: _name, hint: '名称（可选）')),
+                        const SizedBox(width: 8),
+                        _TinyActionButton(_creating ? '创建中' : '创建',
+                            onTap: _creating ? null : _create, primary: true),
+                      ]),
+                    ])),
                 if (_error != null) ...[
                   const SizedBox(height: 8),
                   Text(_error!,
@@ -2333,21 +2376,20 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: _red, fontSize: 11)),
                 ],
-                const SizedBox(height: 12),
-                const Text('已有工作区',
-                    style: TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
+                const SizedBox(height: 14),
+                const _WorkspaceSectionHeader(title: '已有工作区', meta: '安全执行目录'),
+                const SizedBox(height: 6),
                 Flexible(
-                    child: ListView(shrinkWrap: true, children: [
-                  for (final workspace in widget.workspaces)
-                    _WorkspaceChoiceRow(
-                        workspace: workspace,
-                        selected: workspace.id == widget.selected.id,
-                        onTap: () => widget.onSelected(workspace)),
-                ])),
+                    child: ListView(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.zero,
+                        children: [
+                      for (final workspace in widget.workspaces)
+                        _WorkspaceChoiceRow(
+                            workspace: workspace,
+                            selected: workspace.id == widget.selected.id,
+                            onTap: () => widget.onSelected(workspace)),
+                    ])),
               ])));
 }
 
@@ -2504,6 +2546,65 @@ class _CreateFirstRunWorkspaceSheetState
           ])));
 }
 
+class _WorkspaceSheetHeader extends StatelessWidget {
+  const _WorkspaceSheetHeader({required this.title, required this.subtitle});
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Container(
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: const Color(0xFF141518),
+                borderRadius: BorderRadius.circular(10),
+                border:
+                    Border.all(color: Colors.white.withValues(alpha: .075))),
+            child: const Icon(Icons.folder_open_rounded,
+                color: Color(0xFF9EA3AD), size: 16)),
+        const SizedBox(width: 10),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title,
+              style: const TextStyle(
+                  color: _text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.15)),
+          const SizedBox(height: 3),
+          Text(subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFF858A94), fontSize: 11.5, height: 1.35)),
+        ])),
+      ]);
+}
+
+class _WorkspaceSectionHeader extends StatelessWidget {
+  const _WorkspaceSectionHeader({required this.title, required this.meta});
+  final String title;
+  final String meta;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Text(title,
+            style: const TextStyle(
+                color: Color(0xFFD8D8D8),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800)),
+        const Spacer(),
+        Text(meta,
+            style: const TextStyle(
+                color: Color(0xFF6F757E),
+                fontSize: 10.5,
+                fontFamily: 'Consolas')),
+      ]);
+}
+
 class _WorkspaceChoiceRow extends StatelessWidget {
   const _WorkspaceChoiceRow(
       {required this.workspace, required this.selected, required this.onTap});
@@ -2513,29 +2614,35 @@ class _WorkspaceChoiceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
+      onTap: selected ? null : onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
-              color: selected
-                  ? _purple.withValues(alpha: .16)
-                  : Colors.white.withValues(alpha: .035),
+              color:
+                  selected ? const Color(0xFF181A20) : const Color(0xFF101113),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: selected ? _purple.withValues(alpha: .45) : _stroke)),
+                  color: selected
+                      ? _purple.withValues(alpha: .48)
+                      : Colors.white.withValues(alpha: .075))),
           child: Row(children: [
             Container(
-                width: 30,
-                height: 30,
+                width: 32,
+                height: 32,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                    color: _purple.withValues(alpha: .14),
+                    color: selected
+                        ? _purple.withValues(alpha: .18)
+                        : const Color(0xFF18191C),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _purple.withValues(alpha: .22))),
-                child:
-                    const Icon(Icons.folder_rounded, color: _purple, size: 17)),
+                    border: Border.all(
+                        color: selected
+                            ? _purple.withValues(alpha: .26)
+                            : Colors.white.withValues(alpha: .055))),
+                child: Icon(Icons.folder_rounded,
+                    color: selected ? _purple : _muted, size: 17)),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -2545,15 +2652,28 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: _text, fontWeight: FontWeight.w900)),
+                          color: _text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900)),
                   const SizedBox(height: 3),
                   Text(workspace.path,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _muted, fontSize: 12))
+                      style: const TextStyle(
+                          color: Color(0xFF858A94),
+                          fontSize: 10.8,
+                          fontFamily: 'Consolas'))
                 ])),
             if (selected)
-              const Icon(Icons.check_circle_rounded, color: _purple, size: 19)
+              Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                      color: _purple.withValues(alpha: .22),
+                      borderRadius: BorderRadius.circular(11)),
+                  child:
+                      const Icon(Icons.check_rounded, color: _purple, size: 15))
           ])));
 }
 
@@ -3031,8 +3151,10 @@ class _SessionItem {
   String get id => conversation?.id ?? run.id;
 }
 
-List<_SessionItem> _mergeSessionItems(List<_SessionItem> localSessions,
-    List<ConversationSummary> snapshotConversations, List<RunSummary> snapshotRuns) {
+List<_SessionItem> _mergeSessionItems(
+    List<_SessionItem> localSessions,
+    List<ConversationSummary> snapshotConversations,
+    List<RunSummary> snapshotRuns) {
   final items = <_SessionItem>[];
   final seen = <String>{};
   for (final item in localSessions) {
@@ -3088,6 +3210,22 @@ List<ConversationMessage> _messagesForConversationSnapshot(
       .toList(growable: false);
 }
 
+String? _emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
+    List<ConversationMessage> messages, bool terminal) {
+  if (!terminal || events.isEmpty || messages.isNotEmpty) return null;
+  final hasCompletion = events.any((event) =>
+      event.type == 'conversation.completed' || event.type == 'run.error');
+  if (!hasCompletion) return null;
+  final warnings = events
+      .where((event) => event.type == 'protocol.warning')
+      .map((event) => event.text?.trim())
+      .whereType<String>()
+      .where((text) => text.isNotEmpty)
+      .toList(growable: false);
+  if (warnings.isEmpty) return 'CLI 未返回内容。请检查 Claude 是否正常启动，或查看 daemon 日志。';
+  return 'CLI 未返回内容。诊断信息：\n${warnings.join('\n')}';
+}
+
 ConversationSummary _copyConversationStatus(
     ConversationSummary conversation, String status,
     {ConversationBlockingItem? blockingItem}) {
@@ -3111,21 +3249,31 @@ _WorkbenchMessage _workbenchMessageFromConversation(
           ? 'approval.required'
           : message.role == 'question'
               ? 'assistant.question'
-              : message.role == 'thinking'
-                  ? 'assistant.thinking'
-                  : message.role == 'assistant_stream'
-                      ? 'assistant.delta'
-                      : message.role == 'assistant'
+              : message.role == 'notice'
+                  ? 'system.notice'
+                  : message.role == 'thinking'
+                      ? 'assistant.thinking'
+                      : message.role == 'assistant_stream'
                           ? 'assistant.delta'
-                          : 'raw.output',
+                          : message.role == 'assistant'
+                              ? 'assistant.delta'
+                              : 'raw.output',
       seq: message.eventSeq ?? 0,
       runId: 'conversation',
       createdAt: DateTime.now(),
       text: message.text,
+      name: message.toolName,
       approvalId: message.approvalId,
       raw: <String, Object?>{
         'questionId': message.questionId,
+        'approvalId': message.approvalId,
+        'toolUseId': message.toolUseId,
+        'toolName': message.toolName,
+        'summary': message.summary,
+        'isError': message.isError,
+        if (message.input.isNotEmpty) 'input': message.input,
         'suggestions': message.suggestions,
+        if (message.output != null) 'output': message.output,
         if (message.role == 'assistant') 'result': message.text,
       });
   switch (message.role) {
@@ -3145,12 +3293,30 @@ _WorkbenchMessage _workbenchMessageFromConversation(
           event: event,
           runId: 'conversation',
           suggestions: message.suggestions);
+    case 'notice':
+      return _WorkbenchMessage('notice', '系统提示', message.text,
+          event: event, runId: 'conversation');
     case 'approval':
       return _WorkbenchMessage('approval', '权限确认', message.text,
           event: event, runId: 'conversation');
+    case 'command':
+      return _WorkbenchMessage('command', '运行命令', message.text,
+          event: event,
+          runId: 'conversation',
+          completed: message.completed,
+          isError: message.isError,
+          duration: _conversationCommandDuration(message));
     default:
       return _WorkbenchMessage.status(message.text);
   }
+}
+
+Duration? _conversationCommandDuration(ConversationMessage message) {
+  final startedAt = message.startedAt;
+  final completedAt = message.completedAt;
+  if (startedAt == null || completedAt == null) return null;
+  if (completedAt.isBefore(startedAt)) return null;
+  return completedAt.difference(startedAt);
 }
 
 // ignore: unused_element
@@ -3187,6 +3353,7 @@ class _WorkbenchMessage {
       {this.event,
       this.runId,
       this.completed = false,
+      this.isError = false,
       this.duration,
       this.suggestions = const <String>[]});
   final String role;
@@ -3195,6 +3362,7 @@ class _WorkbenchMessage {
   final AgentEvent? event;
   final String? runId;
   final bool completed;
+  final bool isError;
   final Duration? duration;
   final List<String> suggestions;
   factory _WorkbenchMessage.user(String text) =>
@@ -3202,11 +3370,12 @@ class _WorkbenchMessage {
   factory _WorkbenchMessage.status(String text) =>
       _WorkbenchMessage('status', '运行状态', text);
   _WorkbenchMessage copyWith(
-          {String? body, bool? completed, Duration? duration}) =>
+          {String? body, bool? completed, bool? isError, Duration? duration}) =>
       _WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
           completed: completed ?? this.completed,
+          isError: isError ?? this.isError,
           duration: duration ?? this.duration,
           suggestions: suggestions);
 
@@ -3603,6 +3772,9 @@ class _WorkbenchMessageCard extends StatelessWidget {
     if (message.role == 'question') {
       return _QuestionEventCard(message: message, onSuggestion: onSuggestion);
     }
+    if (message.role == 'notice') {
+      return _SystemNoticeEventCard(message: message);
+    }
     final color = isUser
         ? _purple2
         : isApproval
@@ -3778,6 +3950,20 @@ class _QuestionEventCard extends StatelessWidget {
       ]));
 }
 
+class _SystemNoticeEventCard extends StatelessWidget {
+  const _SystemNoticeEventCard({required this.message});
+  final _WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) => _AgentEventCard(
+      icon: Icons.info_outline_rounded,
+      title: message.title,
+      meta: 'non-blocking',
+      trailing: null,
+      child: Text(message.body,
+          style: const TextStyle(color: _muted, fontSize: 12.5, height: 1.55)));
+}
+
 class _ThinkingEventCard extends StatelessWidget {
   const _ThinkingEventCard({required this.message, required this.expanded});
   final _WorkbenchMessage message;
@@ -3907,12 +4093,156 @@ class _CommandEventCard extends StatelessWidget {
   final _WorkbenchMessage message;
 
   @override
-  Widget build(BuildContext context) => _AgentEventCard(
-      icon: Icons.chevron_right_rounded,
-      title: 'Ran command',
-      meta: message.title,
-      trailing: _formatCommandDuration(message.duration),
-      child: _EventCodeLine(text: message.body, ok: message.completed));
+  Widget build(BuildContext context) {
+    final output = _commandOutput(message);
+    final ok = message.completed && !message.isError;
+    return _AgentEventCard(
+        icon: Icons.chevron_right_rounded,
+        title: 'Ran command',
+        meta: message.title,
+        trailing: _formatCommandDuration(message.duration),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _EventCodeLine(
+              text: message.body,
+              ok: ok,
+              error: message.isError,
+              onTap: () => _showCommandDetailSheet(
+                  context: context,
+                  title: '命令详情',
+                  subtitle: _commandDetailSubtitle(message),
+                  text: message.body)),
+          if (output != null) ...[
+            const SizedBox(height: 10),
+            _EventCodeLine(
+                text: output,
+                ok: ok,
+                error: message.isError,
+                onTap: () => _showCommandDetailSheet(
+                    context: context,
+                    title: '输出详情',
+                    subtitle: _commandDetailSubtitle(message),
+                    text: output)),
+          ]
+        ]));
+  }
+}
+
+String? _commandOutput(_WorkbenchMessage message) {
+  final output = message.event?.raw['output'];
+  if (output is String && output.trim().isNotEmpty) return output.trim();
+  return null;
+}
+
+String _commandDetailSubtitle(_WorkbenchMessage message) {
+  final parts = <String>[];
+  final toolName = message.event?.raw['toolName'];
+  if (toolName is String && toolName.trim().isNotEmpty) parts.add(toolName);
+  final duration = _formatCommandDuration(message.duration);
+  if (duration != null) parts.add(duration);
+  parts.add(message.completed ? 'completed' : 'running');
+  return parts.join(' · ');
+}
+
+void _showCommandDetailSheet({
+  required BuildContext context,
+  required String title,
+  required String subtitle,
+  required String text,
+}) {
+  showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _CommandDetailSheet(
+          title: title, subtitle: subtitle, text: text.trimRight()));
+}
+
+class _CommandDetailSheet extends StatelessWidget {
+  const _CommandDetailSheet(
+      {required this.title, required this.subtitle, required this.text});
+  final String title;
+  final String subtitle;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => DraggableScrollableSheet(
+      initialChildSize: .86,
+      minChildSize: .45,
+      maxChildSize: .96,
+      expand: false,
+      builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+              color: Color(0xFF101113),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(
+                child: Container(
+                    width: 42,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 10, bottom: 14),
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .22),
+                        borderRadius: BorderRadius.circular(999)))),
+            Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 10, 12),
+                child: Row(children: [
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(title,
+                            style: const TextStyle(
+                                color: _text,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 4),
+                        Text(subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: _faint,
+                                fontSize: 11,
+                                fontFamily: 'Consolas')),
+                      ])),
+                  IconButton(
+                      tooltip: '复制全文',
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: text));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('已复制到剪贴板')));
+                      },
+                      icon: const Icon(Icons.copy_rounded, color: _muted)),
+                  IconButton(
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: _muted)),
+                ])),
+            Expanded(
+                child: Container(
+                    margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFF0B0C0E),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: .07))),
+                    child: Scrollbar(
+                        controller: scrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                            controller: scrollController,
+                            padding: const EdgeInsets.all(14),
+                            scrollDirection: Axis.vertical,
+                            child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: SelectableText(text,
+                                    style: const TextStyle(
+                                        color: _muted,
+                                        fontSize: 12.5,
+                                        fontFamily: 'Consolas',
+                                        height: 1.45)))))))
+          ])));
 }
 
 @visibleForTesting
@@ -3937,6 +4267,35 @@ Widget buildCompletedCommandCardPreview() => MaterialApp(
                     runId: 'run_1',
                     completed: true,
                     duration: Duration(milliseconds: 2100))))));
+
+@visibleForTesting
+Widget buildConversationCommandCardPreview() {
+  final startedAt = DateTime.parse('2026-05-03T00:00:01.000Z');
+  final completedAt = DateTime.parse('2026-05-03T00:00:03.000Z');
+  final message = _workbenchMessageFromConversation(ConversationMessage(
+      role: 'command',
+      text: 'python intro.py',
+      eventSeq: 2,
+      approvalId: 'approval_1',
+      completed: true,
+      startedAt: startedAt,
+      completedAt: completedAt,
+      output: 'hello from intro'));
+  return MaterialApp(
+      locale: _zhHansCnLocale,
+      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: _appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: _appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: _bg,
+          body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _CommandEventCard(message: message))));
+}
 
 @visibleForTesting
 Widget buildPendingSentinelPreview() => MaterialApp(
@@ -4079,38 +4438,60 @@ class _AgentEventCard extends StatelessWidget {
 }
 
 class _EventCodeLine extends StatelessWidget {
-  const _EventCodeLine({required this.text, required this.ok});
+  const _EventCodeLine(
+      {required this.text, required this.ok, this.error = false, this.onTap});
   final String text;
   final bool ok;
+  final bool error;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-          color: const Color(0xFF0B0C0E),
+  Widget build(BuildContext context) => Material(
+      color: Colors.transparent,
+      child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: Colors.white.withValues(alpha: .055))),
-      child: Row(children: [
-        Expanded(
-            child: Text(text,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: _muted,
-                    fontSize: 12,
-                    fontFamily: 'Consolas',
-                    height: 1.35))),
-        if (ok) ...[
-          const SizedBox(width: 8),
-          const Text('ok',
-              style: TextStyle(
-                  color: _green,
-                  fontSize: 11,
-                  fontFamily: 'Consolas',
-                  fontWeight: FontWeight.w800))
-        ]
-      ]));
+          child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                  color: const Color(0xFF0B0C0E),
+                  borderRadius: BorderRadius.circular(11),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .055))),
+              child: Row(children: [
+                Expanded(
+                    child: Text(text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: _muted,
+                            fontSize: 12,
+                            fontFamily: 'Consolas',
+                            height: 1.35))),
+                if (onTap != null) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.open_in_full_rounded,
+                      color: _faint, size: 13),
+                ],
+                if (error) ...[
+                  const SizedBox(width: 8),
+                  const Text('error',
+                      style: TextStyle(
+                          color: _red,
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w800))
+                ] else if (ok) ...[
+                  const SizedBox(width: 8),
+                  const Text('ok',
+                      style: TextStyle(
+                          color: _green,
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w800))
+                ]
+              ]))));
 }
 
 String _normalizeAssistantMarkdown(String markdown) {

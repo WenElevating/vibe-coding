@@ -15,11 +15,12 @@ class ClaudeAdapter {
   detectCapabilities() {
     const version = this.spawnSyncFn(this.command, ['--version'], { encoding: 'utf8' });
     const help = this.spawnSyncFn(this.command, ['--help'], { encoding: 'utf8' });
-    if (version.error || help.error || version.status !== 0 || help.status !== 0) {
-      this.capability = unavailableCapability(this.command, version.error || help.error || version.stderr || help.stderr);
+    if (version.error || version.status !== 0) {
+      this.capability = unavailableCapability(this.command, version.error || version.stderr);
       return this.capability;
     }
     const helpText = `${help.stdout}\n${help.stderr}`;
+    const permissionModes = detectPermissionModes(this.command, this.spawnSyncFn, helpText);
     this.capability = {
       adapter: 'claude',
       version: String(version.stdout || version.stderr || '').trim(),
@@ -31,7 +32,8 @@ class ClaudeAdapter {
         inputFormat: helpText.includes('--input-format') || helpText.includes('input-format'),
         verbose: helpText.includes('--verbose'),
         includePartialMessages: helpText.includes('--include-partial-messages'),
-        resume: helpText.includes('--resume') || helpText.includes('resume')
+        resume: helpText.includes('--resume') || helpText.includes('resume'),
+        permissionModes
       }
     };
     const required = ['print', 'streamJson', 'verbose', 'includePartialMessages'];
@@ -56,44 +58,11 @@ class ClaudeAdapter {
 
   startRun({ prompt, workspacePath, sessionId, resume = false, permissionMode = 'default', onEvent }) {
     this.ensureAvailable();
-    const args = [
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--print',
-      '--system-prompt',
-      '',
-      '--include-partial-messages',
-      ...(sessionId ? ['--resume', sessionId] : resume ? ['--continue'] : []),
-      ...(permissionMode === 'default'
-        ? ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']
-        : ['--permission-mode', 'auto']),
-      ...(permissionMode === 'auto' ? [
-        '--allowedTools',
-        [
-          'Read',
-          'Write',
-          'Edit',
-          'MultiEdit',
-          'Glob',
-          'Grep',
-          'LS',
-          'Bash(git status *)',
-          'Bash(git diff *)',
-          'Bash(node *)',
-          'Bash(npm test *)',
-          'Bash(pnpm test *)',
-          'Bash(python *)',
-          'Bash(py *)',
-          'Bash(dart test *)',
-          'Bash(flutter test *)',
-          'Bash(flutter analyze *)'
-        ].join(',')
-      ] : []),
-      '--input-format',
-      'stream-json'
-    ];
-    const child = this.spawnFn(this.command, args, {
+    const launchOptions = buildClaudeArgs({ permissionMode, sessionId, resume }, this.capability);
+    const args = launchOptions.args;
+    const effectivePermissionMode = launchOptions.effectivePermissionMode;
+    const launch = shellLaunchInWorkspace(this.command, args, workspacePath);
+    const child = this.spawnFn(launch.command, launch.args, {
       cwd: workspacePath,
       windowsHide: true,
       env: sdkProcessEnvForWorkspace(process.env, workspacePath)
@@ -117,13 +86,14 @@ class ClaudeAdapter {
         parent_tool_use_id: null,
         session_id: ''
       });
-      if (permissionMode === 'auto') endInput(child);
+      if (shouldCloseStdinAfterPrompt(effectivePermissionMode)) endInput(child);
     };
     const parseStdout = createJsonLineParser((event) => {
       if (event.type === '__control_response' && event.requestId === initRequestId) {
         sendPrompt();
         return;
       }
+      if (event.type === '__result' && !shouldCloseStdinAfterPrompt(effectivePermissionMode)) endInput(child);
       handleClaudeEvent(event, child, emitEvent);
     });
     child.stdout.on('data', parseStdout);
@@ -205,6 +175,101 @@ function handleClaudeEvent(event, child, onEvent) {
   onEvent(event);
 }
 
+function buildClaudeArgs(input = {}, capability = {}) {
+  const { effectivePermissionMode, requestedPermissionMode } = resolvePermissionMode(input.permissionMode, capability);
+  const args = [
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--print',
+    '--include-partial-messages',
+    ...(input.sessionId ? ['--resume', input.sessionId] : input.resume ? ['--continue'] : []),
+    '--permission-mode',
+    effectivePermissionMode,
+    ...toolControlArgs(input, effectivePermissionMode),
+    '--input-format',
+    'stream-json'
+  ];
+  return { args, requestedPermissionMode, effectivePermissionMode };
+}
+
+function resolvePermissionMode(requestedPermissionMode = 'default', capability = {}) {
+  const requested = requestedPermissionMode || 'default';
+  const modes = new Set(capability?.capabilities?.permissionModes || ['default']);
+  const effectivePermissionMode = modes.has(requested) ? requested : 'default';
+  return { requestedPermissionMode: requested, effectivePermissionMode };
+}
+
+function toolControlArgs(input, effectivePermissionMode) {
+  const args = [];
+  const tools = normalizeToolList(input.tools || input.requestedToolPolicy?.tools);
+  const allowedTools = normalizeToolList(input.allowedTools || input.requestedToolPolicy?.allowedTools);
+  const disallowedTools = normalizeToolList(input.disallowedTools || input.requestedToolPolicy?.disallowedTools);
+  if (tools.length > 0) args.push('--tools', tools.join(','));
+  if (disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','));
+  if (allowedTools.length > 0 && effectivePermissionMode !== 'bypassPermissions') args.push('--allowedTools', allowedTools.join(','));
+  if (allowedTools.length === 0 && effectivePermissionMode === 'auto') args.push('--allowedTools', defaultAllowedTools().join(','));
+  return args;
+}
+
+function normalizeToolList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => typeof item === 'string' ? item.trim() : '').filter(Boolean);
+}
+
+function defaultAllowedTools() {
+  return [
+    'Read',
+    'Write',
+    'Edit',
+    'MultiEdit',
+    'Glob',
+    'Grep',
+    'LS',
+    'Bash(git status *)',
+    'Bash(git diff *)',
+    'Bash(node *)',
+    'Bash(npm test *)',
+    'Bash(pnpm test *)',
+    'Bash(python *)',
+    'Bash(py *)',
+    'Bash(dart test *)',
+    'Bash(flutter test *)',
+    'Bash(flutter analyze *)'
+  ];
+}
+
+function shouldCloseStdinAfterPrompt(permissionMode) {
+  return ['auto', 'bypassPermissions', 'dontAsk', 'acceptEdits'].includes(permissionMode);
+}
+
+function detectPermissionModes(command, spawnSyncFn, helpText) {
+  const parsed = parsePermissionModes(helpText);
+  if (parsed.length > 1) return parsed;
+  const probed = probePermissionMode(command, spawnSyncFn, 'auto');
+  if (probed) return Array.from(new Set([...parsed, 'auto']));
+  return parsed;
+}
+
+function parsePermissionModes(helpText) {
+  const supported = new Set(['default']);
+  const text = String(helpText || '');
+  const line = text.split(/\r?\n/).find((item) => item.includes('--permission-mode')) || '';
+  const bracket = line.match(/\[([^\]]+)\]/)?.[1] || '';
+  const source = `${line} ${bracket}`;
+  for (const mode of ['auto', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'delegate', 'default']) {
+    if (source.includes(mode)) supported.add(mode);
+  }
+  return Array.from(supported);
+}
+
+function probePermissionMode(command, spawnSyncFn, mode) {
+  const result = spawnSyncFn(command, ['--permission-mode', mode, '--print', '--max-turns', '0', 'true'], { encoding: 'utf8' });
+  if (result.error) return false;
+  const text = `${result.stdout || ''}\n${result.stderr || ''}`;
+  return result.status === 0 || !/invalid|unknown|unsupported|parse|option/i.test(text);
+}
+
 function isAskUserQuestionTool(toolName) {
   return toolName === 'AskUserQuestion';
 }
@@ -250,13 +315,21 @@ function writeControlResponse(child, requestId, response) {
 }
 
 function writeJsonLine(child, payload) {
-  if (!child.stdin || child.stdin.destroyed) return;
+  if (!isWritableStdin(child.stdin)) return;
   child.stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
 function endInput(child) {
-  if (!child.stdin || child.stdin.destroyed) return;
+  if (!isWritableStdin(child.stdin)) return;
   if (typeof child.stdin.end === 'function') child.stdin.end();
+}
+
+function isWritableStdin(stdin) {
+  return !!stdin
+    && !stdin.destroyed
+    && stdin.writable !== false
+    && !stdin.writableEnded
+    && !stdin.writableFinished;
 }
 
 function sdkProcessEnv(sourceEnv) {
@@ -323,6 +396,14 @@ function mapClaudeEvent(raw) {
   const rawType = typeof raw.type === 'string' ? raw.type : typeof raw.event === 'string' ? raw.event : 'raw';
   if (rawType === 'control_request') return { type: '__control_request', raw };
   if (rawType === 'control_response') return { type: '__control_response', requestId: raw.response?.request_id, raw };
+  if (rawType === 'system' && ['session_start', 'session_end'].includes(raw.subtype)) {
+    return {
+      type: eventTypes.RAW_OUTPUT,
+      text: '',
+      sessionId: raw.session_id || raw.sessionId,
+      raw
+    };
+  }
   if (isInternalClaudePayload(raw, rawType)) return { type: '__internal', raw };
   if (rawType === 'result') {
     return {
@@ -404,8 +485,7 @@ function looksLikeProtocolLeak(text) {
   }
   const normalized = trimmed.slice(0, 1400)
     .replace(/\\n/g, '\n')
-    .replace(/\\"/g, '"')
-    .replace(/'/g, '"');
+    .replace(/\\"/g, '"');
   if (normalized.includes('"type":"control_')
     || normalized.includes('"type": "control_')
     || normalized.includes('"suppressOutput"')
@@ -419,10 +499,49 @@ function looksLikeProtocolLeak(text) {
     && normalized.includes('"message"');
 }
 
+function shellLaunchInWorkspace(command, args, workspacePath) {
+  if (!command || !String(command).trim()) throw new Error('command is required');
+  if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
+  if (process.platform === 'win32') {
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', `cd /d "${escapeCmdPath(workspacePath)}" && ${cmdQuote(command)} ${args.map(cmdQuote).join(' ')}`]
+    };
+  }
+  return {
+    command: 'sh',
+    args: ['-c', `cd ${shQuote(workspacePath)} && ${shQuote(command)} ${args.map(shQuote).join(' ')}`]
+  };
+}
+
+function cmdQuote(value) {
+  return `"${escapeCmdArg(value)}"`;
+}
+
+function escapeCmdPath(value) {
+  return escapeCmdArg(value);
+}
+
+function escapeCmdArg(value) {
+  return String(value).replace(/([\^&|<>()%!])/g, '^$1').replace(/"/g, '""');
+}
+
+function shQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 function isTerminalEvent(event) {
   return event?.type === eventTypes.RUN_COMPLETED
     || event?.type === eventTypes.RUN_FAILED
     || event?.type === eventTypes.RUN_CANCELLED;
 }
 
-module.exports = { ClaudeAdapter, parseJsonLines, mapClaudeEvent, unavailableCapability };
+module.exports = {
+  ClaudeAdapter,
+  parseJsonLines,
+  mapClaudeEvent,
+  unavailableCapability,
+  buildClaudeArgs,
+  resolvePermissionMode,
+  parsePermissionModes
+};

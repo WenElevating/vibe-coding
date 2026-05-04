@@ -46,12 +46,9 @@ class ClaudeConversationAdapter {
       '--output-format', 'stream-json',
       '--verbose',
       '--print',
-      '--system-prompt', '',
       '--include-partial-messages',
       ...(sessionId ? ['--resume', sessionId] : []),
-      ...(permissionMode === 'default'
-        ? ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']
-        : ['--permission-mode', 'auto']),
+      '--permission-mode', permissionMode === 'default' ? 'default' : 'auto',
       ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'
     ];
@@ -60,8 +57,19 @@ class ClaudeConversationAdapter {
       windowsHide: true,
       env: sdkProcessEnvForWorkspace(process.env, workspacePath)
     });
-    const state = { child, onEvent, pendingQuestions: new Map(), pendingApprovals: new Map() };
     const initRequestId = `init_${Date.now().toString(16)}`;
+    const state = {
+      child,
+      onEvent,
+      pendingQuestions: new Map(),
+      pendingApprovals: new Map(),
+      pendingTools: new Map(),
+      contentBlocks: new Map(),
+      now: () => new Date(),
+      initRequestId,
+      initialized: false,
+      initWaiters: []
+    };
     child.stdout.on('data', createJsonLineParser((raw) => handleRawClaudeEvent(raw, state)));
     child.stderr.on('data', (chunk) => onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: chunk.toString() }));
     child.on('error', (error) => onEvent({ type: conversationEventTypes.RUN_ERROR, error: error.message }));
@@ -74,6 +82,8 @@ class ClaudeConversationAdapter {
       request_id: initRequestId,
       request: { subtype: 'initialize', hooks: null }
     });
+    const fallback = setTimeout(() => completeInitialize(state, { timedOut: true }), 1500);
+    state.initFallback = fallback;
     return new ClaudeConversationHandle({ conversationId, state });
   }
 }
@@ -85,10 +95,12 @@ class ClaudeConversationHandle {
   }
 
   async sendUserMessage(text) {
+    await waitForInitialize(this.state);
     writeUserMessage(this.state.child, text);
   }
 
   async answerQuestion(questionId, text) {
+    await waitForInitialize(this.state);
     const pending = this.state.pendingQuestions.get(questionId);
     if (pending?.toolUseId && !pending.requestId) {
       writeToolResultMessage(this.state.child, pending.toolUseId, text);
@@ -108,6 +120,7 @@ class ClaudeConversationHandle {
   }
 
   async respondApproval(approvalId, decision) {
+    await waitForInitialize(this.state);
     const pending = this.state.pendingApprovals.get(approvalId);
     const input = pending?.input || {};
     const response = decision === 'allow'
@@ -127,36 +140,280 @@ class ClaudeConversationHandle {
 }
 
 function handleRawClaudeEvent(raw, state) {
-  const rawType = typeof raw.type === 'string' ? raw.type : 'raw';
-  if (rawType === 'control_response') return;
+  const event = unwrapClaudeEvent(raw);
+  const rawType = typeof event.type === 'string' ? event.type : 'raw';
+  if (rawType === 'control_response') {
+    const requestId = event.response?.request_id || event.request_id;
+    if (requestId === state.initRequestId || !state.initialized) completeInitialize(state);
+    return;
+  }
+  if (!state.initialized) completeInitialize(state);
   if (rawType === 'control_request') {
-    handleControlRequest(raw, state);
+    handleControlRequest(event, state);
     return;
   }
-  const sessionId = raw.session_id || raw.sessionId;
+  if (rawType === 'tool_use') return handleToolUse(event, state, raw);
+  if (rawType === 'tool_use_delta') return handleToolDelta(event, state, raw);
+  if (rawType === 'tool_result') return handleToolResult(event, state, raw);
+  if (rawType === 'content_block_start') return handleContentBlockStart(event, state, raw);
+  if (rawType === 'content_block_delta') return handleContentBlockDelta(event, state, raw);
+  if (rawType === 'content_block_stop') return handleContentBlockStop(event, state, raw);
+  const sessionId = event.session_id || event.sessionId;
   if (rawType === 'result') {
-    const text = extractText(raw);
-    if (text) state.onEvent({ type: conversationEventTypes.ASSISTANT_MESSAGE, text, sessionId, raw });
-    else state.onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED, sessionId, raw });
+    const text = extractText(event);
+    if (text) state.onEvent({ type: conversationEventTypes.ASSISTANT_MESSAGE, text, sessionId, raw: event });
+    else state.onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED, sessionId, raw: event });
     return;
   }
-  if (rawType === 'assistant' || raw.message?.role === 'assistant') {
-    const parts = extractAssistantParts(raw);
+  if (rawType === 'assistant' || event.message?.role === 'assistant') {
+    handleAssistantToolEvents(event, state, raw);
+    const parts = extractAssistantParts(event);
     for (const part of parts) {
       if (part.type === conversationEventTypes.ASSISTANT_QUESTION) {
         state.pendingQuestions.set(part.questionId, { input: part.input || {}, toolUseId: part.toolUseId || null });
-        state.onEvent({ ...part, sessionId, raw });
+        state.onEvent({ ...part, sessionId, raw: event });
       } else {
-        state.onEvent({ type: part.type, text: part.text, sessionId, raw });
+        state.onEvent({ type: part.type, text: part.text, sessionId, raw: event });
       }
     }
     return;
   }
-  if (rawType === 'system' && raw.subtype === 'api_retry') {
-    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${raw.error_status || ''} ${raw.error || 'error'}`, sessionId, raw });
+  if (rawType === 'user' || event.message?.role === 'user') {
+    handleUserToolResults(event, state, raw);
     return;
   }
-  if (sessionId) state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: '', sessionId, raw });
+  if (rawType === 'system' && event.subtype === 'api_retry') {
+    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${event.error_status || ''} ${event.error || 'error'}`, sessionId, raw: event });
+    return;
+  }
+  if (sessionId) state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: '', sessionId, raw: event });
+}
+
+function completeInitialize(state, details = {}) {
+  if (state.initialized) return;
+  state.initialized = true;
+  if (state.initFallback) clearTimeout(state.initFallback);
+  if (details.timedOut) {
+    state.onEvent({
+      type: conversationEventTypes.PROTOCOL_WARNING,
+      text: 'Claude initialize handshake timed out; continuing with prompt send fallback.'
+    });
+  }
+  const waiters = state.initWaiters.splice(0);
+  for (const resolve of waiters) resolve();
+}
+
+function waitForInitialize(state) {
+  if (state.initialized) return Promise.resolve();
+  return new Promise((resolve) => state.initWaiters.push(resolve));
+}
+
+function unwrapClaudeEvent(raw) {
+  if (raw && raw.type === 'stream_event' && raw.event && typeof raw.event === 'object') {
+    return {
+      ...raw.event,
+      session_id: raw.event.session_id || raw.session_id,
+      sessionId: raw.event.sessionId || raw.sessionId
+    };
+  }
+  return raw;
+}
+
+function handleToolUse(raw, state, originalRaw = raw) {
+  const toolUseId = raw.id || raw.tool_use_id;
+  if (!toolUseId) return;
+  const previous = state.pendingTools.get(toolUseId) || {};
+  const input = raw.input && typeof raw.input === 'object' ? raw.input : previous.input || {};
+  const tool = {
+    toolUseId,
+    name: raw.name || raw.tool_name || previous.name || 'tool',
+    input,
+    startedAt: previous.startedAt || state.now().toISOString()
+  };
+  state.pendingTools.set(toolUseId, tool);
+  state.onEvent({
+    type: conversationEventTypes.TOOL_STARTED,
+    toolUseId,
+    toolName: tool.name,
+    input: tool.input,
+    summary: summarizeToolInput(tool.name, tool.input),
+    raw: originalRaw
+  });
+}
+
+function handleContentBlockStart(raw, state, originalRaw = raw) {
+  const block = raw.content_block || {};
+  if (block.type === 'tool_use') {
+    const index = raw.index;
+    if (index !== undefined && index !== null) {
+      state.contentBlocks.set(index, {
+        kind: 'tool_use',
+        toolUseId: block.id,
+        name: block.name,
+        input: block.input && typeof block.input === 'object' ? block.input : {},
+        inputJson: ''
+      });
+    }
+    if (block.input && Object.keys(block.input).length > 0) {
+      handleToolUse({ id: block.id, name: block.name, input: block.input }, state, originalRaw);
+    }
+    return;
+  }
+  if (block.type === 'tool_result') {
+    const index = raw.index;
+    if (index !== undefined && index !== null) {
+      state.contentBlocks.set(index, {
+        kind: 'tool_result',
+        toolUseId: block.tool_use_id || block.id,
+        content: block.content || '',
+        isError: block.is_error === true
+      });
+    }
+  }
+}
+
+function handleContentBlockDelta(raw, state, originalRaw = raw) {
+  const block = state.contentBlocks.get(raw.index);
+  const delta = raw.delta || {};
+  if (!block) return;
+  if (block.kind === 'tool_use' && delta.type === 'input_json_delta') {
+    block.inputJson = `${block.inputJson || ''}${delta.partial_json || ''}`;
+    state.contentBlocks.set(raw.index, block);
+    return;
+  }
+  if (block.kind === 'tool_result') {
+    const text = delta.text || delta.content || delta.partial_json || '';
+    if (text) {
+      block.content = `${block.content || ''}${text}`;
+      state.contentBlocks.set(raw.index, block);
+    }
+  }
+}
+
+function handleContentBlockStop(raw, state, originalRaw = raw) {
+  const block = state.contentBlocks.get(raw.index);
+  if (!block) return;
+  state.contentBlocks.delete(raw.index);
+  if (block.kind === 'tool_use') {
+    const parsedInput = parsePartialJsonObject(block.inputJson);
+    const input = parsedInput || block.input || {};
+    handleToolUse({ id: block.toolUseId, name: block.name, input }, state, originalRaw);
+    return;
+  }
+  if (block.kind === 'tool_result') {
+    handleToolResult({
+      tool_use_id: block.toolUseId,
+      content: block.content || '',
+      is_error: block.isError === true
+    }, state, originalRaw);
+  }
+}
+
+function handleAssistantToolEvents(raw, state, originalRaw = raw) {
+  const content = raw.message?.content || raw.content;
+  if (!Array.isArray(content)) return;
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    if (part.type === 'tool_use' && part.name !== 'AskUserQuestion') {
+      handleToolUse(part, state, originalRaw);
+      continue;
+    }
+    if (part.type === 'tool_result') {
+      handleToolResult(part, state, originalRaw);
+    }
+  }
+}
+
+function handleUserToolResults(raw, state, originalRaw = raw) {
+  const content = raw.message?.content || raw.content;
+  if (!Array.isArray(content)) return;
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    if (part.type === 'tool_result') handleToolResult(part, state, originalRaw);
+  }
+}
+
+function handleToolDelta(raw, state, originalRaw = raw) {
+  const toolUseId = raw.tool_use_id || raw.id;
+  if (!toolUseId) return;
+  const text = extractToolText(raw);
+  if (!text) return;
+  state.onEvent({ type: 'tool.delta', toolUseId, text, raw: originalRaw });
+}
+
+function handleToolResult(raw, state, originalRaw = raw) {
+  const toolUseId = raw.tool_use_id || raw.id;
+  if (!toolUseId) return;
+  const pending = state.pendingTools.get(toolUseId) || null;
+  const text = extractToolText(raw);
+  const exitCode = Number.isInteger(raw.exit_code) ? raw.exit_code : null;
+  const isError = raw.is_error === true;
+  const permissionError = isPermissionErrorText(text);
+  const toolName = pending?.name || raw.name || raw.tool_name || null;
+  const input = pending?.input || {};
+  if (permissionError) {
+    state.onEvent({
+      type: conversationEventTypes.SYSTEM_NOTICE,
+      text: permissionNoticeText(toolName, input),
+      noticeKind: 'permission_unavailable',
+      toolUseId,
+      toolName,
+      input,
+      raw: originalRaw
+    });
+  }
+  state.onEvent({
+    type: conversationEventTypes.TOOL_OUTPUT,
+    toolUseId,
+    toolName,
+    input,
+    text,
+    exitCode,
+    isError,
+    permissionError,
+    raw: originalRaw
+  });
+  state.onEvent({
+    type: conversationEventTypes.TOOL_COMPLETED,
+    toolUseId,
+    toolName,
+    input,
+    exitCode,
+    isError,
+    permissionError,
+    durationMs: pending ? Math.max(0, state.now().getTime() - Date.parse(pending.startedAt)) : null,
+    raw: originalRaw
+  });
+  state.pendingTools.delete(toolUseId);
+}
+
+function isPermissionErrorText(text) {
+  return typeof text === 'string'
+    && /requested permissions/i.test(text)
+    && /haven't granted it yet|permission/i.test(text);
+}
+
+function permissionNoticeText(toolName, input) {
+  const target = summarizeToolInput(toolName, input);
+  return `Claude 需要权限执行 ${target}，但当前 CLI 没有发出可响应的移动端审批请求；请切换到自动权限模式或在可交互终端中授权。`;
+}
+
+function extractToolText(raw) {
+  if (typeof raw.content === 'string') return raw.content;
+  if (typeof raw.text === 'string') return raw.text;
+  if (typeof raw.delta === 'string') return raw.delta;
+  if (Array.isArray(raw.content)) return raw.content.map((part) => part?.text || part?.content || '').join('');
+  return '';
+}
+
+function parsePartialJsonObject(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
 }
 
 function handleControlRequest(raw, state) {
@@ -180,6 +437,18 @@ function handleControlRequest(raw, state) {
     return;
   }
   state.pendingApprovals.set(requestId, { input: request.input || {} });
+  if (request.tool_use_id && request.input && typeof request.input === 'object') {
+    const pendingTool = state.pendingTools.get(request.tool_use_id) || {
+      toolUseId: request.tool_use_id,
+      name: request.tool_name,
+      startedAt: state.now().toISOString()
+    };
+    state.pendingTools.set(request.tool_use_id, {
+      ...pendingTool,
+      name: request.tool_name || pendingTool.name,
+      input: request.input || pendingTool.input || {}
+    });
+  }
   state.onEvent({
     type: conversationEventTypes.APPROVAL_REQUESTED,
     approvalId: requestId,
@@ -228,8 +497,16 @@ function writeControlResponse(child, requestId, response) {
 }
 
 function writeJsonLine(child, payload) {
-  if (!child.stdin || child.stdin.destroyed) return;
+  if (!isWritableStdin(child.stdin)) return;
   child.stdin.write(`${JSON.stringify(payload)}\n`);
+}
+
+function isWritableStdin(stdin) {
+  return !!stdin
+    && !stdin.destroyed
+    && stdin.writable !== false
+    && !stdin.writableEnded
+    && !stdin.writableFinished;
 }
 
 function askUserQuestionText(input) {

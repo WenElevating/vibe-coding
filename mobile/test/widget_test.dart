@@ -246,6 +246,19 @@ void main() {
     expect(find.text('ok'), findsOneWidget);
   });
 
+  testWidgets('command output opens a full detail sheet',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildConversationCommandCardPreview());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('hello from intro').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('输出详情'), findsOneWidget);
+    expect(find.byTooltip('复制全文'), findsOneWidget);
+    expect(find.text('hello from intro'), findsWidgets);
+  });
+
   testWidgets(
       'pending sentinel is compact and does not show adapter or action list',
       (WidgetTester tester) async {
@@ -299,6 +312,158 @@ void main() {
 
     expect(debugWorkbenchMessageRolesAfterEvents(events),
         const <String>[r'command:Write C:\Users\W2830\python_intro.py']);
+  });
+
+  test('conversation approval resolution becomes a command card', () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const conversation = ConversationSummary(
+      id: 'conv_1',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'running',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:02.000Z',
+    );
+    final events = <Map<String, Object?>>[
+      const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'approvalId': 'approval_1',
+        'toolName': 'Bash',
+        'input': {'command': 'python intro.py'},
+        'summary': 'python intro.py'
+      },
+      const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'approval.resolved',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'approval_1',
+        'decision': 'allow',
+        'toolName': 'Bash',
+        'input': {'command': 'python intro.py'},
+        'summary': 'python intro.py'
+      },
+    ];
+
+    expect(debugWorkbenchMessageRolesForConversationEvents(events, conversation),
+        const <String>['command:python intro.py']);
+  });
+
+  test('conversation approval preserves command metadata from blocking item', () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const conversation = ConversationSummary(
+      id: 'conv_1',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'running',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:02.000Z',
+    );
+    final events = <Map<String, Object?>>[
+      const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'approvalId': 'approval_1',
+        'toolUseId': 'toolu_1',
+        'toolName': 'Write',
+        'input': {'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'},
+        'summary': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
+      },
+      const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'approval.resolved',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'approval_1',
+        'toolUseId': 'toolu_1',
+        'decision': 'allow',
+        'toolName': 'Write',
+        'input': {'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'},
+        'summary': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
+      },
+    ];
+
+    expect(debugWorkbenchMessageRolesForConversationEvents(events, conversation),
+        const <String>[
+          r'command:D:\AiProject\vibe-coding\python_concurrency_learn.py'
+        ]);
+  });
+
+  testWidgets('conversation command card shows output and duration',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildConversationCommandCardPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ran command'), findsOneWidget);
+    expect(find.text('python intro.py'), findsOneWidget);
+    expect(find.text('hello from intro'), findsOneWidget);
+    expect(find.text('2.0s'), findsOneWidget);
+    expect(find.text('ok'), findsWidgets);
+  });
+
+  test('empty completed conversation shows diagnostic warning', () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const conversation = ConversationSummary(
+      id: 'conv_empty',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'idle',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:02.000Z',
+    );
+    final diagnostic = debugEmptyConversationCompletionDiagnostic(
+      const <Map<String, Object?>>[
+        <String, Object?>{
+          'seq': 1,
+          'conversationId': 'conv_empty',
+          'type': 'conversation.started',
+          'createdAt': '2026-05-03T00:00:00.000Z'
+        },
+        <String, Object?>{
+          'seq': 2,
+          'conversationId': 'conv_empty',
+          'type': 'protocol.warning',
+          'createdAt': '2026-05-03T00:00:01.000Z',
+          'text': 'Claude exited before returning content'
+        },
+        <String, Object?>{
+          'seq': 3,
+          'conversationId': 'conv_empty',
+          'type': 'conversation.completed',
+          'createdAt': '2026-05-03T00:00:02.000Z'
+        },
+      ],
+      conversation,
+    );
+
+    expect(diagnostic, contains('CLI 未返回内容'));
+    expect(diagnostic, contains('Claude exited before returning content'));
   });
 
   test('cancelled run does not render a visible status card', () {

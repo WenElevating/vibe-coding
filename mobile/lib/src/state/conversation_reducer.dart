@@ -7,6 +7,16 @@ class ConversationMessage {
     this.eventSeq,
     this.questionId,
     this.approvalId,
+    this.toolUseId,
+    this.toolName,
+    this.summary,
+    this.input = const <String, Object?>{},
+    this.completed = false,
+    this.startedAt,
+    this.completedAt,
+    this.output,
+    this.exitCode,
+    this.isError = false,
     this.suggestions = const <String>[],
   });
 
@@ -15,6 +25,16 @@ class ConversationMessage {
   final int? eventSeq;
   final String? questionId;
   final String? approvalId;
+  final String? toolUseId;
+  final String? toolName;
+  final String? summary;
+  final Map<String, Object?> input;
+  final bool completed;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+  final String? output;
+  final int? exitCode;
+  final bool isError;
   final List<String> suggestions;
 }
 
@@ -112,6 +132,10 @@ class ConversationViewState {
             text: event.summary ?? event.toolName ?? '需要批准',
             eventSeq: event.seq,
             approvalId: event.approvalId,
+            toolUseId: event.toolUseId,
+            toolName: event.toolName,
+            summary: event.summary,
+            input: event.input,
           ));
           nextStatus = 'waiting_approval';
           break;
@@ -119,13 +143,67 @@ class ConversationViewState {
           nextMessages.removeWhere((message) =>
               message.role == 'approval' &&
               message.approvalId == event.approvalId);
+          if ((event.raw['decision'] as String?) == 'allow') {
+            final command = _approvalCommandText(event);
+            if (command != null) {
+              _upsertCommandMessage(
+                  nextMessages,
+                  ConversationMessage(
+                      role: 'command',
+                      text: command,
+                      eventSeq: event.seq,
+                      approvalId: event.approvalId,
+                      toolUseId: event.toolUseId,
+                      toolName: event.toolName,
+                      summary: event.summary,
+                      input: event.input,
+                      startedAt: event.createdAt));
+            }
+          }
           nextStatus = 'running';
           break;
+        case 'system.notice':
+          nextMessages.add(ConversationMessage(
+            role: 'notice',
+            text: event.text ?? event.summary ?? '',
+            eventSeq: event.seq,
+          ));
+          break;
+        case 'tool.started':
+          final toolUseId = event.toolUseId;
+          if (toolUseId == null || toolUseId.isEmpty) break;
+          _upsertCommandMessage(
+              nextMessages,
+              ConversationMessage(
+                role: 'command',
+                text: _toolCommandText(event),
+                eventSeq: event.seq,
+                toolUseId: toolUseId,
+                toolName: event.toolName,
+                summary: event.summary,
+                input: event.input,
+                startedAt: event.createdAt,
+              ));
+          break;
+        case 'tool.delta':
+        case 'tool.output':
+          _appendCommandOutput(nextMessages, event);
+          break;
+        case 'tool.completed':
+          _completeCommandMessage(nextMessages, event);
+          break;
+        case 'conversation.completed':
+          _completeCommandMessages(nextMessages, event);
+          nextStatus = 'idle';
+          partial = '';
+          break;
         case 'conversation.cancelled':
+          _completeCommandMessages(nextMessages, event);
           nextStatus = 'cancelled';
           partial = '';
           break;
         case 'run.error':
+          _completeCommandMessages(nextMessages, event);
           nextStatus = 'failed';
           partial = '';
           break;
@@ -138,6 +216,162 @@ class ConversationViewState {
       pendingPartial: partial,
     );
   }
+}
+
+void _upsertCommandMessage(
+    List<ConversationMessage> messages, ConversationMessage command) {
+  final existingIndex = _commandIndexForCorrelation(messages,
+      toolUseId: command.toolUseId, approvalId: command.approvalId);
+  if (existingIndex >= 0) {
+    final current = messages[existingIndex];
+    messages[existingIndex] = ConversationMessage(
+      role: command.role,
+      text: command.text,
+      eventSeq: command.eventSeq,
+      questionId: current.questionId,
+      approvalId: command.approvalId,
+      toolUseId: command.toolUseId ?? current.toolUseId,
+      toolName: command.toolName ?? current.toolName,
+      summary: command.summary ?? current.summary,
+      input: command.input.isNotEmpty ? command.input : current.input,
+      completed: current.completed || command.completed,
+      startedAt: current.startedAt ?? command.startedAt,
+      completedAt: command.completedAt ?? current.completedAt,
+      output: command.output ?? current.output,
+      exitCode: command.exitCode ?? current.exitCode,
+      isError: current.isError || command.isError,
+      suggestions: command.suggestions,
+    );
+  } else {
+    messages.add(command);
+  }
+}
+
+void _appendCommandOutput(
+    List<ConversationMessage> messages, ConversationEvent event) {
+  final output = event.text ?? event.summary;
+  if (output == null || output.trim().isEmpty) return;
+  final index = _commandIndexForToolUseId(messages, event.toolUseId);
+  if (index < 0) return;
+  final command = messages[index];
+  messages[index] = ConversationMessage(
+    role: command.role,
+    text: command.text,
+    eventSeq: event.seq,
+    questionId: command.questionId,
+    approvalId: command.approvalId,
+    toolUseId: command.toolUseId,
+    toolName: command.toolName,
+    summary: command.summary,
+    input: command.input,
+    completed: command.completed,
+    startedAt: command.startedAt,
+    completedAt: command.completedAt,
+    output: _mergeCommandOutput(command.output, output.trim()),
+    exitCode: event.exitCode ?? command.exitCode,
+    isError: command.isError || event.isError,
+    suggestions: command.suggestions,
+  );
+}
+
+void _completeCommandMessage(
+    List<ConversationMessage> messages, ConversationEvent event) {
+  final index = _commandIndexForToolUseId(messages, event.toolUseId);
+  if (index < 0) return;
+  final command = messages[index];
+  messages[index] = ConversationMessage(
+    role: command.role,
+    text: command.text,
+    eventSeq: event.seq,
+    questionId: command.questionId,
+    approvalId: command.approvalId,
+    toolUseId: command.toolUseId,
+    toolName: command.toolName,
+    summary: command.summary,
+    input: command.input,
+    completed: true,
+    startedAt: command.startedAt,
+    completedAt: event.createdAt,
+    output: command.output,
+    exitCode: event.exitCode ?? command.exitCode,
+    isError: command.isError || event.isError,
+    suggestions: command.suggestions,
+  );
+}
+
+void _completeCommandMessages(
+    List<ConversationMessage> messages, ConversationEvent event) {
+  for (var index = 0; index < messages.length; index++) {
+    final command = messages[index];
+    if (command.role != 'command' || command.completed) continue;
+    messages[index] = ConversationMessage(
+      role: command.role,
+      text: command.text,
+      eventSeq: event.seq,
+      questionId: command.questionId,
+      approvalId: command.approvalId,
+      toolUseId: command.toolUseId,
+      toolName: command.toolName,
+      summary: command.summary,
+      input: command.input,
+      completed: true,
+      startedAt: command.startedAt,
+      completedAt: event.createdAt,
+      output: command.output,
+      exitCode: command.exitCode,
+      isError: command.isError || event.isError,
+      suggestions: command.suggestions,
+    );
+  }
+}
+
+int _commandIndexForCorrelation(List<ConversationMessage> messages,
+    {String? toolUseId, String? approvalId}) {
+  final toolIndex = _commandIndexForToolUseId(messages, toolUseId);
+  if (toolIndex >= 0) return toolIndex;
+  if (approvalId == null || approvalId.isEmpty) return -1;
+  return messages.indexWhere((message) =>
+      message.role == 'command' && message.approvalId == approvalId);
+}
+
+int _commandIndexForToolUseId(
+    List<ConversationMessage> messages, String? toolUseId) {
+  if (toolUseId == null || toolUseId.isEmpty) return -1;
+  return messages.indexWhere((message) =>
+      message.role == 'command' && message.toolUseId == toolUseId);
+}
+
+String _mergeCommandOutput(String? current, String incoming) {
+  final existing = current?.trim();
+  if (existing == null || existing.isEmpty) return incoming;
+  if (existing.contains(incoming)) return existing;
+  if (incoming.contains(existing)) return incoming;
+  return '$existing\n$incoming';
+}
+
+String? _approvalCommandText(ConversationEvent event) {
+  final command = event.input['command'];
+  if (command is String && command.trim().isNotEmpty) return command.trim();
+  final summary = event.summary;
+  if (summary != null && summary.trim().isNotEmpty) return summary.trim();
+  final file = event.input['file_path'] ?? event.input['path'] ?? event.input['filename'];
+  if (file is String && file.trim().isNotEmpty) {
+    final toolName = event.toolName ?? 'Tool';
+    return '$toolName ${file.trim()}';
+  }
+  return null;
+}
+
+String _toolCommandText(ConversationEvent event) {
+  final command = event.input['command'];
+  if (command is String && command.trim().isNotEmpty) return command.trim();
+  final file = event.input['file_path'] ?? event.input['path'] ?? event.input['filename'];
+  if (file is String && file.trim().isNotEmpty) {
+    return '${event.toolName ?? 'Tool'} ${file.trim()}';
+  }
+  final summary = event.summary;
+  if (summary != null && summary.trim().isNotEmpty) return summary.trim();
+  return event.toolName ?? 'Tool';
 }
 
 void _upsertThinkingMessage(

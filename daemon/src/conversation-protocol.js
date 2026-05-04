@@ -24,6 +24,7 @@ const conversationEventTypes = Object.freeze({
   ASSISTANT_QUESTION: 'assistant.question',
   APPROVAL_REQUESTED: 'approval.requested',
   APPROVAL_RESOLVED: 'approval.resolved',
+  SYSTEM_NOTICE: 'system.notice',
   TOOL_STARTED: 'tool.started',
   TOOL_OUTPUT: 'tool.output',
   TOOL_COMPLETED: 'tool.completed',
@@ -45,7 +46,11 @@ function normalizeConversationCreate(payload) {
   return {
     workspaceId,
     adapter,
-    permissionMode: normalizePermissionMode(payload.permissionMode)
+    permissionMode: normalizePermissionMode(payload.permissionMode),
+    requestedTools: normalizeStringList(payload.requestedTools),
+    requestedToolPolicy: normalizeToolPolicy(payload.requestedToolPolicy),
+    resumePolicy: normalizeResumePolicy(payload.resumePolicy),
+    systemPromptPolicy: normalizeSystemPromptPolicy(payload.systemPromptPolicy)
   };
 }
 
@@ -78,6 +83,48 @@ function normalizePermissionMode(value) {
     throw badRequest('permissionMode must be default or auto');
   }
   return value;
+}
+
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => stringValue(item).trim()).filter(Boolean);
+}
+
+function normalizeToolPolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { tools: [], allowedTools: [], disallowedTools: [] };
+  }
+  return {
+    tools: normalizeStringList(value.tools),
+    allowedTools: normalizeStringList(value.allowedTools),
+    disallowedTools: normalizeStringList(value.disallowedTools)
+  };
+}
+
+function normalizeResumePolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { type: 'fresh' };
+  const type = stringValue(value.type).trim() || 'fresh';
+  if (!['fresh', 'continue', 'resume', 'fork'].includes(type)) {
+    throw badRequest('resumePolicy.type is invalid');
+  }
+  const policy = { type };
+  const sessionId = stringValue(value.sessionId).trim();
+  const name = stringValue(value.name).trim();
+  if (sessionId) policy.sessionId = sessionId;
+  if (name) policy.name = name;
+  return policy;
+}
+
+function normalizeSystemPromptPolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { type: 'none' };
+  const type = stringValue(value.type).trim() || 'none';
+  if (!['none', 'append'].includes(type)) {
+    throw badRequest('systemPromptPolicy.type is invalid');
+  }
+  const policy = { type };
+  const text = stringValue(value.text);
+  if (text) policy.text = text;
+  return policy;
 }
 
 function stringValue(value) {

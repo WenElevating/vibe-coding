@@ -8,7 +8,7 @@ const { validateRunCreate, assertNoV1TerminalRequest, eventTypes } = require('..
 const { EventStore } = require('../daemon/src/event-store');
 const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
-const { ClaudeAdapter, mapClaudeEvent } = require('../daemon/src/claude-adapter');
+const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { createApp } = require('../daemon/src/main');
 
@@ -64,16 +64,49 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.equal(conversationEventTypes.ASSISTANT_MESSAGE, 'assistant.message');
   assert.equal(conversationEventTypes.APPROVAL_REQUESTED, 'approval.requested');
 
-  assert.deepEqual(normalizeConversationCreate({
+  const defaultConversationCreate = normalizeConversationCreate({
     workspaceId: 'default',
     adapter: 'claude',
     permissionMode: 'default'
-  }), { workspaceId: 'default', adapter: 'claude', permissionMode: 'default' });
+  });
+  assert.deepEqual(defaultConversationCreate, {
+    workspaceId: 'default',
+    adapter: 'claude',
+    permissionMode: 'default',
+    requestedTools: [],
+    requestedToolPolicy: { tools: [], allowedTools: [], disallowedTools: [] },
+    resumePolicy: { type: 'fresh' },
+    systemPromptPolicy: { type: 'none' }
+  });
+  const extendedConversationCreate = normalizeConversationCreate({
+    workspaceId: 'default',
+    adapter: 'claude',
+    permissionMode: 'auto',
+    requestedTools: ['Read', ' ', 'Glob', 42],
+    requestedToolPolicy: {
+      tools: ['Read', 'Glob', 'Grep'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash']
+    },
+    resumePolicy: { type: 'resume', sessionId: 'claude-session-1', name: 'bugfix' },
+    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
+  });
+  assert.deepEqual(extendedConversationCreate, {
+    workspaceId: 'default',
+    adapter: 'claude',
+    permissionMode: 'auto',
+    requestedTools: ['Read', 'Glob'],
+    requestedToolPolicy: { tools: ['Read', 'Glob', 'Grep'], allowedTools: ['Read'], disallowedTools: ['Bash'] },
+    resumePolicy: { type: 'resume', sessionId: 'claude-session-1', name: 'bugfix' },
+    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
+  });
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');
   assert.equal(normalizeApprovalDecision({ decision: 'allow' }).decision, 'allow');
   assert.throws(() => normalizeConversationCreate({ workspaceId: '', adapter: 'claude' }), /workspaceId is required/);
   assert.throws(() => normalizeConversationCreate({ workspaceId: 'default', adapter: 'unknown' }), /unsupported adapter/);
+  assert.throws(() => normalizeConversationCreate({ workspaceId: 'default', resumePolicy: { type: 'sideways' } }), /resumePolicy.type is invalid/);
+  assert.throws(() => normalizeConversationCreate({ workspaceId: 'default', systemPromptPolicy: { type: 'replace' } }), /systemPromptPolicy.type is invalid/);
   assert.throws(() => normalizeMessagePayload({ text: '' }), /text is required/);
   assert.throws(() => normalizeQuestionResponse({ questionId: 'q1', text: '' }), /text is required/);
   assert.throws(() => normalizeApprovalDecision({ decision: 'maybe' }), /decision must be allow or deny/);
@@ -194,28 +227,61 @@ test('conversation manager handles input and approval blocking states', async ()
     now: () => new Date('2026-05-03T00:00:00.000Z')
   });
   const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
-  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  const conversation = manager.createConversation({
+    workspaceId: 'default',
+    adapter: 'claude',
+    permissionMode: 'auto',
+    requestedTools: ['Read', 'Glob'],
+    requestedToolPolicy: { tools: ['Read'], allowedTools: ['Read'], disallowedTools: ['Bash'] },
+    resumePolicy: { type: 'resume', sessionId: 'claude-session-1' },
+    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
+  }, device);
 
   assert.equal(conversation.status, 'idle');
   assert.equal(conversation.cliSessionId, null);
+  assert.equal(conversation.protocolVersion, 2);
+  assert.equal(conversation.requestedPermissionMode, 'auto');
+  assert.equal(conversation.effectivePermissionMode, 'auto');
+  assert.deepEqual(conversation.requestedTools, ['Read', 'Glob']);
+  assert.deepEqual(conversation.requestedToolPolicy, { tools: ['Read'], allowedTools: ['Read'], disallowedTools: ['Bash'] });
+  assert.deepEqual(conversation.resumePolicy, { type: 'resume', sessionId: 'claude-session-1' });
+  assert.deepEqual(conversation.systemPromptPolicy, { type: 'append', text: 'Keep responses concise.' });
+  assert.deepEqual(conversation.permissionSupport, {});
+  assert.deepEqual(conversation.notices, []);
   await manager.sendMessage(conversation.id, { text: 'hello' }, device);
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
   assert.deepEqual(fakeHandle.sent, ['hello']);
 
-  adapter.onEvent({ type: 'assistant.question', questionId: 'q1', text: 'Pick direction', suggestions: ['A'] });
-  assert.equal(manager.getConversation(conversation.id, device).status, 'waiting_input');
+  adapter.onEvent({ type: 'assistant.question', questionId: 'q1', text: 'Pick direction', suggestions: ['A'], multiSelect: true, input: { multiSelect: true } });
+  const waitingInput = manager.getConversation(conversation.id, device);
+  assert.equal(waitingInput.status, 'waiting_input');
+  assert.equal(waitingInput.blockingItem.type, 'input_request');
+  assert.equal(waitingInput.blockingItem.multiSelect, true);
+  assert.equal(waitingInput.blockingItem.createdAt, '2026-05-03T00:00:00.000Z');
+  assert.equal(waitingInput.blockingItem.expiresAt, '2026-05-03T00:10:00.000Z');
   await assert.rejects(() => manager.sendMessage(conversation.id, { text: 'wrong path' }, device), /waiting for input response/);
   await assert.rejects(() => manager.answerQuestion(conversation.id, { questionId: 'bad', text: 'A' }, device), /questionId does not match/);
   await manager.answerQuestion(conversation.id, { questionId: 'q1', text: 'A' }, device);
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
   assert.deepEqual(fakeHandle.sent, ['hello', 'A']);
 
-  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap1', toolName: 'Bash', input: { command: 'dir' }, summary: 'List files' });
-  assert.equal(manager.getConversation(conversation.id, device).status, 'waiting_approval');
+  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap1', toolName: 'Bash', toolUseId: 'toolu_1', input: { command: 'dir' }, summary: 'List files' });
+  const waitingApproval = manager.getConversation(conversation.id, device);
+  assert.equal(waitingApproval.status, 'waiting_approval');
+  assert.equal(waitingApproval.blockingItem.toolUseId, 'toolu_1');
   await assert.rejects(() => manager.respondApproval(conversation.id, 'bad', { decision: 'allow' }, device), /approvalId does not match/);
   await manager.respondApproval(conversation.id, 'ap1', { decision: 'allow' }, device);
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
   assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap1', decision: 'allow' }]);
+  const resolvedApproval = manager.listEvents(conversation.id, 0, device)
+    .find((event) => event.type === 'approval.resolved');
+  assert.equal(resolvedApproval.toolUseId, 'toolu_1');
+
+  adapter.onEvent({ type: 'system.notice', text: 'Claude retry 1/3', noticeKind: 'retry' });
+  const events = manager.listEvents(conversation.id, 0, device);
+  assert.equal(events.at(-1).type, 'system.notice');
+  assert.equal(events.at(-1).text, 'Claude retry 1/3');
+  assert.equal(manager.getConversation(conversation.id, device).status, 'running');
 });
 
 test('conversation manager restores persisted live conversation as interrupted', () => {
@@ -309,11 +375,88 @@ test('Claude capability detection requires stream json flags', () => {
   assert.equal(capability.capabilities.streamJson, true);
 });
 
+test('Claude capability detection records permission modes from help text', () => {
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.119', stderr: '' };
+      if (args.includes('--help')) {
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode [default|acceptEdits|plan|dontAsk|bypassPermissions]', stderr: '' };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  const capability = adapter.detectCapabilities();
+  assert.deepEqual(capability.capabilities.permissionModes.sort(), ['acceptEdits', 'bypassPermissions', 'default', 'dontAsk', 'plan'].sort());
+});
+
+test('Claude permission mode resolver falls back from unsupported auto to default', () => {
+  const capability = { capabilities: { permissionModes: ['default', 'plan'] } };
+  assert.equal(resolvePermissionMode('auto', capability).effectivePermissionMode, 'default');
+  assert.equal(resolvePermissionMode('plan', capability).effectivePermissionMode, 'plan');
+});
+
+test('Claude launch args use stream-json permission protocol without prompt tool', () => {
+  const launch = buildClaudeArgs({ permissionMode: 'default', prompt: 'hello' }, {
+    capabilities: { permissionModes: ['default'], inputFormat: true }
+  });
+  assert.equal(launch.args.includes('--input-format'), true);
+  assert.equal(launch.args.includes('stream-json'), true);
+  assert.equal(launch.args.includes('--permission-prompt-tool'), false);
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--permission-mode'), launch.args.indexOf('--permission-mode') + 2), ['--permission-mode', 'default']);
+});
+
+test('Claude launch args keep tools restrictions distinct from pre-approvals', () => {
+  const launch = buildClaudeArgs({
+    permissionMode: 'auto',
+    requestedToolPolicy: {
+      tools: ['Read', 'Glob'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash']
+    }
+  }, { capabilities: { permissionModes: ['default', 'auto'] } });
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--tools'), launch.args.indexOf('--tools') + 2), ['--tools', 'Read,Glob']);
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--allowedTools'), launch.args.indexOf('--allowedTools') + 2), ['--allowedTools', 'Read']);
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--disallowedTools'), launch.args.indexOf('--disallowedTools') + 2), ['--disallowedTools', 'Bash']);
+});
+
+test('Claude permission mode parser extracts documented candidates', () => {
+  assert.deepEqual(parsePermissionModes('--permission-mode [default|auto|acceptEdits|plan|dontAsk|bypassPermissions]').sort(), ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].sort());
+});
+
 test('Claude events map to unified event types', () => {
   assert.equal(mapClaudeEvent({ type: 'assistant', text: 'hi' }).type, eventTypes.ASSISTANT_DELTA);
   assert.equal(mapClaudeEvent({ type: 'tool_start', name: 'bash' }).type, eventTypes.TOOL_STARTED);
   assert.equal(mapClaudeEvent({ type: 'tool_result', text: 'ok' }).type, eventTypes.TOOL_OUTPUT);
+  assert.equal(mapClaudeEvent({ type: 'stream_event', event: { type: 'assistant', text: 'wrapped' } }).text, 'wrapped');
+  assert.equal(mapClaudeEvent({ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 3, retry_delay_ms: 500 }).text.includes('retry 1/3'), true);
+  assert.equal(mapClaudeEvent({ type: 'system', subtype: 'status', status: 'thinking' }).text, 'Claude thinking');
+  assert.equal(mapClaudeEvent({ type: 'system', subtype: 'session_start', session_id: 's1' }).sessionId, 's1');
   assert.equal(mapClaudeEvent({ type: 'unknown', text: 'raw' }).type, eventTypes.RAW_OUTPUT);
+});
+
+test('Claude startRun waits for initialize response before prompt', async () => {
+  const writes = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    writable: true,
+    write(data) { writes.push(data); },
+    end() { this.destroyed = true; }
+  };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
+
+  adapter.startRun({ prompt: 'handshake prompt', workspacePath: 'D:\\AiProject\\vibe-coding', permissionMode: 'default', onEvent: () => {} });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(writes.some((line) => line.includes('"subtype":"initialize"')), true);
+  assert.equal(writes.some((line) => line.includes('handshake prompt')), false);
+  const init = JSON.parse(writes.find((line) => line.includes('"subtype":"initialize"')));
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: init.request_id, subtype: 'success', response: {} } })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(writes.some((line) => line.includes('handshake prompt')), true);
 });
 
 test('startRun emits actionable unavailable error before spawning', () => {
@@ -378,7 +521,9 @@ test('Claude adapter filters escaped protocol payloads from assistant text', () 
   assert.equal(event.text, '');
 });
 
-test('Claude adapter starts CLI with workspace cwd and PWD', async () => {
+test('Claude adapter starts CLI after explicitly changing to workspace', async () => {
+  let spawnCommand = null;
+  let spawnArgs = null;
   let spawnOptions = null;
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
@@ -388,7 +533,9 @@ test('Claude adapter starts CLI with workspace cwd and PWD', async () => {
   const workspacePath = 'D:\\AiProject\\vibe-coding';
   const adapter = new ClaudeAdapter({
     spawnSyncFn: fakeSpawnSync,
-    spawnFn: (_cmd, _args, options) => {
+    spawnFn: (cmd, args, options) => {
+      spawnCommand = cmd;
+      spawnArgs = args;
       spawnOptions = options;
       return child;
     }
@@ -397,8 +544,155 @@ test('Claude adapter starts CLI with workspace cwd and PWD', async () => {
   adapter.startRun({ prompt: 'cwd smoke', workspacePath, permissionMode: 'auto', onEvent: () => {} });
   await new Promise((resolve) => setTimeout(resolve, 10));
 
+  assert.equal(spawnCommand, process.platform === 'win32' ? 'cmd.exe' : 'sh');
+  const launchScript = spawnArgs.join(' ');
+  assert.equal(launchScript.includes(workspacePath), true);
+  assert.equal(launchScript.includes(process.platform === 'win32' ? 'cd /d' : 'cd '), true);
+  assert.equal(launchScript.includes('claude'), true);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
+});
+
+test('Claude conversation adapter starts long-lived CLI directly in workspace cwd', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  let spawnCommand = null;
+  let spawnArgs = null;
+  let spawnOptions = null;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {}, end() { this.destroyed = true; } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const workspacePath = 'D:\\AiProject\\vibe-coding';
+  const adapter = new ClaudeConversationAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: (cmd, args, options) => {
+      spawnCommand = cmd;
+      spawnArgs = args;
+      spawnOptions = options;
+      return child;
+    }
+  });
+
+  await adapter.startConversation({ conversationId: 'conv_cwd', workspacePath, onEvent: () => {} });
+
+  assert.equal(spawnCommand, 'claude');
+  assert.equal(spawnArgs.includes('--input-format'), true);
+  assert.equal(spawnArgs.includes('stream-json'), true);
+  assert.equal(spawnArgs.includes('--permission-prompt-tool'), false);
+  assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
+  assert.equal(spawnOptions.cwd, workspacePath);
+  assert.equal(spawnOptions.env.PWD, workspacePath);
+});
+
+test('Claude conversation adapter waits for initialize response before sending messages', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const writes = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(data) { writes.push(data.trim()); }, end() { this.destroyed = true; } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeConversationAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: () => child
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_init_gate', workspacePath: '.', onEvent: () => {} });
+  const sendPromise = handle.sendUserMessage('after init');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(writes.some((line) => line.includes('"subtype":"initialize"')), true);
+  assert.equal(writes.some((line) => line.includes('after init')), false);
+  const init = JSON.parse(writes.find((line) => line.includes('"subtype":"initialize"')));
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: init.request_id, subtype: 'success', response: {} } })}\n`);
+  await sendPromise;
+
+  assert.equal(writes.some((line) => line.includes('after init')), true);
+});
+
+test('Claude adapter rejects missing workspace before spawning', () => {
+  const adapter = new ClaudeAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: () => {
+      throw new Error('spawn should not be called');
+    }
+  });
+
+  assert.throws(
+    () => adapter.startRun({ prompt: 'x', workspacePath: '', onEvent: () => {} }),
+    /workspacePath is required/
+  );
+});
+
+test('Claude adapter shell launch escapes Windows workspace metacharacters', () => {
+  const adapter = new ClaudeAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: (_cmd, args) => {
+      const script = args.join(' ');
+      assert.equal(script.includes('A^&B^(C^)'), true);
+      return fakeSpawn();
+    }
+  });
+
+  adapter.startRun({ prompt: 'x', workspacePath: 'D:\\A&B(C)', permissionMode: 'auto', onEvent: () => {} });
+});
+
+test('Claude adapter does not force an empty system prompt', () => {
+  const adapter = new ClaudeAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: (_cmd, args) => {
+      assert.equal(args.join(' ').includes('--system-prompt'), false);
+      return fakeSpawn();
+    }
+  });
+
+  adapter.startRun({ prompt: 'x', workspacePath: 'D:\\AiProject\\vibe-coding', permissionMode: 'auto', onEvent: () => {} });
+});
+
+test('Claude default run closes stdin after result', async () => {
+  let ended = false;
+  let initRequestId = null;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    writable: true,
+    write(data) {
+      const parsed = JSON.parse(data);
+      if (parsed.type === 'control_request') initRequestId = parsed.request_id;
+    },
+    end() { ended = true; }
+  };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
+
+  adapter.startRun({ prompt: 'x', workspacePath: 'D:\\AiProject\\vibe-coding', permissionMode: 'default', onEvent: () => {} });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: initRequestId } })}\n`);
+  assert.equal(ended, false);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 's1' })}\n`);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(ended, true);
+});
+
+test('Claude text filtering keeps normal apostrophes', () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, writable: true, write() {}, end() {} };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const events = [];
+  const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
+
+  adapter.startRun({ prompt: 'x', workspacePath: 'D:\\AiProject\\vibe-coding', permissionMode: 'auto', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'text', text: "it's not a protocol type message" }] }
+  })}\n`);
+
+  assert.equal(events.some((event) => event.text === "it's not a protocol type message"), true);
 });
 
 test('HTTP new run ignores sessionId and starts a fresh Claude CLI', async () => {
@@ -428,9 +722,10 @@ test('HTTP new run ignores sessionId and starts a fresh Claude CLI', async () =>
 
     assert.equal(created.status, 201);
     assert.equal(created.body.cliSessionId, null);
-    assert.equal(firstArgs.includes('--resume'), false);
-    assert.equal(firstArgs.includes('--continue'), false);
-    assert.equal(firstArgs.includes('must-not-resume-this-session'), false);
+    const launchScript = firstArgs.join(' ');
+    assert.equal(launchScript.includes('--resume'), false);
+    assert.equal(launchScript.includes('--continue'), false);
+    assert.equal(launchScript.includes('must-not-resume-this-session'), false);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }
@@ -474,10 +769,12 @@ test('follow-up resumes only the captured Claude session', async () => {
     const followed = await request(port, 'POST', `/api/runs/${created.body.id}/input`, { prompt: 'second' }, paired.body.token);
 
     assert.equal(followed.status, 200);
-    assert.equal(spawnArgs[0].includes('--resume'), false);
-    assert.equal(spawnArgs[0].includes('--continue'), false);
-    assert.equal(spawnArgs[1].includes('--resume'), true);
-    assert.equal(spawnArgs[1].includes('captured-session-1'), true);
+    const firstLaunch = spawnArgs[0].join(' ');
+    const secondLaunch = spawnArgs[1].join(' ');
+    assert.equal(firstLaunch.includes('--resume'), false);
+    assert.equal(firstLaunch.includes('--continue'), false);
+    assert.equal(secondLaunch.includes('--resume'), true);
+    assert.equal(secondLaunch.includes('captured-session-1'), true);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }
@@ -911,6 +1208,276 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(approval.summary, 'dir scripts');
   await handle.respondApproval('approval_1', 'allow');
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
+});
+
+test('Claude conversation adapter maps wrapped tool result to output and completion', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_tool', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'stream_event',
+    event: { type: 'tool_use', id: 'toolu_a', name: 'Bash', input: { command: 'npm test' } }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'stream_event',
+    event: { type: 'tool_result', tool_use_id: 'toolu_a', content: '1 failing test', exit_code: 1, is_error: true }
+  })}\n`);
+
+  const started = events.find((event) => event.type === 'tool.started');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(started.toolUseId, 'toolu_a');
+  assert.equal(started.toolName, 'Bash');
+  assert.equal(started.input.command, 'npm test');
+  assert.equal(output.toolUseId, 'toolu_a');
+  assert.equal(output.text, '1 failing test');
+  assert.equal(output.exitCode, 1);
+  assert.equal(output.isError, true);
+  assert.equal(completed.toolUseId, 'toolu_a');
+  assert.equal(completed.exitCode, 1);
+  assert.equal(completed.isError, true);
+});
+
+test('Claude conversation adapter correlates repeated and interleaved tool results', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_multi_tool', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use', id: 'toolu_a', name: 'Bash', input: { command: 'npm' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use', id: 'toolu_a', name: 'Bash', input: { command: 'npm test' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use_delta', tool_use_id: 'toolu_a', content: 'running tests' })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use', id: 'toolu_b', name: 'Read', input: { file_path: 'README.md' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_result', tool_use_id: 'toolu_b', content: 'readme body', exit_code: 0, is_error: false })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_result', tool_use_id: 'toolu_a', content: 'tests passed', exit_code: 0, is_error: false })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_result', tool_use_id: 'toolu_orphan', content: 'resumed output', exit_code: 0, is_error: false })}\n`);
+
+  const starts = events.filter((event) => event.type === 'tool.started');
+  const deltas = events.filter((event) => event.type === 'tool.delta');
+  const outputs = events.filter((event) => event.type === 'tool.output');
+  assert.equal(starts.filter((event) => event.toolUseId === 'toolu_a').at(-1).input.command, 'npm test');
+  assert.equal(deltas.find((event) => event.toolUseId === 'toolu_a').text, 'running tests');
+  assert.equal(outputs.find((event) => event.toolUseId === 'toolu_b').text, 'readme body');
+  assert.equal(outputs.find((event) => event.toolUseId === 'toolu_a').text, 'tests passed');
+  assert.equal(outputs.find((event) => event.toolUseId === 'toolu_orphan').text, 'resumed output');
+});
+
+test('Claude conversation adapter maps content block tool use and result', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_content_block_tool', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'content_block_start',
+    index: 1,
+    content_block: { type: 'tool_use', id: 'toolu_cb', name: 'Bash', input: {} }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'content_block_delta',
+    index: 1,
+    delta: { type: 'input_json_delta', partial_json: '{"command":"python python_basics.py"' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'content_block_delta',
+    index: 1,
+    delta: { type: 'input_json_delta', partial_json: ',"description":"Run script"}' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'content_block_stop', index: 1 })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'tool_result', tool_use_id: 'toolu_cb', content: 'script output', is_error: false }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n`);
+
+  const started = events.find((event) => event.type === 'tool.started');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(started.toolUseId, 'toolu_cb');
+  assert.equal(started.toolName, 'Bash');
+  assert.equal(started.input.command, 'python python_basics.py');
+  assert.equal(started.input.description, 'Run script');
+  assert.equal(output.toolUseId, 'toolu_cb');
+  assert.equal(output.text, 'script output');
+  assert.equal(completed.toolUseId, 'toolu_cb');
+});
+
+test('Claude conversation adapter maps assistant content tool result without duplicates', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_assistant_tool_result', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: 'init_conv_assistant_tool_result', subtype: 'success', response: {} } })}\n`);
+
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use', id: 'toolu_assistant', name: 'Bash', input: { command: 'npm test' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'tool_result', tool_use_id: 'toolu_assistant', content: 'tests passed', is_error: false }]
+    }
+  })}\n`);
+
+  const outputs = events.filter((event) => event.type === 'tool.output');
+  const completed = events.filter((event) => event.type === 'tool.completed');
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].toolUseId, 'toolu_assistant');
+  assert.equal(outputs[0].text, 'tests passed');
+  assert.equal(completed.length, 1);
+});
+
+test('Claude conversation adapter emits one output for chunked content block result', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_chunked_tool_result', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: 'init_conv_chunked_tool_result', subtype: 'success', response: {} } })}\n`);
+
+  child.stdout.emit('data', `${JSON.stringify({ type: 'tool_use', id: 'toolu_chunked', name: 'Bash', input: { command: 'npm test' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'tool_result', tool_use_id: 'toolu_chunked', content: '', is_error: false }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'tests ' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'passed' } })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n`);
+
+  const deltas = events.filter((event) => event.type === 'tool.delta');
+  const outputs = events.filter((event) => event.type === 'tool.output');
+  assert.equal(deltas.length, 0);
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].text, 'tests passed');
+});
+
+test('Claude conversation adapter maps assistant tool_use and user tool_result', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_user_tool_result', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: 'init_conv_user_tool_result', subtype: 'success', response: {} } })}\n`);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'toolu_read_log', name: 'Read', input: { file_path: 'D:\\Test\\log.txt' } }]
+    }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'toolu_read_log', content: 'line 1\nline 2\nline 3', is_error: false }]
+    }
+  })}\n`);
+
+  const started = events.find((event) => event.type === 'tool.started');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(started.toolUseId, 'toolu_read_log');
+  assert.equal(started.toolName, 'Read');
+  assert.equal(started.input.file_path, 'D:\\Test\\log.txt');
+  assert.equal(output.toolUseId, 'toolu_read_log');
+  assert.equal(output.text, 'line 1\nline 2\nline 3');
+  assert.equal(completed.toolUseId, 'toolu_read_log');
+});
+
+test('Claude conversation adapter surfaces permission tool_result as notice', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_permission_result', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'toolu_write_denied', name: 'Write', input: { file_path: 'D:\\AiProject\\Agent\\python_basics.py', content: 'print(1)' } }]
+    }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'toolu_write_denied',
+        content: 'Claude requested permissions to write to D:\\AiProject\\Agent\\python_basics.py, but you haven\'t granted it yet.',
+        is_error: true
+      }]
+    }
+  })}\n`);
+
+  const notice = events.find((event) => event.type === 'system.notice');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(notice.noticeKind, 'permission_unavailable');
+  assert.equal(notice.toolUseId, 'toolu_write_denied');
+  assert.equal(notice.text.includes('没有发出可响应的移动端审批请求'), true);
+  assert.equal(output.isError, true);
+  assert.equal(output.permissionError, true);
+  assert.equal(completed.isError, true);
+  assert.equal(completed.permissionError, true);
 });
 
 test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 terminal boundary', async () => {

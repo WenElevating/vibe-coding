@@ -59,6 +59,15 @@ class ConversationManager {
       workspacePath: workspace.path,
       adapter: input.adapter,
       permissionMode: input.permissionMode,
+      requestedPermissionMode: input.permissionMode,
+      effectivePermissionMode: input.permissionMode,
+      requestedTools: input.requestedTools,
+      requestedToolPolicy: input.requestedToolPolicy,
+      resumePolicy: input.resumePolicy,
+      systemPromptPolicy: input.systemPromptPolicy,
+      permissionSupport: {},
+      notices: [],
+      protocolVersion: 2,
       deviceId: device.id,
       status: conversationStatuses.IDLE,
       cliSessionId: null,
@@ -133,7 +142,8 @@ class ConversationManager {
       throw conflict('conversation is not waiting for approval response');
     }
     if (conversation.blockingItem.approvalId !== approvalId) throw conflict('approvalId does not match pending approval request');
-    const resolved = { ...conversation.blockingItem, decision: decision.decision };
+    const { type: _blockingType, ...blockingPayload } = conversation.blockingItem;
+    const resolved = { ...blockingPayload, decision: decision.decision };
     conversation.status = conversationStatuses.RUNNING;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
@@ -174,7 +184,9 @@ class ConversationManager {
         type: 'input_request',
         questionId: event.questionId || event.toolUseId || `q_${crypto.randomUUID()}`,
         text: event.text || '',
-        suggestions: Array.isArray(event.suggestions) ? event.suggestions : []
+        suggestions: Array.isArray(event.suggestions) ? event.suggestions : [],
+        multiSelect: event.multiSelect === true,
+        input: event.input || {}
       }, conversationStatuses.WAITING_INPUT, event);
       return;
     }
@@ -183,9 +195,15 @@ class ConversationManager {
         type: 'approval_request',
         approvalId: event.approvalId,
         toolName: event.toolName || null,
+        toolUseId: event.toolUseId || null,
         input: event.input || {},
         summary: event.summary || summarizeToolInput(event.toolName, event.input)
       }, conversationStatuses.WAITING_APPROVAL, event);
+      return;
+    }
+    if (event.type === 'system.notice') {
+      const { type, ...payload } = event;
+      this.eventStore.append(conversation.id, type, payload);
       return;
     }
     if (event.type === conversationEventTypes.ASSISTANT_MESSAGE || event.type === conversationEventTypes.CONVERSATION_COMPLETED) {
@@ -238,7 +256,12 @@ class ConversationManager {
       });
       return;
     }
-    conversation.blockingItem = blockingItem;
+    const createdAt = this.now().toISOString();
+    conversation.blockingItem = {
+      ...blockingItem,
+      createdAt,
+      expiresAt: addMs(this.now(), this.idleTtlMs).toISOString()
+    };
     conversation.status = status;
     conversation.idleExpiresAt = null;
     this.touch(conversation);
@@ -286,7 +309,16 @@ function publicConversation(conversation) {
     idleExpiresAt: conversation.idleExpiresAt || null,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
-    capabilities: conversation.capabilities || {}
+    capabilities: conversation.capabilities || {},
+    requestedPermissionMode: conversation.requestedPermissionMode || conversation.permissionMode || 'default',
+    effectivePermissionMode: conversation.effectivePermissionMode || conversation.permissionMode || 'default',
+    requestedTools: Array.isArray(conversation.requestedTools) ? conversation.requestedTools : [],
+    requestedToolPolicy: conversation.requestedToolPolicy || { tools: [], allowedTools: [], disallowedTools: [] },
+    resumePolicy: conversation.resumePolicy || { type: 'fresh' },
+    systemPromptPolicy: conversation.systemPromptPolicy || { type: 'none' },
+    permissionSupport: conversation.permissionSupport || {},
+    notices: Array.isArray(conversation.notices) ? conversation.notices : [],
+    protocolVersion: conversation.protocolVersion || 1
   };
 }
 
