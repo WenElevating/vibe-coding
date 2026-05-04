@@ -6,6 +6,7 @@
 .omc/
 .omx/
 .superpowers/
+.worktrees/
 
 # Runtime data
 data/**/*.sqlite
