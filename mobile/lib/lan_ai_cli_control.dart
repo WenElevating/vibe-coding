@@ -1,3 +1,4 @@
+export 'src/app/app.dart';
 export 'src/models/protocol.dart';
 export 'src/services/conversation_client.dart';
 export 'src/services/daemon_client.dart';

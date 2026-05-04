@@ -1,7 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
-import 'package:lan_ai_cli_control/main.dart';
 
 void main() {
   testWidgets('renders assistant markdown instead of raw syntax',
@@ -107,7 +106,8 @@ void main() {
         status: 'completed');
 
     expect(
-        debugMergeSessionIds(const <RunSummary>[local],
+        debugMergeSessionIds(
+            const <RunSummary>[local],
             const <ConversationSummary>[persisted, emptyDraft],
             const <RunSummary>[legacyRun]),
         const <String>['conv_local', 'conv_persisted', 'run_legacy']);
@@ -355,11 +355,13 @@ void main() {
       },
     ];
 
-    expect(debugWorkbenchMessageRolesForConversationEvents(events, conversation),
+    expect(
+        debugWorkbenchMessageRolesForConversationEvents(events, conversation),
         const <String>['command:python intro.py']);
   });
 
-  test('conversation approval preserves command metadata from blocking item', () {
+  test('conversation approval preserves command metadata from blocking item',
+      () {
     const capabilities = ConversationCapabilities(
       longLivedProcess: true,
       waitingInput: true,
@@ -385,7 +387,9 @@ void main() {
         'approvalId': 'approval_1',
         'toolUseId': 'toolu_1',
         'toolName': 'Write',
-        'input': {'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'},
+        'input': {
+          'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
+        },
         'summary': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
       },
       const <String, Object?>{
@@ -397,12 +401,15 @@ void main() {
         'toolUseId': 'toolu_1',
         'decision': 'allow',
         'toolName': 'Write',
-        'input': {'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'},
+        'input': {
+          'file_path': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
+        },
         'summary': r'D:\AiProject\vibe-coding\python_concurrency_learn.py'
       },
     ];
 
-    expect(debugWorkbenchMessageRolesForConversationEvents(events, conversation),
+    expect(
+        debugWorkbenchMessageRolesForConversationEvents(events, conversation),
         const <String>[
           r'command:D:\AiProject\vibe-coding\python_concurrency_learn.py'
         ]);
@@ -500,10 +507,13 @@ void main() {
       'createdAt': '2026-05-03T00:00:06.000Z',
       'approvalId': 'approval_ask',
       'toolName': 'AskUserQuestion',
-      'input': {'question': 'Which advanced features should the script include?'}
+      'input': {
+        'question': 'Which advanced features should the script include?'
+      }
     });
 
-    expect(body, contains('Which advanced features should the script include?'));
+    expect(
+        body, contains('Which advanced features should the script include?'));
     expect(body, isNot('AskUserQuestion'));
   });
 
@@ -566,8 +576,9 @@ void main() {
       },
     ];
 
-    expect(debugWorkbenchMessageRolesAfterEvents(events),
-        const <String>['question:Which direction should this Python script take?']);
+    expect(debugWorkbenchMessageRolesAfterEvents(events), const <String>[
+      'question:Which direction should this Python script take?'
+    ]);
     expect(debugVisibleWorkbenchBodyFromEvent(events.first),
         'Which direction should this Python script take?');
   });
@@ -596,7 +607,8 @@ void main() {
         'createdAt': '2026-05-03T00:00:06.000Z',
         'raw': {
           'type': 'result',
-          'result': 'Advanced script is broad. What should it do?\n\n1. automation\n2. async\n3. logs'
+          'result':
+              'Advanced script is broad. What should it do?\n\n1. automation\n2. async\n3. logs'
         }
       },
     ];
@@ -623,7 +635,8 @@ void main() {
         'createdAt': '2026-05-03T00:00:06.000Z',
         'raw': {
           'type': 'result',
-          'result': 'Advanced Python script can mean many things. Pick a direction:\n\n- web scraping\n- CLI tool\n- data processing\n- automation\n- API service\n- AI integration'
+          'result':
+              'Advanced Python script can mean many things. Pick a direction:\n\n- web scraping\n- CLI tool\n- data processing\n- automation\n- API service\n- AI integration'
         }
       },
     ];
