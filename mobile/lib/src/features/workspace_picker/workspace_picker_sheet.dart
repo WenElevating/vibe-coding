@@ -207,7 +207,11 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
 
   Future<void> _create() async {
     final path = _path.text.trim();
-    if (path.isEmpty || _creating) return;
+    if (_creating) return;
+    if (path.isEmpty) {
+      setState(() => _error = 'Choose or enter a folder path first.');
+      return;
+    }
     setState(() {
       _creating = true;
       _error = null;
@@ -298,17 +302,15 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
               ])));
 }
 
-class _CreateFirstRunWorkspaceSheet extends StatefulWidget {
-  const _CreateFirstRunWorkspaceSheet({required this.client});
+class _AddWorkspaceSheet extends StatefulWidget {
+  const _AddWorkspaceSheet({required this.client});
   final DaemonClient client;
 
   @override
-  State<_CreateFirstRunWorkspaceSheet> createState() =>
-      _CreateFirstRunWorkspaceSheetState();
+  State<_AddWorkspaceSheet> createState() => _AddWorkspaceSheetState();
 }
 
-class _CreateFirstRunWorkspaceSheetState
-    extends State<_CreateFirstRunWorkspaceSheet> {
+class _AddWorkspaceSheetState extends State<_AddWorkspaceSheet> {
   final _path = TextEditingController();
   final _name = TextEditingController();
   bool _creating = false;

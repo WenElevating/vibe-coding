@@ -112,6 +112,15 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             conversation: conversation));
   }
 
+  void _upsertWorkspace(WorkspaceSummary workspace) {
+    final index = _workspaces.indexWhere((item) => item.id == workspace.id);
+    if (index >= 0) {
+      _workspaces[index] = workspace;
+    } else {
+      _workspaces.add(workspace);
+    }
+  }
+
   void _resetConversationState() {
     _messages.clear();
     _events.clear();
@@ -269,12 +278,10 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (context) =>
-            _CreateFirstRunWorkspaceSheet(client: widget.client));
+            _AddWorkspaceSheet(client: widget.client));
     if (workspace == null || !mounted) return;
     setState(() {
-      if (!_workspaces.any((item) => item.id == workspace.id)) {
-        _workspaces.add(workspace);
-      }
+      _upsertWorkspace(workspace);
       _selectedWorkspace = workspace;
       _workspaceConfirmedForSession = true;
       _listMode = _WorkbenchListMode.sessions;
@@ -282,6 +289,9 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       _error = null;
     });
     widget.onSessionListChanged(true);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Workspace ready: ${workspace.name}'),
+        duration: const Duration(seconds: 2)));
   }
 
   String get _pendingStatusText => _conversationPendingStatusText(
