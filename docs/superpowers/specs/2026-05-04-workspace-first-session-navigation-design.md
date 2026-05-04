@@ -60,6 +60,8 @@ The top-level list should show workspaces as large rows with name, path, and a s
 
 The add/browse action opens the existing folder creation/browser flow. When a workspace is created, it is added to the workspace list and opened immediately.
 
+The selected workspace state should initialize from the current in-memory `_selectedWorkspace` when it still exists in the latest workspace snapshot. If it does not exist, fall back to the first workspace returned by the daemon and show the workspace list so the user can see the context reset. This design does not add durable last-workspace persistence yet; that can be added later only after the workspace/session navigation is stable.
+
 ### 5.2 Workspace-Scoped Session List
 
 The session list title should include the selected workspace name and path. Its rows should show only sessions/runs that belong to that workspace.
@@ -72,12 +74,12 @@ If there are no sessions, show an empty state with `这个工作区还没有会�
 
 The workbench should receive an explicit selected `WorkspaceSummary`. Starting a conversation should use that workspace id directly.
 
-The old first-run workspace sheet should no longer be part of the primary path. If kept temporarily for compatibility, it must not be reachable from the normal `+` new-session flow.
+The old first-run workspace confirmation sheet should be removed from the normal app flow in this change. The only remaining workspace modal should be the add/browse folder flow launched from the workspace list.
 
 ## 6. Component Boundary
 
-- `features/sessions/` owns the workspace/session navigation surface because it decides which conversation list is shown.
-- `features/workspace_picker/` owns folder browsing and workspace creation sheets only.
+- `features/workspace_picker/` owns the workspace list page, workspace row rendering, folder browsing, and workspace creation sheets.
+- `features/sessions/` owns only the workspace-scoped session list and session row rendering.
 - `features/workbench/` owns the active conversation and composer, assuming workspace is already selected.
 - `shell/` wires page-level callbacks but does not own workspace/session row rendering.
 
@@ -87,6 +89,8 @@ The old first-run workspace sheet should no longer be part of the primary path. 
 - Workspace list selection sets `_selectedWorkspace` and shows the session list for that workspace.
 - New session from the scoped session list calls `_resetConversationState()`, clears the prompt, marks workspace confirmed, and opens the composer.
 - Existing session selection keeps using existing conversation/run ids but must respect the selected workspace filter.
+- Snapshot refresh must check whether `_selectedWorkspace` is still present in the latest workspace list. If it is missing and another workspace exists, set `_selectedWorkspace` to the first available workspace, clear the selected session/conversation view, and show the workspace list so the user explicitly sees the fallback context.
+- The transitional state ownership should end when session-list widget tests need to mock workspace state directly. That is the signal to extract a small workspace/session navigation controller from `CodingWorkbenchPage`.
 
 ## 8. Error Handling
 
@@ -100,6 +104,8 @@ The old first-run workspace sheet should no longer be part of the primary path. 
 - Add or update widget tests so the new-session path starts at a workspace list.
 - Verify tapping `Current Project` opens a workspace-scoped session list.
 - Verify tapping `+` from the workspace-scoped session list opens the composer without showing the first-run workspace sheet.
+- Verify the session list only shows sessions/runs for the selected workspace.
+- Verify that when the selected workspace disappears from a snapshot, the UI returns to the workspace list instead of crashing, blanking, or continuing under a stale workspace.
 - Verify `flutter analyze --no-pub` and `flutter test --no-pub` pass.
 
 ## 10. Risks
