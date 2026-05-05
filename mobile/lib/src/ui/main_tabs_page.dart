@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../features/settings/settings.dart';
 import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
