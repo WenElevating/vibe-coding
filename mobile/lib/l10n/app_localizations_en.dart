@@ -73,4 +73,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsPermissionSubtitle => 'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.';
+
+  @override
+  String get settingsDataStatusSection => 'Data status';
+
+  @override
+  String get settingsDiagnosticsTitle => 'Code diagnostics';
+
+  @override
+  String settingsDiagnosticsCount(int count) => '$count items';
+
+  @override
+  String get settingsGitStatusTitle => 'Git status';
+
+  @override
+  String get settingsGitClean => 'Clean';
+
+  @override
+  String settingsGitFiles(int count) => '$count files';
+
+  @override
+  String get settingsAboutSection => 'About';
+
+  @override
+  String get settingsExtensionsTitle => 'Extensions';
+
+  @override
+  String settingsExtensionsCount(int count) => '$count items';
+
+  @override
+  String get settingsAdaptersAction => 'Adapters';
+
+  @override
+  String get settingsNotificationsAction => 'Notifications';
+
+  @override
+  String get settingsGenerateDiagnosticsAction => 'Generate diagnostics';
+
+  @override
+  String get settingsCurrentConnectionTitle => 'Current connection';
+
+  @override
+  String get settingsConnected => 'Connected';
+
+  @override
+  String get settingsWorkspaceLabel => 'Workspace';
+
+  @override
+  String get settingsSecurityModeLabel => 'Security mode';
 }

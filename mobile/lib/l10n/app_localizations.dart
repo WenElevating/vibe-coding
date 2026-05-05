@@ -230,6 +230,54 @@ abstract class AppLocalizations {
   /// **'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.'**
   String get settingsPermissionSubtitle;
 
+
+  /// No description provided for @settingsDataStatusSection.
+  String get settingsDataStatusSection;
+
+  /// No description provided for @settingsDiagnosticsTitle.
+  String get settingsDiagnosticsTitle;
+
+  /// No description provided for @settingsDiagnosticsCount.
+  String settingsDiagnosticsCount(int count);
+
+  /// No description provided for @settingsGitStatusTitle.
+  String get settingsGitStatusTitle;
+
+  /// No description provided for @settingsGitClean.
+  String get settingsGitClean;
+
+  /// No description provided for @settingsGitFiles.
+  String settingsGitFiles(int count);
+
+  /// No description provided for @settingsAboutSection.
+  String get settingsAboutSection;
+
+  /// No description provided for @settingsExtensionsTitle.
+  String get settingsExtensionsTitle;
+
+  /// No description provided for @settingsExtensionsCount.
+  String settingsExtensionsCount(int count);
+
+  /// No description provided for @settingsAdaptersAction.
+  String get settingsAdaptersAction;
+
+  /// No description provided for @settingsNotificationsAction.
+  String get settingsNotificationsAction;
+
+  /// No description provided for @settingsGenerateDiagnosticsAction.
+  String get settingsGenerateDiagnosticsAction;
+
+  /// No description provided for @settingsCurrentConnectionTitle.
+  String get settingsCurrentConnectionTitle;
+
+  /// No description provided for @settingsConnected.
+  String get settingsConnected;
+
+  /// No description provided for @settingsWorkspaceLabel.
+  String get settingsWorkspaceLabel;
+
+  /// No description provided for @settingsSecurityModeLabel.
+  String get settingsSecurityModeLabel;
 }
 
 class _AppLocalizationsDelegate

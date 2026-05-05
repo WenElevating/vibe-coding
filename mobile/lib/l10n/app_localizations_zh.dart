@@ -73,4 +73,52 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsPermissionSubtitle => '????? CLI ?????????? CLI ???';
+
+  @override
+  String get settingsDataStatusSection => '????';
+
+  @override
+  String get settingsDiagnosticsTitle => '????';
+
+  @override
+  String settingsDiagnosticsCount(int count) => '$count ?';
+
+  @override
+  String get settingsGitStatusTitle => 'Git ??';
+
+  @override
+  String get settingsGitClean => '??';
+
+  @override
+  String settingsGitFiles(int count) => '$count ??';
+
+  @override
+  String get settingsAboutSection => '??';
+
+  @override
+  String get settingsExtensionsTitle => '??';
+
+  @override
+  String settingsExtensionsCount(int count) => '$count ?';
+
+  @override
+  String get settingsAdaptersAction => '???';
+
+  @override
+  String get settingsNotificationsAction => '??';
+
+  @override
+  String get settingsGenerateDiagnosticsAction => '??????';
+
+  @override
+  String get settingsCurrentConnectionTitle => '????';
+
+  @override
+  String get settingsConnected => '???';
+
+  @override
+  String get settingsWorkspaceLabel => '???';
+
+  @override
+  String get settingsSecurityModeLabel => '????';
 }

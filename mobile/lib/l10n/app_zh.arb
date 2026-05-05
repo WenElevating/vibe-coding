@@ -21,5 +21,42 @@
   "settingsPermissionModeTitle": "权限模式",
   "settingsPermissionDefault": "默认",
   "settingsPermissionAuto": "自动",
-  "settingsPermissionSubtitle": "默认会请求 CLI 权限确认；自动模式由 CLI 处理。"
+  "settingsPermissionSubtitle": "默认会请求 CLI 权限确认；自动模式由 CLI 处理。",
+  "settingsDataStatusSection": "????",
+  "settingsDiagnosticsTitle": "????",
+  "settingsDiagnosticsCount": "{count} ?",
+  "settingsGitStatusTitle": "Git ??",
+  "settingsGitClean": "??",
+  "settingsGitFiles": "{count} ??",
+  "settingsAboutSection": "??",
+  "settingsExtensionsTitle": "??",
+  "settingsExtensionsCount": "{count} ?",
+  "settingsAdaptersAction": "???",
+  "settingsNotificationsAction": "??",
+  "settingsGenerateDiagnosticsAction": "??????",
+  "settingsCurrentConnectionTitle": "????",
+  "settingsConnected": "???",
+  "settingsWorkspaceLabel": "???",
+  "settingsSecurityModeLabel": "????",
+  "@settingsDiagnosticsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsGitFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsExtensionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

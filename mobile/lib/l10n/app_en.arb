@@ -21,5 +21,42 @@
   "settingsPermissionModeTitle": "Permission mode",
   "settingsPermissionDefault": "Default",
   "settingsPermissionAuto": "Auto",
-  "settingsPermissionSubtitle": "Default asks for CLI permission confirmation; auto lets the CLI handle permissions."
+  "settingsPermissionSubtitle": "Default asks for CLI permission confirmation; auto lets the CLI handle permissions.",
+  "settingsDataStatusSection": "Data status",
+  "settingsDiagnosticsTitle": "Code diagnostics",
+  "settingsDiagnosticsCount": "{count} items",
+  "settingsGitStatusTitle": "Git status",
+  "settingsGitClean": "Clean",
+  "settingsGitFiles": "{count} files",
+  "settingsAboutSection": "About",
+  "settingsExtensionsTitle": "Extensions",
+  "settingsExtensionsCount": "{count} items",
+  "settingsAdaptersAction": "Adapters",
+  "settingsNotificationsAction": "Notifications",
+  "settingsGenerateDiagnosticsAction": "Generate diagnostics",
+  "settingsCurrentConnectionTitle": "Current connection",
+  "settingsConnected": "Connected",
+  "settingsWorkspaceLabel": "Workspace",
+  "settingsSecurityModeLabel": "Security mode",
+  "@settingsDiagnosticsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsGitFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsExtensionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

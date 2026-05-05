@@ -40,7 +40,8 @@ class SettingsPage extends StatelessWidget {
         _SettingsConnectionCard(
             workspace: data.workspace,
             mode: data.health.mode,
-            lanMode: data.health.lanMode),
+            lanMode: data.health.lanMode,
+            l10n: l10n),
         const SizedBox(height: 20),
         Subhead(l10n.settingsPreferencesSection),
         _SettingsCard(children: [
@@ -68,36 +69,40 @@ class SettingsPage extends StatelessWidget {
               onChanged: onExpandThinkingChanged),
         ]),
         const SizedBox(height: 20),
-        Subhead('数据状态'),
+        Subhead(l10n.settingsDataStatusSection),
         _SettingsCard(children: [
           _SettingsRow(
-              title: '代码诊断', value: '${data.diagnostics.diagnostics.length} 条'),
+              title: l10n.settingsDiagnosticsTitle,
+              value: l10n.settingsDiagnosticsCount(
+                  data.diagnostics.diagnostics.length)),
           _SettingsRow(
-              title: 'Git 状态',
+              title: l10n.settingsGitStatusTitle,
               value: data.gitStatus?.clean == true
-                  ? '干净'
-                  : '${data.gitStatus?.files.length ?? 0} 文件'),
+                  ? l10n.settingsGitClean
+                  : l10n.settingsGitFiles(data.gitStatus?.files.length ?? 0)),
         ]),
         const SizedBox(height: 20),
-        Subhead('关于'),
+        Subhead(l10n.settingsAboutSection),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
-          _SettingsRow(title: '扩展', value: '${data.extensions.length} 个'),
+          _SettingsRow(
+              title: l10n.settingsExtensionsTitle,
+              value: l10n.settingsExtensionsCount(data.extensions.length)),
         ]),
         const SizedBox(height: 18),
         Row(children: [
           Expanded(
-              child: _SettingsActionButton('适配器',
+              child: _SettingsActionButton(l10n.settingsAdaptersAction,
                   icon: Icons.extension_rounded,
                   onTap: () => open(RoutePage.adapters))),
           const SizedBox(width: 10),
           Expanded(
-              child: _SettingsActionButton('通知',
+              child: _SettingsActionButton(l10n.settingsNotificationsAction,
                   icon: Icons.notifications_rounded,
                   onTap: () => open(RoutePage.notifications))),
         ]),
         const SizedBox(height: 10),
-        _SettingsActionButton('生成诊断信息',
+        _SettingsActionButton(l10n.settingsGenerateDiagnosticsAction,
             icon: Icons.health_and_safety_rounded,
             fullWidth: true,
             onTap: () => open(RoutePage.diagnostics)),
@@ -231,10 +236,14 @@ class _SettingsCard extends StatelessWidget {
 
 class _SettingsConnectionCard extends StatelessWidget {
   const _SettingsConnectionCard(
-      {required this.workspace, required this.mode, required this.lanMode});
+      {required this.workspace,
+      required this.mode,
+      required this.lanMode,
+      required this.l10n});
   final WorkspaceSummary workspace;
   final String mode;
   final bool lanMode;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -261,9 +270,9 @@ class _SettingsConnectionCard extends StatelessWidget {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                const Text('当前连接',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                Text(l10n.settingsCurrentConnectionTitle,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 15)),
                 const SizedBox(height: 4),
                 Text(workspace.path,
                     maxLines: 1,
@@ -273,17 +282,19 @@ class _SettingsConnectionCard extends StatelessWidget {
                         fontSize: 11.5,
                         fontFamily: 'Consolas')),
               ])),
-          const _SettingsPill('已连接')
+          _SettingsPill(l10n.settingsConnected)
         ]),
         const SizedBox(height: 14),
         Row(children: [
           Expanded(
               child: _SettingsMetric(
-                  label: '工作区', value: workspaceDisplayName(workspace))),
+                  label: l10n.settingsWorkspaceLabel,
+                  value: workspaceDisplayName(workspace))),
           const SizedBox(width: 10),
           Expanded(
               child: _SettingsMetric(
-                  label: '安全模式', value: lanMode ? 'LAN' : mode)),
+                  label: l10n.settingsSecurityModeLabel,
+                  value: lanMode ? 'LAN' : mode)),
         ]),
       ]));
 }
