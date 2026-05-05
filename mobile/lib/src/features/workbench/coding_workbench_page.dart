@@ -11,6 +11,7 @@ import '../../widgets/widgets.dart';
 import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
+import 'coding_workbench_controller.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
 
@@ -38,8 +39,6 @@ class CodingWorkbenchPage extends StatefulWidget {
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
 }
 
-enum _WorkbenchListMode { workspaces, sessions, conversation }
-
 class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
@@ -60,7 +59,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   String? _error;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
-  _WorkbenchListMode _listMode = _WorkbenchListMode.workspaces;
+  CodingWorkbenchListMode _listMode = CodingWorkbenchListMode.workspaces;
   late int _handledOpenSessionListRequest;
 
   List<SessionItem> get _sessionItems => mergeSessionItems(
@@ -76,17 +75,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     _resetConversationState();
     _error = null;
     _workspaceConfirmedForSession = false;
-    _listMode = _WorkbenchListMode.workspaces;
+    _listMode = CodingWorkbenchListMode.workspaces;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onSessionListChanged(true);
     });
   }
 
-  bool get _isListOpen => _listMode != _WorkbenchListMode.conversation;
+  bool get _isListOpen => _listMode != CodingWorkbenchListMode.conversation;
 
   void _setSessionListOpen(bool open) {
-    final nextMode =
-        open ? _WorkbenchListMode.sessions : _WorkbenchListMode.conversation;
+    final nextMode = open
+        ? CodingWorkbenchListMode.sessions
+        : CodingWorkbenchListMode.conversation;
     if (_listMode == nextMode) return;
     setState(() => _listMode = nextMode);
     widget.onSessionListChanged(open);
@@ -100,7 +100,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           duration: Duration(seconds: 2)));
       return;
     }
-    setState(() => _listMode = _WorkbenchListMode.workspaces);
+    setState(() => _listMode = CodingWorkbenchListMode.workspaces);
     widget.onSessionListChanged(true);
   }
 
@@ -108,7 +108,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     setState(() {
       _selectedWorkspace = workspace;
       _workspaceConfirmedForSession = true;
-      _listMode = _WorkbenchListMode.sessions;
+      _listMode = CodingWorkbenchListMode.sessions;
     });
     widget.onSessionListChanged(true);
   }
@@ -128,12 +128,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   }
 
   void _upsertWorkspace(WorkspaceSummary workspace) {
-    final index = _workspaces.indexWhere((item) => item.id == workspace.id);
-    if (index >= 0) {
-      _workspaces[index] = workspace;
-    } else {
-      _workspaces.add(workspace);
-    }
+    final next = upsertAndSelectWorkspace(
+      CodingWorkbenchState(
+        workspaces: _workspaces,
+        selectedWorkspace: _selectedWorkspace,
+        listMode: _listMode,
+      ),
+      workspace,
+    );
+    _workspaces = next.workspaces;
+    _selectedWorkspace = next.selectedWorkspace;
+    _listMode = next.listMode;
   }
 
   void _resetConversationState() {
@@ -158,7 +163,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _selectedWorkspace = _workspaceForId(item.run.workspaceId);
       _workspaceConfirmedForSession = true;
       _error = null;
-      _listMode = _WorkbenchListMode.conversation;
+      _listMode = CodingWorkbenchListMode.conversation;
     });
     widget.onSessionListChanged(false);
     if (item.conversation == null) return;
@@ -296,9 +301,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     if (workspace == null || !mounted) return;
     setState(() {
       _upsertWorkspace(workspace);
-      _selectedWorkspace = workspace;
       _workspaceConfirmedForSession = true;
-      _listMode = _WorkbenchListMode.sessions;
       _resetConversationState();
       _error = null;
     });
@@ -396,7 +399,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
             orElse: () => null);
     final pendingQuestionId = pendingQuestion?.questionId;
     if (_activeRunId == null && !_hasExplicitWorkspaceSelection) {
-      setState(() => _listMode = _WorkbenchListMode.workspaces);
+      setState(() => _listMode = CodingWorkbenchListMode.workspaces);
       widget.onSessionListChanged(true);
       return;
     }
@@ -715,7 +718,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _error = null;
       _workspaceConfirmedForSession = true;
       _prompt.clear();
-      _listMode = _WorkbenchListMode.conversation;
+      _listMode = CodingWorkbenchListMode.conversation;
     });
     widget.onSessionListChanged(false);
   }
@@ -780,14 +783,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_listMode == _WorkbenchListMode.workspaces) {
+    if (_listMode == CodingWorkbenchListMode.workspaces) {
       return WorkspaceListPage(
           workspaces: _workspaces,
           selected: _selectedWorkspace,
           onSelected: _openWorkspaceSessions,
           onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
     }
-    if (_listMode == _WorkbenchListMode.sessions) {
+    if (_listMode == CodingWorkbenchListMode.sessions) {
       return CodingSessionListPage(
           data: widget.data,
           items: _sessionItems,
