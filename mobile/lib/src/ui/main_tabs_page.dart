@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../features/adapters/adapters.dart';
-import '../features/diagnostics/diagnostics.dart';
-import '../features/notifications/notifications.dart';
-import '../features/run_detail/run_detail.dart';
 import '../features/settings/settings.dart';
-import '../features/workbench/workbench.dart';
 import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import '../widgets/widgets.dart';
+import 'main_tab_items.dart';
+import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
 
@@ -43,14 +40,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
         }
       });
 
-  final _items = const [
-    NavSpec(Icons.home_rounded, '首页'),
-    NavSpec(Icons.manage_search_rounded, '运行'),
-    NavSpec(Icons.terminal_rounded, '编码'),
-    NavSpec(Icons.format_list_bulleted_rounded, '设备'),
-    NavSpec(Icons.settings_rounded, '设置'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
@@ -82,23 +71,20 @@ class _MainTabsPageState extends State<MainTabsPage> {
             setState(() => _expandThinking = value),
       ),
     ];
-    final overlay = switch (_route) {
-      RoutePage.detail =>
-        RunDetailPage(onBack: _back, data: data, client: widget.client),
-      RoutePage.approval => ApprovalPage(onBack: _back),
-      RoutePage.adapters => AdaptersPage(onBack: _back, data: data),
-      RoutePage.notifications => NotificationsPage(onBack: _back),
-      RoutePage.diagnostics =>
-        DiagnosticsPage(onBack: _back, data: data, client: widget.client),
-      RoutePage.tabs => null,
-    };
     return Scaffold(
       body: MobileUiFrame(
-        child: overlay ?? IndexedStack(index: _tab, children: pages),
+        child: _route == RoutePage.tabs
+            ? IndexedStack(index: _tab, children: pages)
+            : MainRouteOverlay(
+                route: _route,
+                data: data,
+                client: widget.client,
+                onBack: _back,
+              ),
       ),
       bottomNavigationBar:
           _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
-              ? BottomNav(selected: _tab, items: _items, onTap: _selectTab)
+              ? BottomNav(selected: _tab, items: mainTabItems, onTap: _selectTab)
               : null,
       extendBody: true,
     );

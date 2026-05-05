@@ -34,8 +34,7 @@ class MobileConnectionErrorPage extends StatelessWidget {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 8),
                   Text(error,
-                      style:
-                          const TextStyle(color: theme.muted, fontSize: 12)),
+                      style: const TextStyle(color: theme.muted, fontSize: 12)),
                   const SizedBox(height: 16),
                   PrimaryButton('Retry connection', onTap: onRetry),
                 ],
