@@ -43,4 +43,34 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLanguageEn => 'English';
+
+  @override
+  String get settingsLanguagePickerTitle => 'Choose language';
+
+  @override
+  String get settingsCodingControlSection => 'Coding control';
+
+  @override
+  String get settingsStreamOutputTitle => 'Stream output';
+
+  @override
+  String get settingsStreamOutputSubtitle => 'When off, only the final answer is shown to avoid duplicate deltas and complete messages.';
+
+  @override
+  String get settingsExpandThinkingTitle => 'Show thinking process';
+
+  @override
+  String get settingsExpandThinkingSubtitle => 'When on, model thinking is expanded by default; when off, it stays collapsed.';
+
+  @override
+  String get settingsPermissionModeTitle => 'Permission mode';
+
+  @override
+  String get settingsPermissionDefault => 'Default';
+
+  @override
+  String get settingsPermissionAuto => 'Auto';
+
+  @override
+  String get settingsPermissionSubtitle => 'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.';
 }

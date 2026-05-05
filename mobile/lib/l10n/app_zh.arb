@@ -11,5 +11,15 @@
   "settingsLanguageTitle": "语言",
   "settingsLanguageSystem": "系统默认",
   "settingsLanguageZhHans": "简体中文",
-  "settingsLanguageEn": "English"
+  "settingsLanguageEn": "English",
+  "settingsLanguagePickerTitle": "选择语言",
+  "settingsCodingControlSection": "编码控制",
+  "settingsStreamOutputTitle": "流式输出",
+  "settingsStreamOutputSubtitle": "关闭时只显示最终回复，避免 delta 与完整消息重复。",
+  "settingsExpandThinkingTitle": "显示思考过程",
+  "settingsExpandThinkingSubtitle": "开启后默认展开模型 thinking；关闭时折叠显示。",
+  "settingsPermissionModeTitle": "权限模式",
+  "settingsPermissionDefault": "默认",
+  "settingsPermissionAuto": "自动",
+  "settingsPermissionSubtitle": "默认会请求 CLI 权限确认；自动模式由 CLI 处理。"
 }

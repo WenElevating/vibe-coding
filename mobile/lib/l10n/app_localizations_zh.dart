@@ -43,4 +43,34 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsLanguageEn => 'English';
+
+  @override
+  String get settingsLanguagePickerTitle => '????';
+
+  @override
+  String get settingsCodingControlSection => '????';
+
+  @override
+  String get settingsStreamOutputTitle => '????';
+
+  @override
+  String get settingsStreamOutputSubtitle => '????????????? delta ????????';
+
+  @override
+  String get settingsExpandThinkingTitle => '??????';
+
+  @override
+  String get settingsExpandThinkingSubtitle => '????????? thinking?????????';
+
+  @override
+  String get settingsPermissionModeTitle => '????';
+
+  @override
+  String get settingsPermissionDefault => '??';
+
+  @override
+  String get settingsPermissionAuto => '??';
+
+  @override
+  String get settingsPermissionSubtitle => '????? CLI ?????????? CLI ???';
 }

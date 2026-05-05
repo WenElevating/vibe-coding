@@ -6,6 +6,7 @@ import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {
@@ -48,6 +49,90 @@ class _LocalizedSettingsLabelAppState
                       AppLocalizations.of(context).navSettings)))));
 }
 
+class _LocalizedMainTabsApp extends StatefulWidget {
+  const _LocalizedMainTabsApp();
+
+  @override
+  State<_LocalizedMainTabsApp> createState() => _LocalizedMainTabsAppState();
+}
+
+class _LocalizedMainTabsAppState extends State<_LocalizedMainTabsApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: MainTabsPage(
+                  data: _testSnapshot(),
+                  client: DaemonClient(
+                      baseUri: Uri.parse('http://127.0.0.1:4317'),
+                      tokenStore: MemoryTokenStore())))));
+}
+
+AppSnapshot _testSnapshot() {
+  const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding');
+  return AppSnapshot(
+      health: DaemonHealth.fromJson(const <String, Object?>{
+        'status': 'ok',
+        'daemonVersion': 'test',
+        'mode': 'test',
+        'lanMode': false,
+        'bindAddress': '127.0.0.1',
+        'port': 4317,
+        'security': {'tokenRequired': false}
+      }),
+      workspaces: const <WorkspaceSummary>[workspace],
+      workspace: workspace,
+      overview: const ProjectOverview(
+          workspaceId: 'workspace_1',
+          name: 'vibe-coding',
+          path: r'D:\AiProject\vibe-coding',
+          fileCount: 0,
+          codeLineCount: 0,
+          symbolCount: 0,
+          analysisScore: 0,
+          recentFiles: <RecentFileSummary>[]),
+      adapters: const <AdapterStatus>[],
+      runs: const <RunSummary>[],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      templates: const <CommandTemplate>[],
+      gitStatus: const GitStatusSummary(
+          workspaceId: 'workspace_1', clean: true, files: <GitStatusFile>[]),
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: const FileTreeResponse(
+          workspaceId: 'workspace_1', root: '', entries: <FileTreeEntry>[]),
+      diagnostics: const CodeDiagnosticsSummary(
+          workspaceId: 'workspace_1',
+          available: true,
+          diagnostics: <CodeDiagnostic>[]),
+      extensions: const <ExtensionSummary>[]);
+}
+
 void main() {
   testWidgets('app renders English when forced to English',
       (WidgetTester tester) async {
@@ -69,6 +154,24 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('设置'), findsWidgets);
+  });
+
+  testWidgets('settings language picker shows self-identifying language names',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedMainTabsApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Language'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('System default'), findsOneWidget);
+    expect(find.text('简体中文'), findsOneWidget);
+    expect(find.text('English'), findsWidgets);
   });
 
   testWidgets('renders assistant markdown instead of raw syntax',

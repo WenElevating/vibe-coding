@@ -169,6 +169,67 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'English'**
   String get settingsLanguageEn;
+
+  /// No description provided for @settingsLanguagePickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose language'**
+  String get settingsLanguagePickerTitle;
+
+  /// No description provided for @settingsCodingControlSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Coding control'**
+  String get settingsCodingControlSection;
+
+  /// No description provided for @settingsStreamOutputTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stream output'**
+  String get settingsStreamOutputTitle;
+
+  /// No description provided for @settingsStreamOutputSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'When off, only the final answer is shown to avoid duplicate deltas and complete messages.'**
+  String get settingsStreamOutputSubtitle;
+
+  /// No description provided for @settingsExpandThinkingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Show thinking process'**
+  String get settingsExpandThinkingTitle;
+
+  /// No description provided for @settingsExpandThinkingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'When on, model thinking is expanded by default; when off, it stays collapsed.'**
+  String get settingsExpandThinkingSubtitle;
+
+  /// No description provided for @settingsPermissionModeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Permission mode'**
+  String get settingsPermissionModeTitle;
+
+  /// No description provided for @settingsPermissionDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get settingsPermissionDefault;
+
+  /// No description provided for @settingsPermissionAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get settingsPermissionAuto;
+
+  /// No description provided for @settingsPermissionSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.'**
+  String get settingsPermissionSubtitle;
+
 }
 
 class _AppLocalizationsDelegate

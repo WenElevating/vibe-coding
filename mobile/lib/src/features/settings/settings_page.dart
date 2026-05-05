@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
+import '../../app/language_mode.dart';
+import '../../app/language_scope.dart';
 import '../../models/protocol.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
@@ -28,27 +31,39 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final language = LanguageScope.watch(context);
     return PageScroll(
       children: [
-        const TopBar(title: '设置'),
+        TopBar(title: l10n.settingsTitle),
         const SizedBox(height: 14),
         _SettingsConnectionCard(
             workspace: data.workspace,
             mode: data.health.mode,
             lanMode: data.health.lanMode),
         const SizedBox(height: 20),
-        Subhead('编码控制'),
+        Subhead(l10n.settingsPreferencesSection),
+        _SettingsCard(children: [
+          _SettingsTapRow(
+              title: l10n.settingsLanguageTitle,
+              value: _languageModeLabel(l10n, language.mode),
+              onTap: () => _showLanguagePicker(context)),
+        ]),
+        const SizedBox(height: 20),
+        Subhead(l10n.settingsCodingControlSection),
         _SettingsCard(children: [
           _PermissionModeRow(
-              value: permissionMode, onChanged: onPermissionModeChanged),
+              value: permissionMode,
+              onChanged: onPermissionModeChanged,
+              l10n: l10n),
           _SettingsSwitchRow(
-              title: '流式输出',
-              subtitle: '关闭时只显示最终回复，避免 delta 与完整消息重复。',
+              title: l10n.settingsStreamOutputTitle,
+              subtitle: l10n.settingsStreamOutputSubtitle,
               value: streamOutput,
               onChanged: onStreamOutputChanged),
           _SettingsSwitchRow(
-              title: '显示思考过程',
-              subtitle: '开启后默认展开模型 thinking；关闭时折叠显示。',
+              title: l10n.settingsExpandThinkingTitle,
+              subtitle: l10n.settingsExpandThinkingSubtitle,
               value: expandThinking,
               onChanged: onExpandThinkingChanged),
         ]),
@@ -88,6 +103,106 @@ class SettingsPage extends StatelessWidget {
             onTap: () => open(RoutePage.diagnostics)),
       ],
     );
+  }
+}
+
+String _languageModeLabel(
+        AppLocalizations l10n, LanguageModePreference mode) =>
+    switch (mode) {
+      LanguageModePreference.system => l10n.settingsLanguageSystem,
+      LanguageModePreference.zhHansCn => '简体中文',
+      LanguageModePreference.enUs => 'English',
+    };
+
+void _showLanguagePicker(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  final controller = LanguageScope.read(context);
+  showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LanguagePickerSheet(
+          title: l10n.settingsLanguagePickerTitle,
+          selected: controller.mode,
+          onSelected: (mode) async {
+            Navigator.of(context).pop();
+            await controller.setMode(mode);
+          }));
+}
+
+class _SettingsTapRow extends StatelessWidget {
+  const _SettingsTapRow(
+      {required this.title, required this.value, required this.onTap});
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(children: [
+            Expanded(
+                child: Text(title,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w800))),
+            Text(value,
+                style: const TextStyle(
+                    color: theme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded,
+                color: theme.faint, size: 18),
+          ])));
+}
+
+class _LanguagePickerSheet extends StatelessWidget {
+  const _LanguagePickerSheet(
+      {required this.title, required this.selected, required this.onSelected});
+  final String title;
+  final LanguageModePreference selected;
+  final ValueChanged<LanguageModePreference> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final options = <(LanguageModePreference, String)>[
+      (LanguageModePreference.system, l10n.settingsLanguageSystem),
+      (LanguageModePreference.zhHansCn, '简体中文'),
+      (LanguageModePreference.enUs, 'English'),
+    ];
+    return SafeArea(
+        child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            decoration: BoxDecoration(
+                color: const Color(0xFF101113),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withValues(alpha: .08))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [
+                Expanded(
+                    child: Text(title,
+                        style: const TextStyle(
+                            color: theme.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900))),
+                IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded,
+                        color: theme.muted, size: 18)),
+              ]),
+              for (final option in options)
+                ListTile(
+                    dense: true,
+                    title: Text(option.$2),
+                    trailing: selected == option.$1
+                        ? const Icon(Icons.check_rounded,
+                            color: theme.green, size: 18)
+                        : null,
+                    onTap: () => onSelected(option.$1)),
+            ])));
   }
 }
 
@@ -281,31 +396,34 @@ class _SettingsRow extends StatelessWidget {
 }
 
 class _PermissionModeRow extends StatelessWidget {
-  const _PermissionModeRow({required this.value, required this.onChanged});
+  const _PermissionModeRow(
+      {required this.value, required this.onChanged, required this.l10n});
   final String value;
   final ValueChanged<String> onChanged;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(
-              child: Text('权限模式',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14))),
+          Expanded(
+              child: Text(l10n.settingsPermissionModeTitle,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 14))),
           _PermissionChip(
-              label: '默认',
+              label: l10n.settingsPermissionDefault,
               selected: value == 'default',
               onTap: () => onChanged('default')),
           const SizedBox(width: 8),
           _PermissionChip(
-              label: '自动',
+              label: l10n.settingsPermissionAuto,
               selected: value == 'auto',
               onTap: () => onChanged('auto')),
         ]),
         const SizedBox(height: 8),
-        const Text('默认会请求 CLI 权限确认；自动模式由 CLI 处理。',
-            style: TextStyle(
+        Text(l10n.settingsPermissionSubtitle,
+            style: const TextStyle(
                 color: Color(0xFF858A94), fontSize: 11.5, height: 1.35)),
       ]));
 }
