@@ -5,6 +5,7 @@ import '../features/diagnostics/diagnostics.dart';
 import '../features/notifications/notifications.dart';
 import '../features/run_detail/run_detail.dart';
 import '../features/settings/settings.dart';
+import '../features/workbench/workbench.dart';
 import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
@@ -49,7 +50,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
     NavSpec(Icons.format_list_bulleted_rounded, '设备'),
     NavSpec(Icons.settings_rounded, '设置'),
   ];
-
 
   @override
   Widget build(BuildContext context) {
