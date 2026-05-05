@@ -638,6 +638,93 @@ abstract class AppLocalizations {
   /// No description provided for @workspaceBrowserPlaceholder.
   String get workspaceBrowserPlaceholder;
 
+  /// No description provided for @workbenchComposerNoAdapter.
+  String get workbenchComposerNoAdapter;
+
+  /// No description provided for @workbenchComposerFollowUpHint.
+  String get workbenchComposerFollowUpHint;
+
+  /// No description provided for @workbenchApprovalPageTitle.
+  String get workbenchApprovalPageTitle;
+
+  /// No description provided for @workbenchModifyFileTitle.
+  String get workbenchModifyFileTitle;
+
+  /// No description provided for @workbenchDiffTab.
+  String get workbenchDiffTab;
+
+  /// No description provided for @workbenchFileContentTab.
+  String get workbenchFileContentTab;
+
+  /// No description provided for @workbenchApprovalActionsSection.
+  String get workbenchApprovalActionsSection;
+
+  /// No description provided for @workbenchClaudeSuggestionTitle.
+  String get workbenchClaudeSuggestionTitle;
+
+  /// No description provided for @workbenchMockFixEmptyResponse.
+  String get workbenchMockFixEmptyResponse;
+
+  /// No description provided for @workbenchRejectAction.
+  String get workbenchRejectAction;
+
+  /// No description provided for @workbenchApproveAction.
+  String get workbenchApproveAction;
+
+  /// No description provided for @workbenchInlineReady.
+  String get workbenchInlineReady;
+
+  /// No description provided for @workbenchInlineCompleted.
+  String workbenchInlineCompleted(int count);
+
+  /// No description provided for @workbenchInlineConnecting.
+  String workbenchInlineConnecting(String adapter, int count);
+
+  /// No description provided for @workbenchApprovalMissingId.
+  String get workbenchApprovalMissingId;
+
+  /// No description provided for @workbenchQuestionTitle.
+  String get workbenchQuestionTitle;
+
+  /// No description provided for @workbenchCommandDetailTitle.
+  String get workbenchCommandDetailTitle;
+
+  /// No description provided for @workbenchOutputDetailTitle.
+  String get workbenchOutputDetailTitle;
+
+  /// No description provided for @workbenchCommandMetaEmpty.
+  String get workbenchCommandMetaEmpty;
+
+  /// No description provided for @workbenchCommandMetaWithTitle.
+  String workbenchCommandMetaWithTitle(String title);
+
+  /// No description provided for @workbenchCopyAllTooltip.
+  String get workbenchCopyAllTooltip;
+
+  /// No description provided for @workbenchCopiedSnack.
+  String get workbenchCopiedSnack;
+
+  /// No description provided for @workbenchCloseTooltip.
+  String get workbenchCloseTooltip;
+
+  /// No description provided for @workbenchPendingRunning.
+  String get workbenchPendingRunning;
+
+  /// No description provided for @workbenchPreviewReceivingOutput.
+  String get workbenchPreviewReceivingOutput;
+
+  /// No description provided for @workbenchPreviewStartedSession.
+  String get workbenchPreviewStartedSession;
+
+  /// No description provided for @workbenchApprovalCardTitle.
+  String get workbenchApprovalCardTitle;
+
+  /// No description provided for @workbenchRunErrorPrefix.
+  String get workbenchRunErrorPrefix;
+
+  /// No description provided for @workbenchNewSessionTitle.
+  String get workbenchNewSessionTitle;
+
 }
 
 class _AppLocalizationsDelegate

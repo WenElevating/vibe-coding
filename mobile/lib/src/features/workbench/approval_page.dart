@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
 
@@ -9,42 +10,45 @@ class ApprovalPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return PageScroll(children: [
-      TopBar(title: '需要你审批', leading: true, action: '⋯'),
+      TopBar(title: l10n.workbenchApprovalPageTitle, leading: true, action: '?'),
       const SizedBox(height: 14),
-      const GlassCard(
+      GlassCard(
           child: Row(children: [
-        Icon(Icons.warning_amber_rounded, color: theme.amber),
-        SizedBox(width: 10),
+        const Icon(Icons.warning_amber_rounded, color: theme.amber),
+        const SizedBox(width: 10),
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('修改文件', style: TextStyle(fontWeight: FontWeight.w800)),
-          SizedBox(height: 6),
-          Text('lib/services/auth_service.dart     +32 -8',
+          Text(l10n.workbenchModifyFileTitle,
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          const Text('lib/services/auth_service.dart     +32 -8',
               style: TextStyle(color: theme.muted, fontSize: 12))
         ])),
-        Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
+        const Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
       ])),
       const SizedBox(height: 12),
-      const Tabs(labels: ['差异', '文件内容']),
+      Tabs(labels: [l10n.workbenchDiffTab, l10n.workbenchFileContentTab]),
       const SizedBox(height: 10),
       const CodeDiff(),
       const SizedBox(height: 18),
-      const SectionTitle('审批操作'),
-      const GlassCard(
+      SectionTitle(l10n.workbenchApprovalActionsSection),
+      GlassCard(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Claude 建议的变更', style: TextStyle(fontWeight: FontWeight.w800)),
-        SizedBox(height: 8),
-        Text('修复空响应导致的测试失败问题',
-            style: TextStyle(color: theme.muted, fontSize: 12))
+        Text(l10n.workbenchClaudeSuggestionTitle,
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Text(l10n.workbenchMockFixEmptyResponse,
+            style: const TextStyle(color: theme.muted, fontSize: 12))
       ])),
       const SizedBox(height: 12),
       Row(children: [
-        Expanded(child: GhostButton('拒绝', color: theme.red, onTap: onBack)),
+        Expanded(child: GhostButton(l10n.workbenchRejectAction, color: theme.red, onTap: onBack)),
         const SizedBox(width: 10),
-        Expanded(child: PrimaryButton('批准', onTap: onBack))
+        Expanded(child: PrimaryButton(l10n.workbenchApproveAction, onTap: onBack))
       ]),
     ]);
   }

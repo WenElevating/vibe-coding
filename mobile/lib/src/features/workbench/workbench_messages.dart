@@ -15,23 +15,23 @@ bool hasExplicitWorkspaceSelectionState({
 
 String conversationPendingStatusText(
     String status, Iterable<ConversationEvent> events) {
-  if (status == 'interrupted') return '会话已中断，可继续发送新消息恢复上下文';
-  if (status == 'waiting_input') return '等待你回复问题…';
-  if (status == 'waiting_approval') return '等待你确认权限请求…';
+  if (status == 'interrupted') return 'Session interrupted. Send a new message to resume context';
+  if (status == 'waiting_input') return 'Waiting for your answer?';
+  if (status == 'waiting_approval') return 'Waiting for permission confirmation?';
   final list = events.toList(growable: false);
-  if (list.isEmpty) return '正在启动 CLI 会话…';
+  if (list.isEmpty) return 'Starting CLI session?';
   for (final event in list.reversed) {
-    if (event.type == 'assistant.partial') return '正在生成回复…';
+    if (event.type == 'assistant.partial') return 'Generating response?';
     if (event.type == 'tool.started') {
-      return '正在执行 ${event.toolName ?? '工具调用'}…';
+      return 'Running ${event.toolName ?? 'tool call'}?';
     }
-    if (event.type == 'tool.output') return '正在接收工具输出…';
-    if (event.type == 'diff.summary') return '正在汇总文件变更…';
+    if (event.type == 'tool.output') return 'Receiving tool output?';
+    if (event.type == 'diff.summary') return 'Summarizing file changes?';
     if (event.type == 'conversation.started') {
-      return 'CLI 会话已启动，正在读取上下文…';
+      return 'CLI session started. Reading context?';
     }
   }
-  return '等待下一条事件…';
+  return 'Waiting for the next event?';
 }
 
 List<ConversationMessage> messagesForConversationSnapshot(
@@ -64,8 +64,8 @@ String? emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
       .whereType<String>()
       .where((text) => text.isNotEmpty)
       .toList(growable: false);
-  if (warnings.isEmpty) return 'CLI 未返回内容。请检查 Claude 是否正常启动，或查看 daemon 日志。';
-  return 'CLI 未返回内容。诊断信息：\n${warnings.join('\n')}';
+  if (warnings.isEmpty) return 'CLI returned no content. Check whether Claude started correctly, or inspect daemon logs.';
+  return 'CLI returned no content. Diagnostics:\n${warnings.join('\n')}';
 }
 
 ConversationSummary copyConversationStatus(
@@ -121,27 +121,27 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
     case 'user':
       return WorkbenchMessage.user(message.text);
     case 'assistant':
-      return WorkbenchMessage('assistant', 'CLI 助手', message.text,
+      return WorkbenchMessage('assistant', 'CLI assistant', message.text,
           event: event, runId: 'conversation');
     case 'thinking':
-      return WorkbenchMessage('thinking', '思考过程', message.text,
+      return WorkbenchMessage('thinking', 'Thinking process', message.text,
           event: event, runId: 'conversation');
     case 'assistant_stream':
-      return WorkbenchMessage('assistant_stream', 'CLI 助手', message.text,
+      return WorkbenchMessage('assistant_stream', 'CLI assistant', message.text,
           event: event, runId: 'conversation');
     case 'question':
-      return WorkbenchMessage('question', '需要你选择方向', message.text,
+      return WorkbenchMessage('question', 'Needs your direction', message.text,
           event: event,
           runId: 'conversation',
           suggestions: message.suggestions);
     case 'notice':
-      return WorkbenchMessage('notice', '系统提示', message.text,
+      return WorkbenchMessage('notice', 'System notice', message.text,
           event: event, runId: 'conversation');
     case 'approval':
-      return WorkbenchMessage('approval', '权限确认', message.text,
+      return WorkbenchMessage('approval', 'Permission confirmation', message.text,
           event: event, runId: 'conversation');
     case 'command':
-      return WorkbenchMessage('command', '运行命令', message.text,
+      return WorkbenchMessage('command', 'Run command', message.text,
           event: event,
           runId: 'conversation',
           completed: message.completed,
@@ -207,9 +207,9 @@ class WorkbenchMessage {
   final Duration? duration;
   final List<String> suggestions;
   factory WorkbenchMessage.user(String text) =>
-      WorkbenchMessage('user', '你', text);
+      WorkbenchMessage('user', 'You', text);
   factory WorkbenchMessage.status(String text) =>
-      WorkbenchMessage('status', '运行状态', text);
+      WorkbenchMessage('status', 'Run status', text);
   WorkbenchMessage copyWith(
           {String? body, bool? completed, bool? isError, Duration? duration}) =>
       WorkbenchMessage(role, title, body ?? this.body,
@@ -224,16 +224,16 @@ class WorkbenchMessage {
     final parsed = _parseVisibleText(event);
     final visibleText = parsed?.text;
     if (event.type == 'approval.required') {
-      final toolName = event.name ?? '工具';
+      final toolName = event.name ?? 'Tool';
       final target = _approvalTarget(event);
       final body =
-          target == null ? '$toolName 请求权限（未提供参数）。' : '$toolName 请求访问：$target';
-      return WorkbenchMessage('approval', '权限确认', visibleText ?? body,
+          target == null ? '$toolName requested permission without arguments.' : '$toolName requested access: $target';
+      return WorkbenchMessage('approval', 'Permission confirmation', visibleText ?? body,
           event: event, runId: event.runId);
     }
     if (event.type == 'assistant.question') {
       final question = visibleText ?? event.text ?? toolEventBody(event);
-      return WorkbenchMessage('question', '需要你选择方向', question.trim(),
+      return WorkbenchMessage('question', 'Needs your direction', question.trim(),
           event: event,
           runId: event.runId,
           suggestions: _eventSuggestions(event));
@@ -241,27 +241,27 @@ class WorkbenchMessage {
     if (visibleText != null && visibleText.trim().isNotEmpty) {
       if (parsed?.kind == _VisibleTextKind.delta) {
         if (!streamOutput) return null;
-        return WorkbenchMessage('assistant_stream', 'CLI 助手', visibleText,
+        return WorkbenchMessage('assistant_stream', 'CLI assistant', visibleText,
             event: event, runId: event.runId);
       }
       if (parsed?.kind == _VisibleTextKind.finalMessage) {
-        return WorkbenchMessage('assistant', 'CLI 助手', visibleText.trim(),
+        return WorkbenchMessage('assistant', 'CLI assistant', visibleText.trim(),
             event: event, runId: event.runId);
       }
     }
     if (event.type == 'tool.started') {
-      return WorkbenchMessage('command', '运行命令', toolEventBody(event),
+      return WorkbenchMessage('command', 'Run command', toolEventBody(event),
           event: event, runId: event.runId);
     }
     if (event.type == 'diff.summary' && event.diff != null) {
       final diff = event.diff!;
-      return WorkbenchMessage('diff', '文件变更',
+      return WorkbenchMessage('diff', 'File changes',
           '${diff.filePath}  +${diff.additions} -${diff.deletions}',
           event: event, runId: event.runId);
     }
     if (event.type == 'run.cancelled') return null;
     if (event.type == 'run.failed') {
-      return WorkbenchMessage('status', '运行结束', visibleText ?? event.type,
+      return WorkbenchMessage('status', 'Run ended', visibleText ?? event.type,
           event: event, runId: event.runId);
     }
     return null;
@@ -468,7 +468,7 @@ class WorkbenchMessage {
       final file = input['file_path'] ?? input['path'] ?? input['filename'];
       if (file is String && file.trim().isNotEmpty) return file.trim();
     }
-    return event.name ?? 'CLI 工具调用中';
+    return event.name ?? 'CLI tool running';
   }
 
   static Object? _eventInput(AgentEvent event) {

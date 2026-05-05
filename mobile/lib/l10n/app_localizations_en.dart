@@ -481,4 +481,91 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get workspaceBrowserPlaceholder => 'Choose a drive or root directory, then continue into a folder';
 
+  @override
+  String get workbenchComposerNoAdapter => 'No available CLI adapter';
+
+  @override
+  String get workbenchComposerFollowUpHint => 'Request follow-up changes?';
+
+  @override
+  String get workbenchApprovalPageTitle => 'Needs your approval';
+
+  @override
+  String get workbenchModifyFileTitle => 'Modify file';
+
+  @override
+  String get workbenchDiffTab => 'Diff';
+
+  @override
+  String get workbenchFileContentTab => 'File content';
+
+  @override
+  String get workbenchApprovalActionsSection => 'Approval actions';
+
+  @override
+  String get workbenchClaudeSuggestionTitle => 'Claude suggested changes';
+
+  @override
+  String get workbenchMockFixEmptyResponse => 'Fix test failure caused by empty responses';
+
+  @override
+  String get workbenchRejectAction => 'Deny';
+
+  @override
+  String get workbenchApproveAction => 'Approve';
+
+  @override
+  String get workbenchInlineReady => 'Ready for a coding task';
+
+  @override
+  String workbenchInlineCompleted(int count) => 'CLI session complete ? $count events processed';
+
+  @override
+  String workbenchInlineConnecting(String adapter, int count) => 'Connecting $adapter ? $count events processed';
+
+  @override
+  String get workbenchApprovalMissingId => 'daemon did not provide approvalId, so mobile cannot process it.';
+
+  @override
+  String get workbenchQuestionTitle => 'Needs your direction';
+
+  @override
+  String get workbenchCommandDetailTitle => 'Command details';
+
+  @override
+  String get workbenchOutputDetailTitle => 'Output details';
+
+  @override
+  String get workbenchCommandMetaEmpty => 'Run 1 command';
+
+  @override
+  String workbenchCommandMetaWithTitle(String title) => 'Run 1 command ? $title';
+
+  @override
+  String get workbenchCopyAllTooltip => 'Copy full text';
+
+  @override
+  String get workbenchCopiedSnack => 'Copied to clipboard';
+
+  @override
+  String get workbenchCloseTooltip => 'Close';
+
+  @override
+  String get workbenchPendingRunning => 'Running';
+
+  @override
+  String get workbenchPreviewReceivingOutput => 'Receiving CLI output...';
+
+  @override
+  String get workbenchPreviewStartedSession => 'Started claude session';
+
+  @override
+  String get workbenchApprovalCardTitle => 'Needs approval';
+
+  @override
+  String get workbenchRunErrorPrefix => 'Run error:';
+
+  @override
+  String get workbenchNewSessionTitle => 'New coding session';
+
 }

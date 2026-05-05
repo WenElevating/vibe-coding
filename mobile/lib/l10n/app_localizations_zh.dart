@@ -468,4 +468,91 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get workspaceBrowserPlaceholder => '选择磁盘或根目录后继续进入文件夹';
 
+  @override
+  String get workbenchComposerNoAdapter => '没有可用 CLI adapter';
+
+  @override
+  String get workbenchComposerFollowUpHint => '要求后续变更…';
+
+  @override
+  String get workbenchApprovalPageTitle => '需要你审批';
+
+  @override
+  String get workbenchModifyFileTitle => '修改文件';
+
+  @override
+  String get workbenchDiffTab => '差异';
+
+  @override
+  String get workbenchFileContentTab => '文件内容';
+
+  @override
+  String get workbenchApprovalActionsSection => '审批操作';
+
+  @override
+  String get workbenchClaudeSuggestionTitle => 'Claude 建议的变更';
+
+  @override
+  String get workbenchMockFixEmptyResponse => '修复空响应导致的测试失败问题';
+
+  @override
+  String get workbenchRejectAction => '拒绝';
+
+  @override
+  String get workbenchApproveAction => '批准';
+
+  @override
+  String get workbenchInlineReady => '准备好接收编码任务';
+
+  @override
+  String workbenchInlineCompleted(int count) => '本次 CLI 会话已完成 · $count 个事件已处理';
+
+  @override
+  String workbenchInlineConnecting(String adapter, int count) => '正在连接 $adapter · 已处理 $count 个事件';
+
+  @override
+  String get workbenchApprovalMissingId => 'daemon 未提供 approvalId，无法在移动端处理。';
+
+  @override
+  String get workbenchQuestionTitle => '需要你补充方向';
+
+  @override
+  String get workbenchCommandDetailTitle => '命令详情';
+
+  @override
+  String get workbenchOutputDetailTitle => '输出详情';
+
+  @override
+  String get workbenchCommandMetaEmpty => '执行 1 条命令';
+
+  @override
+  String workbenchCommandMetaWithTitle(String title) => '执行 1 条命令 · $title';
+
+  @override
+  String get workbenchCopyAllTooltip => '复制全文';
+
+  @override
+  String get workbenchCopiedSnack => '已复制到剪贴板';
+
+  @override
+  String get workbenchCloseTooltip => '关闭';
+
+  @override
+  String get workbenchPendingRunning => '正在运行';
+
+  @override
+  String get workbenchPreviewReceivingOutput => '正在接收 CLI 输出...';
+
+  @override
+  String get workbenchPreviewStartedSession => '已启动 claude 会话';
+
+  @override
+  String get workbenchApprovalCardTitle => '需要审批';
+
+  @override
+  String get workbenchRunErrorPrefix => '运行错误：';
+
+  @override
+  String get workbenchNewSessionTitle => '新的编码会话';
+
 }

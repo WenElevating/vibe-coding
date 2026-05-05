@@ -689,7 +689,7 @@ void main() {
       conversation,
     );
 
-    expect(diagnostic, contains('CLI 未返回内容'));
+    expect(diagnostic, contains('CLI returned no content'));
     expect(diagnostic, contains('Claude exited before returning content'));
   });
 

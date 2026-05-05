@@ -251,5 +251,58 @@
   "workspaceCreateAndUseAction": "Create and use",
   "workspaceChooseFolderTitle": "Choose folder",
   "workspaceSelectCurrentAction": "Select current",
-  "workspaceBrowserPlaceholder": "Choose a drive or root directory, then continue into a folder"
+  "workspaceBrowserPlaceholder": "Choose a drive or root directory, then continue into a folder",
+  "workbenchComposerNoAdapter": "No available CLI adapter",
+  "workbenchComposerFollowUpHint": "Request follow-up changes?",
+  "workbenchApprovalPageTitle": "Needs your approval",
+  "workbenchModifyFileTitle": "Modify file",
+  "workbenchDiffTab": "Diff",
+  "workbenchFileContentTab": "File content",
+  "workbenchApprovalActionsSection": "Approval actions",
+  "workbenchClaudeSuggestionTitle": "Claude suggested changes",
+  "workbenchMockFixEmptyResponse": "Fix test failure caused by empty responses",
+  "workbenchRejectAction": "Deny",
+  "workbenchApproveAction": "Approve",
+  "workbenchInlineReady": "Ready for a coding task",
+  "workbenchInlineCompleted": "CLI session complete ? {count} events processed",
+  "@workbenchInlineCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchInlineConnecting": "Connecting {adapter} ? {count} events processed",
+  "@workbenchInlineConnecting": {
+    "placeholders": {
+      "adapter": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchApprovalMissingId": "daemon did not provide approvalId, so mobile cannot process it.",
+  "workbenchQuestionTitle": "Needs your direction",
+  "workbenchCommandDetailTitle": "Command details",
+  "workbenchOutputDetailTitle": "Output details",
+  "workbenchCommandMetaEmpty": "Run 1 command",
+  "workbenchCommandMetaWithTitle": "Run 1 command ? {title}",
+  "@workbenchCommandMetaWithTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCopyAllTooltip": "Copy full text",
+  "workbenchCopiedSnack": "Copied to clipboard",
+  "workbenchCloseTooltip": "Close",
+  "workbenchPendingRunning": "Running",
+  "workbenchPreviewReceivingOutput": "Receiving CLI output...",
+  "workbenchPreviewStartedSession": "Started claude session",
+  "workbenchApprovalCardTitle": "Needs approval",
+  "workbenchRunErrorPrefix": "Run error:",
+  "workbenchNewSessionTitle": "New coding session"
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../theme/theme.dart' as theme;
 import '../workspace_picker/workspace_picker.dart';
@@ -63,9 +64,9 @@ class CodingComposer extends StatelessWidget {
                       isDense: true,
                       border: InputBorder.none,
                       hintText: adapter == null
-                          ? '没有可用 CLI adapter'
+                          ? AppLocalizations.of(context).workbenchComposerNoAdapter
                           : running
-                              ? '要求后续变更…'
+                              ? AppLocalizations.of(context).workbenchComposerFollowUpHint
                               : 'Add feedback...',
                       hintStyle: theme.appTextStyle.copyWith(
                           color: theme.faint,
