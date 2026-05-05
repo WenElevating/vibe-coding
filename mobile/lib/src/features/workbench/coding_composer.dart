@@ -260,12 +260,3 @@ class _SendGlyphPainter extends CustomPainter {
   bool shouldRepaint(covariant _SendGlyphPainter oldDelegate) =>
       oldDelegate.color != color;
 }
-
-RunSummary _runSummaryFromConversation(ConversationSummary conversation) {
-  return RunSummary(
-      id: conversation.id,
-      tool: conversation.adapter,
-      workspaceId: conversation.workspaceId,
-      status: _runStatusFromConversation(conversation.status),
-      cliSessionId: conversation.cliSessionId);
-}

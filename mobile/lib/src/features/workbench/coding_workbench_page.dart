@@ -31,7 +31,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   final List<_WorkbenchMessage> _messages = <_WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
-  final List<_SessionItem> _localSessions = <_SessionItem>[];
+  final List<SessionItem> _localSessions = <SessionItem>[];
   late List<WorkspaceSummary> _workspaces;
   Timer? _poller;
   String? _activeRunId;
@@ -48,7 +48,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   _WorkbenchListMode _listMode = _WorkbenchListMode.workspaces;
   late int _handledOpenSessionListRequest;
 
-  List<_SessionItem> get _sessionItems => _mergeSessionItems(
+  List<SessionItem> get _sessionItems => mergeSessionItems(
       _localSessions, widget.data.conversations, widget.data.runs);
 
   void _syncWorkspacesFromSnapshot(List<WorkspaceSummary> snapshot) {
@@ -100,15 +100,15 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
 
   void _rememberRun(RunSummary run) {
     _localSessions.removeWhere((item) => item.id == run.id);
-    _localSessions.insert(0, _SessionItem(run: run));
+    _localSessions.insert(0, SessionItem(run: run));
   }
 
   void _rememberConversation(ConversationSummary conversation) {
     _localSessions.removeWhere((item) => item.id == conversation.id);
     _localSessions.insert(
         0,
-        _SessionItem(
-            run: _runSummaryFromConversation(conversation),
+        SessionItem(
+            run: runSummaryFromConversation(conversation),
             conversation: conversation));
   }
 
@@ -133,7 +133,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     _lastSeq = 0;
   }
 
-  Future<void> _openSession(_SessionItem item) async {
+  Future<void> _openSession(SessionItem item) async {
     _poller?.cancel();
     setState(() {
       _resetConversationState();
@@ -167,7 +167,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       if (conversationId != null) {
         final conversation =
             await widget.client.cancelConversation(conversationId);
-        run = _runSummaryFromConversation(conversation);
+        run = runSummaryFromConversation(conversation);
       } else if (runId != null) {
         run = await widget.client.cancelRun(runId);
       }
@@ -394,7 +394,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             workspaceId: _selectedWorkspace.id,
             adapter: adapter,
             permissionMode: widget.permissionMode);
-        final run = _runSummaryFromConversation(conversation);
+        final run = runSummaryFromConversation(conversation);
         setState(() {
           _activeConversation = conversation;
           _rememberConversation(conversation);
@@ -764,7 +764,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
           onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
     }
     if (_listMode == _WorkbenchListMode.sessions) {
-      return _CodingSessionListPage(
+      return CodingSessionListPage(
           data: widget.data,
           items: _sessionItems,
           currentWorkspace: _selectedWorkspace,

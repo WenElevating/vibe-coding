@@ -41,7 +41,7 @@ List<String> debugMergeSessionIds(
         List<RunSummary> localRuns,
         List<ConversationSummary> snapshotConversations,
         List<RunSummary> snapshotRuns) =>
-    _mergeSessionItems(localRuns.map((run) => _SessionItem(run: run)).toList(),
+    mergeSessionItems(localRuns.map((run) => SessionItem(run: run)).toList(),
             snapshotConversations, snapshotRuns)
         .map((item) => item.id)
         .toList(growable: false);
@@ -346,10 +346,10 @@ Widget buildWorkspaceScopedSessionPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: _CodingSessionListPage(
+          body: CodingSessionListPage(
               data: data,
-              items: _mergeSessionItems(
-                  const <_SessionItem>[], data.conversations, data.runs),
+              items: mergeSessionItems(
+                  const <SessionItem>[], data.conversations, data.runs),
               currentWorkspace: current,
               onNewSession: () {},
               onSelectItem: (_) {},

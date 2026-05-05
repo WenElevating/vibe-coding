@@ -1,18 +1,26 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _CodingSessionListPage extends StatelessWidget {
-  const _CodingSessionListPage(
-      {required this.data,
+import '../../models/protocol.dart';
+import '../../shell/shell.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+import '../workspace_picker/workspace_picker.dart';
+import 'session_item.dart';
+
+class CodingSessionListPage extends StatelessWidget {
+  const CodingSessionListPage(
+      {super.key,
+      required this.data,
       required this.items,
       required this.currentWorkspace,
       required this.onNewSession,
       required this.onSelectItem,
       required this.onBackToWorkspaces});
   final AppSnapshot data;
-  final List<_SessionItem> items;
+  final List<SessionItem> items;
   final WorkspaceSummary currentWorkspace;
   final VoidCallback onNewSession;
-  final ValueChanged<_SessionItem> onSelectItem;
+  final ValueChanged<SessionItem> onSelectItem;
   final VoidCallback onBackToWorkspaces;
 
   @override
@@ -37,7 +45,7 @@ class _CodingSessionListPage extends StatelessWidget {
                     width: 36,
                     height: 36,
                     child: Icon(Icons.chevron_left_rounded,
-                        color: _muted, size: 24))),
+                        color: theme.muted, size: 24))),
             Expanded(
                 child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -46,7 +54,7 @@ class _CodingSessionListPage extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          color: _text,
+                          color: theme.text,
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -.15)),
@@ -56,7 +64,7 @@ class _CodingSessionListPage extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: _faint,
+                          color: theme.faint,
                           fontSize: 10.5,
                           fontFamily: 'Consolas')),
                 ])),
@@ -178,7 +186,9 @@ class _EmptySessionStack extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('No sessions in this workspace yet',
                   style: TextStyle(
-                      color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
+                      color: theme.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               TinyActionButton('New Session',
                   onTap: onNewSession, primary: true),
@@ -266,15 +276,15 @@ _SessionRunVisualState _sessionRunState(String status) {
   final lower = status.toLowerCase();
   if (lower.contains('approval') || lower.contains('pending')) {
     return const _SessionRunVisualState(
-        icon: '!', label: '等待审批', badge: '待处理', color: _amber);
+        icon: '!', label: '等待审批', badge: '待处理', color: theme.amber);
   }
   if (lower.contains('running') || lower.contains('start')) {
     return const _SessionRunVisualState(
-        icon: '●', label: '运行中', badge: 'live', color: _green);
+        icon: '●', label: '运行中', badge: 'live', color: theme.green);
   }
   if (lower.contains('fail') || lower.contains('error')) {
     return const _SessionRunVisualState(
-        icon: '×', label: '失败', badge: '失败', color: _red);
+        icon: '×', label: '失败', badge: '失败', color: theme.red);
   }
   return const _SessionRunVisualState(
       icon: '✓', label: '完成', badge: '完成', color: Color(0xFFA0A0A0));

@@ -1,44 +1,5 @@
 part of '../../app/app.dart';
 
-class _SessionItem {
-  const _SessionItem({required this.run, this.conversation});
-  final RunSummary run;
-  final ConversationSummary? conversation;
-
-  String get id => conversation?.id ?? run.id;
-}
-
-List<_SessionItem> _mergeSessionItems(
-    List<_SessionItem> localSessions,
-    List<ConversationSummary> snapshotConversations,
-    List<RunSummary> snapshotRuns) {
-  final items = <_SessionItem>[];
-  final seen = <String>{};
-  for (final item in localSessions) {
-    if (seen.add(item.id)) items.add(item);
-  }
-  for (final conversation in snapshotConversations) {
-    if (conversation.status == 'idle' && conversation.cliSessionId == null) {
-      continue;
-    }
-    if (seen.add(conversation.id)) {
-      items.add(_SessionItem(
-          run: _runSummaryFromConversation(conversation),
-          conversation: conversation));
-    }
-  }
-  for (final run in snapshotRuns) {
-    if (seen.add(run.id)) items.add(_SessionItem(run: run));
-  }
-  return items;
-}
-
-String _runStatusFromConversation(String status) {
-  if (status == 'idle') return 'completed';
-  if (status == 'cancelled' || status == 'failed') return status;
-  return 'running';
-}
-
 bool _shouldPollAfterApproval(ConversationSummary conversation) =>
     conversation.status == 'running' || conversation.status == 'waiting_input';
 
