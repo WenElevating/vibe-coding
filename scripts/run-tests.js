@@ -184,6 +184,18 @@ test('default app DB path uses app-level name', () => {
   );
 });
 
+test('createApp prefers APP_DB_PATH over CONVERSATION_DB_PATH compatibility alias', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const appDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-primary-')), 'app.sqlite');
+  const conversationDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-db-alias-')), 'conversations.sqlite');
+
+  const app = createApp({ port: 0, appDbPath, conversationDbPath, devAdapters: false });
+  assert.equal(app.appSqliteStore.dbPath, appDbPath);
+  app.appSqliteStore.close();
+});
+
 test('app SQLite store persists workspaces and device authorizations', () => {
   const fs = require('node:fs');
   const os = require('node:os');
@@ -413,6 +425,29 @@ test('workspace registry lists database-backed workspaces for authorized device'
   assert.equal(registry.listForDevice(device).some((item) => item.id === workspace.id), true);
   assert.equal(registry.getAuthorized(workspace.id, device).path, workspace.path);
   store.close();
+});
+
+test('workspace registry persists created workspaces for the same authorized device', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const { WorkspaceRegistry } = require('../daemon/src/workspace');
+
+  const appDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-persist-')), 'app.sqlite');
+  const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-folder-'));
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set() };
+
+  const firstStore = new AppSqliteStore({ dbPath: appDbPath });
+  const firstRegistry = new WorkspaceRegistry({ store: firstStore });
+  const created = firstRegistry.add({ workspacePath, name: 'Persisted' }, device);
+  firstStore.close();
+
+  const secondStore = new AppSqliteStore({ dbPath: appDbPath });
+  const secondRegistry = new WorkspaceRegistry({ store: secondStore });
+  assert.equal(secondRegistry.listForDevice(device).some((workspace) => workspace.id === created.id), true);
+  assert.deepEqual(secondRegistry.listForDevice({ id: 'device_2', allowedWorkspaceIds: new Set() }), []);
+  secondStore.close();
 });
 
 test('event replay returns ordered events after sequence', () => {
