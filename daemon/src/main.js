@@ -4,7 +4,7 @@ const { AuthManager } = require('./auth');
 const { WorkspaceRegistry } = require('./workspace');
 const { EventStore } = require('./event-store');
 const { ConversationEventStore } = require('./conversation-event-store');
-const { ConversationSqliteStore, defaultDbPath } = require('./conversation-sqlite-store');
+const { AppSqliteStore, defaultAppDbPath } = require('./app-sqlite-store');
 const { AuditLog } = require('./audit');
 const { ClaudeAdapter } = require('./claude-adapter');
 const { ClaudeConversationAdapter } = require('./claude-conversation-adapter');
@@ -35,13 +35,16 @@ function createApp({
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1' || mode === 'dev',
   conversationAdapters = null,
-  conversationDbPath = process.env.CONVERSATION_DB_PATH || defaultDbPath()
+  conversationDbPath = process.env.CONVERSATION_DB_PATH,
+  appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath()
 } = {}) {
   const auth = new AuthManager();
-  const workspaces = new WorkspaceRegistry();
-  workspaces.add({ id: 'default', name: 'Current Project', workspacePath: process.cwd() });
+  const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
+  const workspaces = new WorkspaceRegistry({ store: appSqliteStore });
+  const defaultDevice = { id: 'daemon-default', allowedWorkspaceIds: new Set() };
+  workspaces.seedDefault({ id: 'default', name: 'Current Project', workspacePath: process.cwd() }, defaultDevice);
   const eventStore = new EventStore();
-  const conversationSqliteStore = new ConversationSqliteStore({ dbPath: conversationDbPath });
+  const conversationSqliteStore = appSqliteStore;
   const conversationEventStore = new ConversationEventStore({ persistentStore: conversationSqliteStore });
   const auditLog = new AuditLog();
   const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
@@ -67,7 +70,7 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog });
   const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version });
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version };
 }
 
 function createConversationAdapters({ claudeCommand }) {

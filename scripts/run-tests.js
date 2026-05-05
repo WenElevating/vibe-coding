@@ -397,6 +397,24 @@ test('workspace object authorization is enforced', () => {
   assert.equal(registry.getAuthorized('w1', device).id, 'w1');
 });
 
+test('workspace registry lists database-backed workspaces for authorized device', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-db-'));
+  const store = new AppSqliteStore({ dbPath: path.join(dir, 'app.sqlite') });
+  const registry = new WorkspaceRegistry({ store });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set() };
+  const workspace = registry.add({ name: 'Saved', workspacePath: path.join(dir, 'saved') }, device);
+
+  assert.equal(device.allowedWorkspaceIds.has(workspace.id), true);
+  assert.equal(registry.listForDevice(device).some((item) => item.id === workspace.id), true);
+  assert.equal(registry.getAuthorized(workspace.id, device).path, workspace.path);
+  store.close();
+});
+
 test('event replay returns ordered events after sequence', () => {
   const store = new EventStore();
   store.append('run1', 'run.started');

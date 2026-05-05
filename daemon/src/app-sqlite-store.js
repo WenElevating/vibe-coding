@@ -194,6 +194,16 @@ class AppSqliteStore {
     return row ? deserializeWorkspace(row) : null;
   }
 
+  getWorkspace(workspaceId) {
+    const row = this.db.prepare('SELECT id, name, path FROM workspaces WHERE id = ?').get(workspaceId);
+    return row ? deserializeWorkspace(row) : null;
+  }
+
+  hasAnyWorkspaces() {
+    const row = this.db.prepare('SELECT 1 AS exists_workspace FROM workspaces LIMIT 1').get();
+    return Boolean(row);
+  }
+
   close() {
     this.db.close();
   }

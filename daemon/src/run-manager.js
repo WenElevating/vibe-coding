@@ -170,7 +170,7 @@ class RunManager {
       const nextPrompt = run.pendingPrompts.shift();
       run.prompt = nextPrompt;
       run.resumeRequested = true;
-      const workspace = this.workspaces.workspaces.get(run.workspaceId);
+      const workspace = this.workspaces.get(run.workspaceId);
       this.startRunProcess(run, workspace);
       return;
     }
@@ -182,7 +182,7 @@ class RunManager {
     if (!dequeued) return;
     const nextRun = this.runs.get(dequeued.runId);
     if (!nextRun) return;
-    const workspace = this.workspaces.workspaces.get(nextRun.workspaceId);
+    const workspace = this.workspaces.get(nextRun.workspaceId);
     this.eventStore.append(nextRun.id, eventTypes.RUN_DEQUEUED, { workspaceId: nextRun.workspaceId });
     this.startRunProcess(nextRun, workspace);
   }

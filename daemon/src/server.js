@@ -20,7 +20,8 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'POST' && url.pathname === '/api/pair') {
         const body = await readJson(req);
         const paired = auth.pair(body.code, body.label);
-        for (const workspace of workspaces.workspaces.values()) auth.allowWorkspace(paired.deviceId, workspace.id);
+        const device = auth.devices.get(paired.deviceId);
+        workspaces.authorizeExistingWorkspacesForDevice(device);
         return json(res, 200, paired);
       }
 
@@ -39,7 +40,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'POST' && url.pathname === `/api/devices/${device.id}/revoke`) return json(res, 200, auth.revokeDevice(device.id, device));
       if (method === 'GET' && url.pathname === '/api/workspaces') return json(res, 200, { workspaces: workspaces.listForDevice(device) });
       if (method === 'POST' && url.pathname === '/api/workspaces') {
-        const workspace = workspaces.add(await readJson(req));
+        const workspace = workspaces.add(await readJson(req), device);
         auth.allowWorkspace(device.id, workspace.id);
         return json(res, 201, workspace);
       }
