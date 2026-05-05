@@ -312,7 +312,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = 'Workspace was saved, but the list could not be refreshed: $error';
+        _error =
+            'Workspace was saved, but the list could not be refreshed: $error';
         _listMode = CodingWorkbenchListMode.workspaces;
       });
       widget.onSessionListChanged(true);
