@@ -2,6 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart' as theme;
 
+String displayVersion(String? version) =>
+    version == null || version.isEmpty ? 'unknown' : version;
+
+Color toolColor(String tool) {
+  final lower = tool.toLowerCase();
+  if (lower.contains('claude')) return theme.orange;
+  if (lower.contains('codex')) return theme.purple;
+  if (lower.contains('open')) return theme.green;
+  return const Color(0xFF8BC7FF);
+}
+
 class Pill extends StatelessWidget {
   const Pill(this.text,
       {super.key,

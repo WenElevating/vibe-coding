@@ -14,6 +14,14 @@ class _TopBar extends TopBar {
   });
 }
 
+class _SectionTitle extends SectionTitle {
+  const _SectionTitle(super.title, {super.action, super.onAction});
+}
+
+class _Subhead extends Subhead {
+  const _Subhead(super.text);
+}
+
 typedef _NavSpec = NavSpec;
 
 class _BottomNav extends BottomNav {
@@ -22,6 +30,10 @@ class _BottomNav extends BottomNav {
     required super.items,
     required super.onTap,
   });
+}
+
+class _Tabs extends Tabs {
+  const _Tabs({required super.labels});
 }
 
 class _MetricCard extends MetricCard {
@@ -71,6 +83,14 @@ class _QuickAction extends QuickAction {
   });
 }
 
+class _CodeDiff extends CodeDiff {
+  const _CodeDiff();
+}
+
+class _ApprovalPreview extends ApprovalPreview {
+  const _ApprovalPreview({required super.onTap});
+}
+
 class _Pill extends Pill {
   const _Pill(
     super.text, {
@@ -100,10 +120,6 @@ class _WaitingRow extends WaitingRow {
   });
 }
 
-class _StatusBadge extends StatusBadge {
-  const _StatusBadge(super.text, {required super.color});
-}
-
 class _AgentIcon extends AgentIcon {
   const _AgentIcon({required super.color});
 }
@@ -114,10 +130,6 @@ class _FloatingPlus extends FloatingPlus {
 
 class _Hairline extends Hairline {
   const _Hairline();
-}
-
-class _Dot extends Dot {
-  const _Dot({required super.color, super.size = 6});
 }
 
 class _Glow extends Glow {

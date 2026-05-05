@@ -1,36 +1,41 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _AdaptersPage extends StatelessWidget {
-  const _AdaptersPage({required this.onBack, required this.data});
+import '../../shell/shell.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+
+class AdaptersPage extends StatelessWidget {
+  const AdaptersPage({super.key, required this.onBack, required this.data});
   final VoidCallback onBack;
   final AppSnapshot data;
 
   @override
-  Widget build(BuildContext context) => _PageScroll(children: [
-        _TopBar(
+  Widget build(BuildContext context) => PageScroll(children: [
+        TopBar(
             title: '适配器状态', leading: true, action: '${data.adapters.length} 个'),
         const SizedBox(height: 14),
         if (data.adapters.isEmpty)
-          const _GlassCard(
-              child: Text('daemon 未返回适配器', style: TextStyle(color: _muted)))
+          const GlassCard(
+              child:
+                  Text('daemon 未返回适配器', style: TextStyle(color: theme.muted)))
         else
           for (final adapter in data.adapters)
             _AdapterRow(adapter.adapter, adapter.statusText,
-                _displayVersion(adapter.version), _toolColor(adapter.adapter)),
+                displayVersion(adapter.version), toolColor(adapter.adapter)),
         const SizedBox(height: 16),
-        const _Subhead('扩展'),
+        const Subhead('扩展'),
         if (data.extensions.isEmpty)
-          const _GlassCard(
-              child: Text('暂无扩展信息', style: TextStyle(color: _muted)))
+          const GlassCard(
+              child: Text('暂无扩展信息', style: TextStyle(color: theme.muted)))
         else
           for (final extension in data.extensions)
             _AdapterRow(
                 extension.name,
                 extension.description,
                 extension.installed ? extension.status : 'not installed',
-                _purple),
+                theme.purple),
         const SizedBox(height: 16),
-        _PrimaryButton('返回', onTap: onBack),
+        PrimaryButton('返回', onTap: onBack),
       ]);
 }
 
@@ -39,9 +44,9 @@ class _AdapterRow extends StatelessWidget {
   final String name, protocol, version;
   final Color color;
   @override
-  Widget build(BuildContext context) => _GlassCard(
+  Widget build(BuildContext context) => GlassCard(
           child: Row(children: [
-        _AgentIcon(color: color),
+        AgentIcon(color: color),
         const SizedBox(width: 10),
         Expanded(
             child:
@@ -49,12 +54,13 @@ class _AdapterRow extends StatelessWidget {
           Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           Text('状态                         正常\n能力\n$protocol',
-              style: const TextStyle(color: _muted, fontSize: 12, height: 1.45))
+              style:
+                  const TextStyle(color: theme.muted, fontSize: 12, height: 1.45))
         ])),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(version, style: const TextStyle(color: _muted, fontSize: 12)),
+          Text(version, style: const TextStyle(color: theme.muted, fontSize: 12)),
           const SizedBox(height: 8),
-          const _Dot(color: _green, size: 5)
+          const Dot(color: theme.green, size: 5)
         ])
       ]));
 }

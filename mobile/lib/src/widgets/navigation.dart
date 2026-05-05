@@ -61,3 +61,27 @@ class BottomNav extends StatelessWidget {
     );
   }
 }
+
+class Tabs extends StatelessWidget {
+  const Tabs({super.key, required this.labels});
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        for (var i = 0; i < labels.length; i++)
+          Expanded(
+              child: Container(
+                  padding: const EdgeInsets.only(bottom: 9),
+                  decoration: BoxDecoration(
+                      border: Border(
+                          bottom: BorderSide(
+                              color: i == 0 ? theme.purple : theme.stroke,
+                              width: i == 0 ? 2 : 1))),
+                  child: Text(labels[i],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: i == 0 ? theme.purple : theme.muted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800))))
+      ]);
+}

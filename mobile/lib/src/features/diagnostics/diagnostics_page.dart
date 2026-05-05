@@ -1,39 +1,47 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _DiagnosticsPage extends StatelessWidget {
-  const _DiagnosticsPage(
-      {required this.onBack, required this.data, required this.client});
+import '../../services/daemon_client.dart';
+import '../../shell/shell.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+
+class DiagnosticsPage extends StatelessWidget {
+  const DiagnosticsPage(
+      {super.key,
+      required this.onBack,
+      required this.data,
+      required this.client});
   final VoidCallback onBack;
   final AppSnapshot data;
   final DaemonClient client;
 
   @override
-  Widget build(BuildContext context) => _PageScroll(children: [
-        _TopBar(title: '诊断信息', leading: true, action: '⋯'),
+  Widget build(BuildContext context) => PageScroll(children: [
+        TopBar(title: '诊断信息', leading: true, action: '⋯'),
         const SizedBox(height: 10),
         const Text('导出诊断包用于问题排查（已脱敏）',
-            style: TextStyle(color: _muted, fontSize: 12)),
+            style: TextStyle(color: theme.muted, fontSize: 12)),
         const SizedBox(height: 14),
-        const _GlassCard(
+        const GlassCard(
             child: Column(children: [
           _DiagRow('系统信息', '1.2 KB'),
-          _Hairline(),
+          Hairline(),
           _DiagRow('适配器状态', '2.4 KB'),
-          _Hairline(),
+          Hairline(),
           _DiagRow('运行日志 (最近 7 天)', '512 KB'),
-          _Hairline(),
+          Hairline(),
           _DiagRow('事件记录 (最近 7 天)', '3.1 MB'),
-          _Hairline(),
+          Hairline(),
           _DiagRow('配置信息', '1.8 KB')
         ])),
         const SizedBox(height: 18),
         const Row(children: [
-          Text('预计大小', style: TextStyle(color: _muted, fontSize: 12)),
+          Text('预计大小', style: TextStyle(color: theme.muted, fontSize: 12)),
           Spacer(),
           Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
         ]),
         const SizedBox(height: 18),
-        _PrimaryButton('生成诊断包', onTap: onBack),
+        PrimaryButton('生成诊断包', onTap: onBack),
       ]);
 }
 
@@ -44,11 +52,11 @@ class _DiagRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 11),
       child: Row(children: [
-        const Icon(Icons.check_circle_rounded, color: _green, size: 17),
+        const Icon(Icons.check_circle_rounded, color: theme.green, size: 17),
         const SizedBox(width: 9),
         Expanded(
             child: Text(title,
                 style: const TextStyle(fontWeight: FontWeight.w800))),
-        Text(size, style: const TextStyle(color: _muted, fontSize: 12))
+        Text(size, style: const TextStyle(color: theme.muted, fontSize: 12))
       ]));
 }

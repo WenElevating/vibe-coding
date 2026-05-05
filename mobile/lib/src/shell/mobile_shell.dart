@@ -80,7 +80,7 @@ class _MobileShellState extends State<MobileShell> {
               expandThinking: _expandThinking,
               permissionMode: _permissionMode),
           _QueuePage(data: data),
-          _SettingsPage(
+          SettingsPage(
               open: _open,
               data: data,
               streamOutput: _streamOutput,
@@ -95,12 +95,12 @@ class _MobileShellState extends State<MobileShell> {
         ];
         final overlay = switch (_route) {
           RoutePage.detail =>
-            _RunDetailPage(onBack: _back, data: data, client: _client),
+            RunDetailPage(onBack: _back, data: data, client: _client),
           RoutePage.approval => _ApprovalPage(onBack: _back),
-          RoutePage.adapters => _AdaptersPage(onBack: _back, data: data),
-          RoutePage.notifications => _NotificationsPage(onBack: _back),
+          RoutePage.adapters => AdaptersPage(onBack: _back, data: data),
+          RoutePage.notifications => NotificationsPage(onBack: _back),
           RoutePage.diagnostics =>
-            _DiagnosticsPage(onBack: _back, data: data, client: _client),
+            DiagnosticsPage(onBack: _back, data: data, client: _client),
           RoutePage.tabs => null,
         };
         return Scaffold(
@@ -401,27 +401,4 @@ class _QueuePage extends StatelessWidget {
       ],
     );
   }
-}
-
-class _Tabs extends StatelessWidget {
-  const _Tabs({required this.labels});
-  final List<String> labels;
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        for (var i = 0; i < labels.length; i++)
-          Expanded(
-              child: Container(
-                  padding: const EdgeInsets.only(bottom: 9),
-                  decoration: BoxDecoration(
-                      border: Border(
-                          bottom: BorderSide(
-                              color: i == 0 ? _purple : _stroke,
-                              width: i == 0 ? 2 : 1))),
-                  child: Text(labels[i],
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: i == 0 ? _purple : _muted,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800))))
-      ]);
 }

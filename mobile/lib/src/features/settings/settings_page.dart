@@ -1,8 +1,15 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _SettingsPage extends StatelessWidget {
-  const _SettingsPage(
-      {required this.open,
+import '../../models/protocol.dart';
+import '../../shell/shell.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+import '../workspace_picker/workspace_display.dart';
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage(
+      {super.key,
+      required this.open,
       required this.data,
       required this.streamOutput,
       required this.expandThinking,
@@ -21,16 +28,16 @@ class _SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PageScroll(
+    return PageScroll(
       children: [
-        const _TopBar(title: '设置'),
+        const TopBar(title: '设置'),
         const SizedBox(height: 14),
         _SettingsConnectionCard(
             workspace: data.workspace,
             mode: data.health.mode,
             lanMode: data.health.lanMode),
         const SizedBox(height: 20),
-        _Subhead('编码控制'),
+        Subhead('编码控制'),
         _SettingsCard(children: [
           _PermissionModeRow(
               value: permissionMode, onChanged: onPermissionModeChanged),
@@ -46,7 +53,7 @@ class _SettingsPage extends StatelessWidget {
               onChanged: onExpandThinkingChanged),
         ]),
         const SizedBox(height: 20),
-        _Subhead('数据状态'),
+        Subhead('数据状态'),
         _SettingsCard(children: [
           _SettingsRow(
               title: '代码诊断', value: '${data.diagnostics.diagnostics.length} 条'),
@@ -57,7 +64,7 @@ class _SettingsPage extends StatelessWidget {
                   : '${data.gitStatus?.files.length ?? 0} 文件'),
         ]),
         const SizedBox(height: 20),
-        _Subhead('关于'),
+        Subhead('关于'),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
           _SettingsRow(title: '扩展', value: '${data.extensions.length} 个'),
@@ -100,7 +107,7 @@ class _SettingsCard extends StatelessWidget {
           child: Column(children: [
             for (var i = 0; i < children.length; i++) ...[
               children[i],
-              if (i != children.length - 1) const _Hairline()
+              if (i != children.length - 1) const Hairline()
             ],
           ])),
     );
@@ -132,7 +139,7 @@ class _SettingsConnectionCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   border:
                       Border.all(color: Colors.white.withValues(alpha: .055))),
-              child: const Icon(Icons.lan_rounded, color: _active, size: 18)),
+              child: const Icon(Icons.lan_rounded, color: theme.active, size: 18)),
           const SizedBox(width: 11),
           Expanded(
               child: Column(
@@ -156,7 +163,7 @@ class _SettingsConnectionCard extends StatelessWidget {
         Row(children: [
           Expanded(
               child: _SettingsMetric(
-                  label: '工作区', value: _workspaceDisplayName(workspace))),
+                  label: '工作区', value: workspaceDisplayName(workspace))),
           const SizedBox(width: 10),
           Expanded(
               child: _SettingsMetric(
@@ -179,7 +186,7 @@ class _SettingsMetric extends StatelessWidget {
           border: Border.all(color: Colors.white.withValues(alpha: .055))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
-            style: const TextStyle(color: _faint, fontSize: 10.5, height: 1)),
+            style: const TextStyle(color: theme.faint, fontSize: 10.5, height: 1)),
         const SizedBox(height: 7),
         Text(value,
             maxLines: 1,
@@ -197,15 +204,15 @@ class _SettingsPill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-          color: _active.withValues(alpha: .1),
+          color: theme.active.withValues(alpha: .1),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: _active.withValues(alpha: .16))),
+          border: Border.all(color: theme.active.withValues(alpha: .16))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const _Dot(color: _green, size: 5),
+        const Dot(color: theme.green, size: 5),
         const SizedBox(width: 6),
         Text(text,
             style: const TextStyle(
-                color: _active, fontSize: 11, fontWeight: FontWeight.w900)),
+                color: theme.active, fontSize: 11, fontWeight: FontWeight.w900)),
       ]));
 }
 
@@ -234,11 +241,11 @@ class _SettingsActionButton extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, color: _active, size: 16),
+                Icon(icon, color: theme.active, size: 16),
                 const SizedBox(width: 8),
                 Text(text,
                     style: const TextStyle(
-                        color: _active,
+                        color: theme.active,
                         fontSize: 13,
                         fontWeight: FontWeight.w900)),
               ])));
@@ -263,7 +270,7 @@ class _SettingsRow extends StatelessWidget {
         ])),
         Text(value,
             style: const TextStyle(
-                color: _muted, fontSize: 12, fontWeight: FontWeight.w700)),
+                color: theme.muted, fontSize: 12, fontWeight: FontWeight.w700)),
       ]),
     );
   }
@@ -315,14 +322,14 @@ class _PermissionChip extends StatelessWidget {
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
               color:
-                  selected ? _activePanel : Colors.white.withValues(alpha: .04),
+                  selected ? theme.activePanel : Colors.white.withValues(alpha: .04),
               border: Border.all(
                   color: selected
-                      ? _activeStroke.withValues(alpha: .9)
-                      : _stroke)),
+                      ? theme.activeStroke.withValues(alpha: .9)
+                      : theme.stroke)),
           child: Text(label,
               style: TextStyle(
-                  color: selected ? _active : _muted,
+                  color: selected ? theme.active : theme.muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w900))));
 }
@@ -356,46 +363,12 @@ class _SettingsSwitchRow extends StatelessWidget {
         ])),
         Switch(
             value: value,
-            activeThumbColor: _active,
-            activeTrackColor: _activeStroke.withValues(alpha: .55),
-            inactiveThumbColor: _faint,
-            inactiveTrackColor: _panelHi,
+            activeThumbColor: theme.active,
+            activeTrackColor: theme.activeStroke.withValues(alpha: .55),
+            inactiveThumbColor: theme.faint,
+            inactiveTrackColor: theme.panelHi,
             onChanged: onChanged),
       ]),
     );
   }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title, {this.action, this.onAction});
-  final String title;
-  final String? action;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Text(title,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
-      const Spacer(),
-      if (action != null)
-        GestureDetector(
-          onTap: onAction,
-          child: Text(action!,
-              style: const TextStyle(
-                  color: _purple, fontSize: 12, fontWeight: FontWeight.w800)),
-        )
-    ]);
-  }
-}
-
-class _Subhead extends StatelessWidget {
-  const _Subhead(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(text,
-          style: const TextStyle(fontWeight: FontWeight.w800, color: _text)));
 }

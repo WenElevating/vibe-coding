@@ -96,3 +96,40 @@ class Dot extends StatelessWidget {
             BoxShadow(color: color.withValues(alpha: .45), blurRadius: 8)
           ]));
 }
+
+class SectionTitle extends StatelessWidget {
+  const SectionTitle(this.title, {super.key, this.action, this.onAction});
+  final String title;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Text(title,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+      const Spacer(),
+      if (action != null)
+        GestureDetector(
+          onTap: onAction,
+          child: Text(action!,
+              style: const TextStyle(
+                  color: theme.purple,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800)),
+        )
+    ]);
+  }
+}
+
+class Subhead extends StatelessWidget {
+  const Subhead(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(text,
+          style:
+              const TextStyle(fontWeight: FontWeight.w800, color: theme.text)));
+}
