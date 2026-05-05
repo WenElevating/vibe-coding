@@ -1,0 +1,132 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mobile 模块分层方案</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090a0d;
+      --panel: #12141a;
+      --panel2: #181b23;
+      --stroke: rgba(255,255,255,.10);
+      --text: #eeeeee;
+      --muted: #8b909c;
+      --purple: #9d7cff;
+      --green: #46d39a;
+      --amber: #ffc857;
+      --red: #ff6b7a;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    body { margin: 0; background: radial-gradient(circle at top left, rgba(157,124,255,.18), transparent 34%), var(--bg); color: var(--text); }
+    main { max-width: 1180px; margin: 0 auto; padding: 36px 28px 60px; }
+    h1 { margin: 0 0 8px; font-size: 34px; letter-spacing: -.03em; }
+    h2 { margin: 34px 0 14px; font-size: 22px; }
+    h3 { margin: 0 0 10px; font-size: 17px; }
+    p { color: var(--muted); line-height: 1.65; }
+    .subtitle { margin: 0 0 24px; font-size: 15px; }
+    .grid { display: grid; gap: 14px; }
+    .layers { grid-template-columns: 1fr; }
+    .features { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .foundation { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card, .box { background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)); border: 1px solid var(--stroke); border-radius: 18px; padding: 18px; box-shadow: 0 16px 40px rgba(0,0,0,.22); }
+    .box strong { color: var(--text); display: block; margin-bottom: 6px; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 999px; background: rgba(157,124,255,.14); color: #cabaff; font-size: 12px; margin-bottom: 10px; }
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .recommended { border-color: rgba(157,124,255,.55); box-shadow: 0 0 0 1px rgba(157,124,255,.25), 0 18px 50px rgba(157,124,255,.10); }
+    ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); line-height: 1.55; }
+    .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+    .pros, .cons { background: rgba(255,255,255,.035); border-radius: 14px; padding: 12px; border: 1px solid rgba(255,255,255,.07); }
+    .pros h4 { color: var(--green); margin: 0; }
+    .cons h4 { color: var(--amber); margin: 0; }
+    .rec { margin-top: 18px; padding: 16px; border-radius: 16px; background: rgba(157,124,255,.13); border: 1px solid rgba(157,124,255,.35); }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; }
+    .step { text-align: center; padding: 14px 10px; border: 1px solid var(--stroke); background: var(--panel); border-radius: 14px; color: var(--text); }
+    .arrow { display: none; }
+    code { color: #cabaff; }
+    @media (max-width: 900px) { .options, .features, .foundation, .flow { grid-template-columns: 1fr; } .pros-cons { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Mobile 模块整理 / 分层讨论</h1>
+  <p class="subtitle">当前目标：降低 UI 修改连锁反应、理清业务数据流、提高可测试性，并支撑后续大功能开发。</p>
+
+  <h2>1. 当前模块地图</h2>
+  <div class="grid layers">
+    <div class="box"><span class="tag">App</span><strong>app</strong>LanAiCliControlApp：只负责 MaterialApp 组合，已经很薄。</div>
+    <div class="box"><span class="tag">Shell</span><strong>shell</strong>MobileShell、RoutePage、AppSnapshot：顶层导航、全量 snapshot 加载、页面装配。现在是主要协调层。</div>
+    <div class="grid features">
+      <div class="box"><strong>features/workbench</strong>编码主工作台、composer、事件卡、消息转换、workspace transition。当前最大热点。</div>
+      <div class="box"><strong>features/sessions</strong>会话列表、SessionItem、session merge / view model。</div>
+      <div class="box"><strong>features/workspace_picker</strong>工作区列表、创建/打开工作区、display helper。</div>
+      <div class="box"><strong>features/settings</strong>设置页面、shell route 回调、全局偏好项。</div>
+      <div class="box"><strong>features/run_detail</strong>运行详情页面。</div>
+      <div class="box"><strong>leaf features</strong>adapters / diagnostics / notifications：相对薄的展示页面。</div>
+    </div>
+    <div class="grid foundation">
+      <div class="box"><strong>models</strong>daemon protocol DTO。</div>
+      <div class="box"><strong>services</strong>DaemonClient / ConversationClient。</div>
+      <div class="box"><strong>state</strong>conversation reducer、dashboard/run detail state。</div>
+      <div class="box"><strong>widgets + theme</strong>共享 UI primitives 和 design tokens。</div>
+    </div>
+    <div class="box"><span class="tag">Testing</span><strong>testing</strong>debug helpers + preview builders，目前通过 package barrel 暴露给 widget tests。</div>
+  </div>
+
+  <h2>2. 三种分层路线</h2>
+  <div class="options">
+    <section class="card">
+      <span class="tag">方案 A</span>
+      <h3>共享内核 + 业务层</h3>
+      <p>把 <code>theme/widgets/models/services/state</code> 作为 shared/core，features 只放页面与本地状态，shell 负责导航。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>边界直观</li><li>迁移成本较低</li><li>适合继续稳态整理</li></ul></div>
+        <div class="cons"><h4>代价</h4><ul><li>feature 内部仍可能膨胀</li><li>workbench 热点不会自然消失</li></ul></div>
+      </div>
+    </section>
+
+    <section class="card recommended">
+      <span class="tag">方案 B · 推荐</span>
+      <h3>垂直切片 + 轻壳层</h3>
+      <p>每个 feature 拥有自己的 <code>page / controller / view_model / barrel</code>；shell 只做路由和壳装配，shared 层只保留真正通用的 primitives。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>最贴近“改一个模块只动一个模块”</li><li>适合继续拆 workbench/sessions/workspace</li><li>新增功能边界自然</li></ul></div>
+        <div class="cons"><h4>代价</h4><ul><li>需要继续清理页面级状态</li><li>shared 层必须更克制</li></ul></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <span class="tag">方案 C</span>
+      <h3>严格分层架构</h3>
+      <p>app → shell → feature controllers → feature views → shared primitives，状态和逻辑通过 controller/VM 全面下沉。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>数据流最清晰</li><li>可测试性最强</li><li>长期规范性好</li></ul></div>
+        <div class="cons"><h4>代价</h4><ul><li>改动面最大</li><li>抽象层和文件数明显增加</li><li>当前阶段可能过重</li></ul></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="rec">
+    <h3>推荐路线</h3>
+    <p>建议选 <strong>方案 B：垂直切片 + 轻壳层</strong>。它能同时满足 A/B/C/D 四个目标，而且不会把刚完成的 import 边界迁移推翻。后续重点不是再造大框架，而是把热点模块按 feature 内部边界继续切薄。</p>
+  </div>
+
+  <h2>3. 推荐目标分层</h2>
+  <div class="flow">
+    <div class="step"><strong>app</strong><br/>应用启动和主题</div>
+    <div class="step"><strong>shell</strong><br/>导航、全局偏好、页面装配</div>
+    <div class="step"><strong>features</strong><br/>垂直业务切片</div>
+    <div class="step"><strong>shared</strong><br/>theme/widgets/models/services/state</div>
+    <div class="step"><strong>testing</strong><br/>preview + debug helpers</div>
+  </div>
+
+  <h2>4. 第一阶段建议</h2>
+  <div class="grid features">
+    <div class="box"><strong>Workbench</strong>继续拆：conversation controller、workspace/session selection state、message/event mapping。</div>
+    <div class="box"><strong>Shell</strong>瘦身：AppSnapshot 不再无限扩张，后续逐步改成 feature-scoped loading。</div>
+    <div class="box"><strong>Testing</strong>preview builders 按 feature 归属，testing barrel 只聚合，不承载业务。</div>
+  </div>
+</main>
+</body>
+</html>
