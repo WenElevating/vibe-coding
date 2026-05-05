@@ -174,6 +174,16 @@ test('SQLite conversation store persists conversations and events across instanc
   second.close();
 });
 
+test('default app DB path uses app-level name', () => {
+  const path = require('node:path');
+  const { defaultAppDbPath } = require('../daemon/src/app-sqlite-store');
+
+  assert.equal(
+    defaultAppDbPath(),
+    path.join(process.cwd(), 'data', 'app', 'app.sqlite')
+  );
+});
+
 test('conversation event store continues sequence numbers from SQLite', () => {
   const fs = require('node:fs');
   const os = require('node:os');
