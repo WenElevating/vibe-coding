@@ -121,4 +121,103 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsSecurityModeLabel => '????';
+
+  @override
+  String get homeOverviewTitle => '??';
+
+  @override
+  String get homeRunningMetricLabel => '???';
+
+  @override
+  String get homeRunningMetricNote => '????';
+
+  @override
+  String get homeQueuedMetricLabel => '???';
+
+  @override
+  String get homeQueuedMetricNote => '????';
+
+  @override
+  String get homeCompletedMetricLabel => '??? (24h)';
+
+  @override
+  String homeFilesLinesNote(int files, int lines) => '$files ?? ? $lines ?';
+
+  @override
+  String get homeRecentRunsTitle => '????';
+
+  @override
+  String get homeViewAllAction => '????';
+
+  @override
+  String get homeNoRuns => '??????';
+
+  @override
+  String get homeQuickActionsTitle => '????';
+
+  @override
+  String get homeNewTaskTitle => '????';
+
+  @override
+  String get homeNewTaskSubtitle => '?????';
+
+  @override
+  String get homeCommandTemplatesTitle => '????';
+
+  @override
+  String get homeCommandTemplatesSubtitle => '??????';
+
+  @override
+  String get homeViewQueueTitle => '????';
+
+  @override
+  String get homeViewQueueSubtitle => '??????';
+
+  @override
+  String get runsTitle => '????';
+
+  @override
+  String runsAllPill(int count) => '?? $count';
+
+  @override
+  String runsRunningPill(int count) => '??? $count';
+
+  @override
+  String runsCompletedPill(int count) => '??? $count';
+
+  @override
+  String runsFailedPill(int count) => '?? $count';
+
+  @override
+  String get runsEmpty => '???????????????? AI CLI ???';
+
+  @override
+  String get queueTitle => '????';
+
+  @override
+  String queueCountAction(int count) => '$count ?';
+
+  @override
+  String queueRunningPill(int count) => '??? $count';
+
+  @override
+  String queueWaitingPill(int count) => '??? $count';
+
+  @override
+  String queueTotalPill(int count) => '?? $count';
+
+  @override
+  String get queueRunningSection => '???';
+
+  @override
+  String get queueWaitingSection => '???';
+
+  @override
+  String get queueNoRunning => '???????';
+
+  @override
+  String get queueNoWaiting => '??????';
+
+  @override
+  String get queueFootnote => '?????? daemon????????????';
 }

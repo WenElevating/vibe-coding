@@ -121,4 +121,103 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsSecurityModeLabel => 'Security mode';
+
+  @override
+  String get homeOverviewTitle => 'Overview';
+
+  @override
+  String get homeRunningMetricLabel => 'Running';
+
+  @override
+  String get homeRunningMetricNote => 'Active tasks';
+
+  @override
+  String get homeQueuedMetricLabel => 'Pending approval';
+
+  @override
+  String get homeQueuedMetricNote => 'Queued tasks';
+
+  @override
+  String get homeCompletedMetricLabel => 'Completed (24h)';
+
+  @override
+  String homeFilesLinesNote(int files, int lines) => '$files files ? $lines lines';
+
+  @override
+  String get homeRecentRunsTitle => 'Recent runs';
+
+  @override
+  String get homeViewAllAction => 'View all';
+
+  @override
+  String get homeNoRuns => 'No runs yet';
+
+  @override
+  String get homeQuickActionsTitle => 'Quick actions';
+
+  @override
+  String get homeNewTaskTitle => 'New task';
+
+  @override
+  String get homeNewTaskSubtitle => 'Create a new task';
+
+  @override
+  String get homeCommandTemplatesTitle => 'Command templates';
+
+  @override
+  String get homeCommandTemplatesSubtitle => 'Run preset commands';
+
+  @override
+  String get homeViewQueueTitle => 'View queue';
+
+  @override
+  String get homeViewQueueSubtitle => 'Review queued tasks';
+
+  @override
+  String get runsTitle => 'Runs';
+
+  @override
+  String runsAllPill(int count) => 'All $count';
+
+  @override
+  String runsRunningPill(int count) => 'Running $count';
+
+  @override
+  String runsCompletedPill(int count) => 'Completed $count';
+
+  @override
+  String runsFailedPill(int count) => 'Failed $count';
+
+  @override
+  String get runsEmpty => 'No runs yet. Start a real AI CLI task from command templates.';
+
+  @override
+  String get queueTitle => 'Run queue';
+
+  @override
+  String queueCountAction(int count) => '$count items';
+
+  @override
+  String queueRunningPill(int count) => 'Running $count';
+
+  @override
+  String queueWaitingPill(int count) => 'Queued $count';
+
+  @override
+  String queueTotalPill(int count) => 'Total $count';
+
+  @override
+  String get queueRunningSection => 'Running';
+
+  @override
+  String get queueWaitingSection => 'Queued';
+
+  @override
+  String get queueNoRunning => 'No running queue items';
+
+  @override
+  String get queueNoWaiting => 'No waiting tasks';
+
+  @override
+  String get queueFootnote => 'Queue data comes from the daemon. Tasks run in workspace order.';
 }

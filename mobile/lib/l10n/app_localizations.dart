@@ -278,6 +278,105 @@ abstract class AppLocalizations {
 
   /// No description provided for @settingsSecurityModeLabel.
   String get settingsSecurityModeLabel;
+
+  /// No description provided for @homeOverviewTitle.
+  String get homeOverviewTitle;
+
+  /// No description provided for @homeRunningMetricLabel.
+  String get homeRunningMetricLabel;
+
+  /// No description provided for @homeRunningMetricNote.
+  String get homeRunningMetricNote;
+
+  /// No description provided for @homeQueuedMetricLabel.
+  String get homeQueuedMetricLabel;
+
+  /// No description provided for @homeQueuedMetricNote.
+  String get homeQueuedMetricNote;
+
+  /// No description provided for @homeCompletedMetricLabel.
+  String get homeCompletedMetricLabel;
+
+  /// No description provided for @homeFilesLinesNote.
+  String homeFilesLinesNote(int files, int lines);
+
+  /// No description provided for @homeRecentRunsTitle.
+  String get homeRecentRunsTitle;
+
+  /// No description provided for @homeViewAllAction.
+  String get homeViewAllAction;
+
+  /// No description provided for @homeNoRuns.
+  String get homeNoRuns;
+
+  /// No description provided for @homeQuickActionsTitle.
+  String get homeQuickActionsTitle;
+
+  /// No description provided for @homeNewTaskTitle.
+  String get homeNewTaskTitle;
+
+  /// No description provided for @homeNewTaskSubtitle.
+  String get homeNewTaskSubtitle;
+
+  /// No description provided for @homeCommandTemplatesTitle.
+  String get homeCommandTemplatesTitle;
+
+  /// No description provided for @homeCommandTemplatesSubtitle.
+  String get homeCommandTemplatesSubtitle;
+
+  /// No description provided for @homeViewQueueTitle.
+  String get homeViewQueueTitle;
+
+  /// No description provided for @homeViewQueueSubtitle.
+  String get homeViewQueueSubtitle;
+
+  /// No description provided for @runsTitle.
+  String get runsTitle;
+
+  /// No description provided for @runsAllPill.
+  String runsAllPill(int count);
+
+  /// No description provided for @runsRunningPill.
+  String runsRunningPill(int count);
+
+  /// No description provided for @runsCompletedPill.
+  String runsCompletedPill(int count);
+
+  /// No description provided for @runsFailedPill.
+  String runsFailedPill(int count);
+
+  /// No description provided for @runsEmpty.
+  String get runsEmpty;
+
+  /// No description provided for @queueTitle.
+  String get queueTitle;
+
+  /// No description provided for @queueCountAction.
+  String queueCountAction(int count);
+
+  /// No description provided for @queueRunningPill.
+  String queueRunningPill(int count);
+
+  /// No description provided for @queueWaitingPill.
+  String queueWaitingPill(int count);
+
+  /// No description provided for @queueTotalPill.
+  String queueTotalPill(int count);
+
+  /// No description provided for @queueRunningSection.
+  String get queueRunningSection;
+
+  /// No description provided for @queueWaitingSection.
+  String get queueWaitingSection;
+
+  /// No description provided for @queueNoRunning.
+  String get queueNoRunning;
+
+  /// No description provided for @queueNoWaiting.
+  String get queueNoWaiting;
+
+  /// No description provided for @queueFootnote.
+  String get queueFootnote;
 }
 
 class _AppLocalizationsDelegate

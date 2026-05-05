@@ -58,5 +58,104 @@
         "type": "int"
       }
     }
+  },
+  "homeOverviewTitle": "Overview",
+  "homeRunningMetricLabel": "Running",
+  "homeRunningMetricNote": "Active tasks",
+  "homeQueuedMetricLabel": "Pending approval",
+  "homeQueuedMetricNote": "Queued tasks",
+  "homeCompletedMetricLabel": "Completed (24h)",
+  "homeFilesLinesNote": "{files} files ? {lines} lines",
+  "homeRecentRunsTitle": "Recent runs",
+  "homeViewAllAction": "View all",
+  "homeNoRuns": "No runs yet",
+  "homeQuickActionsTitle": "Quick actions",
+  "homeNewTaskTitle": "New task",
+  "homeNewTaskSubtitle": "Create a new task",
+  "homeCommandTemplatesTitle": "Command templates",
+  "homeCommandTemplatesSubtitle": "Run preset commands",
+  "homeViewQueueTitle": "View queue",
+  "homeViewQueueSubtitle": "Review queued tasks",
+  "runsTitle": "Runs",
+  "runsAllPill": "All {count}",
+  "runsRunningPill": "Running {count}",
+  "runsCompletedPill": "Completed {count}",
+  "runsFailedPill": "Failed {count}",
+  "runsEmpty": "No runs yet. Start a real AI CLI task from command templates.",
+  "queueTitle": "Run queue",
+  "queueCountAction": "{count} items",
+  "queueRunningPill": "Running {count}",
+  "queueWaitingPill": "Queued {count}",
+  "queueTotalPill": "Total {count}",
+  "queueRunningSection": "Running",
+  "queueWaitingSection": "Queued",
+  "queueNoRunning": "No running queue items",
+  "queueNoWaiting": "No waiting tasks",
+  "queueFootnote": "Queue data comes from the daemon. Tasks run in workspace order.",
+  "@homeFilesLinesNote": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsAllPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsCompletedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsFailedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueCountAction": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueWaitingPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueTotalPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

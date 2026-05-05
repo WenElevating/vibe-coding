@@ -58,5 +58,104 @@
         "type": "int"
       }
     }
+  },
+  "homeOverviewTitle": "??",
+  "homeRunningMetricLabel": "???",
+  "homeRunningMetricNote": "????",
+  "homeQueuedMetricLabel": "???",
+  "homeQueuedMetricNote": "????",
+  "homeCompletedMetricLabel": "??? (24h)",
+  "homeFilesLinesNote": "{files} ?? ? {lines} ?",
+  "homeRecentRunsTitle": "????",
+  "homeViewAllAction": "????",
+  "homeNoRuns": "??????",
+  "homeQuickActionsTitle": "????",
+  "homeNewTaskTitle": "????",
+  "homeNewTaskSubtitle": "?????",
+  "homeCommandTemplatesTitle": "????",
+  "homeCommandTemplatesSubtitle": "??????",
+  "homeViewQueueTitle": "????",
+  "homeViewQueueSubtitle": "??????",
+  "runsTitle": "????",
+  "runsAllPill": "?? {count}",
+  "runsRunningPill": "??? {count}",
+  "runsCompletedPill": "??? {count}",
+  "runsFailedPill": "?? {count}",
+  "runsEmpty": "???????????????? AI CLI ???",
+  "queueTitle": "????",
+  "queueCountAction": "{count} ?",
+  "queueRunningPill": "??? {count}",
+  "queueWaitingPill": "??? {count}",
+  "queueTotalPill": "?? {count}",
+  "queueRunningSection": "???",
+  "queueWaitingSection": "???",
+  "queueNoRunning": "???????",
+  "queueNoWaiting": "??????",
+  "queueFootnote": "?????? daemon????????????",
+  "@homeFilesLinesNote": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsAllPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsCompletedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsFailedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueCountAction": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueWaitingPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueTotalPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

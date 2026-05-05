@@ -6,6 +6,8 @@ import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
+    as settings_feature;
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -49,14 +51,15 @@ class _LocalizedSettingsLabelAppState
                       AppLocalizations.of(context).navSettings)))));
 }
 
-class _LocalizedMainTabsApp extends StatefulWidget {
-  const _LocalizedMainTabsApp();
+class _LocalizedSettingsPageApp extends StatefulWidget {
+  const _LocalizedSettingsPageApp();
 
   @override
-  State<_LocalizedMainTabsApp> createState() => _LocalizedMainTabsAppState();
+  State<_LocalizedSettingsPageApp> createState() =>
+      _LocalizedSettingsPageAppState();
 }
 
-class _LocalizedMainTabsAppState extends State<_LocalizedMainTabsApp> {
+class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
   late final LanguageController _languageController;
 
   @override
@@ -82,11 +85,16 @@ class _LocalizedMainTabsAppState extends State<_LocalizedMainTabsApp> {
               localizationsDelegates: appLocalizationsDelegates,
               localeResolutionCallback: (locale, supportedLocales) =>
                   resolveSupportedLocale(locale, supportedLocales),
-              home: MainTabsPage(
-                  data: _testSnapshot(),
-                  client: DaemonClient(
-                      baseUri: Uri.parse('http://127.0.0.1:4317'),
-                      tokenStore: MemoryTokenStore())))));
+              home: Scaffold(
+                  body: settings_feature.SettingsPage(
+                      open: (_) {},
+                      data: _testSnapshot(),
+                      streamOutput: false,
+                      expandThinking: false,
+                      permissionMode: 'default',
+                      onPermissionModeChanged: (_) {},
+                      onStreamOutputChanged: (_) {},
+                      onExpandThinkingChanged: (_) {})))));
 }
 
 AppSnapshot _testSnapshot() {
@@ -161,7 +169,7 @@ void main() {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
 
-    await tester.pumpWidget(const _LocalizedMainTabsApp());
+    await tester.pumpWidget(const _LocalizedSettingsPageApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Settings').last);
