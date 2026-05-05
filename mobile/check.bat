@@ -3,6 +3,13 @@ setlocal
 
 cd /d "%~dp0"
 
+if not exist ".dart_tool\package_config.json" (
+  echo [0/3] Resolving Flutter packages...
+  call flutter pub get
+  if errorlevel 1 goto failed
+  echo.
+)
+
 echo [1/3] Formatting Dart files...
 call dart format lib test
 if errorlevel 1 goto failed
