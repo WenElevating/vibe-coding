@@ -279,63 +279,79 @@ class _ThinkingEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      _ExpandableThinkingCard(message: message, initiallyExpanded: expanded);
+      _ThinkingFoldout(message: message, initiallyExpanded: expanded);
 }
 
-class _ExpandableThinkingCard extends StatefulWidget {
-  const _ExpandableThinkingCard(
+class _ThinkingFoldout extends StatefulWidget {
+  const _ThinkingFoldout(
       {required this.message, required this.initiallyExpanded});
   final WorkbenchMessage message;
   final bool initiallyExpanded;
 
   @override
-  State<_ExpandableThinkingCard> createState() =>
-      _ExpandableThinkingCardState();
+  State<_ThinkingFoldout> createState() => _ThinkingFoldoutState();
 }
 
-class _ExpandableThinkingCardState extends State<_ExpandableThinkingCard> {
+class _ThinkingFoldoutState extends State<_ThinkingFoldout> {
   late bool _expanded = widget.initiallyExpanded;
 
   @override
-  void didUpdateWidget(covariant _ExpandableThinkingCard oldWidget) {
+  void didUpdateWidget(covariant _ThinkingFoldout oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.message.body != widget.message.body) {
+    if (oldWidget.message.title != widget.message.title ||
+        oldWidget.message.body != widget.message.body) {
       _expanded = widget.initiallyExpanded;
     }
   }
 
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: () => setState(() => _expanded = !_expanded),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: const Color(0xFF0E1013),
-              border: Border.all(color: Colors.white.withValues(alpha: .06))),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(Icons.psychology_alt_rounded,
-                  color: theme.purple2.withValues(alpha: .92), size: 16),
-              const SizedBox(width: 8),
-              const Expanded(
-                  child: Text('思考过程',
-                      style: TextStyle(
-                          color: theme.text,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800))),
-              Text(_expanded ? '收起' : '展开',
-                  style: const TextStyle(color: theme.muted, fontSize: 11)),
-            ]),
-            if (_expanded) ...[
-              const SizedBox(height: 10),
-              Text(widget.message.body,
-                  style: const TextStyle(
-                      color: theme.muted, fontSize: 12.5, height: 1.55)),
-            ]
-          ])));
+  Widget build(BuildContext context) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+                    child: Row(children: [
+                      Expanded(
+                          child: Text(widget.message.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12.4,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: .1))),
+                      Icon(
+                          _expanded
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: theme.faint,
+                          size: 16),
+                    ]))),
+            if (_expanded)
+              Padding(
+                  padding: const EdgeInsets.only(top: 4, right: 10),
+                  child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 8),
+                      decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .025),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: .045))),
+                      child: Text(widget.message.body,
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
+                          style: const TextStyle(
+                              color: theme.muted,
+                              fontSize: 12.5,
+                              height: 1.55)))),
+          ]);
 }
 
 class _QuestionSuggestionChip extends StatelessWidget {
@@ -401,37 +417,265 @@ class _CommandEventCard extends StatelessWidget {
   final WorkbenchMessage message;
 
   @override
+  Widget build(BuildContext context) => _ToolLogFoldout(message: message);
+}
+
+String _commandTitle(WorkbenchMessage message) {
+  final firstLine = message.body
+      .split('\n')
+      .map((line) => line.trim())
+      .firstWhere((line) => line.isNotEmpty, orElse: () => message.title);
+  return firstLine;
+}
+
+class _ToolLogFoldout extends StatefulWidget {
+  const _ToolLogFoldout({required this.message});
+  final WorkbenchMessage message;
+
+  @override
+  State<_ToolLogFoldout> createState() => _ToolLogFoldoutState();
+}
+
+class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
+  bool _expanded = true;
+
+  @override
+  void didUpdateWidget(covariant _ToolLogFoldout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.message.body != widget.message.body ||
+        oldWidget.message.title != widget.message.title) {
+      _expanded = true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final message = widget.message;
     final output = _commandOutput(message);
     final ok = message.completed && !message.isError;
-    return _AgentEventCard(
-        icon: Icons.chevron_right_rounded,
-        title: 'Ran command',
-        meta: message.title,
-        trailing: _formatCommandDuration(message.duration),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _EventCodeLine(
-              text: message.body,
-              ok: ok,
-              error: message.isError,
-              onTap: () => _showCommandDetailSheet(
-                  context: context,
-                  title: '命令详情',
-                  subtitle: _commandDetailSubtitle(message),
-                  text: message.body)),
-          if (output != null) ...[
-            const SizedBox(height: 10),
-            _EventCodeLine(
-                text: output,
-                ok: ok,
-                error: message.isError,
-                onTap: () => _showCommandDetailSheet(
-                    context: context,
-                    title: '输出详情',
-                    subtitle: _commandDetailSubtitle(message),
-                    text: output)),
-          ]
-        ]));
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                  child: Row(children: [
+                    _ToolKindBadge(kind: _toolKindLabel(message)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(_toolTargetTitle(message),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: theme.text,
+                                fontSize: 12.9,
+                                fontWeight: FontWeight.w700,
+                                height: 1.2))),
+                    if (ok || message.isError) ...[
+                      const SizedBox(width: 7),
+                      _InlineEventTrailing(ok: ok, error: message.isError),
+                    ],
+                    const SizedBox(width: 3),
+                    Icon(
+                        _expanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: theme.faint,
+                        size: 17),
+                  ]))),
+          if (_expanded)
+            Padding(
+                padding: const EdgeInsets.fromLTRB(2, 6, 0, 4),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CommandExpandedMeta(message: message),
+                      const SizedBox(height: 7),
+                      _ToolDetailBlock(
+                          label: 'input',
+                          text: message.body,
+                          onTap: () => _showCommandDetailSheet(
+                              context: context,
+                              title: '命令详情',
+                              subtitle: _commandDetailSubtitle(message),
+                              text: message.body)),
+                      if (output != null) ...[
+                        const SizedBox(height: 7),
+                        _ToolDetailBlock(
+                            label: 'output',
+                            text: output,
+                            onTap: () => _showCommandDetailSheet(
+                                context: context,
+                                title: '输出详情',
+                                subtitle: _commandDetailSubtitle(message),
+                                text: output)),
+                      ]
+                    ])),
+        ]);
+  }
+}
+
+class _ToolKindBadge extends StatelessWidget {
+  const _ToolKindBadge({required this.kind});
+  final String kind;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      constraints: const BoxConstraints(minWidth: 38),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+          color: _toolKindColor(kind).withValues(alpha: .105),
+          borderRadius: BorderRadius.circular(7),
+          border:
+              Border.all(color: _toolKindColor(kind).withValues(alpha: .18))),
+      child: Text(kind,
+          style: TextStyle(
+              color: _toolKindColor(kind),
+              fontSize: 9.5,
+              fontFamily: 'Consolas',
+              fontWeight: FontWeight.w900,
+              letterSpacing: .45)));
+}
+
+class _ToolDetailBlock extends StatelessWidget {
+  const _ToolDetailBlock(
+      {required this.label, required this.text, required this.onTap});
+  final String label;
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+            padding: const EdgeInsets.only(left: 1, bottom: 4),
+            child: Text(label,
+                style: const TextStyle(
+                    color: theme.faint,
+                    fontSize: 9.5,
+                    fontFamily: 'Consolas',
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .7))),
+        Material(
+            color: Colors.transparent,
+            child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(9),
+                child: Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .018),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: .045))),
+                    child: Row(children: [
+                      Expanded(
+                          child: Text(text,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12,
+                                  fontFamily: 'Consolas',
+                                  height: 1.35))),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.open_in_full_rounded,
+                          color: theme.faint, size: 12),
+                    ]))))
+      ]);
+}
+
+String _toolKindLabel(WorkbenchMessage message) {
+  final tool = _rawToolName(message).toLowerCase();
+  final title = _commandTitle(message).toLowerCase();
+  if (tool.contains('read') || title.startsWith('read ')) return 'READ';
+  if (tool.contains('glob') || title.startsWith('glob ')) return 'GLOB';
+  if (tool == 'ls' || tool.contains('list') || title.startsWith('ls ')) {
+    return 'LS';
+  }
+  if (tool.contains('grep') || title.startsWith('grep ')) return 'GREP';
+  if (tool.contains('write')) return 'WRITE';
+  if (tool.contains('edit')) return 'EDIT';
+  if (tool.contains('bash') || tool.contains('shell')) return 'CMD';
+  return 'TOOL';
+}
+
+String _toolTargetTitle(WorkbenchMessage message) {
+  final title = _commandTitle(message);
+  final lower = title.toLowerCase();
+  for (final prefix in const ['read ', 'glob ', 'ls ', 'grep ']) {
+    if (lower.startsWith(prefix)) return title.substring(prefix.length).trim();
+  }
+  return title;
+}
+
+String _rawToolName(WorkbenchMessage message) {
+  final direct = message.event?.raw['toolName'] ?? message.event?.raw['name'];
+  if (direct is String && direct.trim().isNotEmpty) return direct.trim();
+  final name = message.event?.name;
+  if (name != null && name.trim().isNotEmpty) return name.trim();
+  return message.title;
+}
+
+Color _toolKindColor(String kind) => switch (kind) {
+      'READ' => theme.purple2,
+      'GLOB' => theme.purple,
+      'LS' => const Color(0xFF7DD3C7),
+      'GREP' => const Color(0xFF93C5FD),
+      'WRITE' => theme.amber,
+      'EDIT' => theme.amber,
+      'CMD' => theme.orange,
+      _ => theme.faint,
+    };
+
+String _commandMeta(WorkbenchMessage message) {
+  if (message.title.trim().isEmpty) return '执行 1 条命令';
+  return '执行 1 条命令 · ${message.title}';
+}
+
+class _CommandExpandedMeta extends StatelessWidget {
+  const _CommandExpandedMeta({required this.message});
+  final WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = _formatCommandDuration(message.duration);
+    final parts = <String>[_commandMeta(message)];
+    if (duration != null) parts.add('duration $duration');
+    parts.add(message.isError
+        ? 'error'
+        : message.completed
+            ? 'completed'
+            : 'running');
+    return Text(parts.join(' / '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+            color: theme.faint, fontSize: 10.5, fontFamily: 'Consolas'));
+  }
+}
+
+class _InlineEventTrailing extends StatelessWidget {
+  const _InlineEventTrailing({required this.ok, required this.error});
+  final bool ok;
+  final bool error;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = error ? theme.red : theme.green;
+    return Icon(error ? Icons.close_rounded : Icons.check_rounded,
+        key: ValueKey(error ? 'tool-status-error' : 'tool-status-ok'),
+        color: color,
+        size: 15);
   }
 }
 
@@ -749,60 +993,38 @@ class _AgentEventCard extends StatelessWidget {
 }
 
 class _EventCodeLine extends StatelessWidget {
-  const _EventCodeLine(
-      {required this.text, required this.ok, this.error = false, this.onTap});
+  const _EventCodeLine({required this.text, required this.ok});
   final String text;
   final bool ok;
-  final bool error;
-  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-      color: Colors.transparent,
-      child: InkWell(
-          onTap: onTap,
+  Widget build(BuildContext context) => Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+          color: const Color(0xFF0B0C0E),
           borderRadius: BorderRadius.circular(11),
-          child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF0B0C0E),
-                  borderRadius: BorderRadius.circular(11),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: .055))),
-              child: Row(children: [
-                Expanded(
-                    child: Text(text,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: theme.muted,
-                            fontSize: 12,
-                            fontFamily: 'Consolas',
-                            height: 1.35))),
-                if (onTap != null) ...[
-                  const SizedBox(width: 8),
-                  const Icon(Icons.open_in_full_rounded,
-                      color: theme.faint, size: 13),
-                ],
-                if (error) ...[
-                  const SizedBox(width: 8),
-                  const Text('error',
-                      style: TextStyle(
-                          color: theme.red,
-                          fontSize: 11,
-                          fontFamily: 'Consolas',
-                          fontWeight: FontWeight.w800))
-                ] else if (ok) ...[
-                  const SizedBox(width: 8),
-                  const Text('ok',
-                      style: TextStyle(
-                          color: theme.green,
-                          fontSize: 11,
-                          fontFamily: 'Consolas',
-                          fontWeight: FontWeight.w800))
-                ]
-              ]))));
+          border: Border.all(color: Colors.white.withValues(alpha: .055))),
+      child: Row(children: [
+        Expanded(
+            child: Text(text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: theme.muted,
+                    fontSize: 12,
+                    fontFamily: 'Consolas',
+                    height: 1.35))),
+        if (ok) ...[
+          const SizedBox(width: 8),
+          const Text('ok',
+              style: TextStyle(
+                  color: theme.green,
+                  fontSize: 11,
+                  fontFamily: 'Consolas',
+                  fontWeight: FontWeight.w800))
+        ]
+      ]));
 }
 
 String normalizeAssistantMarkdown(String markdown) {

@@ -275,15 +275,16 @@ void main() {
     expect(find.text('Current Project'), findsOneWidget);
   });
 
-  testWidgets('completed command card shows duration and ok status',
+  testWidgets('completed command card shows duration and success status icon',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCompletedCommandCardPreview());
     await tester.pumpAndSettle();
 
-    expect(find.text('Ran command'), findsOneWidget);
+    expect(find.text('npm run lint && npm test'), findsWidgets);
+    expect(find.textContaining('执行 1 条命令'), findsOneWidget);
     expect(find.textContaining('cwd resolved'), findsOneWidget);
-    expect(find.text('2.1s'), findsOneWidget);
-    expect(find.text('ok'), findsOneWidget);
+    expect(find.textContaining('2.1s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
   testWidgets('command output opens a full detail sheet',
@@ -460,11 +461,11 @@ void main() {
     await tester.pumpWidget(buildConversationCommandCardPreview());
     await tester.pumpAndSettle();
 
-    expect(find.text('Ran command'), findsOneWidget);
-    expect(find.text('python intro.py'), findsOneWidget);
+    expect(find.text('python intro.py'), findsWidgets);
+    expect(find.textContaining('执行 1 条命令'), findsOneWidget);
     expect(find.text('hello from intro'), findsOneWidget);
-    expect(find.text('2.0s'), findsOneWidget);
-    expect(find.text('ok'), findsWidgets);
+    expect(find.textContaining('2.0s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
   test('empty completed conversation shows diagnostic warning', () {
