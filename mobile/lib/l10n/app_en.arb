@@ -1,0 +1,15 @@
+{
+  "@@locale": "en",
+  "appTitle": "AI CLI Control",
+  "navHome": "Home",
+  "navRuns": "Runs",
+  "navCoding": "Coding",
+  "navDevices": "Devices",
+  "navSettings": "Settings",
+  "settingsTitle": "Settings",
+  "settingsPreferencesSection": "Preferences",
+  "settingsLanguageTitle": "Language",
+  "settingsLanguageSystem": "System default",
+  "settingsLanguageZhHans": "Simplified Chinese",
+  "settingsLanguageEn": "English"
+}

@@ -1,0 +1,15 @@
+{
+  "@@locale": "zh",
+  "appTitle": "AI CLI 控制台",
+  "navHome": "首页",
+  "navRuns": "运行",
+  "navCoding": "编码",
+  "navDevices": "设备",
+  "navSettings": "设置",
+  "settingsTitle": "设置",
+  "settingsPreferencesSection": "偏好设置",
+  "settingsLanguageTitle": "语言",
+  "settingsLanguageSystem": "系统默认",
+  "settingsLanguageZhHans": "简体中文",
+  "settingsLanguageEn": "English"
+}
