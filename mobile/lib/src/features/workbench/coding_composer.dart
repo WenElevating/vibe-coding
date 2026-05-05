@@ -118,7 +118,7 @@ class _ComposerWorkspaceCloud extends StatelessWidget {
                         const Icon(Icons.cloud_outlined,
                             color: _muted, size: 16),
                         const SizedBox(width: 10),
-                        Text(_workspaceDisplayName(workspace),
+                        Text(workspaceDisplayName(workspace),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

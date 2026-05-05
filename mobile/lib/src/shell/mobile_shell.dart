@@ -134,9 +134,6 @@ Color _toolColor(String tool) {
   return const Color(0xFF8BC7FF);
 }
 
-String _displayVersion(String? version) =>
-    version == null || version.isEmpty ? 'unknown' : version;
-
 class _ConnectionError extends StatelessWidget {
   const _ConnectionError({required this.error, required this.onRetry});
   final String error;

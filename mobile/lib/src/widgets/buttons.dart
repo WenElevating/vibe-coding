@@ -64,3 +64,34 @@ class GhostButton extends StatelessWidget {
           child: Text(text,
               style: TextStyle(color: color, fontWeight: FontWeight.w900))));
 }
+
+class TinyActionButton extends StatelessWidget {
+  const TinyActionButton(this.label,
+      {super.key, required this.onTap, this.primary = false});
+  final String label;
+  final VoidCallback? onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+          height: 38,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+              color: primary
+                  ? theme.purple.withValues(alpha: .24)
+                  : Colors.white.withValues(alpha: .04),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: primary
+                      ? theme.purple.withValues(alpha: .42)
+                      : theme.stroke)),
+          child: Text(label,
+              style: TextStyle(
+                  color: primary ? theme.text : theme.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900))));
+}

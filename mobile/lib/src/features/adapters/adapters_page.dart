@@ -54,11 +54,12 @@ class _AdapterRow extends StatelessWidget {
           Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           Text('状态                         正常\n能力\n$protocol',
-              style:
-                  const TextStyle(color: theme.muted, fontSize: 12, height: 1.45))
+              style: const TextStyle(
+                  color: theme.muted, fontSize: 12, height: 1.45))
         ])),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(version, style: const TextStyle(color: theme.muted, fontSize: 12)),
+          Text(version,
+              style: const TextStyle(color: theme.muted, fontSize: 12)),
           const SizedBox(height: 8),
           const Dot(color: theme.green, size: 5)
         ])

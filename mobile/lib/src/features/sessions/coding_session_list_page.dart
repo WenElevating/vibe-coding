@@ -52,7 +52,7 @@ class _CodingSessionListPage extends StatelessWidget {
                           letterSpacing: -.15)),
                   const SizedBox(height: 3),
                   Text(
-                      '${_workspaceDisplayName(currentWorkspace)} · ${_compactWorkspacePath(currentWorkspace.path)}',
+                      '${workspaceDisplayName(currentWorkspace)} · ${compactWorkspacePath(currentWorkspace.path)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -69,7 +69,7 @@ class _CodingSessionListPage extends StatelessWidget {
             const _SessionSearchBox(),
             const SizedBox(height: 14),
             _SessionGroupHeader(
-                title: '当前项目', meta: _workspaceDisplayName(currentWorkspace)),
+                title: '当前项目', meta: workspaceDisplayName(currentWorkspace)),
             const SizedBox(height: 6),
             if (currentItems.isEmpty)
               _EmptySessionStack(onNewSession: onNewSession)
@@ -180,7 +180,7 @@ class _EmptySessionStack extends StatelessWidget {
                   style: TextStyle(
                       color: _text, fontSize: 13, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
-              _TinyActionButton('New Session',
+              TinyActionButton('New Session',
                   onTap: onNewSession, primary: true),
             ]))
       ]);

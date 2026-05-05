@@ -120,10 +120,6 @@ class _WaitingRow extends WaitingRow {
   });
 }
 
-class _AgentIcon extends AgentIcon {
-  const _AgentIcon({required super.color});
-}
-
 class _FloatingPlus extends FloatingPlus {
   const _FloatingPlus({super.onTap});
 }

@@ -27,8 +27,8 @@ class NotificationsPage extends StatelessWidget {
             theme.green),
         const _Notice(Icons.error_rounded, '任务失败', '优化数据同步逻辑\n运行失败，查看详情',
             '昨天 14:22', theme.red),
-        const _Notice(
-            Icons.sync_rounded, '队列更新', '优化缓存策略\n已开始运行', '昨天 13:15', theme.purple),
+        const _Notice(Icons.sync_rounded, '队列更新', '优化缓存策略\n已开始运行', '昨天 13:15',
+            theme.purple),
         const _Notice(Icons.notifications_rounded, '系统消息', '已连接到 DESKTOP-DEV',
             '昨天 10:01', theme.purple),
         const SizedBox(height: 8),
@@ -58,7 +58,8 @@ class _Notice extends StatelessWidget {
           Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
           Text(body,
-              style: const TextStyle(color: theme.muted, fontSize: 12, height: 1.45))
+              style: const TextStyle(
+                  color: theme.muted, fontSize: 12, height: 1.45))
         ])),
         Text(time, style: const TextStyle(color: theme.muted, fontSize: 12))
       ]));

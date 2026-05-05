@@ -37,3 +37,19 @@ class AppSearchBar extends StatelessWidget {
     ]);
   }
 }
+
+class SessionSearchBox extends StatelessWidget {
+  const SessionSearchBox({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: Alignment.centerLeft,
+      decoration: BoxDecoration(
+          color: const Color(0xFF101113),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: .075))),
+      child: const Text('搜索会话、命令、文件路径…',
+          style: TextStyle(color: Color(0xFF737983), fontSize: 13)));
+}

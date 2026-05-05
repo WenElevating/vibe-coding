@@ -261,7 +261,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     showModalBottomSheet<void>(
         context: context,
         backgroundColor: Colors.transparent,
-        builder: (context) => _AdapterPickerSheet(
+        builder: (context) => AdapterPickerSheet(
             adapters: adapters,
             selected: _selectedAdapter,
             onSelected: (adapter) {
@@ -277,7 +277,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => _AddWorkspaceSheet(client: widget.client));
+        builder: (context) => AddWorkspaceSheet(client: widget.client));
     if (workspace == null || !mounted) return;
     setState(() {
       _upsertWorkspace(workspace);
@@ -757,7 +757,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   @override
   Widget build(BuildContext context) {
     if (_listMode == _WorkbenchListMode.workspaces) {
-      return _WorkspaceListPage(
+      return WorkspaceListPage(
           workspaces: _workspaces,
           selected: _selectedWorkspace,
           onSelected: _openWorkspaceSessions,

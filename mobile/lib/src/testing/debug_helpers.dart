@@ -143,7 +143,7 @@ Widget buildNewSessionWorkspacePickerPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: _WorkspaceListPage(
+          body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[workspace],
               selected: workspace,
               onSelected: (_) {},
@@ -306,7 +306,7 @@ Widget buildCodingSessionListPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: _WorkspaceListPage(
+          body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current, other],
               selected: current,
               onSelected: (_) {},
@@ -373,7 +373,7 @@ Widget buildMissingWorkspaceFallbackPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: _WorkspaceListPage(
+          body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current],
               selected: current,
               onSelected: (_) {},

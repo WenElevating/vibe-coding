@@ -1,8 +1,15 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _AdapterPickerSheet extends StatelessWidget {
-  const _AdapterPickerSheet(
-      {required this.adapters,
+import '../../models/protocol.dart';
+import '../../services/daemon_client.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+import 'workspace_display.dart';
+
+class AdapterPickerSheet extends StatelessWidget {
+  const AdapterPickerSheet(
+      {super.key,
+      required this.adapters,
       required this.selected,
       required this.onSelected});
   final List<AdapterStatus> adapters;
@@ -33,12 +40,12 @@ class _AdapterPickerSheet extends StatelessWidget {
               children: [
                 const Text('选择模型 / CLI',
                     style: TextStyle(
-                        color: _text,
+                        color: theme.text,
                         fontSize: 16,
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
                 const Text('会用于下一次真实 daemon run，运行中不可切换。',
-                    style: TextStyle(color: _muted, fontSize: 12)),
+                    style: TextStyle(color: theme.muted, fontSize: 12)),
                 const SizedBox(height: 12),
                 for (final adapter in adapters)
                   _AdapterChoiceRow(
@@ -48,8 +55,9 @@ class _AdapterPickerSheet extends StatelessWidget {
               ])));
 }
 
-class _WorkspaceListPage extends StatelessWidget {
-  const _WorkspaceListPage({
+class WorkspaceListPage extends StatelessWidget {
+  const WorkspaceListPage({
+    super.key,
     required this.workspaces,
     required this.selected,
     required this.onSelected,
@@ -82,16 +90,16 @@ class _WorkspaceListPage extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            color: _text,
+                            color: theme.text,
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
                             letterSpacing: -.15)),
                     const SizedBox(height: 3),
-                    Text(_compactWorkspacePath(selected.path),
+                    Text(compactWorkspacePath(selected.path),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            color: _faint,
+                            color: theme.faint,
                             fontSize: 10.5,
                             fontFamily: 'Consolas')),
                   ])),
@@ -101,7 +109,7 @@ class _WorkspaceListPage extends StatelessWidget {
             child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
                 children: [
-              const _SessionSearchBox(),
+              const SessionSearchBox(),
               const SizedBox(height: 14),
               _WorkspaceSectionHeader(
                   title: 'Available Workspaces', meta: '${workspaces.length}'),
@@ -140,13 +148,15 @@ class _AdapterChoiceRow extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
               color: selected
-                  ? _purple.withValues(alpha: .16)
+                  ? theme.purple.withValues(alpha: .16)
                   : Colors.white.withValues(alpha: .035),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: selected ? _purple.withValues(alpha: .45) : _stroke)),
+                  color: selected
+                      ? theme.purple.withValues(alpha: .45)
+                      : theme.stroke)),
           child: Row(children: [
-            _AgentIcon(color: _toolColor(adapter.adapter)),
+            AgentIcon(color: toolColor(adapter.adapter)),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -154,19 +164,21 @@ class _AdapterChoiceRow extends StatelessWidget {
                     children: [
                   Text(adapter.adapter,
                       style: const TextStyle(
-                          color: _text, fontWeight: FontWeight.w900)),
+                          color: theme.text, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 3),
-                  Text(_displayVersion(adapter.version),
-                      style: const TextStyle(color: _muted, fontSize: 12))
+                  Text(displayVersion(adapter.version),
+                      style: const TextStyle(color: theme.muted, fontSize: 12))
                 ])),
             if (selected)
-              const Icon(Icons.check_circle_rounded, color: _purple, size: 19)
+              const Icon(Icons.check_circle_rounded,
+                  color: theme.purple, size: 19)
           ])));
 }
 
-class _WorkspacePickerSheet extends StatefulWidget {
-  const _WorkspacePickerSheet(
-      {required this.workspaces,
+class WorkspacePickerSheet extends StatefulWidget {
+  const WorkspacePickerSheet(
+      {super.key,
+      required this.workspaces,
       required this.selected,
       required this.client,
       required this.onSelected,
@@ -178,10 +190,10 @@ class _WorkspacePickerSheet extends StatefulWidget {
   final ValueChanged<WorkspaceSummary> onCreated;
 
   @override
-  State<_WorkspacePickerSheet> createState() => _WorkspacePickerSheetState();
+  State<WorkspacePickerSheet> createState() => _WorkspacePickerSheetState();
 }
 
-class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
+class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
   final _path = TextEditingController();
   final _name = TextEditingController();
   bool _creating = false;
@@ -199,7 +211,7 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => _DirectoryBrowserSheet(client: widget.client));
+        builder: (context) => DirectoryBrowserSheet(client: widget.client));
     if (selectedPath != null && selectedPath.isNotEmpty) {
       setState(() => _path.text = selectedPath);
     }
@@ -266,7 +278,7 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
                             child: _MiniInput(
                                 controller: _path, hint: '输入或浏览文件夹路径')),
                         const SizedBox(width: 8),
-                        _TinyActionButton('浏览', onTap: _browse),
+                        TinyActionButton('浏览', onTap: _browse),
                       ]),
                       const SizedBox(height: 8),
                       Row(children: [
@@ -274,7 +286,7 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
                             child:
                                 _MiniInput(controller: _name, hint: '名称（可选）')),
                         const SizedBox(width: 8),
-                        _TinyActionButton(_creating ? '创建中' : '创建',
+                        TinyActionButton(_creating ? '创建中' : '创建',
                             onTap: _creating ? null : _create, primary: true),
                       ]),
                     ])),
@@ -283,7 +295,7 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
                   Text(_error!,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _red, fontSize: 11)),
+                      style: const TextStyle(color: theme.red, fontSize: 11)),
                 ],
                 const SizedBox(height: 14),
                 const _WorkspaceSectionHeader(title: '已有工作区', meta: '安全执行目录'),
@@ -302,15 +314,15 @@ class _WorkspacePickerSheetState extends State<_WorkspacePickerSheet> {
               ])));
 }
 
-class _AddWorkspaceSheet extends StatefulWidget {
-  const _AddWorkspaceSheet({required this.client});
+class AddWorkspaceSheet extends StatefulWidget {
+  const AddWorkspaceSheet({super.key, required this.client});
   final DaemonClient client;
 
   @override
-  State<_AddWorkspaceSheet> createState() => _AddWorkspaceSheetState();
+  State<AddWorkspaceSheet> createState() => _AddWorkspaceSheetState();
 }
 
-class _AddWorkspaceSheetState extends State<_AddWorkspaceSheet> {
+class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
   final _path = TextEditingController();
   final _name = TextEditingController();
   bool _creating = false;
@@ -328,7 +340,7 @@ class _AddWorkspaceSheetState extends State<_AddWorkspaceSheet> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => _DirectoryBrowserSheet(client: widget.client));
+        builder: (context) => DirectoryBrowserSheet(client: widget.client));
     if (selectedPath != null && selectedPath.isNotEmpty) {
       setState(() => _path.text = selectedPath);
     }
@@ -367,10 +379,10 @@ class _AddWorkspaceSheetState extends State<_AddWorkspaceSheet> {
               const Expanded(
                   child: Text('添加工作区',
                       style: TextStyle(
-                          color: _text,
+                          color: theme.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w900))),
-              _TinyActionButton('浏览', onTap: _browse),
+              TinyActionButton('浏览', onTap: _browse),
             ]),
             const SizedBox(height: 10),
             _MiniInput(controller: _path, hint: '选择或输入文件夹路径'),
@@ -381,12 +393,12 @@ class _AddWorkspaceSheetState extends State<_AddWorkspaceSheet> {
               Text(_error!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _red, fontSize: 11)),
+                  style: const TextStyle(color: theme.red, fontSize: 11)),
             ],
             const SizedBox(height: 12),
             SizedBox(
                 width: double.infinity,
-                child: _TinyActionButton(_creating ? '创建中' : '创建并使用',
+                child: TinyActionButton(_creating ? '创建中' : '创建并使用',
                     onTap: _creating ? null : _create, primary: true)),
           ])));
 }
@@ -415,7 +427,7 @@ class _WorkspaceSheetHeader extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title,
               style: const TextStyle(
-                  color: _text,
+                  color: theme.text,
                   fontSize: 15,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -.15)),
@@ -469,11 +481,11 @@ class _WorkspaceChoiceRow extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
-              color: selected ? _activePanel : const Color(0xFF101113),
+              color: selected ? theme.activePanel : const Color(0xFF101113),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                   color: selected
-                      ? _activeStroke.withValues(alpha: .9)
+                      ? theme.activeStroke.withValues(alpha: .9)
                       : Colors.white.withValues(alpha: .075))),
           child: Row(children: [
             Container(
@@ -487,10 +499,10 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                         color: selected
-                            ? _activeStroke.withValues(alpha: .55)
+                            ? theme.activeStroke.withValues(alpha: .55)
                             : Colors.white.withValues(alpha: .055))),
                 child: Icon(Icons.folder_rounded,
-                    color: selected ? _active : _muted, size: 17)),
+                    color: selected ? theme.active : theme.muted, size: 17)),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -500,7 +512,7 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: _text,
+                          color: theme.text,
                           fontSize: 13,
                           fontWeight: FontWeight.w900)),
                   const SizedBox(height: 3),
@@ -518,10 +530,10 @@ class _WorkspaceChoiceRow extends StatelessWidget {
                   height: 22,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                      color: _active.withValues(alpha: .16),
+                      color: theme.active.withValues(alpha: .16),
                       borderRadius: BorderRadius.circular(11)),
-                  child:
-                      const Icon(Icons.check_rounded, color: _active, size: 15))
+                  child: const Icon(Icons.check_rounded,
+                      color: theme.active, size: 15))
           ])));
 }
 
@@ -540,21 +552,23 @@ class _WorkspaceAddIconButton extends StatelessWidget {
               height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                  color: _purple.withValues(alpha: .14),
+                  color: theme.purple.withValues(alpha: .14),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _purple.withValues(alpha: .42))),
-              child: const Icon(Icons.add_rounded, color: _text, size: 24))));
+                  border:
+                      Border.all(color: theme.purple.withValues(alpha: .42))),
+              child:
+                  const Icon(Icons.add_rounded, color: theme.text, size: 24))));
 }
 
-class _DirectoryBrowserSheet extends StatefulWidget {
-  const _DirectoryBrowserSheet({required this.client});
+class DirectoryBrowserSheet extends StatefulWidget {
+  const DirectoryBrowserSheet({super.key, required this.client});
   final DaemonClient client;
 
   @override
-  State<_DirectoryBrowserSheet> createState() => _DirectoryBrowserSheetState();
+  State<DirectoryBrowserSheet> createState() => _DirectoryBrowserSheetState();
 }
 
-class _DirectoryBrowserSheetState extends State<_DirectoryBrowserSheet> {
+class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
   Future<Object>? _future;
   String? _currentPath;
 
@@ -587,11 +601,11 @@ class _DirectoryBrowserSheetState extends State<_DirectoryBrowserSheet> {
               const Expanded(
                   child: Text('选择文件夹',
                       style: TextStyle(
-                          color: _text,
+                          color: theme.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w900))),
               if (_currentPath != null)
-                _TinyActionButton('选择当前',
+                TinyActionButton('选择当前',
                     onTap: () => Navigator.of(context).pop(_currentPath),
                     primary: true),
             ]),
@@ -599,7 +613,7 @@ class _DirectoryBrowserSheetState extends State<_DirectoryBrowserSheet> {
             Text(_currentPath ?? '选择磁盘或根目录后继续进入文件夹',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: _muted, fontSize: 12)),
+                style: const TextStyle(color: theme.muted, fontSize: 12)),
             const SizedBox(height: 12),
             Expanded(
                 child: FutureBuilder<Object>(
@@ -607,11 +621,13 @@ class _DirectoryBrowserSheetState extends State<_DirectoryBrowserSheet> {
                     builder: (context, snapshot) {
                       if (snapshot.connectionState != ConnectionState.done) {
                         return const Center(
-                            child: CircularProgressIndicator(color: _purple));
+                            child:
+                                CircularProgressIndicator(color: theme.purple));
                       }
                       if (snapshot.hasError) {
                         return Text(snapshot.error.toString(),
-                            style: const TextStyle(color: _red, fontSize: 12));
+                            style: const TextStyle(
+                                color: theme.red, fontSize: 12));
                       }
                       final data = snapshot.requireData;
                       final entries = data is DirectoryListing
@@ -649,7 +665,7 @@ class _DirectoryRow extends StatelessWidget {
       child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           child: Row(children: [
-            const Icon(Icons.folder_rounded, color: _purple, size: 17),
+            const Icon(Icons.folder_rounded, color: theme.purple, size: 17),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -659,14 +675,15 @@ class _DirectoryRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: _text, fontWeight: FontWeight.w800)),
+                          color: theme.text, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
                   Text(path,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _faint, fontSize: 11)),
+                      style: const TextStyle(color: theme.faint, fontSize: 11)),
                 ])),
-            const Icon(Icons.chevron_right_rounded, color: _muted, size: 18)
+            const Icon(Icons.chevron_right_rounded,
+                color: theme.muted, size: 18)
           ])));
 }
 
@@ -678,60 +695,20 @@ class _MiniInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextField(
       controller: controller,
-      style: _appTextStyle.copyWith(color: _text, fontSize: 12.5),
+      style: theme.appTextStyle.copyWith(color: theme.text, fontSize: 12.5),
       decoration: InputDecoration(
           isDense: true,
           hintText: hint,
-          hintStyle: _appTextStyle.copyWith(color: _faint, fontSize: 12),
+          hintStyle:
+              theme.appTextStyle.copyWith(color: theme.faint, fontSize: 12),
           filled: true,
           fillColor: Colors.white.withValues(alpha: .035),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: _stroke)),
+              borderSide: const BorderSide(color: theme.stroke)),
           enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: _stroke)),
+              borderSide: const BorderSide(color: theme.stroke)),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 10, vertical: 10)));
-}
-
-class _TinyActionButton extends StatelessWidget {
-  const _TinyActionButton(this.label,
-      {required this.onTap, this.primary = false});
-  final String label;
-  final VoidCallback? onTap;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-          height: 38,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-              color: primary
-                  ? _purple.withValues(alpha: .24)
-                  : Colors.white.withValues(alpha: .04),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: primary ? _purple.withValues(alpha: .42) : _stroke)),
-          child: Text(label,
-              style: TextStyle(
-                  color: primary ? _text : _muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900))));
-}
-
-String _compactWorkspacePath(String path) {
-  if (path.isEmpty) return '未设置路径';
-  final normalized = path.replaceAll('\\', '/');
-  final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
-  if (parts.length <= 2) return path;
-  return '…/${parts[parts.length - 2]}/${parts.last}';
-}
-
-String _workspaceDisplayName(WorkspaceSummary workspace) {
-  return workspaceDisplayName(workspace);
 }

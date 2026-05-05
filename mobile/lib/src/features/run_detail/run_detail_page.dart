@@ -33,7 +33,8 @@ class RunDetailPage extends StatelessWidget {
         Row(children: [
           AgentIcon(color: theme.orange),
           SizedBox(width: 6),
-          Text('Claude Code', style: TextStyle(color: theme.muted, fontSize: 12))
+          Text('Claude Code',
+              style: TextStyle(color: theme.muted, fontSize: 12))
         ]),
         SizedBox(height: 8),
         Text('10:32 开始 · 运行时长 12m 45s',
@@ -81,7 +82,8 @@ class _Timeline extends StatelessWidget {
           Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 7),
           Text(body,
-              style: const TextStyle(color: theme.muted, fontSize: 12, height: 1.45))
+              style: const TextStyle(
+                  color: theme.muted, fontSize: 12, height: 1.45))
         ])),
         Text(time, style: const TextStyle(color: theme.muted, fontSize: 12))
       ]));

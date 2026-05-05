@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 echo [1/3] Formatting Dart files...
-call dart format lib\src\app\app.dart lib\src\widgets
+call dart format lib test
 if errorlevel 1 goto failed
 
 echo.

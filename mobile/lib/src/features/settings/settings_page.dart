@@ -139,7 +139,8 @@ class _SettingsConnectionCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   border:
                       Border.all(color: Colors.white.withValues(alpha: .055))),
-              child: const Icon(Icons.lan_rounded, color: theme.active, size: 18)),
+              child:
+                  const Icon(Icons.lan_rounded, color: theme.active, size: 18)),
           const SizedBox(width: 11),
           Expanded(
               child: Column(
@@ -186,7 +187,8 @@ class _SettingsMetric extends StatelessWidget {
           border: Border.all(color: Colors.white.withValues(alpha: .055))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
-            style: const TextStyle(color: theme.faint, fontSize: 10.5, height: 1)),
+            style:
+                const TextStyle(color: theme.faint, fontSize: 10.5, height: 1)),
         const SizedBox(height: 7),
         Text(value,
             maxLines: 1,
@@ -212,7 +214,9 @@ class _SettingsPill extends StatelessWidget {
         const SizedBox(width: 6),
         Text(text,
             style: const TextStyle(
-                color: theme.active, fontSize: 11, fontWeight: FontWeight.w900)),
+                color: theme.active,
+                fontSize: 11,
+                fontWeight: FontWeight.w900)),
       ]));
 }
 
@@ -321,8 +325,9 @@ class _PermissionChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color:
-                  selected ? theme.activePanel : Colors.white.withValues(alpha: .04),
+              color: selected
+                  ? theme.activePanel
+                  : Colors.white.withValues(alpha: .04),
               border: Border.all(
                   color: selected
                       ? theme.activeStroke.withValues(alpha: .9)
