@@ -3,6 +3,14 @@ setlocal
 
 cd /d "%~dp0"
 
+set "LOCAL_OMX=%~dp0..\.omx"
+if not exist "%LOCAL_OMX%\manual_packages\args" (
+  if exist "%~dp0..\..\..\.omx\manual_packages\args" (
+    if not exist "%LOCAL_OMX%" mkdir "%LOCAL_OMX%" >nul
+    if not exist "%LOCAL_OMX%\manual_packages" mklink /J "%LOCAL_OMX%\manual_packages" "%~dp0..\..\..\.omx\manual_packages" >nul
+  )
+)
+
 if not exist ".dart_tool\package_config.json" (
   echo [0/3] Resolving Flutter packages...
   call flutter pub get
