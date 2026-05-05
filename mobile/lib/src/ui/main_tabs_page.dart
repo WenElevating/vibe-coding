@@ -82,10 +82,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
                 onBack: _back,
               ),
       ),
-      bottomNavigationBar:
-          _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
-              ? BottomNav(selected: _tab, items: mainTabItems, onTap: _selectTab)
-              : null,
+      bottomNavigationBar: _route == RoutePage.tabs &&
+              (_tab != 2 || _codingSessionListOpen)
+          ? BottomNav(selected: _tab, items: mainTabItems, onTap: _selectTab)
+          : null,
       extendBody: true,
     );
   }
