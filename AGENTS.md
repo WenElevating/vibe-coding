@@ -26,6 +26,10 @@ Run commands from the repository root unless noted.
 
 Use small, focused changes and keep behavior in existing modules unless a refactor is required. JavaScript uses CommonJS modules, `const`/`let`, two-space indentation, and descriptive function names. Dart code follows Flutter conventions: `UpperCamelCase` for widgets/classes, `lowerCamelCase` for fields/functions, and private members prefixed with `_`. Avoid broad rewrites and do not introduce new dependencies without a clear need.
 
+## Text Encoding Safety
+
+Treat all repository source, docs, and test files as UTF-8, especially files containing Chinese text. On Windows, do not rewrite source files with PowerShell `Set-Content`, `Out-File`, or `>` redirection unless you explicitly preserve UTF-8 without BOM and have verified the result. Prefer `apply_patch` for edits. For mechanical rewrites, use byte-preserving scripts or language tooling that reads and writes UTF-8 explicitly, then immediately run `rg`/format/analyze checks for garbled Chinese, replacement characters, or unterminated strings. Never “fix” mojibake by guessing; restore from git or inspect the original UTF-8 bytes first.
+
 ## Testing Guidelines
 
 Add regression tests for bug fixes. Daemon behavior belongs in `scripts/run-tests.js` or `daemon/test/` when appropriate. Flutter UI/state behavior belongs in `mobile/test/`, especially `widget_test.dart`, `conversation_reducer_test.dart`, and protocol compatibility tests. Prefer tests that exercise real reducers/adapters over snapshot-only checks.
