@@ -1,8 +1,2 @@
-import 'package:flutter/widgets.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-
-const appLocalizationsDelegates = <LocalizationsDelegate<Object>>[
-  GlobalMaterialLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-];
+export '../app/app_localization.dart';
+export '../app/language_mode.dart' show AppLanguage;

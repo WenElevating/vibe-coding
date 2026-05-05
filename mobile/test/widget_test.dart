@@ -1,8 +1,76 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
+import 'package:lan_ai_cli_control/l10n/app_localizations.dart';
+import 'package:lan_ai_cli_control/src/app/app_localization.dart';
+import 'package:lan_ai_cli_control/src/app/language_controller.dart';
+import 'package:lan_ai_cli_control/src/app/language_mode.dart';
+import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class _LocalizedSettingsLabelApp extends StatefulWidget {
+  const _LocalizedSettingsLabelApp();
+
+  @override
+  State<_LocalizedSettingsLabelApp> createState() =>
+      _LocalizedSettingsLabelAppState();
+}
+
+class _LocalizedSettingsLabelAppState
+    extends State<_LocalizedSettingsLabelApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: Builder(
+                  builder: (context) => Text(
+                      AppLocalizations.of(context).navSettings)))));
+}
 
 void main() {
+  testWidgets('app renders English when forced to English',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedSettingsLabelApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settings'), findsWidgets);
+  });
+
+  testWidgets('app renders Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const _LocalizedSettingsLabelApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('设置'), findsWidgets);
+  });
+
   testWidgets('renders assistant markdown instead of raw syntax',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildAssistantMarkdownPreview(

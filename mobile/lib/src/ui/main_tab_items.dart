@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../widgets/widgets.dart';
 
-const mainTabItems = [
-  NavSpec(Icons.home_rounded, '首页'),
-  NavSpec(Icons.manage_search_rounded, '运行'),
-  NavSpec(Icons.terminal_rounded, '编码'),
-  NavSpec(Icons.format_list_bulleted_rounded, '设备'),
-  NavSpec(Icons.settings_rounded, '设置'),
-];
+List<NavSpec> mainTabItems(AppLocalizations l10n) => [
+      NavSpec(Icons.home_rounded, l10n.navHome),
+      NavSpec(Icons.manage_search_rounded, l10n.navRuns),
+      NavSpec(Icons.terminal_rounded, l10n.navCoding),
+      NavSpec(Icons.format_list_bulleted_rounded, l10n.navDevices),
+      NavSpec(Icons.settings_rounded, l10n.navSettings),
+    ];
