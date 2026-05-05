@@ -1,8 +1,13 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
 
-class _CodingComposer extends StatelessWidget {
-  const _CodingComposer(
-      {required this.controller,
+import '../../models/protocol.dart';
+import '../../theme/theme.dart' as theme;
+import '../workspace_picker/workspace_picker.dart';
+
+class CodingComposer extends StatelessWidget {
+  const CodingComposer(
+      {super.key,
+      required this.controller,
       required this.adapter,
       required this.workspace,
       required this.running,
@@ -48,8 +53,8 @@ class _CodingComposer extends StatelessWidget {
                   controller: controller,
                   minLines: 1,
                   maxLines: 3,
-                  style: _appTextStyle.copyWith(
-                      color: _text,
+                  style: theme.appTextStyle.copyWith(
+                      color: theme.text,
                       fontSize: 15,
                       height: 1.35,
                       fontWeight: FontWeight.w500,
@@ -62,8 +67,8 @@ class _CodingComposer extends StatelessWidget {
                           : running
                               ? '要求后续变更…'
                               : 'Add feedback...',
-                      hintStyle: _appTextStyle.copyWith(
-                          color: _faint,
+                      hintStyle: theme.appTextStyle.copyWith(
+                          color: theme.faint,
                           fontSize: 14.5,
                           fontWeight: FontWeight.w400),
                       contentPadding: EdgeInsets.zero),
@@ -92,9 +97,12 @@ class _CodingComposer extends StatelessWidget {
               ]))));
 }
 
-class _ComposerWorkspaceCloud extends StatelessWidget {
-  const _ComposerWorkspaceCloud(
-      {required this.workspace, required this.running, required this.onTap});
+class ComposerWorkspaceCloud extends StatelessWidget {
+  const ComposerWorkspaceCloud(
+      {super.key,
+      required this.workspace,
+      required this.running,
+      required this.onTap});
   final WorkspaceSummary workspace;
   final bool running;
   final VoidCallback onTap;
@@ -116,13 +124,13 @@ class _ComposerWorkspaceCloud extends StatelessWidget {
                           horizontal: 7, vertical: 4),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         const Icon(Icons.cloud_outlined,
-                            color: _muted, size: 16),
+                            color: theme.muted, size: 16),
                         const SizedBox(width: 10),
                         Text(workspaceDisplayName(workspace),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                color: _muted,
+                                color: theme.muted,
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w500)),
                       ]))))));
@@ -159,8 +167,9 @@ class _SendPromptButton extends StatelessWidget {
                         colors: [Color(0xFF141518), Color(0xFF101113)]),
                 shape: BoxShape.circle,
                 border: Border.all(
-                    color:
-                        active ? Colors.white.withValues(alpha: .18) : _stroke),
+                    color: active
+                        ? Colors.white.withValues(alpha: .18)
+                        : theme.stroke),
                 boxShadow: [
                   BoxShadow(
                       color: glow,
@@ -175,15 +184,18 @@ class _SendPromptButton extends StatelessWidget {
                         height: 13,
                         child: CircularProgressIndicator(
                             strokeWidth: 1.8,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                active ? const Color(0xFF08090B) : _faint)))
+                            valueColor: AlwaysStoppedAnimation<Color>(active
+                                ? const Color(0xFF08090B)
+                                : theme.faint)))
                     : running
                         ? Icon(Icons.stop_rounded,
-                            color: active ? const Color(0xFF08090B) : _faint,
+                            color:
+                                active ? const Color(0xFF08090B) : theme.faint,
                             size: 17)
                         : _SendGlyph(
-                            color:
-                                active ? const Color(0xFF08090B) : _faint))));
+                            color: active
+                                ? const Color(0xFF08090B)
+                                : theme.faint))));
   }
 }
 
@@ -200,11 +212,11 @@ class _ComposerModelPill extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: Colors.white.withValues(alpha: .075))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.code_rounded, color: _muted, size: 14),
+        const Icon(Icons.code_rounded, color: theme.muted, size: 14),
         const SizedBox(width: 7),
         Text(adapter ?? 'CLI',
             style: const TextStyle(
-                color: _text,
+                color: theme.text,
                 fontSize: 11.5,
                 fontFamily: 'Consolas',
                 fontWeight: FontWeight.w800)),
@@ -216,7 +228,8 @@ class _ComposerIcon extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) => Icon(icon, color: _muted, size: 19);
+  Widget build(BuildContext context) =>
+      Icon(icon, color: theme.muted, size: 19);
 }
 
 class _SendGlyph extends StatelessWidget {

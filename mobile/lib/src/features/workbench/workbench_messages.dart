@@ -1,16 +1,40 @@
-part of '../../app/app.dart';
+import 'dart:convert';
 
-bool _shouldPollAfterApproval(ConversationSummary conversation) =>
+import '../../models/protocol.dart';
+import '../../state/conversation_reducer.dart';
+
+bool shouldPollAfterApproval(ConversationSummary conversation) =>
     conversation.status == 'running' || conversation.status == 'waiting_input';
 
-bool _hasExplicitWorkspaceSelectionState({
+bool hasExplicitWorkspaceSelectionState({
   required bool workspaceConfirmedForSession,
   required String? activeRunId,
   required bool hasLocalSessions,
 }) =>
     workspaceConfirmedForSession || activeRunId != null;
 
-List<ConversationMessage> _messagesForConversationSnapshot(
+String conversationPendingStatusText(
+    String status, Iterable<ConversationEvent> events) {
+  if (status == 'interrupted') return '会话已中断，可继续发送新消息恢复上下文';
+  if (status == 'waiting_input') return '等待你回复问题…';
+  if (status == 'waiting_approval') return '等待你确认权限请求…';
+  final list = events.toList(growable: false);
+  if (list.isEmpty) return '正在启动 CLI 会话…';
+  for (final event in list.reversed) {
+    if (event.type == 'assistant.partial') return '正在生成回复…';
+    if (event.type == 'tool.started') {
+      return '正在执行 ${event.toolName ?? '工具调用'}…';
+    }
+    if (event.type == 'tool.output') return '正在接收工具输出…';
+    if (event.type == 'diff.summary') return '正在汇总文件变更…';
+    if (event.type == 'conversation.started') {
+      return 'CLI 会话已启动，正在读取上下文…';
+    }
+  }
+  return '等待下一条事件…';
+}
+
+List<ConversationMessage> messagesForConversationSnapshot(
     List<ConversationMessage> messages, ConversationSummary? conversation) {
   final blockingItem = conversation?.blockingItem;
   if (conversation?.status != 'waiting_approval' ||
@@ -28,7 +52,7 @@ List<ConversationMessage> _messagesForConversationSnapshot(
       .toList(growable: false);
 }
 
-String? _emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
+String? emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
     List<ConversationMessage> messages, bool terminal) {
   if (!terminal || events.isEmpty || messages.isNotEmpty) return null;
   final hasCompletion = events.any((event) =>
@@ -44,7 +68,7 @@ String? _emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
   return 'CLI 未返回内容。诊断信息：\n${warnings.join('\n')}';
 }
 
-ConversationSummary _copyConversationStatus(
+ConversationSummary copyConversationStatus(
     ConversationSummary conversation, String status,
     {ConversationBlockingItem? blockingItem}) {
   return ConversationSummary(
@@ -60,8 +84,7 @@ ConversationSummary _copyConversationStatus(
       idleExpiresAt: conversation.idleExpiresAt);
 }
 
-_WorkbenchMessage _workbenchMessageFromConversation(
-    ConversationMessage message) {
+WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
   final event = AgentEvent(
       type: message.role == 'approval'
           ? 'approval.required'
@@ -96,36 +119,36 @@ _WorkbenchMessage _workbenchMessageFromConversation(
       });
   switch (message.role) {
     case 'user':
-      return _WorkbenchMessage.user(message.text);
+      return WorkbenchMessage.user(message.text);
     case 'assistant':
-      return _WorkbenchMessage('assistant', 'CLI 助手', message.text,
+      return WorkbenchMessage('assistant', 'CLI 助手', message.text,
           event: event, runId: 'conversation');
     case 'thinking':
-      return _WorkbenchMessage('thinking', '思考过程', message.text,
+      return WorkbenchMessage('thinking', '思考过程', message.text,
           event: event, runId: 'conversation');
     case 'assistant_stream':
-      return _WorkbenchMessage('assistant_stream', 'CLI 助手', message.text,
+      return WorkbenchMessage('assistant_stream', 'CLI 助手', message.text,
           event: event, runId: 'conversation');
     case 'question':
-      return _WorkbenchMessage('question', '需要你选择方向', message.text,
+      return WorkbenchMessage('question', '需要你选择方向', message.text,
           event: event,
           runId: 'conversation',
           suggestions: message.suggestions);
     case 'notice':
-      return _WorkbenchMessage('notice', '系统提示', message.text,
+      return WorkbenchMessage('notice', '系统提示', message.text,
           event: event, runId: 'conversation');
     case 'approval':
-      return _WorkbenchMessage('approval', '权限确认', message.text,
+      return WorkbenchMessage('approval', '权限确认', message.text,
           event: event, runId: 'conversation');
     case 'command':
-      return _WorkbenchMessage('command', '运行命令', message.text,
+      return WorkbenchMessage('command', '运行命令', message.text,
           event: event,
           runId: 'conversation',
           completed: message.completed,
           isError: message.isError,
           duration: _conversationCommandDuration(message));
     default:
-      return _WorkbenchMessage.status(message.text);
+      return WorkbenchMessage.status(message.text);
   }
 }
 
@@ -166,8 +189,8 @@ AgentEvent _agentEventFromConversation(ConversationEvent event, String runId) {
       raw: raw);
 }
 
-class _WorkbenchMessage {
-  const _WorkbenchMessage(this.role, this.title, this.body,
+class WorkbenchMessage {
+  const WorkbenchMessage(this.role, this.title, this.body,
       {this.event,
       this.runId,
       this.completed = false,
@@ -183,13 +206,13 @@ class _WorkbenchMessage {
   final bool isError;
   final Duration? duration;
   final List<String> suggestions;
-  factory _WorkbenchMessage.user(String text) =>
-      _WorkbenchMessage('user', '你', text);
-  factory _WorkbenchMessage.status(String text) =>
-      _WorkbenchMessage('status', '运行状态', text);
-  _WorkbenchMessage copyWith(
+  factory WorkbenchMessage.user(String text) =>
+      WorkbenchMessage('user', '你', text);
+  factory WorkbenchMessage.status(String text) =>
+      WorkbenchMessage('status', '运行状态', text);
+  WorkbenchMessage copyWith(
           {String? body, bool? completed, bool? isError, Duration? duration}) =>
-      _WorkbenchMessage(role, title, body ?? this.body,
+      WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
           completed: completed ?? this.completed,
@@ -197,7 +220,7 @@ class _WorkbenchMessage {
           duration: duration ?? this.duration,
           suggestions: suggestions);
 
-  static _WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
+  static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
     final parsed = _parseVisibleText(event);
     final visibleText = parsed?.text;
     if (event.type == 'approval.required') {
@@ -205,12 +228,12 @@ class _WorkbenchMessage {
       final target = _approvalTarget(event);
       final body =
           target == null ? '$toolName 请求权限（未提供参数）。' : '$toolName 请求访问：$target';
-      return _WorkbenchMessage('approval', '权限确认', visibleText ?? body,
+      return WorkbenchMessage('approval', '权限确认', visibleText ?? body,
           event: event, runId: event.runId);
     }
     if (event.type == 'assistant.question') {
-      final question = visibleText ?? event.text ?? _toolEventBody(event);
-      return _WorkbenchMessage('question', '需要你选择方向', question.trim(),
+      final question = visibleText ?? event.text ?? toolEventBody(event);
+      return WorkbenchMessage('question', '需要你选择方向', question.trim(),
           event: event,
           runId: event.runId,
           suggestions: _eventSuggestions(event));
@@ -218,27 +241,27 @@ class _WorkbenchMessage {
     if (visibleText != null && visibleText.trim().isNotEmpty) {
       if (parsed?.kind == _VisibleTextKind.delta) {
         if (!streamOutput) return null;
-        return _WorkbenchMessage('assistant_stream', 'CLI 助手', visibleText,
+        return WorkbenchMessage('assistant_stream', 'CLI 助手', visibleText,
             event: event, runId: event.runId);
       }
       if (parsed?.kind == _VisibleTextKind.finalMessage) {
-        return _WorkbenchMessage('assistant', 'CLI 助手', visibleText.trim(),
+        return WorkbenchMessage('assistant', 'CLI 助手', visibleText.trim(),
             event: event, runId: event.runId);
       }
     }
     if (event.type == 'tool.started') {
-      return _WorkbenchMessage('command', '运行命令', _toolEventBody(event),
+      return WorkbenchMessage('command', '运行命令', toolEventBody(event),
           event: event, runId: event.runId);
     }
     if (event.type == 'diff.summary' && event.diff != null) {
       final diff = event.diff!;
-      return _WorkbenchMessage('diff', '文件变更',
+      return WorkbenchMessage('diff', '文件变更',
           '${diff.filePath}  +${diff.additions} -${diff.deletions}',
           event: event, runId: event.runId);
     }
     if (event.type == 'run.cancelled') return null;
     if (event.type == 'run.failed') {
-      return _WorkbenchMessage('status', '运行结束', visibleText ?? event.type,
+      return WorkbenchMessage('status', '运行结束', visibleText ?? event.type,
           event: event, runId: event.runId);
     }
     return null;
@@ -427,7 +450,7 @@ class _WorkbenchMessage {
     return null;
   }
 
-  static String _toolEventBody(AgentEvent event) {
+  static String toolEventBody(AgentEvent event) {
     final input = _eventInput(event);
     if (input is Map<String, Object?>) {
       final question = _firstNonEmptyInputString(input, const [

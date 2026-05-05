@@ -1,7 +1,15 @@
-part of '../../app/app.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter/services.dart';
 
-class _WorkbenchInlineStatus extends StatelessWidget {
-  const _WorkbenchInlineStatus({
+import '../../models/protocol.dart';
+import '../../state/conversation_reducer.dart';
+import '../../theme/theme.dart' as theme;
+import 'workbench_messages.dart';
+
+class WorkbenchInlineStatus extends StatelessWidget {
+  const WorkbenchInlineStatus({
+    super.key,
     required this.adapter,
     required this.runId,
     required this.eventCount,
@@ -33,18 +41,19 @@ class _WorkbenchInlineStatus extends StatelessWidget {
               child: Text(text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _muted, fontSize: 12))),
+                  style: const TextStyle(color: theme.muted, fontSize: 12))),
         ]));
   }
 }
 
-class _WorkbenchMessageCard extends StatelessWidget {
-  const _WorkbenchMessageCard(
-      {required this.message,
+class WorkbenchMessageCard extends StatelessWidget {
+  const WorkbenchMessageCard(
+      {super.key,
+      required this.message,
       required this.onApproval,
       required this.onSuggestion,
       required this.expandThinking});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
   final ValueChanged<String> onApproval;
   final ValueChanged<String> onSuggestion;
   final bool expandThinking;
@@ -70,12 +79,12 @@ class _WorkbenchMessageCard extends StatelessWidget {
       return _SystemNoticeEventCard(message: message);
     }
     final color = isUser
-        ? _purple2
+        ? theme.purple2
         : isApproval
-            ? _amber
+            ? theme.amber
             : isTool
-                ? _orange
-                : _green;
+                ? theme.orange
+                : theme.green;
     return Align(
         alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
         child: FractionallySizedBox(
@@ -112,7 +121,7 @@ class _WorkbenchMessageCard extends StatelessWidget {
                                 ? Colors.white.withValues(alpha: .08)
                                 : message.role == 'assistant'
                                     ? Colors.transparent
-                                    : _stroke)),
+                                    : theme.stroke)),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -125,9 +134,10 @@ class _WorkbenchMessageCard extends StatelessWidget {
                               decoration: isApproval
                                   ? BoxDecoration(
                                       borderRadius: BorderRadius.circular(8),
-                                      color: _amber.withValues(alpha: .10),
+                                      color: theme.amber.withValues(alpha: .10),
                                       border: Border.all(
-                                          color: _amber.withValues(alpha: .22)))
+                                          color: theme.amber
+                                              .withValues(alpha: .22)))
                                   : null,
                               child: Icon(
                                   isApproval
@@ -141,19 +151,20 @@ class _WorkbenchMessageCard extends StatelessWidget {
                           Expanded(
                               child: Text(message.title,
                                   style: const TextStyle(
-                                      color: _text,
+                                      color: theme.text,
                                       fontSize: 12.5,
                                       fontWeight: FontWeight.w700))),
                         ]),
                         const SizedBox(height: 8),
                       ],
                       if (message.role == 'assistant')
-                        _AssistantMarkdownBody(markdown: message.body)
+                        AssistantMarkdownBody(markdown: message.body)
                       else
                         Text(message.body,
                             style: TextStyle(
-                                color:
-                                    isUser ? const Color(0xFFF4F4F4) : _muted,
+                                color: isUser
+                                    ? const Color(0xFFF4F4F4)
+                                    : theme.muted,
                                 fontSize: isUser ? 14.5 : 12.5,
                                 height: isUser ? 1.45 : 1.55,
                                 fontWeight: isUser
@@ -163,17 +174,17 @@ class _WorkbenchMessageCard extends StatelessWidget {
                         const SizedBox(height: 12),
                         if (message.event?.approvalId == null)
                           const Text('daemon 未提供 approvalId，无法在移动端处理。',
-                              style: TextStyle(color: _red, fontSize: 12))
+                              style: TextStyle(color: theme.red, fontSize: 12))
                         else
                           Row(children: [
                             Expanded(
                                 child: _ApprovalActionButton('拒绝',
-                                    color: _red,
+                                    color: theme.red,
                                     onTap: () => onApproval('deny'))),
                             const SizedBox(width: 10),
                             Expanded(
                                 child: _ApprovalActionButton('批准',
-                                    color: _purple2,
+                                    color: theme.purple2,
                                     primary: true,
                                     onTap: () => onApproval('allow'))),
                           ])
@@ -182,23 +193,23 @@ class _WorkbenchMessageCard extends StatelessWidget {
   }
 }
 
-class _AssistantMarkdownBody extends StatelessWidget {
-  const _AssistantMarkdownBody({required this.markdown});
+class AssistantMarkdownBody extends StatelessWidget {
+  const AssistantMarkdownBody({super.key, required this.markdown});
   final String markdown;
 
   @override
   Widget build(BuildContext context) => MarkdownBody(
-      data: _normalizeAssistantMarkdown(markdown),
+      data: normalizeAssistantMarkdown(markdown),
       selectable: true,
       softLineBreak: true,
-      styleSheet: _buildAssistantMarkdownStyleSheet(context),
+      styleSheet: buildAssistantMarkdownStyleSheet(context),
       imageBuilder: (_, __, ___) => const SizedBox.shrink(),
       onTapLink: (_, __, ___) {});
 }
 
 class _QuestionEventCard extends StatelessWidget {
   const _QuestionEventCard({required this.message, required this.onSuggestion});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
   final ValueChanged<String> onSuggestion;
 
   @override
@@ -215,22 +226,24 @@ class _QuestionEventCard extends StatelessWidget {
               height: 28,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                  color: _purple.withValues(alpha: .16),
+                  color: theme.purple.withValues(alpha: .16),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: _purple.withValues(alpha: .26))),
-              child: const Icon(Icons.tune_rounded, color: _purple2, size: 15)),
+                  border:
+                      Border.all(color: theme.purple.withValues(alpha: .26))),
+              child: const Icon(Icons.tune_rounded,
+                  color: theme.purple2, size: 15)),
           const SizedBox(width: 10),
           const Expanded(
               child: Text('需要你补充方向',
                   style: TextStyle(
-                      color: _text,
+                      color: theme.text,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800))),
         ]),
         const SizedBox(height: 12),
         Text(message.body,
-            style:
-                const TextStyle(color: _muted, fontSize: 13.5, height: 1.55)),
+            style: const TextStyle(
+                color: theme.muted, fontSize: 13.5, height: 1.55)),
         if (message.suggestions.isNotEmpty) ...[
           const SizedBox(height: 12),
           Wrap(
@@ -246,7 +259,7 @@ class _QuestionEventCard extends StatelessWidget {
 
 class _SystemNoticeEventCard extends StatelessWidget {
   const _SystemNoticeEventCard({required this.message});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
 
   @override
   Widget build(BuildContext context) => _AgentEventCard(
@@ -255,12 +268,13 @@ class _SystemNoticeEventCard extends StatelessWidget {
       meta: 'non-blocking',
       trailing: null,
       child: Text(message.body,
-          style: const TextStyle(color: _muted, fontSize: 12.5, height: 1.55)));
+          style: const TextStyle(
+              color: theme.muted, fontSize: 12.5, height: 1.55)));
 }
 
 class _ThinkingEventCard extends StatelessWidget {
   const _ThinkingEventCard({required this.message, required this.expanded});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
   final bool expanded;
 
   @override
@@ -271,7 +285,7 @@ class _ThinkingEventCard extends StatelessWidget {
 class _ExpandableThinkingCard extends StatefulWidget {
   const _ExpandableThinkingCard(
       {required this.message, required this.initiallyExpanded});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
   final bool initiallyExpanded;
 
   @override
@@ -304,22 +318,22 @@ class _ExpandableThinkingCardState extends State<_ExpandableThinkingCard> {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Icon(Icons.psychology_alt_rounded,
-                  color: _purple2.withValues(alpha: .92), size: 16),
+                  color: theme.purple2.withValues(alpha: .92), size: 16),
               const SizedBox(width: 8),
               const Expanded(
                   child: Text('思考过程',
                       style: TextStyle(
-                          color: _text,
+                          color: theme.text,
                           fontSize: 13,
                           fontWeight: FontWeight.w800))),
               Text(_expanded ? '收起' : '展开',
-                  style: const TextStyle(color: _muted, fontSize: 11)),
+                  style: const TextStyle(color: theme.muted, fontSize: 11)),
             ]),
             if (_expanded) ...[
               const SizedBox(height: 10),
               Text(widget.message.body,
                   style: const TextStyle(
-                      color: _muted, fontSize: 12.5, height: 1.55)),
+                      color: theme.muted, fontSize: 12.5, height: 1.55)),
             ]
           ])));
 }
@@ -376,7 +390,7 @@ class _ApprovalActionButton extends StatelessWidget {
                       : color.withValues(alpha: .34))),
           child: Text(text,
               style: TextStyle(
-                  color: primary ? _text : color,
+                  color: primary ? theme.text : color,
                   fontSize: 13,
                   letterSpacing: .4,
                   fontWeight: FontWeight.w800))));
@@ -384,7 +398,7 @@ class _ApprovalActionButton extends StatelessWidget {
 
 class _CommandEventCard extends StatelessWidget {
   const _CommandEventCard({required this.message});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
 
   @override
   Widget build(BuildContext context) {
@@ -421,13 +435,13 @@ class _CommandEventCard extends StatelessWidget {
   }
 }
 
-String? _commandOutput(_WorkbenchMessage message) {
+String? _commandOutput(WorkbenchMessage message) {
   final output = message.event?.raw['output'];
   if (output is String && output.trim().isNotEmpty) return output.trim();
   return null;
 }
 
-String _commandDetailSubtitle(_WorkbenchMessage message) {
+String _commandDetailSubtitle(WorkbenchMessage message) {
   final parts = <String>[];
   final toolName = message.event?.raw['toolName'];
   if (toolName is String && toolName.trim().isNotEmpty) parts.add(toolName);
@@ -487,7 +501,7 @@ class _CommandDetailSheet extends StatelessWidget {
                           children: [
                         Text(title,
                             style: const TextStyle(
-                                color: _text,
+                                color: theme.text,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900)),
                         const SizedBox(height: 4),
@@ -495,7 +509,7 @@ class _CommandDetailSheet extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                color: _faint,
+                                color: theme.faint,
                                 fontSize: 11,
                                 fontFamily: 'Consolas')),
                       ])),
@@ -507,11 +521,12 @@ class _CommandDetailSheet extends StatelessWidget {
                         ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('已复制到剪贴板')));
                       },
-                      icon: const Icon(Icons.copy_rounded, color: _muted)),
+                      icon: const Icon(Icons.copy_rounded, color: theme.muted)),
                   IconButton(
                       tooltip: '关闭',
                       onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded, color: _muted)),
+                      icon:
+                          const Icon(Icons.close_rounded, color: theme.muted)),
                 ])),
             Expanded(
                 child: Container(
@@ -532,7 +547,7 @@ class _CommandDetailSheet extends StatelessWidget {
                                 scrollDirection: Axis.horizontal,
                                 child: SelectableText(text,
                                     style: const TextStyle(
-                                        color: _muted,
+                                        color: theme.muted,
                                         fontSize: 12.5,
                                         fontFamily: 'Consolas',
                                         height: 1.45)))))))
@@ -541,20 +556,20 @@ class _CommandDetailSheet extends StatelessWidget {
 
 @visibleForTesting
 Widget buildCompletedCommandCardPreview() => MaterialApp(
-    locale: _zhHansCnLocale,
-    supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-    localizationsDelegates: _appLocalizationsDelegates,
+    locale: theme.zhHansCnLocale,
+    supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+    localizationsDelegates: theme.appLocalizationsDelegates,
     theme: ThemeData(
         brightness: Brightness.dark,
         fontFamily: 'Segoe UI',
-        fontFamilyFallback: _appFontFallback,
+        fontFamilyFallback: theme.appFontFallback,
         useMaterial3: true),
     home: Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: theme.bg,
         body: Padding(
             padding: const EdgeInsets.all(16),
             child: _CommandEventCard(
-                message: const _WorkbenchMessage(
+                message: const WorkbenchMessage(
                     'command',
                     'cwd resolved · permissions checked',
                     'npm run lint && npm test',
@@ -566,7 +581,7 @@ Widget buildCompletedCommandCardPreview() => MaterialApp(
 Widget buildConversationCommandCardPreview() {
   final startedAt = DateTime.parse('2026-05-03T00:00:01.000Z');
   final completedAt = DateTime.parse('2026-05-03T00:00:03.000Z');
-  final message = _workbenchMessageFromConversation(ConversationMessage(
+  final message = workbenchMessageFromConversation(ConversationMessage(
       role: 'command',
       text: 'python intro.py',
       eventSeq: 2,
@@ -576,16 +591,16 @@ Widget buildConversationCommandCardPreview() {
       completedAt: completedAt,
       output: 'hello from intro'));
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: Padding(
               padding: const EdgeInsets.all(16),
               child: _CommandEventCard(message: message))));
@@ -593,19 +608,19 @@ Widget buildConversationCommandCardPreview() {
 
 @visibleForTesting
 Widget buildPendingSentinelPreview() => MaterialApp(
-    locale: _zhHansCnLocale,
-    supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-    localizationsDelegates: _appLocalizationsDelegates,
+    locale: theme.zhHansCnLocale,
+    supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+    localizationsDelegates: theme.appLocalizationsDelegates,
     theme: ThemeData(
         brightness: Brightness.dark,
         fontFamily: 'Segoe UI',
-        fontFamilyFallback: _appFontFallback,
+        fontFamilyFallback: theme.appFontFallback,
         useMaterial3: true),
     home: const Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: theme.bg,
         body: Padding(
             padding: EdgeInsets.all(16),
-            child: _PendingSentinel(
+            child: PendingSentinel(
                 adapter: 'claude',
                 statusText: '正在接收 CLI 输出...',
                 actions: <String>['已启动 claude 会话', 'Claude requesting']))));
@@ -619,7 +634,7 @@ String? _formatCommandDuration(Duration? duration) {
 
 class _DiffEventCard extends StatelessWidget {
   const _DiffEventCard({required this.message});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
 
   @override
   Widget build(BuildContext context) => _AgentEventCard(
@@ -632,7 +647,7 @@ class _DiffEventCard extends StatelessWidget {
 
 class _ApprovalEventCard extends StatelessWidget {
   const _ApprovalEventCard({required this.message, required this.onApproval});
-  final _WorkbenchMessage message;
+  final WorkbenchMessage message;
   final ValueChanged<String> onApproval;
 
   @override
@@ -643,21 +658,21 @@ class _ApprovalEventCard extends StatelessWidget {
       trailing: _eventTime(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(message.body,
-            style:
-                const TextStyle(color: _muted, fontSize: 12.5, height: 1.55)),
+            style: const TextStyle(
+                color: theme.muted, fontSize: 12.5, height: 1.55)),
         const SizedBox(height: 12),
         if (message.event?.approvalId == null)
           const Text('daemon 未提供 approvalId，无法在移动端处理。',
-              style: TextStyle(color: _red, fontSize: 12))
+              style: TextStyle(color: theme.red, fontSize: 12))
         else
           Row(children: [
             Expanded(
                 child: _ApprovalActionButton('拒绝',
-                    color: _red, onTap: () => onApproval('deny'))),
+                    color: theme.red, onTap: () => onApproval('deny'))),
             const SizedBox(width: 10),
             Expanded(
                 child: _ApprovalActionButton('批准',
-                    color: _text,
+                    color: theme.text,
                     primary: true,
                     onTap: () => onApproval('allow'))),
           ])
@@ -703,7 +718,7 @@ class _AgentEventCard extends StatelessWidget {
               decoration: BoxDecoration(
                   color: const Color(0xFF191A1D),
                   borderRadius: BorderRadius.circular(9)),
-              child: Icon(icon, color: _amber, size: 15)),
+              child: Icon(icon, color: theme.amber, size: 15)),
           const SizedBox(width: 10),
           Expanded(
               child: Column(
@@ -711,7 +726,7 @@ class _AgentEventCard extends StatelessWidget {
                   children: [
                 Text(title,
                     style: const TextStyle(
-                        color: _text,
+                        color: theme.text,
                         fontSize: 13,
                         fontWeight: FontWeight.w800)),
                 const SizedBox(height: 3),
@@ -719,12 +734,14 @@ class _AgentEventCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        color: _faint, fontSize: 10.5, fontFamily: 'Consolas')),
+                        color: theme.faint,
+                        fontSize: 10.5,
+                        fontFamily: 'Consolas')),
               ])),
           if (trailing != null)
             Text(trailing!,
                 style: const TextStyle(
-                    color: _faint, fontSize: 10.5, fontFamily: 'Consolas'))
+                    color: theme.faint, fontSize: 10.5, fontFamily: 'Consolas'))
         ]),
         const SizedBox(height: 12),
         child,
@@ -759,20 +776,20 @@ class _EventCodeLine extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            color: _muted,
+                            color: theme.muted,
                             fontSize: 12,
                             fontFamily: 'Consolas',
                             height: 1.35))),
                 if (onTap != null) ...[
                   const SizedBox(width: 8),
                   const Icon(Icons.open_in_full_rounded,
-                      color: _faint, size: 13),
+                      color: theme.faint, size: 13),
                 ],
                 if (error) ...[
                   const SizedBox(width: 8),
                   const Text('error',
                       style: TextStyle(
-                          color: _red,
+                          color: theme.red,
                           fontSize: 11,
                           fontFamily: 'Consolas',
                           fontWeight: FontWeight.w800))
@@ -780,7 +797,7 @@ class _EventCodeLine extends StatelessWidget {
                   const SizedBox(width: 8),
                   const Text('ok',
                       style: TextStyle(
-                          color: _green,
+                          color: theme.green,
                           fontSize: 11,
                           fontFamily: 'Consolas',
                           fontWeight: FontWeight.w800))
@@ -788,7 +805,7 @@ class _EventCodeLine extends StatelessWidget {
               ]))));
 }
 
-String _normalizeAssistantMarkdown(String markdown) {
+String normalizeAssistantMarkdown(String markdown) {
   final withoutHtml = markdown.replaceAll(RegExp(r'<[^>]+>'), '');
   return withoutHtml
       .replaceAll('\r\n', '\n')
@@ -797,28 +814,33 @@ String _normalizeAssistantMarkdown(String markdown) {
       .trim();
 }
 
-MarkdownStyleSheet _buildAssistantMarkdownStyleSheet(BuildContext context) {
+MarkdownStyleSheet buildAssistantMarkdownStyleSheet(BuildContext context) {
   const codeBg = Color(0x66101824);
   const codeBorder = Color(0x22FFFFFF);
   final base = Theme.of(context).textTheme;
   return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      p: base.bodyMedium?.copyWith(color: _muted, fontSize: 14.5, height: 1.68),
-      strong: const TextStyle(color: _text, fontWeight: FontWeight.w700),
+      p: base.bodyMedium
+          ?.copyWith(color: theme.muted, fontSize: 14.5, height: 1.68),
+      strong: const TextStyle(color: theme.text, fontWeight: FontWeight.w700),
       em: const TextStyle(
           color: Color(0xFFD3DAE8), fontStyle: FontStyle.italic),
       h1: const TextStyle(
-          color: _text,
+          color: theme.text,
           fontSize: 17,
           height: 1.35,
           fontWeight: FontWeight.w800),
       h2: const TextStyle(
-          color: _text,
+          color: theme.text,
           fontSize: 15.5,
           height: 1.35,
           fontWeight: FontWeight.w800),
       h3: const TextStyle(
-          color: _text, fontSize: 14, height: 1.4, fontWeight: FontWeight.w800),
-      listBullet: const TextStyle(color: _green, fontSize: 12, height: 1.55),
+          color: theme.text,
+          fontSize: 14,
+          height: 1.4,
+          fontWeight: FontWeight.w800),
+      listBullet:
+          const TextStyle(color: theme.green, fontSize: 12, height: 1.55),
       code: const TextStyle(
           color: Color(0xFFE7ECF8),
           backgroundColor: Color(0xFF18191C),
@@ -832,7 +854,7 @@ MarkdownStyleSheet _buildAssistantMarkdownStyleSheet(BuildContext context) {
       blockquote: const TextStyle(color: Color(0xFFBBC5D6), fontSize: 13),
       blockquoteDecoration: BoxDecoration(
           color: Colors.white.withValues(alpha: .04),
-          border: const Border(left: BorderSide(color: _purple, width: 3)),
+          border: const Border(left: BorderSide(color: theme.purple, width: 3)),
           borderRadius: BorderRadius.circular(8)),
       a: const TextStyle(color: Color(0xFF7C8CFF), fontWeight: FontWeight.w800),
       horizontalRuleDecoration: BoxDecoration(
@@ -847,8 +869,9 @@ MarkdownStyleSheet _buildAssistantMarkdownStyleSheet(BuildContext context) {
       codeblockPadding: const EdgeInsets.all(10));
 }
 
-class _PendingSentinel extends StatefulWidget {
-  const _PendingSentinel({
+class PendingSentinel extends StatefulWidget {
+  const PendingSentinel({
+    super.key,
     required this.adapter,
     required this.statusText,
     this.actions = const <String>[],
@@ -859,10 +882,10 @@ class _PendingSentinel extends StatefulWidget {
   final List<String> actions;
 
   @override
-  State<_PendingSentinel> createState() => _PendingSentinelState();
+  State<PendingSentinel> createState() => _PendingSentinelState();
 }
 
-class _PendingSentinelState extends State<_PendingSentinel>
+class _PendingSentinelState extends State<PendingSentinel>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
@@ -903,7 +926,7 @@ class _PendingSentinelState extends State<_PendingSentinel>
                       children: [
                     const Text('正在运行',
                         style: TextStyle(
-                            color: _text,
+                            color: theme.text,
                             fontWeight: FontWeight.w800,
                             fontSize: 13)),
                     const SizedBox(height: 5),
@@ -914,7 +937,9 @@ class _PendingSentinelState extends State<_PendingSentinel>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                color: _muted, fontSize: 12, height: 1.3))),
+                                color: theme.muted,
+                                fontSize: 12,
+                                height: 1.3))),
                   ])),
               _PulseBars(progress: _controller.value),
             ]));
@@ -934,17 +959,17 @@ class _RunningOrb extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _purple.withValues(alpha: .08 + pulse * .08),
-            border: Border.all(color: _purple.withValues(alpha: .18))),
+            color: theme.purple.withValues(alpha: .08 + pulse * .08),
+            border: Border.all(color: theme.purple.withValues(alpha: .18))),
         child: Container(
             width: 7 + pulse * 2,
             height: 7 + pulse * 2,
             decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _purple2.withValues(alpha: .75),
+                color: theme.purple2.withValues(alpha: .75),
                 boxShadow: [
                   BoxShadow(
-                      color: _purple.withValues(alpha: .22 + pulse * .18),
+                      color: theme.purple.withValues(alpha: .22 + pulse * .18),
                       blurRadius: 8 + pulse * 8)
                 ])));
   }
@@ -964,7 +989,7 @@ class _PulseBars extends StatelessWidget {
             width: 3,
             height: height,
             decoration: BoxDecoration(
-                color: _purple.withValues(alpha: .28 + phase * .34),
+                color: theme.purple.withValues(alpha: .28 + phase * .34),
                 borderRadius: BorderRadius.circular(999)));
       }));
 }
@@ -979,11 +1004,11 @@ class _PulseDot extends StatelessWidget {
       height: 9,
       decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: active ? _green : _faint,
+          color: active ? theme.green : theme.faint,
           boxShadow: active
               ? [
                   BoxShadow(
-                      color: _green.withValues(alpha: .45),
+                      color: theme.green.withValues(alpha: .45),
                       blurRadius: 12,
                       spreadRadius: 2)
                 ]

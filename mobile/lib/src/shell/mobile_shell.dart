@@ -69,7 +69,7 @@ class _MobileShellState extends State<MobileShell> {
         final pages = [
           _HomePage(open: _open, selectTab: _selectTab, data: data),
           _RunsPage(open: _open, data: data),
-          _CodingWorkbenchPage(
+          CodingWorkbenchPage(
               data: data,
               client: _client,
               onBack: () => _selectTab(0),
@@ -96,7 +96,7 @@ class _MobileShellState extends State<MobileShell> {
         final overlay = switch (_route) {
           RoutePage.detail =>
             RunDetailPage(onBack: _back, data: data, client: _client),
-          RoutePage.approval => _ApprovalPage(onBack: _back),
+          RoutePage.approval => ApprovalPage(onBack: _back),
           RoutePage.adapters => AdaptersPage(onBack: _back, data: data),
           RoutePage.notifications => NotificationsPage(onBack: _back),
           RoutePage.diagnostics =>

@@ -1,8 +1,23 @@
-part of '../../app/app.dart';
+import 'dart:async';
 
-class _CodingWorkbenchPage extends StatefulWidget {
-  const _CodingWorkbenchPage(
-      {required this.data,
+import 'package:flutter/material.dart';
+
+import '../../models/protocol.dart';
+import '../../services/daemon_client.dart';
+import '../../shell/shell.dart';
+import '../../state/conversation_reducer.dart';
+import '../../theme/theme.dart' as theme;
+import '../../widgets/widgets.dart';
+import '../sessions/sessions.dart';
+import '../workspace_picker/workspace_picker.dart';
+import 'coding_composer.dart';
+import 'workbench_event_cards.dart';
+import 'workbench_messages.dart';
+
+class CodingWorkbenchPage extends StatefulWidget {
+  const CodingWorkbenchPage(
+      {super.key,
+      required this.data,
       required this.client,
       required this.onBack,
       required this.onSessionListChanged,
@@ -20,15 +35,15 @@ class _CodingWorkbenchPage extends StatefulWidget {
   final String permissionMode;
 
   @override
-  State<_CodingWorkbenchPage> createState() => _CodingWorkbenchPageState();
+  State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
 }
 
 enum _WorkbenchListMode { workspaces, sessions, conversation }
 
-class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
+class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
-  final List<_WorkbenchMessage> _messages = <_WorkbenchMessage>[];
+  final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
   final List<SessionItem> _localSessions = <SessionItem>[];
@@ -202,7 +217,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   }
 
   @override
-  void didUpdateWidget(covariant _CodingWorkbenchPage oldWidget) {
+  void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncWorkspacesFromSnapshot(widget.data.workspaces);
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
@@ -297,6 +312,11 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       _activeConversation?.status ?? _conversationState.status,
       _conversationEvents);
 
+  String _conversationPendingStatusText(
+      String status, Iterable<ConversationEvent> events) {
+    return conversationPendingStatusText(status, events);
+  }
+
   List<String> get _recentActionSummaries {
     return const <String>[];
   }
@@ -383,7 +403,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     setState(() {
       _sending = true;
       _error = null;
-      _messages.add(_WorkbenchMessage.user(prompt));
+      _messages.add(WorkbenchMessage.user(prompt));
       _prompt.clear();
     });
     _scrollToBottom();
@@ -455,15 +475,14 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             streamOutput: widget.streamOutput);
         _messages
           ..clear()
-          ..addAll(_messagesForConversationSnapshot(
+          ..addAll(messagesForConversationSnapshot(
                   _conversationState.messages, _activeConversation)
               .where((message) => message.role != 'question_hidden')
-              .map(_workbenchMessageFromConversation));
-        final emptyCompletionDiagnostic =
-            _emptyConversationCompletionDiagnostic(
-                _conversationEvents, _conversationState.messages, _isTerminal);
+              .map(workbenchMessageFromConversation));
+        final emptyCompletionDiagnostic = emptyConversationCompletionDiagnostic(
+            _conversationEvents, _conversationState.messages, _isTerminal);
         if (emptyCompletionDiagnostic != null) {
-          _messages.add(_WorkbenchMessage.status(emptyCompletionDiagnostic));
+          _messages.add(WorkbenchMessage.status(emptyCompletionDiagnostic));
         }
       });
       _scrollToBottom();
@@ -520,7 +539,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
       blockingItem = null;
     }
     _activeConversation =
-        _copyConversationStatus(current, status, blockingItem: blockingItem);
+        copyConversationStatus(current, status, blockingItem: blockingItem);
   }
 
   // ignore: unused_element
@@ -539,7 +558,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             item.runId == event.runId &&
             item.body.trim() == command.trim());
         if (!exists) {
-          _upsertCommandMessage(_WorkbenchMessage(
+          _upsertCommandMessage(WorkbenchMessage(
               'command', 'cwd resolved · permissions checked', command,
               event: event, runId: event.runId));
         }
@@ -549,7 +568,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     if (isTerminalAgentEventType(event.type)) {
       _markCommandMessagesCompleted(event);
     }
-    final message = _WorkbenchMessage.fromEvent(event, widget.streamOutput);
+    final message = WorkbenchMessage.fromEvent(event, widget.streamOutput);
     if (message == null) return;
     if (message.role == 'approval' &&
         message.event?.approvalId != null &&
@@ -621,7 +640,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
     _messages.add(message);
   }
 
-  void _upsertCommandMessage(_WorkbenchMessage message) {
+  void _upsertCommandMessage(WorkbenchMessage message) {
     final command = message.body.trim();
     final existingIndex = _messages.indexWhere((item) =>
         item.role == 'command' &&
@@ -641,11 +660,16 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   }
 
   bool _sameCommandDisplay(String current, String incoming) {
-    return debugSameCommandDisplay(current, incoming);
+    if (current == incoming) return true;
+    if (current.isEmpty || incoming.isEmpty) return false;
+    final currentHead = current.split(RegExp(r'\s+')).first;
+    final incomingHead = incoming.split(RegExp(r'\s+')).first;
+    return currentHead == incomingHead &&
+        (incoming.startsWith('$current ') || current.startsWith('$incoming '));
   }
 
   String _preferDetailedCommand(String current, String incoming) {
-    return debugPreferDetailedCommand(current, incoming);
+    return incoming.length > current.length ? incoming : current;
   }
 
   void _markCommandMessagesCompleted(AgentEvent terminalEvent) {
@@ -678,7 +702,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
   }
 
   bool get _hasExplicitWorkspaceSelection {
-    return _hasExplicitWorkspaceSelectionState(
+    return hasExplicitWorkspaceSelectionState(
       workspaceConfirmedForSession: _workspaceConfirmedForSession,
       activeRunId: _activeRunId,
       hasLocalSessions: _localSessions.isNotEmpty,
@@ -730,18 +754,18 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         _messages.removeWhere((item) =>
             item.role == 'approval' && item.event?.approvalId == approvalId);
         if (decision == 'allow') {
-          _upsertCommandMessage(_WorkbenchMessage(
+          _upsertCommandMessage(WorkbenchMessage(
               'command',
               'cwd resolved · permissions checked',
-              _WorkbenchMessage._toolEventBody(event),
+              WorkbenchMessage.toolEventBody(event),
               event: event,
               runId: event.runId));
         } else {
-          _messages.add(_WorkbenchMessage.status('已拒绝权限请求'));
+          _messages.add(WorkbenchMessage.status('已拒绝权限请求'));
         }
       });
       final conversation = _activeConversation;
-      if (conversation != null && _shouldPollAfterApproval(conversation)) {
+      if (conversation != null && shouldPollAfterApproval(conversation)) {
         await _restartConversationPolling();
       }
     } catch (err) {
@@ -794,7 +818,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
         padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
         children: [
           if (_activeRunId != null) ...[
-            _WorkbenchInlineStatus(
+            WorkbenchInlineStatus(
                 adapter: adapter,
                 runId: _activeRunId,
                 eventCount: _conversationEvents.length,
@@ -802,7 +826,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
             const SizedBox(height: 12),
           ],
           for (final message in _messages) ...[
-            _WorkbenchMessageCard(
+            WorkbenchMessageCard(
                 message: message,
                 expandThinking: widget.expandThinking,
                 onSuggestion: (text) => _useQuestionSuggestion(text),
@@ -812,21 +836,21 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
           ],
           if (_error != null) ...[
             const SizedBox(height: 10),
-            _GlassCard(
+            GlassCard(
                 child: Text('运行错误：$_error',
                     style: const TextStyle(
-                        color: _red, fontSize: 12, height: 1.45))),
+                        color: theme.red, fontSize: 12, height: 1.45))),
           ],
           if (_isBusyCli) ...[
             const SizedBox(height: 10),
-            _PendingSentinel(
+            PendingSentinel(
                 adapter: adapter ?? 'CLI',
                 statusText: _pendingStatusText,
                 actions: _recentActionSummaries),
           ],
         ],
       )),
-      _CodingComposer(
+      CodingComposer(
           controller: _prompt,
           adapter: adapter,
           workspace: _selectedWorkspace,
@@ -836,7 +860,7 @@ class _CodingWorkbenchPageState extends State<_CodingWorkbenchPage> {
           onModelTap: _showAdapterPicker,
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
-      _ComposerWorkspaceCloud(
+      ComposerWorkspaceCloud(
           workspace: _selectedWorkspace,
           running: _isRunningCli,
           onTap: _showWorkspacePicker),
@@ -877,9 +901,9 @@ class _CodingHeader extends StatelessWidget {
                 decoration: BoxDecoration(
                     color: const Color(0xFF141518),
                     borderRadius: BorderRadius.circular(11),
-                    border: Border.all(color: _stroke)),
+                    border: Border.all(color: theme.stroke)),
                 child: const Icon(Icons.arrow_back_ios_new_rounded,
-                    color: _muted, size: 16))),
+                    color: theme.muted, size: 16))),
         const SizedBox(width: 12),
         Expanded(
             child: Text(title,
@@ -887,7 +911,7 @@ class _CodingHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                    color: _text,
+                    color: theme.text,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -.15))),

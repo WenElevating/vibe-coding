@@ -32,10 +32,6 @@ class _BottomNav extends BottomNav {
   });
 }
 
-class _Tabs extends Tabs {
-  const _Tabs({required super.labels});
-}
-
 class _MetricCard extends MetricCard {
   const _MetricCard({
     required super.label,
@@ -81,10 +77,6 @@ class _QuickAction extends QuickAction {
     required super.color,
     super.onTap,
   });
-}
-
-class _CodeDiff extends CodeDiff {
-  const _CodeDiff();
 }
 
 class _ApprovalPreview extends ApprovalPreview {
@@ -134,8 +126,4 @@ class _Glow extends Glow {
 
 class _PrimaryButton extends PrimaryButton {
   const _PrimaryButton(super.text, {required super.onTap});
-}
-
-class _GhostButton extends GhostButton {
-  const _GhostButton(super.text, {required super.color, required super.onTap});
 }

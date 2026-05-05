@@ -15,12 +15,12 @@ Widget buildAssistantMarkdownPreview(String markdown) => MaterialApp(
     home: Scaffold(
         body: Padding(
             padding: const EdgeInsets.all(16),
-            child: _AssistantMarkdownBody(markdown: markdown))));
+            child: AssistantMarkdownBody(markdown: markdown))));
 
 @visibleForTesting
 String? debugVisibleWorkbenchBodyFromEvent(Map<String, Object?> json,
         {bool streamOutput = false}) =>
-    _WorkbenchMessage.fromEvent(AgentEvent.fromJson(json), streamOutput)?.body;
+    WorkbenchMessage.fromEvent(AgentEvent.fromJson(json), streamOutput)?.body;
 
 @visibleForTesting
 List<String> debugMergeSessionRunIds(
@@ -48,11 +48,11 @@ List<String> debugMergeSessionIds(
 
 @visibleForTesting
 String debugConversationPendingStatusText(String status) =>
-    _conversationPendingStatusText(status, const <ConversationEvent>[]);
+    conversationPendingStatusText(status, const <ConversationEvent>[]);
 
 @visibleForTesting
 bool debugShouldPollAfterApproval(ConversationSummary conversation) =>
-    _shouldPollAfterApproval(conversation);
+    shouldPollAfterApproval(conversation);
 
 @visibleForTesting
 bool debugHasExplicitWorkspaceSelection({
@@ -60,7 +60,7 @@ bool debugHasExplicitWorkspaceSelection({
   required String? activeRunId,
   required bool hasLocalSessions,
 }) =>
-    _hasExplicitWorkspaceSelectionState(
+    hasExplicitWorkspaceSelectionState(
       workspaceConfirmedForSession: workspaceConfirmedForSession,
       activeRunId: activeRunId,
       hasLocalSessions: hasLocalSessions,
@@ -72,7 +72,7 @@ List<String> debugVisibleApprovalIdsForConversation(
   final state = const ConversationViewState().apply(events
       .map((event) => ConversationEvent.fromJson(event))
       .toList(growable: false));
-  return _messagesForConversationSnapshot(state.messages, conversation)
+  return messagesForConversationSnapshot(state.messages, conversation)
       .where((message) => message.role == 'approval')
       .map((message) => message.approvalId ?? '')
       .toList(growable: false);
@@ -84,9 +84,9 @@ List<String> debugWorkbenchMessageRolesForConversationEvents(
   final state = const ConversationViewState().apply(events
       .map((event) => ConversationEvent.fromJson(event))
       .toList(growable: false));
-  return _messagesForConversationSnapshot(state.messages, conversation)
+  return messagesForConversationSnapshot(state.messages, conversation)
       .where((message) => message.role != 'question_hidden')
-      .map(_workbenchMessageFromConversation)
+      .map(workbenchMessageFromConversation)
       .map((message) => '${message.role}:${message.body}')
       .toList(growable: false);
 }
@@ -98,7 +98,7 @@ String? debugEmptyConversationCompletionDiagnostic(
       .map((event) => ConversationEvent.fromJson(event))
       .toList(growable: false);
   final state = const ConversationViewState().apply(parsed);
-  return _emptyConversationCompletionDiagnostic(parsed, state.messages,
+  return emptyConversationCompletionDiagnostic(parsed, state.messages,
       conversation.status == 'idle' || conversation.status == 'failed');
 }
 
@@ -114,7 +114,7 @@ Widget buildRunningComposerPreview() => MaterialApp(
         useMaterial3: true),
     home: Scaffold(
         backgroundColor: _bg,
-        body: _CodingComposer(
+        body: CodingComposer(
             controller: TextEditingController(),
             adapter: 'claude',
             workspace: const WorkspaceSummary(
@@ -153,7 +153,7 @@ Widget buildNewSessionWorkspacePickerPreview() {
 @visibleForTesting
 List<String> debugWorkbenchMessageRolesAfterEvents(
     List<Map<String, Object?>> events) {
-  final messages = <_WorkbenchMessage>[];
+  final messages = <WorkbenchMessage>[];
   final resolvedApprovalIds = <String>{};
   for (final json in events) {
     final event = AgentEvent.fromJson(json);
@@ -180,14 +180,14 @@ List<String> debugWorkbenchMessageRolesAfterEvents(
               body: debugPreferDetailedCommand(
                   current.body.trim(), command.trim()));
         } else {
-          messages.add(_WorkbenchMessage(
+          messages.add(WorkbenchMessage(
               'command', 'cwd resolved · permissions checked', command.trim(),
               event: event, runId: event.runId));
         }
       }
       continue;
     }
-    final message = _WorkbenchMessage.fromEvent(event, false);
+    final message = WorkbenchMessage.fromEvent(event, false);
     if (message == null) continue;
     if (message.role == 'approval') {
       final approvalId = message.event?.approvalId;
@@ -265,27 +265,6 @@ bool debugSameCommandDisplay(String current, String incoming) {
 @visibleForTesting
 String debugPreferDetailedCommand(String current, String incoming) =>
     incoming.length > current.length ? incoming : current;
-
-String _conversationPendingStatusText(
-    String status, Iterable<ConversationEvent> events) {
-  if (status == 'interrupted') return '会话已中断，可继续发送新消息恢复上下文';
-  if (status == 'waiting_input') return '等待你回复问题…';
-  if (status == 'waiting_approval') return '等待你确认权限请求…';
-  final list = events.toList(growable: false);
-  if (list.isEmpty) return '正在启动 CLI 会话…';
-  for (final event in list.reversed) {
-    if (event.type == 'assistant.partial') return '正在生成回复…';
-    if (event.type == 'tool.started') {
-      return '正在执行 ${event.toolName ?? '工具调用'}…';
-    }
-    if (event.type == 'tool.output') return '正在接收工具输出…';
-    if (event.type == 'diff.summary') return '正在汇总文件变更…';
-    if (event.type == 'conversation.started') {
-      return 'CLI 会话已启动，正在读取上下文…';
-    }
-  }
-  return '等待下一条事件…';
-}
 
 @visibleForTesting
 Widget buildCodingSessionListPreview() {
@@ -478,7 +457,7 @@ Widget buildCodingWorkbenchEntryPreview() {
           useMaterial3: true),
       home: Scaffold(
           backgroundColor: _bg,
-          body: _CodingWorkbenchPage(
+          body: CodingWorkbenchPage(
               data: data,
               client: DaemonClient(
                   baseUri: Uri.parse('http://127.0.0.1:4317'),
