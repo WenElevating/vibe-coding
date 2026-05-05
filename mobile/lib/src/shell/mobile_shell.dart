@@ -1,4 +1,16 @@
-part of '../app/app.dart';
+import 'package:flutter/material.dart';
+
+import '../features/adapters/adapters.dart';
+import '../features/diagnostics/diagnostics.dart';
+import '../features/notifications/notifications.dart';
+import '../features/run_detail/run_detail.dart';
+import '../features/settings/settings.dart';
+import '../features/workbench/workbench.dart';
+import '../services/daemon_client.dart';
+import '../theme/theme.dart' as theme;
+import '../widgets/widgets.dart';
+import 'app_route.dart';
+import 'app_snapshot.dart';
 
 class MobileShell extends StatefulWidget {
   const MobileShell({super.key});
@@ -41,11 +53,11 @@ class _MobileShellState extends State<MobileShell> {
       });
 
   final _items = const [
-    _NavSpec(Icons.home_rounded, '首页'),
-    _NavSpec(Icons.manage_search_rounded, '运行'),
-    _NavSpec(Icons.terminal_rounded, '编码'),
-    _NavSpec(Icons.format_list_bulleted_rounded, '设备'),
-    _NavSpec(Icons.settings_rounded, '设置'),
+    NavSpec(Icons.home_rounded, '首页'),
+    NavSpec(Icons.manage_search_rounded, '运行'),
+    NavSpec(Icons.terminal_rounded, '编码'),
+    NavSpec(Icons.format_list_bulleted_rounded, '设备'),
+    NavSpec(Icons.settings_rounded, '设置'),
   ];
 
   @override
@@ -57,7 +69,7 @@ class _MobileShellState extends State<MobileShell> {
           return const Scaffold(
               body: _PhoneFrame(
                   child: Center(
-                      child: CircularProgressIndicator(color: _purple))));
+                      child: CircularProgressIndicator(color: theme.purple))));
         }
         if (snapshot.hasError) {
           return Scaffold(
@@ -109,7 +121,7 @@ class _MobileShellState extends State<MobileShell> {
           ),
           bottomNavigationBar:
               _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
-                  ? _BottomNav(selected: _tab, items: _items, onTap: _selectTab)
+                  ? BottomNav(selected: _tab, items: _items, onTap: _selectTab)
                   : null,
           extendBody: true,
         );
@@ -120,17 +132,17 @@ class _MobileShellState extends State<MobileShell> {
 
 Color _statusColor(String status) {
   final lower = status.toLowerCase();
-  if (lower.contains('fail') || lower.contains('error')) return _red;
-  if (lower.contains('queue') || lower.contains('pending')) return _amber;
-  if (lower.contains('running') || lower.contains('start')) return _green;
-  return _purple;
+  if (lower.contains('fail') || lower.contains('error')) return theme.red;
+  if (lower.contains('queue') || lower.contains('pending')) return theme.amber;
+  if (lower.contains('running') || lower.contains('start')) return theme.green;
+  return theme.purple;
 }
 
 Color _toolColor(String tool) {
   final lower = tool.toLowerCase();
-  if (lower.contains('claude')) return _orange;
-  if (lower.contains('codex')) return _purple;
-  if (lower.contains('open')) return _green;
+  if (lower.contains('claude')) return theme.orange;
+  if (lower.contains('codex')) return theme.purple;
+  if (lower.contains('open')) return theme.green;
   return const Color(0xFF8BC7FF);
 }
 
@@ -140,25 +152,25 @@ class _ConnectionError extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => _PageScroll(children: [
-        const _TopBar(title: '连接失败'),
+  Widget build(BuildContext context) => PageScroll(children: [
+        const TopBar(title: '连接失败'),
         const SizedBox(height: 32),
-        _GlassCard(
+        GlassCard(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Icon(Icons.wifi_off_rounded, color: _red, size: 34),
+          const Icon(Icons.wifi_off_rounded, color: theme.red, size: 34),
           const SizedBox(height: 14),
           const Text('无法连接到本机 daemon',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 8),
-          Text(error, style: const TextStyle(color: _muted, fontSize: 12)),
+          Text(error, style: const TextStyle(color: theme.muted, fontSize: 12)),
           const SizedBox(height: 16),
-          _PrimaryButton('重试连接', onTap: onRetry),
+          PrimaryButton('重试连接', onTap: onRetry),
         ])),
         const SizedBox(height: 14),
         const Text(
             '请在 D:\\AiProject\\vibe-coding 运行 start-daemon.bat。真实 e2e 使用临时端口，Windows 预览固定连接 http://127.0.0.1:4317。',
-            style: TextStyle(color: _muted, fontSize: 12, height: 1.5)),
+            style: TextStyle(color: theme.muted, fontSize: 12, height: 1.5)),
       ]);
 }
 
@@ -179,11 +191,13 @@ class _PhoneFrame extends StatelessWidget {
           Positioned(
               top: -160,
               right: -130,
-              child: _Glow(size: 260, color: _green.withValues(alpha: .10))),
+              child:
+                  Glow(size: 260, color: theme.green.withValues(alpha: .10))),
           Positioned(
               bottom: -170,
               left: -150,
-              child: _Glow(size: 260, color: _purple.withValues(alpha: .08))),
+              child:
+                  Glow(size: 260, color: theme.purple.withValues(alpha: .08))),
           SafeArea(bottom: false, child: child),
         ],
       ),
@@ -200,34 +214,34 @@ class _HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PageScroll(
+    return PageScroll(
       children: [
-        _TopBar(
+        TopBar(
             title: data.overview.name,
             subtitle:
                 '${data.health.bindAddress}:${data.health.port}  ${data.health.status}',
             showScan: true),
         const SizedBox(height: 18),
-        _SectionTitle('概览'),
+        SectionTitle('概览'),
         SizedBox(height: 10),
         Row(
           children: [
             Expanded(
-                child: _MetricCard(
+                child: MetricCard(
                     label: '运行中',
                     value: '${data.runningRuns.length}',
                     note: '活跃任务',
                     colors: [Color(0xFF322A8D), Color(0xFF18204C)])),
             const SizedBox(width: 8),
             Expanded(
-                child: _MetricCard(
+                child: MetricCard(
                     label: '待审批',
                     value: '${data.queue.length}',
                     note: '队列任务',
                     colors: [Color(0xFF073B32), Color(0xFF0B2728)])),
             const SizedBox(width: 8),
             Expanded(
-                child: _MetricCard(
+                child: MetricCard(
                     label: '已完成 (24h)',
                     value: '${data.overview.analysisScore}',
                     note:
@@ -236,19 +250,19 @@ class _HomePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        _SectionTitle('最近运行', action: '查看全部', onAction: () => selectTab(1)),
+        SectionTitle('最近运行', action: '查看全部', onAction: () => selectTab(1)),
         const SizedBox(height: 10),
-        _GlassCard(
+        GlassCard(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               if (data.runs.isEmpty)
                 const Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('暂无运行记录', style: TextStyle(color: _muted)))
+                    child: Text('暂无运行记录', style: TextStyle(color: theme.muted)))
               else
                 for (final run in data.runs.take(4).toList()) ...[
-                  _CompactRun(
+                  CompactRun(
                       title: run.id,
                       tool: run.tool,
                       time: run.workspaceId,
@@ -256,43 +270,43 @@ class _HomePage extends StatelessWidget {
                       color: _statusColor(run.status),
                       iconColor: _toolColor(run.tool),
                       onTap: () => open(RoutePage.detail)),
-                  if (run != data.runs.take(4).last) const _Hairline(),
+                  if (run != data.runs.take(4).last) const Hairline(),
                 ],
             ],
           ),
         ),
         const SizedBox(height: 22),
-        const _SectionTitle('快捷操作'),
+        const SectionTitle('快捷操作'),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
-                child: _QuickAction(
+                child: QuickAction(
                     icon: Icons.add_box_rounded,
                     title: '新建任务',
                     subtitle: '创建新任务',
-                    color: _purple,
+                    color: theme.purple,
                     onTap: () => selectTab(1))),
             const SizedBox(width: 10),
             Expanded(
-                child: _QuickAction(
+                child: QuickAction(
                     icon: Icons.drive_file_move_rounded,
                     title: '命令模板',
                     subtitle: '执行预设命令',
-                    color: _green,
+                    color: theme.green,
                     onTap: () => selectTab(2))),
             const SizedBox(width: 10),
             Expanded(
-                child: _QuickAction(
+                child: QuickAction(
                     icon: Icons.view_list_rounded,
                     title: '查看队列',
                     subtitle: '查看排队任务',
-                    color: _orange,
+                    color: theme.orange,
                     onTap: () => selectTab(3))),
           ],
         ),
         const SizedBox(height: 18),
-        _ApprovalPreview(onTap: () => open(RoutePage.approval)),
+        ApprovalPreview(onTap: () => open(RoutePage.approval)),
       ],
     );
   }
@@ -305,27 +319,27 @@ class _RunsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PageScroll(
-      floating: _FloatingPlus(onTap: () => open(RoutePage.detail)),
+    return PageScroll(
+      floating: FloatingPlus(onTap: () => open(RoutePage.detail)),
       children: [
-        _TopBar(title: '运行列表'),
+        TopBar(title: '运行列表'),
         const SizedBox(height: 20),
         Row(children: [
-          _Pill('全部 ${data.runs.length}', selected: true),
-          _Pill('运行中 ${data.runningRuns.length}'),
-          _Pill('已完成 ${data.completedRuns.length}'),
-          _Pill('失败 ${data.failedRuns.length}'),
+          Pill('全部 ${data.runs.length}', selected: true),
+          Pill('运行中 ${data.runningRuns.length}'),
+          Pill('已完成 ${data.completedRuns.length}'),
+          Pill('失败 ${data.failedRuns.length}'),
         ]),
         const SizedBox(height: 14),
-        const _SearchBar(),
+        const AppSearchBar(),
         const SizedBox(height: 14),
         if (data.runs.isEmpty)
-          const _GlassCard(
+          const GlassCard(
               child: Text('暂无运行。可从命令模板发起真实 AI CLI 任务。',
-                  style: TextStyle(color: _muted)))
+                  style: TextStyle(color: theme.muted)))
         else
           for (final run in data.runs) ...[
-            _RunCard(
+            RunCard(
                 title: run.id,
                 tool: run.tool,
                 time: 'workspace: ${run.workspaceId}',
@@ -350,51 +364,51 @@ class _QueuePage extends StatelessWidget {
         data.queue.where((item) => item.status == 'running').toList();
     final waiting =
         data.queue.where((item) => item.status != 'running').toList();
-    return _PageScroll(
+    return PageScroll(
       children: [
-        _TopBar(title: '运行队列', leading: true, action: '${data.queue.length} 项'),
+        TopBar(title: '运行队列', leading: true, action: '${data.queue.length} 项'),
         const SizedBox(height: 20),
         Row(children: [
-          _Pill('运行中 ${active.length}', selected: true, green: true),
-          _Pill('排队中 ${waiting.length}', amber: true),
-          _Pill('总计 ${data.queue.length}')
+          Pill('运行中 ${active.length}', selected: true, green: true),
+          Pill('排队中 ${waiting.length}', amber: true),
+          Pill('总计 ${data.queue.length}')
         ]),
         const SizedBox(height: 22),
-        const _Subhead('运行中'),
-        _GlassCard(
+        const Subhead('运行中'),
+        GlassCard(
           child: active.isEmpty
-              ? const Text('暂无运行中队列', style: TextStyle(color: _muted))
+              ? const Text('暂无运行中队列', style: TextStyle(color: theme.muted))
               : Column(children: [
                   for (final item in active) ...[
-                    _QueueRow(
+                    QueueRow(
                         title: item.runId,
                         tool: item.reason.isEmpty ? item.status : item.reason,
-                        iconColor: _green),
-                    if (item != active.last) const _Hairline(),
+                        iconColor: theme.green),
+                    if (item != active.last) const Hairline(),
                   ],
                 ]),
         ),
         const SizedBox(height: 24),
-        const _Subhead('排队中'),
-        _GlassCard(
+        const Subhead('排队中'),
+        GlassCard(
           padding: EdgeInsets.zero,
           child: waiting.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(14),
-                  child: Text('暂无等待任务', style: TextStyle(color: _muted)))
+                  child: Text('暂无等待任务', style: TextStyle(color: theme.muted)))
               : Column(children: [
                   for (final item in waiting) ...[
-                    _WaitingRow(
+                    WaitingRow(
                         index: '${item.position}',
                         title: item.runId,
                         tool: item.reason.isEmpty ? item.status : item.reason),
-                    if (item != waiting.last) const _Hairline(),
+                    if (item != waiting.last) const Hairline(),
                   ],
                 ]),
         ),
         const SizedBox(height: 20),
         const Text('队列数据来自 daemon，任务按工作区顺序执行。',
-            style: TextStyle(color: _muted, fontSize: 12)),
+            style: TextStyle(color: theme.muted, fontSize: 12)),
       ],
     );
   }

@@ -1,16 +1,25 @@
-part of '../app/app.dart';
+import 'package:flutter/material.dart';
+
+import '../features/sessions/sessions.dart';
+import '../features/workbench/workbench.dart';
+import '../features/workspace_picker/workspace_picker.dart';
+import '../models/protocol.dart';
+import '../services/daemon_client.dart';
+import '../shell/shell.dart';
+import '../state/conversation_reducer.dart';
+import '../theme/theme.dart' as theme;
 
 @visibleForTesting
 Widget buildAssistantMarkdownPreview(String markdown) => MaterialApp(
-    locale: _zhHansCnLocale,
-    supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-    localizationsDelegates: _appLocalizationsDelegates,
+    locale: theme.zhHansCnLocale,
+    supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+    localizationsDelegates: theme.appLocalizationsDelegates,
     theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: _bg,
+        scaffoldBackgroundColor: theme.bg,
         fontFamily: 'Segoe UI',
-        fontFamilyFallback: _appFontFallback,
-        textTheme: const TextTheme(bodyMedium: TextStyle(color: _text)),
+        fontFamilyFallback: theme.appFontFallback,
+        textTheme: const TextTheme(bodyMedium: TextStyle(color: theme.text)),
         useMaterial3: true),
     home: Scaffold(
         body: Padding(
@@ -104,16 +113,16 @@ String? debugEmptyConversationCompletionDiagnostic(
 
 @visibleForTesting
 Widget buildRunningComposerPreview() => MaterialApp(
-    locale: _zhHansCnLocale,
-    supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-    localizationsDelegates: _appLocalizationsDelegates,
+    locale: theme.zhHansCnLocale,
+    supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+    localizationsDelegates: theme.appLocalizationsDelegates,
     theme: ThemeData(
         brightness: Brightness.dark,
         fontFamily: 'Segoe UI',
-        fontFamilyFallback: _appFontFallback,
+        fontFamilyFallback: theme.appFontFallback,
         useMaterial3: true),
     home: Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: theme.bg,
         body: CodingComposer(
             controller: TextEditingController(),
             adapter: 'claude',
@@ -133,16 +142,16 @@ Widget buildNewSessionWorkspacePickerPreview() {
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[workspace],
               selected: workspace,
@@ -275,16 +284,16 @@ Widget buildCodingSessionListPreview() {
   const other = WorkspaceSummary(
       id: 'workspace_2', name: 'Other Project', path: r'D:\AiProject\other');
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current, other],
               selected: current,
@@ -315,16 +324,16 @@ Widget buildWorkspaceScopedSessionPreview() {
       const <WorkspaceSummary>[current, other],
       const <RunSummary>[currentRun, otherRun]);
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: CodingSessionListPage(
               data: data,
               items: mergeSessionItems(
@@ -342,16 +351,16 @@ Widget buildMissingWorkspaceFallbackPreview() {
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current],
               selected: current,
@@ -447,16 +456,16 @@ Widget buildCodingWorkbenchEntryPreview() {
           diagnostics: <CodeDiagnostic>[]),
       extensions: const <ExtensionSummary>[]);
   return MaterialApp(
-      locale: _zhHansCnLocale,
-      supportedLocales: const [_zhHansCnLocale, Locale('en', 'US')],
-      localizationsDelegates: _appLocalizationsDelegates,
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(
           brightness: Brightness.dark,
           fontFamily: 'Segoe UI',
-          fontFamilyFallback: _appFontFallback,
+          fontFamilyFallback: theme.appFontFallback,
           useMaterial3: true),
       home: Scaffold(
-          backgroundColor: _bg,
+          backgroundColor: theme.bg,
           body: CodingWorkbenchPage(
               data: data,
               client: DaemonClient(
