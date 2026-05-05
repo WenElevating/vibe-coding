@@ -31,3 +31,23 @@ CodingWorkbenchState upsertAndSelectWorkspace(
     listMode: CodingWorkbenchListMode.sessions,
   );
 }
+
+CodingWorkbenchState replaceWorkspacesFromDaemon(
+  CodingWorkbenchState state,
+  List<WorkspaceSummary> daemonWorkspaces, {
+  String? selectedWorkspaceId,
+}) {
+  if (daemonWorkspaces.isEmpty) return state;
+  final selected = daemonWorkspaces.firstWhere(
+    (workspace) => workspace.id == selectedWorkspaceId,
+    orElse: () => daemonWorkspaces.firstWhere(
+      (workspace) => workspace.id == state.selectedWorkspace.id,
+      orElse: () => daemonWorkspaces.first,
+    ),
+  );
+  return CodingWorkbenchState(
+    workspaces: List<WorkspaceSummary>.of(daemonWorkspaces),
+    selectedWorkspace: selected,
+    listMode: state.listMode,
+  );
+}

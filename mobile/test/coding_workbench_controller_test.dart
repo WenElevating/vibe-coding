@@ -29,4 +29,33 @@ void main() {
     expect(next.selectedWorkspace, updated);
     expect(next.listMode, CodingWorkbenchListMode.sessions);
   });
+
+  test('replaceWorkspacesFromDaemon selects daemon-confirmed workspace', () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
+    );
+    const created = WorkspaceSummary(
+      id: 'workspace_created',
+      name: 'Created Workspace',
+      path: r'D:\created',
+    );
+
+    final next = replaceWorkspacesFromDaemon(
+      const CodingWorkbenchState(
+        workspaces: <WorkspaceSummary>[current],
+        selectedWorkspace: current,
+        listMode: CodingWorkbenchListMode.workspaces,
+      ),
+      const <WorkspaceSummary>[current, created],
+      selectedWorkspaceId: created.id,
+    );
+
+    expect(next.workspaces, hasLength(2));
+    expect(next.workspaces.map((workspace) => workspace.id),
+        const <String>['workspace_current', 'workspace_created']);
+    expect(next.selectedWorkspace, created);
+    expect(next.listMode, CodingWorkbenchListMode.workspaces);
+  });
 }

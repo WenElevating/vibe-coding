@@ -127,20 +127,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
             conversation: conversation));
   }
 
-  void _upsertWorkspace(WorkspaceSummary workspace) {
-    final next = upsertAndSelectWorkspace(
-      CodingWorkbenchState(
-        workspaces: _workspaces,
-        selectedWorkspace: _selectedWorkspace,
-        listMode: _listMode,
-      ),
-      workspace,
-    );
-    _workspaces = next.workspaces;
-    _selectedWorkspace = next.selectedWorkspace;
-    _listMode = next.listMode;
-  }
-
   void _resetConversationState() {
     _messages.clear();
     _events.clear();
@@ -299,16 +285,41 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
         backgroundColor: Colors.transparent,
         builder: (context) => AddWorkspaceSheet(client: widget.client));
     if (workspace == null || !mounted) return;
-    setState(() {
-      _upsertWorkspace(workspace);
-      _workspaceConfirmedForSession = true;
-      _resetConversationState();
-      _error = null;
-    });
-    widget.onSessionListChanged(true);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Workspace ready: ${workspace.name}'),
-        duration: const Duration(seconds: 2)));
+    try {
+      final daemonWorkspaces = await widget.client.listWorkspaces();
+      if (!mounted) return;
+      setState(() {
+        final next = replaceWorkspacesFromDaemon(
+          CodingWorkbenchState(
+            workspaces: _workspaces,
+            selectedWorkspace: _selectedWorkspace,
+            listMode: _listMode,
+          ),
+          daemonWorkspaces,
+          selectedWorkspaceId: workspace.id,
+        );
+        _workspaces = next.workspaces;
+        _selectedWorkspace = next.selectedWorkspace;
+        _listMode = CodingWorkbenchListMode.workspaces;
+        _workspaceConfirmedForSession = true;
+        _resetConversationState();
+        _error = null;
+      });
+      widget.onSessionListChanged(true);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Workspace ready: ${workspace.name}'),
+          duration: const Duration(seconds: 2)));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Workspace was saved, but the list could not be refreshed: $error';
+        _listMode = CodingWorkbenchListMode.workspaces;
+      });
+      widget.onSessionListChanged(true);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Workspace saved. Refresh workspaces to see it.'),
+          duration: Duration(seconds: 3)));
+    }
   }
 
   String get _pendingStatusText => _conversationPendingStatusText(
