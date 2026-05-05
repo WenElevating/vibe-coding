@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../shell/shell.dart';
 import '../theme/theme.dart';
+import '../ui/ui.dart';
 
 class LanAiCliControlApp extends StatelessWidget {
   const LanAiCliControlApp({super.key});
@@ -15,7 +15,7 @@ class LanAiCliControlApp extends StatelessWidget {
       supportedLocales: const [zhHansCnLocale, Locale('en', 'US')],
       localizationsDelegates: appLocalizationsDelegates,
       theme: buildAppTheme(),
-      home: const MobileShell(),
+      home: const MobileUi(),
     );
   }
 }

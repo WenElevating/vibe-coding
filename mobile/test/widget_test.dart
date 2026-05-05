@@ -24,6 +24,15 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('MobileUiFrame renders supplied child',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: MobileUiFrame(child: Text('frame child')),
+    ));
+
+    expect(find.text('frame child'), findsOneWidget);
+  });
+
   testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());

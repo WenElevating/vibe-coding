@@ -6,4 +6,5 @@ export 'src/state/conversation_reducer.dart';
 export 'src/state/dashboard_state.dart';
 export 'src/state/run_detail_state.dart';
 export 'src/features/workbench/workbench.dart';
+export 'src/ui/ui.dart';
 export 'src/testing/testing.dart';
