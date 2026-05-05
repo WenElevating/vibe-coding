@@ -575,6 +575,69 @@ abstract class AppLocalizations {
   /// No description provided for @sessionsTaskNoun.
   String get sessionsTaskNoun;
 
+  /// No description provided for @workspaceAdapterPickerTitle.
+  String get workspaceAdapterPickerTitle;
+
+  /// No description provided for @workspaceAdapterPickerSubtitle.
+  String get workspaceAdapterPickerSubtitle;
+
+  /// No description provided for @workspaceListTitle.
+  String get workspaceListTitle;
+
+  /// No description provided for @workspaceAvailableSection.
+  String get workspaceAvailableSection;
+
+  /// No description provided for @workspaceListFootnote.
+  String get workspaceListFootnote;
+
+  /// No description provided for @workspaceCurrentFallback.
+  String get workspaceCurrentFallback;
+
+  /// No description provided for @workspaceSheetTitle.
+  String get workspaceSheetTitle;
+
+  /// No description provided for @workspaceSheetSubtitle.
+  String get workspaceSheetSubtitle;
+
+  /// No description provided for @workspacePathHint.
+  String get workspacePathHint;
+
+  /// No description provided for @workspaceBrowseAction.
+  String get workspaceBrowseAction;
+
+  /// No description provided for @workspaceNameHint.
+  String get workspaceNameHint;
+
+  /// No description provided for @workspaceCreatingAction.
+  String get workspaceCreatingAction;
+
+  /// No description provided for @workspaceCreateAction.
+  String get workspaceCreateAction;
+
+  /// No description provided for @workspaceExistingSection.
+  String get workspaceExistingSection;
+
+  /// No description provided for @workspaceSafeDirectoryMeta.
+  String get workspaceSafeDirectoryMeta;
+
+  /// No description provided for @workspaceAddTitle.
+  String get workspaceAddTitle;
+
+  /// No description provided for @workspaceChoosePathHint.
+  String get workspaceChoosePathHint;
+
+  /// No description provided for @workspaceCreateAndUseAction.
+  String get workspaceCreateAndUseAction;
+
+  /// No description provided for @workspaceChooseFolderTitle.
+  String get workspaceChooseFolderTitle;
+
+  /// No description provided for @workspaceSelectCurrentAction.
+  String get workspaceSelectCurrentAction;
+
+  /// No description provided for @workspaceBrowserPlaceholder.
+  String get workspaceBrowserPlaceholder;
+
 }
 
 class _AppLocalizationsDelegate

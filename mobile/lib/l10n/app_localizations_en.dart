@@ -418,4 +418,67 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sessionsTaskNoun => 'task';
 
+  @override
+  String get workspaceAdapterPickerTitle => 'Choose model / CLI';
+
+  @override
+  String get workspaceAdapterPickerSubtitle => 'Used for the next real daemon run. It cannot be switched while running.';
+
+  @override
+  String get workspaceListTitle => 'Workspaces';
+
+  @override
+  String get workspaceAvailableSection => 'Available Workspaces';
+
+  @override
+  String get workspaceListFootnote => 'Choose the folder where CLI commands will run, then open or create a session inside it.';
+
+  @override
+  String get workspaceCurrentFallback => 'Current workspace';
+
+  @override
+  String get workspaceSheetTitle => 'Workspace';
+
+  @override
+  String get workspaceSheetSubtitle => 'Switch the CLI execution directory. The current session stays available.';
+
+  @override
+  String get workspacePathHint => 'Enter or browse a folder path';
+
+  @override
+  String get workspaceBrowseAction => 'Browse';
+
+  @override
+  String get workspaceNameHint => 'Name (optional)';
+
+  @override
+  String get workspaceCreatingAction => 'Creating';
+
+  @override
+  String get workspaceCreateAction => 'Create';
+
+  @override
+  String get workspaceExistingSection => 'Existing workspaces';
+
+  @override
+  String get workspaceSafeDirectoryMeta => 'Safe execution directory';
+
+  @override
+  String get workspaceAddTitle => 'Add workspace';
+
+  @override
+  String get workspaceChoosePathHint => 'Choose or enter a folder path';
+
+  @override
+  String get workspaceCreateAndUseAction => 'Create and use';
+
+  @override
+  String get workspaceChooseFolderTitle => 'Choose folder';
+
+  @override
+  String get workspaceSelectCurrentAction => 'Select current';
+
+  @override
+  String get workspaceBrowserPlaceholder => 'Choose a drive or root directory, then continue into a folder';
+
 }

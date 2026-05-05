@@ -405,4 +405,67 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sessionsSessionNoun => 'session';
   @override
   String get sessionsTaskNoun => 'task';
+  @override
+  String get workspaceAdapterPickerTitle => '选择模型 / CLI';
+
+  @override
+  String get workspaceAdapterPickerSubtitle => '会用于下一次真实 daemon run，运行中不可切换。';
+
+  @override
+  String get workspaceListTitle => 'Workspaces';
+
+  @override
+  String get workspaceAvailableSection => 'Available Workspaces';
+
+  @override
+  String get workspaceListFootnote => 'Choose the folder where CLI commands will run, then open or create a session inside it.';
+
+  @override
+  String get workspaceCurrentFallback => '当前工作区';
+
+  @override
+  String get workspaceSheetTitle => '工作区';
+
+  @override
+  String get workspaceSheetSubtitle => '切换 CLI 执行目录，当前会话会继续保留。';
+
+  @override
+  String get workspacePathHint => '输入或浏览文件夹路径';
+
+  @override
+  String get workspaceBrowseAction => '浏览';
+
+  @override
+  String get workspaceNameHint => '名称（可选）';
+
+  @override
+  String get workspaceCreatingAction => '创建中';
+
+  @override
+  String get workspaceCreateAction => '创建';
+
+  @override
+  String get workspaceExistingSection => '已有工作区';
+
+  @override
+  String get workspaceSafeDirectoryMeta => '安全执行目录';
+
+  @override
+  String get workspaceAddTitle => '添加工作区';
+
+  @override
+  String get workspaceChoosePathHint => '选择或输入文件夹路径';
+
+  @override
+  String get workspaceCreateAndUseAction => '创建并使用';
+
+  @override
+  String get workspaceChooseFolderTitle => '选择文件夹';
+
+  @override
+  String get workspaceSelectCurrentAction => '选择当前';
+
+  @override
+  String get workspaceBrowserPlaceholder => '选择磁盘或根目录后继续进入文件夹';
+
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../../theme/theme.dart' as theme;
@@ -86,7 +87,7 @@ class WorkspaceListPage extends StatelessWidget {
                   child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                    const Text('Workspaces',
+                    Text(AppLocalizations.of(context).workspaceListTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -112,7 +113,7 @@ class WorkspaceListPage extends StatelessWidget {
               const SessionSearchBox(),
               const SizedBox(height: 14),
               _WorkspaceSectionHeader(
-                  title: 'Available Workspaces', meta: '${workspaces.length}'),
+                  title: AppLocalizations.of(context).workspaceAvailableSection, meta: '${workspaces.length}'),
               const SizedBox(height: 8),
               for (final workspace in workspaces)
                 _WorkspaceChoiceRow(
@@ -120,11 +121,11 @@ class WorkspaceListPage extends StatelessWidget {
                     selected: workspace.id == selected.id,
                     allowSelectedTap: true,
                     onTap: () => onSelected(workspace)),
-              const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 6, 4, 0),
+              Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
                   child: Text(
-                      'Choose the folder where CLI commands will run, then open or create a session inside it.',
-                      style: TextStyle(
+                      AppLocalizations.of(context).workspaceListFootnote,
+                      style: const TextStyle(
                           color: Color(0xFF666D77),
                           fontSize: 11.5,
                           height: 1.5))),
