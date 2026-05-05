@@ -9,6 +9,7 @@ import '../models/protocol.dart';
 import '../services/daemon_client.dart';
 import '../state/conversation_reducer.dart';
 import '../theme/theme.dart';
+import '../widgets/widgets.dart';
 
 part '../testing/debug_helpers.dart';
 part '../shell/mobile_shell.dart';
@@ -27,7 +28,6 @@ part '../features/notifications/notifications_page.dart';
 part '../features/diagnostics/diagnostics_page.dart';
 
 const _bg = bg;
-const _panel = panel;
 const _panelHi = panelHi;
 const _stroke = stroke;
 const _purple = purple;
