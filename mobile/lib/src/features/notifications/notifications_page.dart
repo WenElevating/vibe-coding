@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
 
@@ -8,32 +9,31 @@ class NotificationsPage extends StatelessWidget {
   final VoidCallback onBack;
 
   @override
-  Widget build(BuildContext context) => PageScroll(children: [
-        TopBar(title: '通知', leading: true, action: '⋯'),
-        const SizedBox(height: 14),
-        const Tabs(labels: ['全部', '未读', '@我']),
-        const SizedBox(height: 12),
-        const _Notice(
-            Icons.warning_rounded,
-            '需要审批',
-            'Claude Code 请求修改\nlib/services/auth_service.dart',
-            '10:58',
-            theme.amber),
-        const _Notice(
-            Icons.done_rounded,
-            '任务完成',
-            'Add unit tests for user service\n运行完成，耗时 28m 15s',
-            '09:44',
-            theme.green),
-        const _Notice(Icons.error_rounded, '任务失败', '优化数据同步逻辑\n运行失败，查看详情',
-            '昨天 14:22', theme.red),
-        const _Notice(Icons.sync_rounded, '队列更新', '优化缓存策略\n已开始运行', '昨天 13:15',
-            theme.purple),
-        const _Notice(Icons.notifications_rounded, '系统消息', '已连接到 DESKTOP-DEV',
-            '昨天 10:01', theme.purple),
-        const SizedBox(height: 8),
-        GhostButton('返回', color: theme.purple, onTap: onBack),
-      ]);
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return PageScroll(children: [
+      TopBar(title: l10n.notificationsTitle, leading: true, action: '?'),
+      const SizedBox(height: 14),
+      Tabs(labels: [
+        l10n.notificationsTabAll,
+        l10n.notificationsTabUnread,
+        l10n.notificationsTabMentions
+      ]),
+      const SizedBox(height: 12),
+      _Notice(Icons.warning_rounded, l10n.notificationsApprovalRequired,
+          l10n.notificationsRequestModify, '10:58', theme.amber),
+      _Notice(Icons.done_rounded, l10n.notificationsTaskComplete,
+          l10n.notificationsRunCompletedDuration, '09:44', theme.green),
+      _Notice(Icons.error_rounded, l10n.notificationsTaskFailed,
+          l10n.notificationsDataSyncBody, l10n.notificationsYesterday1422, theme.red),
+      _Notice(Icons.sync_rounded, l10n.notificationsQueueUpdate,
+          l10n.notificationsCacheBody, l10n.notificationsYesterday1315, theme.purple),
+      _Notice(Icons.notifications_rounded, l10n.notificationsSystemMessage,
+          l10n.notificationsConnectedBody, l10n.notificationsYesterday1001, theme.purple),
+      const SizedBox(height: 8),
+      GhostButton(l10n.commonBack, color: theme.purple, onTap: onBack),
+    ]);
+  }
 }
 
 class _Notice extends StatelessWidget {

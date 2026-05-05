@@ -157,5 +157,65 @@
         "type": "int"
       }
     }
-  }
+  },
+  "commonBack": "Back",
+  "adaptersTitle": "Adapter status",
+  "adaptersCount": "{count} items",
+  "@adaptersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adaptersEmpty": "daemon returned no adapters",
+  "adaptersExtensionsSection": "Extensions",
+  "adaptersNoExtensions": "No extension information",
+  "adaptersNotInstalled": "not installed",
+  "adaptersStatusOk": "Status                         OK",
+  "adaptersCapabilitiesLabel": "Capabilities",
+  "diagnosticsTitle": "Diagnostics",
+  "diagnosticsDescription": "Export a redacted diagnostics bundle for troubleshooting",
+  "diagnosticsSystemInfo": "System information",
+  "diagnosticsAdapterStatus": "Adapter status",
+  "diagnosticsRunLogsRecent": "Run logs (last 7 days)",
+  "diagnosticsEventRecordsRecent": "Event records (last 7 days)",
+  "diagnosticsConfigInfo": "Configuration",
+  "diagnosticsEstimatedSize": "Estimated size",
+  "diagnosticsGenerateAction": "Generate diagnostics bundle",
+  "notificationsTitle": "Notifications",
+  "notificationsTabAll": "All",
+  "notificationsTabUnread": "Unread",
+  "notificationsTabMentions": "@me",
+  "notificationsApprovalRequired": "Approval required",
+  "notificationsRequestModify": "Claude Code requests changes\nlib/services/auth_service.dart",
+  "notificationsTaskComplete": "Task complete",
+  "notificationsRunCompletedDuration": "Add unit tests for user service\nRun completed, duration 28m 15s",
+  "notificationsTaskFailed": "Task failed",
+  "notificationsDataSyncBody": "Optimize data sync logic\nRun failed, view details",
+  "notificationsYesterday1422": "Yesterday 14:22",
+  "notificationsQueueUpdate": "Queue update",
+  "notificationsCacheBody": "Optimize cache strategy\nStarted running",
+  "notificationsYesterday1315": "Yesterday 13:15",
+  "notificationsSystemMessage": "System message",
+  "notificationsConnectedBody": "Connected to DESKTOP-DEV",
+  "notificationsYesterday1001": "Yesterday 10:01",
+  "runDetailTitle": "Run details",
+  "runDetailMockTask": "Fix login API test failure",
+  "runDetailRunningStatus": "Running",
+  "runDetailStartedDuration": "10:32 started ? Duration 12m 45s",
+  "runDetailTabOverview": "Overview",
+  "runDetailTabEvents": "Events",
+  "runDetailTabFileChanges": "File changes",
+  "runDetailTabConfig": "Config",
+  "runDetailUserPromptTitle": "User prompt",
+  "runDetailUserPromptBody": "Fix the login API test failure and add boundary-condition tests.",
+  "runDetailThinkingTitle": "Claude starts thinking",
+  "runDetailThinkingBody": "Analyzing the problem and related code...",
+  "runDetailReadFileTitle": "Read file",
+  "runDetailSearchCodeTitle": "Search code",
+  "runDetailSearchBody": "search: \"login failure test\"\nFound 12 results",
+  "runDetailEditFileTitle": "Edit file",
+  "runDetailRunCommandTitle": "Run command",
+  "runDetailCommandBody": "dart test tests/login_test.dart      running ?"
 }

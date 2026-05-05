@@ -141,7 +141,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeCompletedMetricLabel => '??? (24h)';
 
   @override
-  String homeFilesLinesNote(int files, int lines) => '$files ?? ? $lines ?';
+  String homeFilesLinesNote(int files, int lines) => '$files ??? ? $lines ?';
 
   @override
   String get homeRecentRunsTitle => '????';
@@ -220,4 +220,163 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get queueFootnote => '?????? daemon????????????';
+  @override
+  String get commonBack => '??';
+
+  @override
+  String get adaptersTitle => '?????';
+
+  @override
+  String adaptersCount(int count) => '$count ?';
+
+  @override
+  String get adaptersEmpty => 'daemon ??????';
+
+  @override
+  String get adaptersExtensionsSection => '??';
+
+  @override
+  String get adaptersNoExtensions => '??????';
+
+  @override
+  String get adaptersNotInstalled => '???';
+
+  @override
+  String get adaptersStatusOk => '??                         ??';
+
+  @override
+  String get adaptersCapabilitiesLabel => '??';
+
+  @override
+  String get diagnosticsTitle => '????';
+
+  @override
+  String get diagnosticsDescription => '????????????????';
+
+  @override
+  String get diagnosticsSystemInfo => '????';
+
+  @override
+  String get diagnosticsAdapterStatus => '?????';
+
+  @override
+  String get diagnosticsRunLogsRecent => '???? (?? 7 ?)';
+
+  @override
+  String get diagnosticsEventRecordsRecent => '???? (?? 7 ?)';
+
+  @override
+  String get diagnosticsConfigInfo => '????';
+
+  @override
+  String get diagnosticsEstimatedSize => '????';
+
+  @override
+  String get diagnosticsGenerateAction => '?????';
+
+  @override
+  String get notificationsTitle => '??';
+
+  @override
+  String get notificationsTabAll => '??';
+
+  @override
+  String get notificationsTabUnread => '??';
+
+  @override
+  String get notificationsTabMentions => '@?';
+
+  @override
+  String get notificationsApprovalRequired => '????';
+
+  @override
+  String get notificationsRequestModify => 'Claude Code ????\nlib/services/auth_service.dart';
+
+  @override
+  String get notificationsTaskComplete => '????';
+
+  @override
+  String get notificationsRunCompletedDuration => 'Add unit tests for user service\n??????? 28m 15s';
+
+  @override
+  String get notificationsTaskFailed => '????';
+
+  @override
+  String get notificationsDataSyncBody => '????????\n?????????';
+
+  @override
+  String get notificationsYesterday1422 => '?? 14:22';
+
+  @override
+  String get notificationsQueueUpdate => '????';
+
+  @override
+  String get notificationsCacheBody => '??????\n?????';
+
+  @override
+  String get notificationsYesterday1315 => '?? 13:15';
+
+  @override
+  String get notificationsSystemMessage => '????';
+
+  @override
+  String get notificationsConnectedBody => '???? DESKTOP-DEV';
+
+  @override
+  String get notificationsYesterday1001 => '?? 10:01';
+
+  @override
+  String get runDetailTitle => '????';
+
+  @override
+  String get runDetailMockTask => '??????????';
+
+  @override
+  String get runDetailRunningStatus => '???';
+
+  @override
+  String get runDetailStartedDuration => '10:32 ?? ? ???? 12m 45s';
+
+  @override
+  String get runDetailTabOverview => '??';
+
+  @override
+  String get runDetailTabEvents => '??';
+
+  @override
+  String get runDetailTabFileChanges => '????';
+
+  @override
+  String get runDetailTabConfig => '??';
+
+  @override
+  String get runDetailUserPromptTitle => '????';
+
+  @override
+  String get runDetailUserPromptBody => '?????????????????????';
+
+  @override
+  String get runDetailThinkingTitle => 'Claude ????';
+
+  @override
+  String get runDetailThinkingBody => '???????????...';
+
+  @override
+  String get runDetailReadFileTitle => '????';
+
+  @override
+  String get runDetailSearchCodeTitle => '????';
+
+  @override
+  String get runDetailSearchBody => 'search: "login failure test"\n?? 12 ???';
+
+  @override
+  String get runDetailEditFileTitle => '????';
+
+  @override
+  String get runDetailRunCommandTitle => '????';
+
+  @override
+  String get runDetailCommandBody => 'dart test tests/login_test.dart      ??? ?';
+
 }

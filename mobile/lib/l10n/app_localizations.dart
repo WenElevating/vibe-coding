@@ -377,6 +377,165 @@ abstract class AppLocalizations {
 
   /// No description provided for @queueFootnote.
   String get queueFootnote;
+  /// No description provided for @commonBack.
+  String get commonBack;
+
+  /// No description provided for @adaptersTitle.
+  String get adaptersTitle;
+
+  /// No description provided for @adaptersCount.
+  String adaptersCount(int count);
+
+  /// No description provided for @adaptersEmpty.
+  String get adaptersEmpty;
+
+  /// No description provided for @adaptersExtensionsSection.
+  String get adaptersExtensionsSection;
+
+  /// No description provided for @adaptersNoExtensions.
+  String get adaptersNoExtensions;
+
+  /// No description provided for @adaptersNotInstalled.
+  String get adaptersNotInstalled;
+
+  /// No description provided for @adaptersStatusOk.
+  String get adaptersStatusOk;
+
+  /// No description provided for @adaptersCapabilitiesLabel.
+  String get adaptersCapabilitiesLabel;
+
+  /// No description provided for @diagnosticsTitle.
+  String get diagnosticsTitle;
+
+  /// No description provided for @diagnosticsDescription.
+  String get diagnosticsDescription;
+
+  /// No description provided for @diagnosticsSystemInfo.
+  String get diagnosticsSystemInfo;
+
+  /// No description provided for @diagnosticsAdapterStatus.
+  String get diagnosticsAdapterStatus;
+
+  /// No description provided for @diagnosticsRunLogsRecent.
+  String get diagnosticsRunLogsRecent;
+
+  /// No description provided for @diagnosticsEventRecordsRecent.
+  String get diagnosticsEventRecordsRecent;
+
+  /// No description provided for @diagnosticsConfigInfo.
+  String get diagnosticsConfigInfo;
+
+  /// No description provided for @diagnosticsEstimatedSize.
+  String get diagnosticsEstimatedSize;
+
+  /// No description provided for @diagnosticsGenerateAction.
+  String get diagnosticsGenerateAction;
+
+  /// No description provided for @notificationsTitle.
+  String get notificationsTitle;
+
+  /// No description provided for @notificationsTabAll.
+  String get notificationsTabAll;
+
+  /// No description provided for @notificationsTabUnread.
+  String get notificationsTabUnread;
+
+  /// No description provided for @notificationsTabMentions.
+  String get notificationsTabMentions;
+
+  /// No description provided for @notificationsApprovalRequired.
+  String get notificationsApprovalRequired;
+
+  /// No description provided for @notificationsRequestModify.
+  String get notificationsRequestModify;
+
+  /// No description provided for @notificationsTaskComplete.
+  String get notificationsTaskComplete;
+
+  /// No description provided for @notificationsRunCompletedDuration.
+  String get notificationsRunCompletedDuration;
+
+  /// No description provided for @notificationsTaskFailed.
+  String get notificationsTaskFailed;
+
+  /// No description provided for @notificationsDataSyncBody.
+  String get notificationsDataSyncBody;
+
+  /// No description provided for @notificationsYesterday1422.
+  String get notificationsYesterday1422;
+
+  /// No description provided for @notificationsQueueUpdate.
+  String get notificationsQueueUpdate;
+
+  /// No description provided for @notificationsCacheBody.
+  String get notificationsCacheBody;
+
+  /// No description provided for @notificationsYesterday1315.
+  String get notificationsYesterday1315;
+
+  /// No description provided for @notificationsSystemMessage.
+  String get notificationsSystemMessage;
+
+  /// No description provided for @notificationsConnectedBody.
+  String get notificationsConnectedBody;
+
+  /// No description provided for @notificationsYesterday1001.
+  String get notificationsYesterday1001;
+
+  /// No description provided for @runDetailTitle.
+  String get runDetailTitle;
+
+  /// No description provided for @runDetailMockTask.
+  String get runDetailMockTask;
+
+  /// No description provided for @runDetailRunningStatus.
+  String get runDetailRunningStatus;
+
+  /// No description provided for @runDetailStartedDuration.
+  String get runDetailStartedDuration;
+
+  /// No description provided for @runDetailTabOverview.
+  String get runDetailTabOverview;
+
+  /// No description provided for @runDetailTabEvents.
+  String get runDetailTabEvents;
+
+  /// No description provided for @runDetailTabFileChanges.
+  String get runDetailTabFileChanges;
+
+  /// No description provided for @runDetailTabConfig.
+  String get runDetailTabConfig;
+
+  /// No description provided for @runDetailUserPromptTitle.
+  String get runDetailUserPromptTitle;
+
+  /// No description provided for @runDetailUserPromptBody.
+  String get runDetailUserPromptBody;
+
+  /// No description provided for @runDetailThinkingTitle.
+  String get runDetailThinkingTitle;
+
+  /// No description provided for @runDetailThinkingBody.
+  String get runDetailThinkingBody;
+
+  /// No description provided for @runDetailReadFileTitle.
+  String get runDetailReadFileTitle;
+
+  /// No description provided for @runDetailSearchCodeTitle.
+  String get runDetailSearchCodeTitle;
+
+  /// No description provided for @runDetailSearchBody.
+  String get runDetailSearchBody;
+
+  /// No description provided for @runDetailEditFileTitle.
+  String get runDetailEditFileTitle;
+
+  /// No description provided for @runDetailRunCommandTitle.
+  String get runDetailRunCommandTitle;
+
+  /// No description provided for @runDetailCommandBody.
+  String get runDetailCommandBody;
+
 }
 
 class _AppLocalizationsDelegate

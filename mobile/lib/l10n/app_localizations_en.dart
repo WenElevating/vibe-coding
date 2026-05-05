@@ -220,4 +220,163 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get queueFootnote => 'Queue data comes from the daemon. Tasks run in workspace order.';
+  @override
+  String get commonBack => 'Back';
+
+  @override
+  String get adaptersTitle => 'Adapter status';
+
+  @override
+  String adaptersCount(int count) => '$count items';
+
+  @override
+  String get adaptersEmpty => 'daemon returned no adapters';
+
+  @override
+  String get adaptersExtensionsSection => 'Extensions';
+
+  @override
+  String get adaptersNoExtensions => 'No extension information';
+
+  @override
+  String get adaptersNotInstalled => 'not installed';
+
+  @override
+  String get adaptersStatusOk => 'Status                         OK';
+
+  @override
+  String get adaptersCapabilitiesLabel => 'Capabilities';
+
+  @override
+  String get diagnosticsTitle => 'Diagnostics';
+
+  @override
+  String get diagnosticsDescription => 'Export a redacted diagnostics bundle for troubleshooting';
+
+  @override
+  String get diagnosticsSystemInfo => 'System information';
+
+  @override
+  String get diagnosticsAdapterStatus => 'Adapter status';
+
+  @override
+  String get diagnosticsRunLogsRecent => 'Run logs (last 7 days)';
+
+  @override
+  String get diagnosticsEventRecordsRecent => 'Event records (last 7 days)';
+
+  @override
+  String get diagnosticsConfigInfo => 'Configuration';
+
+  @override
+  String get diagnosticsEstimatedSize => 'Estimated size';
+
+  @override
+  String get diagnosticsGenerateAction => 'Generate diagnostics bundle';
+
+  @override
+  String get notificationsTitle => 'Notifications';
+
+  @override
+  String get notificationsTabAll => 'All';
+
+  @override
+  String get notificationsTabUnread => 'Unread';
+
+  @override
+  String get notificationsTabMentions => '@me';
+
+  @override
+  String get notificationsApprovalRequired => 'Approval required';
+
+  @override
+  String get notificationsRequestModify => 'Claude Code requests changes\nlib/services/auth_service.dart';
+
+  @override
+  String get notificationsTaskComplete => 'Task complete';
+
+  @override
+  String get notificationsRunCompletedDuration => 'Add unit tests for user service\nRun completed, duration 28m 15s';
+
+  @override
+  String get notificationsTaskFailed => 'Task failed';
+
+  @override
+  String get notificationsDataSyncBody => 'Optimize data sync logic\nRun failed, view details';
+
+  @override
+  String get notificationsYesterday1422 => 'Yesterday 14:22';
+
+  @override
+  String get notificationsQueueUpdate => 'Queue update';
+
+  @override
+  String get notificationsCacheBody => 'Optimize cache strategy\nStarted running';
+
+  @override
+  String get notificationsYesterday1315 => 'Yesterday 13:15';
+
+  @override
+  String get notificationsSystemMessage => 'System message';
+
+  @override
+  String get notificationsConnectedBody => 'Connected to DESKTOP-DEV';
+
+  @override
+  String get notificationsYesterday1001 => 'Yesterday 10:01';
+
+  @override
+  String get runDetailTitle => 'Run details';
+
+  @override
+  String get runDetailMockTask => 'Fix login API test failure';
+
+  @override
+  String get runDetailRunningStatus => 'Running';
+
+  @override
+  String get runDetailStartedDuration => '10:32 started ? Duration 12m 45s';
+
+  @override
+  String get runDetailTabOverview => 'Overview';
+
+  @override
+  String get runDetailTabEvents => 'Events';
+
+  @override
+  String get runDetailTabFileChanges => 'File changes';
+
+  @override
+  String get runDetailTabConfig => 'Config';
+
+  @override
+  String get runDetailUserPromptTitle => 'User prompt';
+
+  @override
+  String get runDetailUserPromptBody => 'Fix the login API test failure and add boundary-condition tests.';
+
+  @override
+  String get runDetailThinkingTitle => 'Claude starts thinking';
+
+  @override
+  String get runDetailThinkingBody => 'Analyzing the problem and related code...';
+
+  @override
+  String get runDetailReadFileTitle => 'Read file';
+
+  @override
+  String get runDetailSearchCodeTitle => 'Search code';
+
+  @override
+  String get runDetailSearchBody => 'search: "login failure test"\nFound 12 results';
+
+  @override
+  String get runDetailEditFileTitle => 'Edit file';
+
+  @override
+  String get runDetailRunCommandTitle => 'Run command';
+
+  @override
+  String get runDetailCommandBody => 'dart test tests/login_test.dart      running ?';
+
 }
