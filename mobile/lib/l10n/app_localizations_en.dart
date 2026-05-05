@@ -379,4 +379,43 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get runDetailCommandBody => 'dart test tests/login_test.dart      running ?';
 
+  @override
+  String get sessionsTitle => 'Sessions';
+
+  @override
+  String get sessionsCurrentProject => 'Current project';
+
+  @override
+  String get sessionsSearchPlaceholder => 'Search sessions, commands, file paths?';
+
+  @override
+  String get sessionsFootnote => 'This list only shows sessions in the current workspace.';
+
+  @override
+  String get sessionsEmptyTitle => 'No sessions in this workspace yet';
+
+  @override
+  String get sessionsNewSession => 'New Session';
+
+  @override
+  String get sessionsWaitingApproval => 'Waiting approval';
+
+  @override
+  String get sessionsPendingBadge => 'pending';
+
+  @override
+  String get sessionsRunning => 'Running';
+
+  @override
+  String get sessionsFailed => 'Failed';
+
+  @override
+  String get sessionsDone => 'Done';
+
+  @override
+  String get sessionsSessionNoun => 'session';
+
+  @override
+  String get sessionsTaskNoun => 'task';
+
 }

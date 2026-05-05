@@ -217,5 +217,18 @@
   "runDetailSearchBody": "search: \"login failure test\"\nFound 12 results",
   "runDetailEditFileTitle": "Edit file",
   "runDetailRunCommandTitle": "Run command",
-  "runDetailCommandBody": "dart test tests/login_test.dart      running ?"
+  "runDetailCommandBody": "dart test tests/login_test.dart      running ?",
+  "sessionsTitle": "Sessions",
+  "sessionsCurrentProject": "Current project",
+  "sessionsSearchPlaceholder": "Search sessions, commands, file paths?",
+  "sessionsFootnote": "This list only shows sessions in the current workspace.",
+  "sessionsEmptyTitle": "No sessions in this workspace yet",
+  "sessionsNewSession": "New Session",
+  "sessionsWaitingApproval": "Waiting approval",
+  "sessionsPendingBadge": "pending",
+  "sessionsRunning": "Running",
+  "sessionsFailed": "Failed",
+  "sessionsDone": "Done",
+  "sessionsSessionNoun": "session",
+  "sessionsTaskNoun": "task"
 }

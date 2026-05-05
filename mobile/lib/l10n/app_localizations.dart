@@ -536,6 +536,45 @@ abstract class AppLocalizations {
   /// No description provided for @runDetailCommandBody.
   String get runDetailCommandBody;
 
+  /// No description provided for @sessionsTitle.
+  String get sessionsTitle;
+
+  /// No description provided for @sessionsCurrentProject.
+  String get sessionsCurrentProject;
+
+  /// No description provided for @sessionsSearchPlaceholder.
+  String get sessionsSearchPlaceholder;
+
+  /// No description provided for @sessionsFootnote.
+  String get sessionsFootnote;
+
+  /// No description provided for @sessionsEmptyTitle.
+  String get sessionsEmptyTitle;
+
+  /// No description provided for @sessionsNewSession.
+  String get sessionsNewSession;
+
+  /// No description provided for @sessionsWaitingApproval.
+  String get sessionsWaitingApproval;
+
+  /// No description provided for @sessionsPendingBadge.
+  String get sessionsPendingBadge;
+
+  /// No description provided for @sessionsRunning.
+  String get sessionsRunning;
+
+  /// No description provided for @sessionsFailed.
+  String get sessionsFailed;
+
+  /// No description provided for @sessionsDone.
+  String get sessionsDone;
+
+  /// No description provided for @sessionsSessionNoun.
+  String get sessionsSessionNoun;
+
+  /// No description provided for @sessionsTaskNoun.
+  String get sessionsTaskNoun;
+
 }
 
 class _AppLocalizationsDelegate

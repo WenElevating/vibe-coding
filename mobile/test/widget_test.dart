@@ -241,7 +241,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
-    expect(find.text('New Session'), findsOneWidget);
+    expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')), findsOneWidget);
     expect(find.text('Select workspace for this coding session'), findsNothing);
   });
 

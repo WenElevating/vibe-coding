@@ -45,338 +45,364 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsLanguageEn => 'English';
 
   @override
-  String get settingsLanguagePickerTitle => '????';
+  String get settingsLanguagePickerTitle => '选择语言';
 
   @override
-  String get settingsCodingControlSection => '????';
+  String get settingsCodingControlSection => '编码控制';
 
   @override
-  String get settingsStreamOutputTitle => '????';
+  String get settingsStreamOutputTitle => '流式输出';
 
   @override
-  String get settingsStreamOutputSubtitle => '????????????? delta ????????';
+  String get settingsStreamOutputSubtitle => '关闭时只显示最终回复，避免 delta 与完整消息重复。';
 
   @override
-  String get settingsExpandThinkingTitle => '??????';
+  String get settingsExpandThinkingTitle => '显示思考过程';
 
   @override
-  String get settingsExpandThinkingSubtitle => '????????? thinking?????????';
+  String get settingsExpandThinkingSubtitle => '开启后默认展开模型 thinking；关闭时折叠显示。';
 
   @override
-  String get settingsPermissionModeTitle => '????';
+  String get settingsPermissionModeTitle => '权限模式';
 
   @override
-  String get settingsPermissionDefault => '??';
+  String get settingsPermissionDefault => '默认';
 
   @override
-  String get settingsPermissionAuto => '??';
+  String get settingsPermissionAuto => '自动';
 
   @override
-  String get settingsPermissionSubtitle => '????? CLI ?????????? CLI ???';
+  String get settingsPermissionSubtitle => '默认会请求 CLI 权限确认；自动模式由 CLI 处理。';
 
   @override
-  String get settingsDataStatusSection => '????';
+  String get settingsDataStatusSection => 'Data status';
 
   @override
-  String get settingsDiagnosticsTitle => '????';
+  String get settingsDiagnosticsTitle => 'Code diagnostics';
 
   @override
-  String settingsDiagnosticsCount(int count) => '$count ?';
+  String settingsDiagnosticsCount(int count) => '$count items';
 
   @override
-  String get settingsGitStatusTitle => 'Git ??';
+  String get settingsGitStatusTitle => 'Git status';
 
   @override
-  String get settingsGitClean => '??';
+  String get settingsGitClean => 'Clean';
 
   @override
-  String settingsGitFiles(int count) => '$count ??';
+  String settingsGitFiles(int count) => '$count files';
 
   @override
-  String get settingsAboutSection => '??';
+  String get settingsAboutSection => 'About';
 
   @override
-  String get settingsExtensionsTitle => '??';
+  String get settingsExtensionsTitle => 'Extensions';
 
   @override
-  String settingsExtensionsCount(int count) => '$count ?';
+  String settingsExtensionsCount(int count) => '$count items';
 
   @override
-  String get settingsAdaptersAction => '???';
+  String get settingsAdaptersAction => 'Adapters';
 
   @override
-  String get settingsNotificationsAction => '??';
+  String get settingsNotificationsAction => 'Notifications';
 
   @override
-  String get settingsGenerateDiagnosticsAction => '??????';
+  String get settingsGenerateDiagnosticsAction => 'Generate diagnostics';
 
   @override
-  String get settingsCurrentConnectionTitle => '????';
+  String get settingsCurrentConnectionTitle => 'Current connection';
 
   @override
-  String get settingsConnected => '???';
+  String get settingsConnected => 'Connected';
 
   @override
-  String get settingsWorkspaceLabel => '???';
+  String get settingsWorkspaceLabel => 'Workspace';
 
   @override
-  String get settingsSecurityModeLabel => '????';
+  String get settingsSecurityModeLabel => 'Security mode';
 
   @override
-  String get homeOverviewTitle => '??';
+  String get homeOverviewTitle => 'Overview';
 
   @override
-  String get homeRunningMetricLabel => '???';
+  String get homeRunningMetricLabel => 'Running';
 
   @override
-  String get homeRunningMetricNote => '????';
+  String get homeRunningMetricNote => 'Active tasks';
 
   @override
-  String get homeQueuedMetricLabel => '???';
+  String get homeQueuedMetricLabel => 'Pending approval';
 
   @override
-  String get homeQueuedMetricNote => '????';
+  String get homeQueuedMetricNote => 'Queued tasks';
 
   @override
-  String get homeCompletedMetricLabel => '??? (24h)';
+  String get homeCompletedMetricLabel => 'Completed (24h)';
 
   @override
-  String homeFilesLinesNote(int files, int lines) => '$files ??? ? $lines ?';
+  String homeFilesLinesNote(int files, int lines) => '$files files ? $lines lines';
 
   @override
-  String get homeRecentRunsTitle => '????';
+  String get homeRecentRunsTitle => 'Recent runs';
 
   @override
-  String get homeViewAllAction => '????';
+  String get homeViewAllAction => '最近运行';
 
   @override
-  String get homeNoRuns => '??????';
+  String get homeNoRuns => 'No runs yet';
 
   @override
-  String get homeQuickActionsTitle => '????';
+  String get homeQuickActionsTitle => 'Quick actions';
 
   @override
-  String get homeNewTaskTitle => '????';
+  String get homeNewTaskTitle => 'New task';
 
   @override
-  String get homeNewTaskSubtitle => '?????';
+  String get homeNewTaskSubtitle => 'Create a new task';
 
   @override
-  String get homeCommandTemplatesTitle => '????';
+  String get homeCommandTemplatesTitle => 'Command templates';
 
   @override
-  String get homeCommandTemplatesSubtitle => '??????';
+  String get homeCommandTemplatesSubtitle => 'Run preset commands';
 
   @override
-  String get homeViewQueueTitle => '????';
+  String get homeViewQueueTitle => 'View queue';
 
   @override
-  String get homeViewQueueSubtitle => '??????';
+  String get homeViewQueueSubtitle => 'Review queued tasks';
 
   @override
-  String get runsTitle => '????';
+  String get runsTitle => 'Runs';
 
   @override
-  String runsAllPill(int count) => '?? $count';
+  String runsAllPill(int count) => 'All $count';
 
   @override
-  String runsRunningPill(int count) => '??? $count';
+  String runsRunningPill(int count) => 'Running $count';
 
   @override
-  String runsCompletedPill(int count) => '??? $count';
+  String runsCompletedPill(int count) => 'Completed $count';
 
   @override
-  String runsFailedPill(int count) => '?? $count';
+  String runsFailedPill(int count) => 'Failed $count';
 
   @override
-  String get runsEmpty => '???????????????? AI CLI ???';
+  String get runsEmpty => 'No runs yet. Start a real AI CLI task from command templates.';
 
   @override
-  String get queueTitle => '????';
+  String get queueTitle => 'Run queue';
 
   @override
-  String queueCountAction(int count) => '$count ?';
+  String queueCountAction(int count) => '$count items';
 
   @override
-  String queueRunningPill(int count) => '??? $count';
+  String queueRunningPill(int count) => 'Running $count';
 
   @override
-  String queueWaitingPill(int count) => '??? $count';
+  String queueWaitingPill(int count) => 'Queued $count';
 
   @override
-  String queueTotalPill(int count) => '?? $count';
+  String queueTotalPill(int count) => 'Total $count';
 
   @override
-  String get queueRunningSection => '???';
+  String get queueRunningSection => 'Running';
 
   @override
-  String get queueWaitingSection => '???';
+  String get queueWaitingSection => 'Queued';
 
   @override
-  String get queueNoRunning => '???????';
+  String get queueNoRunning => 'No running queue items';
 
   @override
-  String get queueNoWaiting => '??????';
+  String get queueNoWaiting => 'No waiting tasks';
 
   @override
-  String get queueFootnote => '?????? daemon????????????';
+  String get queueFootnote => 'Queue data comes from the daemon. Tasks run in workspace order.';
   @override
-  String get commonBack => '??';
+  String get commonBack => 'Back';
 
   @override
-  String get adaptersTitle => '?????';
+  String get adaptersTitle => 'Adapter status';
 
   @override
-  String adaptersCount(int count) => '$count ?';
+  String adaptersCount(int count) => '$count items';
 
   @override
-  String get adaptersEmpty => 'daemon ??????';
+  String get adaptersEmpty => 'daemon returned no adapters';
 
   @override
-  String get adaptersExtensionsSection => '??';
+  String get adaptersExtensionsSection => 'Extensions';
 
   @override
-  String get adaptersNoExtensions => '??????';
+  String get adaptersNoExtensions => 'No extension information';
 
   @override
-  String get adaptersNotInstalled => '???';
+  String get adaptersNotInstalled => 'not installed';
 
   @override
-  String get adaptersStatusOk => '??                         ??';
+  String get adaptersStatusOk => 'Status                         OK';
 
   @override
-  String get adaptersCapabilitiesLabel => '??';
+  String get adaptersCapabilitiesLabel => '状态                         正常';
 
   @override
-  String get diagnosticsTitle => '????';
+  String get diagnosticsTitle => 'Diagnostics';
 
   @override
-  String get diagnosticsDescription => '????????????????';
+  String get diagnosticsDescription => 'Export a redacted diagnostics bundle for troubleshooting';
 
   @override
-  String get diagnosticsSystemInfo => '????';
+  String get diagnosticsSystemInfo => 'System information';
 
   @override
-  String get diagnosticsAdapterStatus => '?????';
+  String get diagnosticsAdapterStatus => 'Adapter status';
 
   @override
-  String get diagnosticsRunLogsRecent => '???? (?? 7 ?)';
+  String get diagnosticsRunLogsRecent => 'Run logs (last 7 days)';
 
   @override
-  String get diagnosticsEventRecordsRecent => '???? (?? 7 ?)';
+  String get diagnosticsEventRecordsRecent => 'Event records (last 7 days)';
 
   @override
-  String get diagnosticsConfigInfo => '????';
+  String get diagnosticsConfigInfo => 'Configuration';
 
   @override
-  String get diagnosticsEstimatedSize => '????';
+  String get diagnosticsEstimatedSize => 'Estimated size';
 
   @override
-  String get diagnosticsGenerateAction => '?????';
+  String get diagnosticsGenerateAction => 'Generate diagnostics bundle';
 
   @override
-  String get notificationsTitle => '??';
+  String get notificationsTitle => 'Notifications';
 
   @override
-  String get notificationsTabAll => '??';
+  String get notificationsTabAll => 'All';
 
   @override
-  String get notificationsTabUnread => '??';
+  String get notificationsTabUnread => 'Unread';
 
   @override
-  String get notificationsTabMentions => '@?';
+  String get notificationsTabMentions => '全部';
 
   @override
-  String get notificationsApprovalRequired => '????';
+  String get notificationsApprovalRequired => 'Approval required';
 
   @override
-  String get notificationsRequestModify => 'Claude Code ????\nlib/services/auth_service.dart';
+  String get notificationsRequestModify => 'Claude Code requests changes\nlib/services/auth_service.dart';
 
   @override
-  String get notificationsTaskComplete => '????';
+  String get notificationsTaskComplete => 'Task complete';
 
   @override
-  String get notificationsRunCompletedDuration => 'Add unit tests for user service\n??????? 28m 15s';
+  String get notificationsRunCompletedDuration => 'Add unit tests for user service\nRun completed, duration 28m 15s';
 
   @override
-  String get notificationsTaskFailed => '????';
+  String get notificationsTaskFailed => 'Task failed';
 
   @override
-  String get notificationsDataSyncBody => '????????\n?????????';
+  String get notificationsDataSyncBody => 'Optimize data sync logic\nRun failed, view details';
 
   @override
-  String get notificationsYesterday1422 => '?? 14:22';
+  String get notificationsYesterday1422 => 'Yesterday 14:22';
 
   @override
-  String get notificationsQueueUpdate => '????';
+  String get notificationsQueueUpdate => 'Queue update';
 
   @override
-  String get notificationsCacheBody => '??????\n?????';
+  String get notificationsCacheBody => 'Optimize cache strategy\nStarted running';
 
   @override
-  String get notificationsYesterday1315 => '?? 13:15';
+  String get notificationsYesterday1315 => 'Yesterday 13:15';
 
   @override
-  String get notificationsSystemMessage => '????';
+  String get notificationsSystemMessage => 'System message';
 
   @override
-  String get notificationsConnectedBody => '???? DESKTOP-DEV';
+  String get notificationsConnectedBody => 'Connected to DESKTOP-DEV';
 
   @override
-  String get notificationsYesterday1001 => '?? 10:01';
+  String get notificationsYesterday1001 => 'Yesterday 10:01';
 
   @override
-  String get runDetailTitle => '????';
+  String get runDetailTitle => 'Run details';
 
   @override
-  String get runDetailMockTask => '??????????';
+  String get runDetailMockTask => 'Fix login API test failure';
 
   @override
-  String get runDetailRunningStatus => '???';
+  String get runDetailRunningStatus => 'Running';
 
   @override
-  String get runDetailStartedDuration => '10:32 ?? ? ???? 12m 45s';
+  String get runDetailStartedDuration => '10:32 started ? Duration 12m 45s';
 
   @override
-  String get runDetailTabOverview => '??';
+  String get runDetailTabOverview => 'Overview';
 
   @override
-  String get runDetailTabEvents => '??';
+  String get runDetailTabEvents => 'Events';
 
   @override
-  String get runDetailTabFileChanges => '????';
+  String get runDetailTabFileChanges => '概览';
 
   @override
-  String get runDetailTabConfig => '??';
+  String get runDetailTabConfig => 'Config';
 
   @override
-  String get runDetailUserPromptTitle => '????';
+  String get runDetailUserPromptTitle => 'User prompt';
 
   @override
-  String get runDetailUserPromptBody => '?????????????????????';
+  String get runDetailUserPromptBody => 'Fix the login API test failure and add boundary-condition tests.';
 
   @override
-  String get runDetailThinkingTitle => 'Claude ????';
+  String get runDetailThinkingTitle => 'Claude starts thinking';
 
   @override
-  String get runDetailThinkingBody => '???????????...';
+  String get runDetailThinkingBody => 'Analyzing the problem and related code...';
 
   @override
-  String get runDetailReadFileTitle => '????';
+  String get runDetailReadFileTitle => 'Read file';
 
   @override
-  String get runDetailSearchCodeTitle => '????';
+  String get runDetailSearchCodeTitle => 'Search code';
 
   @override
-  String get runDetailSearchBody => 'search: "login failure test"\n?? 12 ???';
+  String get runDetailSearchBody => 'search: "login failure test"\nFound 12 results';
 
   @override
-  String get runDetailEditFileTitle => '????';
+  String get runDetailEditFileTitle => 'Edit file';
 
   @override
-  String get runDetailRunCommandTitle => '????';
+  String get runDetailRunCommandTitle => 'Run command';
 
   @override
-  String get runDetailCommandBody => 'dart test tests/login_test.dart      ??? ?';
+  String get runDetailCommandBody => 'dart test tests/login_test.dart      running ?';
 
+  @override
+  String get sessionsTitle => 'Sessions';
+  @override
+  String get sessionsCurrentProject => 'Current project';
+  @override
+  String get sessionsSearchPlaceholder => 'Search sessions, commands, file paths?';
+  @override
+  String get sessionsFootnote => 'This list only shows sessions in the current workspace.';
+  @override
+  String get sessionsEmptyTitle => 'No sessions in this workspace yet';
+  @override
+  String get sessionsNewSession => 'New Session';
+  @override
+  String get sessionsWaitingApproval => 'Waiting approval';
+  @override
+  String get sessionsPendingBadge => 'pending';
+  @override
+  String get sessionsRunning => 'Running';
+  @override
+  String get sessionsFailed => 'Failed';
+  @override
+  String get sessionsDone => 'Done';
+  @override
+  String get sessionsSessionNoun => 'session';
+  @override
+  String get sessionsTaskNoun => 'task';
 }
