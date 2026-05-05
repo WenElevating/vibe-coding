@@ -10,7 +10,7 @@ class _CodingWorkbenchPage extends StatefulWidget {
       required this.streamOutput,
       required this.expandThinking,
       required this.permissionMode});
-  final _AppSnapshot data;
+  final AppSnapshot data;
   final DaemonClient client;
   final VoidCallback onBack;
   final ValueChanged<bool> onSessionListChanged;

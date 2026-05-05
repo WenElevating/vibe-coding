@@ -3,7 +3,7 @@ part of '../../app/app.dart';
 class _AdaptersPage extends StatelessWidget {
   const _AdaptersPage({required this.onBack, required this.data});
   final VoidCallback onBack;
-  final _AppSnapshot data;
+  final AppSnapshot data;
 
   @override
   Widget build(BuildContext context) => _PageScroll(children: [

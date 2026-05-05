@@ -4,7 +4,7 @@ class _RunDetailPage extends StatelessWidget {
   const _RunDetailPage(
       {required this.onBack, required this.data, required this.client});
   final VoidCallback onBack;
-  final _AppSnapshot data;
+  final AppSnapshot data;
   final DaemonClient client;
 
   @override

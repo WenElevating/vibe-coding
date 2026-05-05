@@ -380,9 +380,9 @@ Widget buildMissingWorkspaceFallbackPreview() {
               onAddWorkspace: () {})));
 }
 
-_AppSnapshot _previewSnapshot(WorkspaceSummary current,
+AppSnapshot _previewSnapshot(WorkspaceSummary current,
         List<WorkspaceSummary> workspaces, List<RunSummary> runs) =>
-    _AppSnapshot(
+    AppSnapshot(
         health: DaemonHealth.fromJson(const <String, Object?>{
           'status': 'ok',
           'daemonVersion': 'test',
@@ -430,7 +430,7 @@ Widget buildCodingWorkbenchEntryPreview() {
       id: 'workspace_1',
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
-  final data = _AppSnapshot(
+  final data = AppSnapshot(
       health: DaemonHealth.fromJson(const <String, Object?>{
         'status': 'ok',
         'daemonVersion': 'test',

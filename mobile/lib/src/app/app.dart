@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../models/protocol.dart';
 import '../services/daemon_client.dart';
 import '../state/conversation_reducer.dart';
+import '../shell/shell.dart';
 import '../theme/theme.dart';
 import '../widgets/widgets.dart';
 

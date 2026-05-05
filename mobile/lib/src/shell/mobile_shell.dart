@@ -7,8 +7,6 @@ class MobileShell extends StatefulWidget {
   State<MobileShell> createState() => _MobileShellState();
 }
 
-enum _RoutePage { tabs, detail, approval, adapters, notifications, diagnostics }
-
 class _MobileShellState extends State<MobileShell> {
   int _tab = 0;
   bool _streamOutput = false;
@@ -16,9 +14,9 @@ class _MobileShellState extends State<MobileShell> {
   String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _codingSessionListOpenRequest = 0;
-  _RoutePage _route = _RoutePage.tabs;
+  RoutePage _route = RoutePage.tabs;
   late final DaemonClient _client;
-  late Future<_AppSnapshot> _snapshot;
+  late Future<AppSnapshot> _snapshot;
 
   @override
   void initState() {
@@ -26,16 +24,16 @@ class _MobileShellState extends State<MobileShell> {
     _client = DaemonClient(
         baseUri: Uri.parse('http://127.0.0.1:4317'),
         tokenStore: MemoryTokenStore());
-    _snapshot = _AppSnapshot.load(_client);
+    _snapshot = AppSnapshot.load(_client);
   }
 
-  void _refresh() => setState(() => _snapshot = _AppSnapshot.load(_client));
+  void _refresh() => setState(() => _snapshot = AppSnapshot.load(_client));
 
-  void _open(_RoutePage route) => setState(() => _route = route);
-  void _back() => setState(() => _route = _RoutePage.tabs);
+  void _open(RoutePage route) => setState(() => _route = route);
+  void _back() => setState(() => _route = RoutePage.tabs);
   void _selectTab(int index) => setState(() {
         _tab = index;
-        _route = _RoutePage.tabs;
+        _route = RoutePage.tabs;
         if (index == 2) {
           _codingSessionListOpen = true;
           _codingSessionListOpenRequest++;
@@ -52,7 +50,7 @@ class _MobileShellState extends State<MobileShell> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_AppSnapshot>(
+    return FutureBuilder<AppSnapshot>(
       future: _snapshot,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
@@ -96,117 +94,27 @@ class _MobileShellState extends State<MobileShell> {
                   setState(() => _expandThinking = value)),
         ];
         final overlay = switch (_route) {
-          _RoutePage.detail =>
+          RoutePage.detail =>
             _RunDetailPage(onBack: _back, data: data, client: _client),
-          _RoutePage.approval => _ApprovalPage(onBack: _back),
-          _RoutePage.adapters => _AdaptersPage(onBack: _back, data: data),
-          _RoutePage.notifications => _NotificationsPage(onBack: _back),
-          _RoutePage.diagnostics =>
+          RoutePage.approval => _ApprovalPage(onBack: _back),
+          RoutePage.adapters => _AdaptersPage(onBack: _back, data: data),
+          RoutePage.notifications => _NotificationsPage(onBack: _back),
+          RoutePage.diagnostics =>
             _DiagnosticsPage(onBack: _back, data: data, client: _client),
-          _RoutePage.tabs => null,
+          RoutePage.tabs => null,
         };
         return Scaffold(
           body: _PhoneFrame(
             child: overlay ?? IndexedStack(index: _tab, children: pages),
           ),
           bottomNavigationBar:
-              _route == _RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
+              _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
                   ? _BottomNav(selected: _tab, items: _items, onTap: _selectTab)
                   : null,
           extendBody: true,
         );
       },
     );
-  }
-}
-
-class _AppSnapshot {
-  const _AppSnapshot(
-      {required this.health,
-      required this.workspaces,
-      required this.workspace,
-      required this.overview,
-      required this.adapters,
-      required this.runs,
-      required this.conversations,
-      required this.queue,
-      required this.templates,
-      required this.gitStatus,
-      required this.diffs,
-      required this.commits,
-      required this.fileTree,
-      required this.diagnostics,
-      required this.extensions});
-
-  final DaemonHealth health;
-  final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary workspace;
-  final ProjectOverview overview;
-  final List<AdapterStatus> adapters;
-  final List<RunSummary> runs;
-  final List<ConversationSummary> conversations;
-  final List<QueueItem> queue;
-  final List<CommandTemplate> templates;
-  final GitStatusSummary? gitStatus;
-  final List<DiffSummary> diffs;
-  final List<GitCommitSummary> commits;
-  final FileTreeResponse fileTree;
-  final CodeDiagnosticsSummary diagnostics;
-  final List<ExtensionSummary> extensions;
-
-  List<RunSummary> get runningRuns => runs
-      .where((run) => run.status == 'running' || run.status == 'starting')
-      .toList();
-  List<RunSummary> get completedRuns =>
-      runs.where((run) => run.status == 'completed').toList();
-  List<RunSummary> get failedRuns =>
-      runs.where((run) => run.status == 'failed').toList();
-
-  static Future<_AppSnapshot> load(DaemonClient client) async {
-    final health = await client.health();
-    final pairingCode = await client.createPairingCode();
-    await client.pair(code: pairingCode, label: 'Windows preview');
-    final workspaces = await client.listWorkspaces();
-    final workspace = workspaces.first;
-    final results = await Future.wait<Object?>([
-      _loadStep('overview', () => client.projectOverview(workspace.id)),
-      _loadStep('adapters', client.listAdapters),
-      _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
-      _loadStep('conversations', client.listConversations),
-      _loadStep('queue', client.listQueue),
-      _loadStep('command templates', client.listCommandTemplates),
-      _tryOrNull(() => client.gitStatus(workspace.id)),
-      client.gitDiff(workspace.id).catchError((_) => <DiffSummary>[]),
-      client.gitCommits(workspace.id).catchError((_) => <GitCommitSummary>[]),
-      _loadStep('file tree', () => client.fileTree(workspace.id, maxDepth: 6)),
-      _loadStep('code diagnostics', () => client.codeDiagnostics(workspace.id)),
-      _loadStep('extensions', client.listExtensions),
-    ]);
-    return _AppSnapshot(
-      health: health,
-      workspaces: workspaces,
-      workspace: workspace,
-      overview: results[0] as ProjectOverview,
-      adapters: results[1] as List<AdapterStatus>,
-      runs: results[2] as List<RunSummary>,
-      conversations: results[3] as List<ConversationSummary>,
-      queue: results[4] as List<QueueItem>,
-      templates: results[5] as List<CommandTemplate>,
-      gitStatus: results[6] as GitStatusSummary?,
-      diffs: results[7] as List<DiffSummary>,
-      commits: results[8] as List<GitCommitSummary>,
-      fileTree: results[9] as FileTreeResponse,
-      diagnostics: results[10] as CodeDiagnosticsSummary,
-      extensions: results[11] as List<ExtensionSummary>,
-    );
-  }
-}
-
-Future<T> _loadStep<T>(String label, Future<T> Function() load) async {
-  try {
-    return await load();
-  } catch (error) {
-    throw StateError('$label: $error');
   }
 }
 
@@ -228,14 +136,6 @@ Color _toolColor(String tool) {
 
 String _displayVersion(String? version) =>
     version == null || version.isEmpty ? 'unknown' : version;
-
-Future<T?> _tryOrNull<T>(Future<T> Function() load) async {
-  try {
-    return await load();
-  } catch (_) {
-    return null;
-  }
-}
 
 class _ConnectionError extends StatelessWidget {
   const _ConnectionError({required this.error, required this.onRetry});
@@ -297,9 +197,9 @@ class _PhoneFrame extends StatelessWidget {
 class _HomePage extends StatelessWidget {
   const _HomePage(
       {required this.open, required this.selectTab, required this.data});
-  final ValueChanged<_RoutePage> open;
+  final ValueChanged<RoutePage> open;
   final ValueChanged<int> selectTab;
-  final _AppSnapshot data;
+  final AppSnapshot data;
 
   @override
   Widget build(BuildContext context) {
@@ -358,7 +258,7 @@ class _HomePage extends StatelessWidget {
                       status: run.status,
                       color: _statusColor(run.status),
                       iconColor: _toolColor(run.tool),
-                      onTap: () => open(_RoutePage.detail)),
+                      onTap: () => open(RoutePage.detail)),
                   if (run != data.runs.take(4).last) const _Hairline(),
                 ],
             ],
@@ -395,7 +295,7 @@ class _HomePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        _ApprovalPreview(onTap: () => open(_RoutePage.approval)),
+        _ApprovalPreview(onTap: () => open(RoutePage.approval)),
       ],
     );
   }
@@ -403,13 +303,13 @@ class _HomePage extends StatelessWidget {
 
 class _RunsPage extends StatelessWidget {
   const _RunsPage({required this.open, required this.data});
-  final ValueChanged<_RoutePage> open;
-  final _AppSnapshot data;
+  final ValueChanged<RoutePage> open;
+  final AppSnapshot data;
 
   @override
   Widget build(BuildContext context) {
     return _PageScroll(
-      floating: _FloatingPlus(onTap: () => open(_RoutePage.detail)),
+      floating: _FloatingPlus(onTap: () => open(RoutePage.detail)),
       children: [
         _TopBar(title: '运行列表'),
         const SizedBox(height: 20),
@@ -435,7 +335,7 @@ class _RunsPage extends StatelessWidget {
                 status: run.status,
                 progress: run.status == 'completed' ? 1 : .48,
                 statusColor: _statusColor(run.status),
-                onTap: () => open(_RoutePage.detail)),
+                onTap: () => open(RoutePage.detail)),
             const SizedBox(height: 10),
           ],
       ],
@@ -445,7 +345,7 @@ class _RunsPage extends StatelessWidget {
 
 class _QueuePage extends StatelessWidget {
   const _QueuePage({required this.data});
-  final _AppSnapshot data;
+  final AppSnapshot data;
 
   @override
   Widget build(BuildContext context) {

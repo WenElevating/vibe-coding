@@ -10,8 +10,8 @@ class _SettingsPage extends StatelessWidget {
       required this.onPermissionModeChanged,
       required this.onStreamOutputChanged,
       required this.onExpandThinkingChanged});
-  final ValueChanged<_RoutePage> open;
-  final _AppSnapshot data;
+  final ValueChanged<RoutePage> open;
+  final AppSnapshot data;
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
@@ -67,18 +67,18 @@ class _SettingsPage extends StatelessWidget {
           Expanded(
               child: _SettingsActionButton('适配器',
                   icon: Icons.extension_rounded,
-                  onTap: () => open(_RoutePage.adapters))),
+                  onTap: () => open(RoutePage.adapters))),
           const SizedBox(width: 10),
           Expanded(
               child: _SettingsActionButton('通知',
                   icon: Icons.notifications_rounded,
-                  onTap: () => open(_RoutePage.notifications))),
+                  onTap: () => open(RoutePage.notifications))),
         ]),
         const SizedBox(height: 10),
         _SettingsActionButton('生成诊断信息',
             icon: Icons.health_and_safety_rounded,
             fullWidth: true,
-            onTap: () => open(_RoutePage.diagnostics)),
+            onTap: () => open(RoutePage.diagnostics)),
       ],
     );
   }

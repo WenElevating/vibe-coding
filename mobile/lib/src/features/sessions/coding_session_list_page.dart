@@ -8,7 +8,7 @@ class _CodingSessionListPage extends StatelessWidget {
       required this.onNewSession,
       required this.onSelectItem,
       required this.onBackToWorkspaces});
-  final _AppSnapshot data;
+  final AppSnapshot data;
   final List<_SessionItem> items;
   final WorkspaceSummary currentWorkspace;
   final VoidCallback onNewSession;
