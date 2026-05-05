@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const LIVE_STATUSES = new Set(['running', 'waiting_input', 'waiting_approval']);
@@ -52,6 +53,26 @@ class AppSqliteStore {
       );
       CREATE INDEX IF NOT EXISTS idx_conversation_events_type_created
         ON conversation_events(type, created_at DESC);
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        owner_device_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(owner_device_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS workspace_device_authorizations (
+        device_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (device_id, workspace_id),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_workspaces_owner_path
+        ON workspaces(owner_device_id, path);
+      CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
+        ON workspace_device_authorizations(device_id);
     `);
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
@@ -124,6 +145,55 @@ class AppSqliteStore {
     return row.next_seq;
   }
 
+  saveWorkspaceForDevice({ deviceId, id, name, workspacePath }) {
+    if (!deviceId) throw new Error('deviceId is required');
+    if (!workspacePath) throw new Error('workspace path is required');
+    const resolved = path.resolve(workspacePath);
+    const now = this.now().toISOString();
+    const workspaceId = id || workspaceIdForDevicePath(deviceId, resolved);
+    const displayName = name && String(name).trim() ? String(name).trim() : path.basename(resolved) || resolved;
+    this.db.prepare(`
+      INSERT INTO workspaces(id, owner_device_id, name, path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(owner_device_id, path) DO UPDATE SET
+        name = excluded.name,
+        updated_at = excluded.updated_at
+    `).run(workspaceId, deviceId, displayName, resolved, now, now);
+    const row = this.db.prepare('SELECT id, name, path FROM workspaces WHERE owner_device_id = ? AND path = ?')
+      .get(deviceId, resolved);
+    this.authorizeWorkspaceForDevice(deviceId, row.id);
+    return deserializeWorkspace(row);
+  }
+
+  authorizeWorkspaceForDevice(deviceId, workspaceId) {
+    if (!deviceId) throw new Error('deviceId is required');
+    if (!workspaceId) throw new Error('workspaceId is required');
+    this.db.prepare(`
+      INSERT OR IGNORE INTO workspace_device_authorizations(device_id, workspace_id, created_at)
+      VALUES (?, ?, ?)
+    `).run(deviceId, workspaceId, this.now().toISOString());
+  }
+
+  listWorkspacesForDevice(deviceId) {
+    return this.db.prepare(`
+      SELECT w.id, w.name, w.path
+      FROM workspaces w
+      INNER JOIN workspace_device_authorizations a ON a.workspace_id = w.id
+      WHERE a.device_id = ?
+      ORDER BY w.created_at ASC
+    `).all(deviceId).map(deserializeWorkspace);
+  }
+
+  getWorkspaceForDevice(workspaceId, deviceId) {
+    const row = this.db.prepare(`
+      SELECT w.id, w.name, w.path
+      FROM workspaces w
+      INNER JOIN workspace_device_authorizations a ON a.workspace_id = w.id
+      WHERE w.id = ? AND a.device_id = ?
+    `).get(workspaceId, deviceId);
+    return row ? deserializeWorkspace(row) : null;
+  }
+
   close() {
     this.db.close();
   }
@@ -179,6 +249,14 @@ function deserializeEvent(row) {
     createdAt: row.created_at,
     ...parseJson(row.payload_json, {})
   };
+}
+
+function workspaceIdForDevicePath(deviceId, resolvedPath) {
+  return `workspace_${crypto.createHash('sha1').update(`${deviceId}:${resolvedPath}`).digest('hex').slice(0, 12)}`;
+}
+
+function deserializeWorkspace(row) {
+  return { id: row.id, name: row.name, path: row.path };
 }
 
 function parseJson(value, fallback) {

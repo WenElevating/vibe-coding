@@ -184,6 +184,54 @@ test('default app DB path uses app-level name', () => {
   );
 });
 
+test('app SQLite store persists workspaces and device authorizations', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-workspaces-'));
+  const dbPath = path.join(dir, 'app.sqlite');
+  const first = new AppSqliteStore({ dbPath, now: () => new Date('2026-05-05T00:00:00.000Z') });
+  const workspace = first.saveWorkspaceForDevice({
+    deviceId: 'device_1',
+    workspacePath: path.join(dir, 'project'),
+    name: 'Project'
+  });
+  first.close();
+
+  const second = new AppSqliteStore({ dbPath, now: () => new Date('2026-05-05T00:00:01.000Z') });
+  const listed = second.listWorkspacesForDevice('device_1');
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, workspace.id);
+  assert.equal(listed[0].name, 'Project');
+  assert.equal(listed[0].path, path.resolve(path.join(dir, 'project')));
+  assert.deepEqual(second.listWorkspacesForDevice('device_2'), []);
+  second.close();
+});
+
+test('app SQLite store scopes duplicate workspace paths by owner device', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-device-scope-'));
+  const store = new AppSqliteStore({ dbPath: path.join(dir, 'app.sqlite') });
+  const workspacePath = path.join(dir, 'shared-name');
+  const first = store.saveWorkspaceForDevice({ deviceId: 'device_1', workspacePath, name: 'One' });
+  const renamed = store.saveWorkspaceForDevice({ deviceId: 'device_1', workspacePath, name: 'Renamed' });
+  const second = store.saveWorkspaceForDevice({ deviceId: 'device_2', workspacePath, name: 'Two' });
+
+  assert.equal(first.id, renamed.id);
+  assert.notEqual(first.id, second.id);
+  assert.equal(store.listWorkspacesForDevice('device_1').length, 1);
+  assert.equal(store.listWorkspacesForDevice('device_1')[0].name, 'Renamed');
+  assert.equal(store.listWorkspacesForDevice('device_2').length, 1);
+  assert.equal(store.listWorkspacesForDevice('device_2')[0].name, 'Two');
+  store.close();
+});
+
 test('conversation event store continues sequence numbers from SQLite', () => {
   const fs = require('node:fs');
   const os = require('node:os');
