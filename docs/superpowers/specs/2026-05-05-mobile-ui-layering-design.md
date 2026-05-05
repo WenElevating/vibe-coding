@@ -40,14 +40,23 @@ LanAiCliControlApp
 
 ```text
 CodingPage
-├── WorkspaceListPage
-└── WorkspaceSessionsPage
-    ├── SessionListPage
-    └── ConversationPage
-        ├── Composer
-        ├── ConversationMessages
-        └── ApprovalPanel
++-- WorkspaceListPage
+`-- WorkspaceSessionsPage
+    +-- SessionListPage
+    `-- ConversationPage
+        +-- Composer
+        +-- ConversationMessages
+        `-- ApprovalPanel
 ```
+
+`CodingPage` must stay thin. It should not become a second `mobile_shell.dart`.
+
+Coding sub-navigation should be owned by a dedicated navigation boundary, either:
+
+- a `CodingNavigator` widget/controller that owns workspace-to-sessions-to-conversation navigation state, or
+- a nested router if the project later adopts a router package.
+
+For the current codebase, prefer `CodingNavigator` because it avoids adding a dependency and keeps this refactor focused. `CodingPage` should compose the navigator and pass required inputs; it should not directly own every child page's state.
 
 ## Module Boundaries
 
@@ -67,6 +76,16 @@ Does not own:
 - app-wide data loading
 - workbench message/event transformation
 - feature-specific business logic
+
+### `MobileUiFrame`
+
+`MobileUiFrame` is a pure visual container. Its responsibility is limited to:
+
+- phone-frame sizing and background chrome
+- global decorative layers such as glows, safe margins, and frame clipping
+- wrapping a single child supplied by `MobileUi`
+
+It must not own navigation, tab state, route decisions, daemon clients, loading, retry behavior, page selection, or feature-specific conditionals. If a future change needs those responsibilities, the logic belongs in `MobileUi`, `MainTabsPage`, or the relevant page controller instead.
 
 ### `src/ui/pages/`
 
@@ -126,11 +145,23 @@ Not in scope:
 - rewriting workbench business state beyond what is needed for UI ownership
 - changing the protocol model
 
+## Migration Strategy
+
+Use a staged migration with a short-lived shim, not two competing navigation systems.
+
+1. Introduce `src/ui/` and move visual shell pieces behind the new names.
+2. Keep `mobile_shell.dart` only as a temporary compatibility shim that delegates to `MobileUi`.
+3. Move one top-level page at a time into `src/ui/pages/` while preserving current inputs and callbacks.
+4. Once all top-level pages are owned by `src/ui/pages/`, delete the `mobile_shell.dart` shim and update `shell.dart`/package exports.
+
+The shim must not gain new behavior. Its lifecycle ends in the same implementation plan that introduces `MobileUi`; it is not an architectural layer.
+
 ## Risks
 
 - `mobile_shell.dart` currently carries several page implementations; moving them without changing behavior requires careful extraction.
 - The coding flow still mixes UI state and business state, so the first UI split should preserve behavior and defer deeper controller work.
 - `AppSnapshot` is still broad; this design intentionally does not solve data-loading granularity yet.
+- Because `AppSnapshot` remains broad, UI extraction can still be a partial decoupling: pages may be separated visually while still receiving full-app data. Splitting `AppSnapshot` into feature-scoped inputs should be the next high-priority architecture item after the UI ownership migration.
 
 ## Acceptance Criteria
 
