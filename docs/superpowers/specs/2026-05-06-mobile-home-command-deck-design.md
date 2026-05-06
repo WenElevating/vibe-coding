@@ -53,7 +53,7 @@ Behavior:
 
 ### 2. Now Panel
 
-Purpose: show the highest-priority item that needs attention.
+Purpose: show the highest-priority item that needs attention, plus a compact overflow hint when more important signals exist.
 
 Priority order:
 
@@ -62,6 +62,13 @@ Priority order:
 3. Running conversation or run in the current workspace.
 4. Queue blockage.
 5. Idle state.
+
+Overflow rule:
+
+- The panel renders one primary item to preserve mobile focus.
+- If additional signals exist at the same priority or an adjacent priority, show a compact `+N more` affordance inside the panel footer.
+- Overflow items are not silently discarded. Current-workspace overflow can appear in the Execution Stream, and cross-workspace overflow appears in the Interrupt Lane when it matches that lane's visibility rules.
+- Example: if current workspace has an approval and a failed run, Now Panel shows the approval and `+1 more`; Execution Stream keeps the failed run visible unless it is the same item as the primary Now item.
 
 Content examples:
 
@@ -84,6 +91,8 @@ Visibility:
 
 - Hidden when no other workspace needs attention.
 - Visible when another workspace has approval, failure, or blocking queue state.
+- Visible for other-workspace running state only when the current workspace is idle and there is no approval, failure, or blocked queue signal anywhere.
+- Hidden for normal other-workspace running state when the current workspace already has a stronger Now Panel item.
 
 Row format:
 
@@ -112,6 +121,8 @@ Content:
 - Current workspace recent runs and relevant conversations.
 - Limit to the most recent 3 items on the first screen.
 - Each item shows adapter/tool, status, short identifier, and updated time when available.
+- Exclude the exact item already rendered as the primary Now Panel item to avoid duplicate rows on the same screen.
+- Keep related but distinct signals visible. For example, if Now Panel shows an approval for a conversation, a failed run in the same workspace can still appear in the stream.
 
 Empty state:
 
@@ -198,6 +209,14 @@ class WorkspaceRunSummary {
 
 Implementation may derive this from existing `/api/runs` calls if the daemon already returns enough global data, or load per workspace with a bounded request pattern. Keep it small: counts and latest state only.
 
+Refresh policy:
+
+- Refresh with the normal `AppSnapshot` load or refresh cycle by default.
+- Do not introduce an independent high-frequency timer for the home page.
+- If the app already performs foreground polling, run summary refresh should piggyback on that cadence.
+- Manual user refresh or returning to foreground may trigger a refresh.
+- If summary loading fails, keep the current workspace view and derive any available cross-workspace signals from `conversations` and `queue`.
+
 ### Signal Selection Rules
 
 Current workspace remains the default focus. Cross-workspace items enter the home page only if they are actionable or abnormal.
@@ -247,7 +266,7 @@ Responsibility:
 - Render recent current-workspace activity.
 - Use compact rows and a small empty state.
 
-### `HomeSignalStrip`
+### `HomeWorkspaceSignals`
 
 Responsibility:
 
@@ -302,10 +321,11 @@ Likely new keys:
 - `homeWorkspaceSignalsTitle`
 - `homeIdleNow`
 - `homeNoRecentActivity`
-- `homeGitChangedSignal`
-- `homeDiagnosticsSignal`
-- `homeQueueSignal`
-- `homeRecentFilesSignal`
+- `homeGitChangedLabel`
+- `homeDiagnosticsLabel`
+- `homeQueueLabel`
+- `homeRecentFilesLabel`
+- `homeMoreSignalsLabel`
 
 Do not translate runtime data: workspace names, paths, adapter names, tool names, run ids, and raw daemon messages.
 
@@ -315,9 +335,13 @@ Widget tests should cover:
 
 - Home page does not render connection status or scan controls.
 - Pending approval becomes the Now Panel priority over running state.
+- Pending approval and failed run together render one primary Now item plus an overflow hint.
 - Cross-workspace interrupt lane appears for another workspace approval or failed run.
+- Cross-workspace interrupt lane appears for another workspace running item only when the current workspace is idle and no stronger signal exists.
 - Cross-workspace interrupt lane stays hidden when only the current workspace has normal activity.
+- Execution Stream excludes the exact primary Now Panel item.
 - Empty state is compact when no activity exists.
+- Cross-workspace run summary loading failure degrades without breaking current-workspace content.
 - Simplified Chinese renders static labels through localization.
 
 Unit tests should cover:
@@ -325,6 +349,8 @@ Unit tests should cover:
 - Signal ranking helper priority order.
 - Workspace scoping for current and external signals.
 - Run summary aggregation for running and failed counts.
+- Overflow count derivation for same-priority and adjacent-priority signals.
+- Now Panel and Execution Stream de-duplication by stable item identity.
 
 ## Implementation Scope
 
@@ -334,7 +360,8 @@ This design is one implementation slice:
 2. Add lightweight cross-workspace run summary support.
 3. Replace the current `HomePage` layout with Command Deck components.
 4. Add localization keys.
-5. Add focused widget and helper tests.
+5. Add unit tests for ranking, overflow, workspace scoping, de-duplication, and run-summary aggregation.
+6. Add widget tests for layout behavior, hidden connection controls, interrupt lane visibility, compact empty states, and localization.
 
 Keep changes local to home page, snapshot/data helpers, l10n, and tests unless the existing route wiring requires a small adjustment.
 
