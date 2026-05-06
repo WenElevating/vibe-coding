@@ -326,6 +326,138 @@ abstract class AppLocalizations {
   /// **'Security mode'**
   String get settingsSecurityModeLabel;
 
+  /// No description provided for @settingsDaemonAddressLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Daemon address'**
+  String get settingsDaemonAddressLabel;
+
+  /// No description provided for @settingsProxyModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy mode'**
+  String get settingsProxyModeLabel;
+
+  /// No description provided for @settingsProxyDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct'**
+  String get settingsProxyDirect;
+
+  /// No description provided for @settingsProxySystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System proxy'**
+  String get settingsProxySystem;
+
+  /// No description provided for @settingsProxyManual.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual proxy'**
+  String get settingsProxyManual;
+
+  /// No description provided for @connectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection'**
+  String get connectionTitle;
+
+  /// No description provided for @connectionSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm daemon target before workspaces load'**
+  String get connectionSubtitle;
+
+  /// No description provided for @connectionAddressSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection address'**
+  String get connectionAddressSection;
+
+  /// No description provided for @connectionProxySection.
+  ///
+  /// In en, this message translates to:
+  /// **'Network proxy'**
+  String get connectionProxySection;
+
+  /// No description provided for @connectionConnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get connectionConnectAction;
+
+  /// No description provided for @connectionReconnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnect'**
+  String get connectionReconnectAction;
+
+  /// No description provided for @connectionStatusLoadingConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading connection settings'**
+  String get connectionStatusLoadingConfig;
+
+  /// No description provided for @connectionStatusIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get connectionStatusIdle;
+
+  /// No description provided for @connectionStatusValidating.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolving connection address'**
+  String get connectionStatusValidating;
+
+  /// No description provided for @connectionStatusCheckingHealth.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking daemon health'**
+  String get connectionStatusCheckingHealth;
+
+  /// No description provided for @connectionStatusLoadingSnapshot.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing workspace state'**
+  String get connectionStatusLoadingSnapshot;
+
+  /// No description provided for @connectionStatusConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get connectionStatusConnected;
+
+  /// No description provided for @connectionStatusFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection failed'**
+  String get connectionStatusFailed;
+
+  /// No description provided for @connectionStatusReady.
+  ///
+  /// In en, this message translates to:
+  /// **'READY'**
+  String get connectionStatusReady;
+
+  /// No description provided for @connectionStatusError.
+  ///
+  /// In en, this message translates to:
+  /// **'ERROR'**
+  String get connectionStatusError;
+
+  /// No description provided for @connectionTargetLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Target'**
+  String get connectionTargetLabel;
+
+  /// No description provided for @connectionProxyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy'**
+  String get connectionProxyLabel;
+
   /// No description provided for @homeOverviewTitle.
   ///
   /// In en, this message translates to:

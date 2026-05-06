@@ -129,6 +129,72 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSecurityModeLabel => '安全模式';
 
   @override
+  String get settingsDaemonAddressLabel => '守护进程地址';
+
+  @override
+  String get settingsProxyModeLabel => '代理模式';
+
+  @override
+  String get settingsProxyDirect => '直连';
+
+  @override
+  String get settingsProxySystem => '系统代理';
+
+  @override
+  String get settingsProxyManual => '手动代理';
+
+  @override
+  String get connectionTitle => '连接';
+
+  @override
+  String get connectionSubtitle => '加载工作区前确认 daemon 目标';
+
+  @override
+  String get connectionAddressSection => '连接地址';
+
+  @override
+  String get connectionProxySection => '网络代理';
+
+  @override
+  String get connectionConnectAction => '连接';
+
+  @override
+  String get connectionReconnectAction => '重连';
+
+  @override
+  String get connectionStatusLoadingConfig => '正在加载连接设置';
+
+  @override
+  String get connectionStatusIdle => '未连接';
+
+  @override
+  String get connectionStatusValidating => '正在解析连接地址';
+
+  @override
+  String get connectionStatusCheckingHealth => '正在检查 daemon 状态';
+
+  @override
+  String get connectionStatusLoadingSnapshot => '正在同步工作区状态';
+
+  @override
+  String get connectionStatusConnected => '已连接';
+
+  @override
+  String get connectionStatusFailed => '连接失败';
+
+  @override
+  String get connectionStatusReady => '就绪';
+
+  @override
+  String get connectionStatusError => '错误';
+
+  @override
+  String get connectionTargetLabel => '目标';
+
+  @override
+  String get connectionProxyLabel => '代理';
+
+  @override
   String get homeOverviewTitle => '概览';
 
   @override

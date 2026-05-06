@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../services/daemon_client.dart';
+import '../services/daemon_connection_config.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import '../widgets/widgets.dart';
@@ -11,10 +12,15 @@ import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
 
 class MainTabsPage extends StatefulWidget {
-  const MainTabsPage({super.key, required this.data, required this.client});
+  const MainTabsPage(
+      {super.key,
+      required this.data,
+      required this.client,
+      required this.connectionConfig});
 
   final AppSnapshot data;
   final DaemonClient client;
+  final DaemonConnectionConfig connectionConfig;
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
@@ -62,6 +68,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
       SettingsPage(
         open: _open,
         data: data,
+        connectionConfig: widget.connectionConfig,
         streamOutput: _streamOutput,
         expandThinking: _expandThinking,
         permissionMode: _permissionMode,

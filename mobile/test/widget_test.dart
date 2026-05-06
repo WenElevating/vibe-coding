@@ -8,6 +8,7 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
+import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/state/daemon_connection_controller.dart';
@@ -94,6 +95,10 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
                   body: settings_feature.SettingsPage(
                       open: (_) {},
                       data: _testSnapshot(),
+                      connectionConfig: const DaemonConnectionConfig(
+                          addressInput: '192.168.1.20:4317',
+                          proxyMode: DaemonProxyMode.manual,
+                          manualProxyInput: 'http://proxy.local:8080'),
                       streamOutput: false,
                       expandThinking: false,
                       permissionMode: 'default',
@@ -249,6 +254,20 @@ void main() {
     expect(find.text('English'), findsWidgets);
   });
 
+  testWidgets('settings shows active daemon address and proxy mode',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedSettingsPageApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Daemon address'), findsOneWidget);
+    expect(find.text('192.168.1.20:4317'), findsOneWidget);
+    expect(find.text('Proxy mode'), findsOneWidget);
+    expect(find.text('Manual proxy'), findsOneWidget);
+  });
+
   testWidgets('renders assistant markdown instead of raw syntax',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildAssistantMarkdownPreview(
@@ -274,6 +293,26 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('System proxy'), findsOneWidget);
     expect(find.byType(BottomNav), findsNothing);
+  });
+
+  testWidgets('connection page renders Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const LanAiCliControlApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('\u8fde\u63a5'), findsWidgets);
+    expect(find.text('\u8fde\u63a5\u5730\u5740'), findsOneWidget);
+    expect(find.text('\u7f51\u7edc\u4ee3\u7406'), findsOneWidget);
+    expect(find.text('\u76f4\u8fde'), findsWidgets);
+    expect(find.text('\u672a\u8fde\u63a5'), findsOneWidget);
+    expect(find.text('\u76ee\u6807'), findsOneWidget);
+    expect(find.text('\u4ee3\u7406'), findsOneWidget);
+    expect(find.text('Connection'), findsNothing);
+    expect(find.text('Network proxy'), findsNothing);
+    expect(find.text('Not connected'), findsNothing);
   });
 
   testWidgets('connection page keeps address and proxy editable after failure',

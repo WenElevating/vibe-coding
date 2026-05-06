@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/settings/settings.dart' as settings_feature;
+import '../../services/daemon_connection_config.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
 
@@ -9,6 +10,7 @@ class SettingsPage extends StatelessWidget {
     super.key,
     required this.open,
     required this.data,
+    required this.connectionConfig,
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
@@ -19,6 +21,7 @@ class SettingsPage extends StatelessWidget {
 
   final ValueChanged<RoutePage> open;
   final AppSnapshot data;
+  final DaemonConnectionConfig connectionConfig;
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
@@ -31,6 +34,7 @@ class SettingsPage extends StatelessWidget {
     return settings_feature.SettingsPage(
       open: open,
       data: data,
+      connectionConfig: connectionConfig,
       streamOutput: streamOutput,
       expandThinking: expandThinking,
       permissionMode: permissionMode,

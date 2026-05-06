@@ -4,6 +4,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../app/language_mode.dart';
 import '../../app/language_scope.dart';
 import '../../models/protocol.dart';
+import '../../services/daemon_connection_config.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
@@ -14,6 +15,7 @@ class SettingsPage extends StatelessWidget {
       {super.key,
       required this.open,
       required this.data,
+      required this.connectionConfig,
       required this.streamOutput,
       required this.expandThinking,
       required this.permissionMode,
@@ -22,6 +24,7 @@ class SettingsPage extends StatelessWidget {
       required this.onExpandThinkingChanged});
   final ValueChanged<RoutePage> open;
   final AppSnapshot data;
+  final DaemonConnectionConfig connectionConfig;
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
@@ -39,6 +42,7 @@ class SettingsPage extends StatelessWidget {
         const SizedBox(height: 14),
         _SettingsConnectionCard(
             workspace: data.workspace,
+            connectionConfig: connectionConfig,
             mode: data.health.mode,
             lanMode: data.health.lanMode,
             l10n: l10n),
@@ -237,10 +241,12 @@ class _SettingsCard extends StatelessWidget {
 class _SettingsConnectionCard extends StatelessWidget {
   const _SettingsConnectionCard(
       {required this.workspace,
+      required this.connectionConfig,
       required this.mode,
       required this.lanMode,
       required this.l10n});
   final WorkspaceSummary workspace;
+  final DaemonConnectionConfig connectionConfig;
   final String mode;
   final bool lanMode;
   final AppLocalizations l10n;
@@ -296,8 +302,27 @@ class _SettingsConnectionCard extends StatelessWidget {
                   label: l10n.settingsSecurityModeLabel,
                   value: lanMode ? 'LAN' : mode)),
         ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+              child: _SettingsMetric(
+                  label: l10n.settingsDaemonAddressLabel,
+                  value: connectionConfig.addressInput)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _SettingsMetric(
+                  label: l10n.settingsProxyModeLabel,
+                  value: _proxyModeLabel(l10n, connectionConfig.proxyMode))),
+        ]),
       ]));
 }
+
+String _proxyModeLabel(AppLocalizations l10n, DaemonProxyMode mode) =>
+    switch (mode) {
+      DaemonProxyMode.direct => l10n.settingsProxyDirect,
+      DaemonProxyMode.system => l10n.settingsProxySystem,
+      DaemonProxyMode.manual => l10n.settingsProxyManual,
+    };
 
 class _SettingsMetric extends StatelessWidget {
   const _SettingsMetric({required this.label, required this.value});
