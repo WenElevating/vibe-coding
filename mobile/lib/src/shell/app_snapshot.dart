@@ -43,8 +43,9 @@ class AppSnapshot {
   List<RunSummary> get failedRuns =>
       runs.where((run) => run.status == 'failed').toList();
 
-  static Future<AppSnapshot> load(DaemonClient client) async {
-    final health = await client.health();
+  static Future<AppSnapshot> load(DaemonClient client,
+      {DaemonHealth? health}) async {
+    final resolvedHealth = health ?? await client.health();
     final pairingCode = await client.createPairingCode();
     await client.pair(code: pairingCode, label: 'Windows preview');
     final workspaces = await client.listWorkspaces();
@@ -64,7 +65,7 @@ class AppSnapshot {
       _loadStep('extensions', client.listExtensions),
     ]);
     return AppSnapshot(
-      health: health,
+      health: resolvedHealth,
       workspaces: workspaces,
       workspace: workspace,
       overview: results[0] as ProjectOverview,
