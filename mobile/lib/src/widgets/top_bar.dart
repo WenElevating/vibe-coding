@@ -40,12 +40,12 @@ class TopBar extends StatelessWidget {
                   if (subtitle != null) ...[
                     const SizedBox(height: 4),
                     Row(children: [
-                      Text(subtitle!.replaceAll('在线', ''),
+                      Text(subtitle!.replaceAll('online', ''),
                           style: const TextStyle(
                               color: theme.muted,
                               fontSize: 12,
                               letterSpacing: .5)),
-                      const Text('在线',
+                      const Text('online',
                           style: TextStyle(
                               color: theme.green,
                               fontSize: 12,

@@ -129,7 +129,7 @@ class ConversationViewState {
               message.approvalId == event.approvalId);
           nextMessages.add(ConversationMessage(
             role: 'approval',
-            text: event.summary ?? event.toolName ?? '需要批准',
+            text: event.summary ?? event.toolName ?? 'Approval required',
             eventSeq: event.seq,
             approvalId: event.approvalId,
             toolUseId: event.toolUseId,
@@ -427,6 +427,6 @@ bool _isFallbackQuestionText(String? text) {
   final value = text?.trim();
   return value == null ||
       value.isEmpty ||
-      value == '需要你补充更多信息。' ||
+      value == 'Needs more information.' ||
       value == 'Need more information.';
 }

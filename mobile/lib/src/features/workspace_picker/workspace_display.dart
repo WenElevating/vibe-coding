@@ -14,5 +14,5 @@ String workspaceDisplayName(WorkspaceSummary workspace) {
   }
   final normalized = workspace.path.replaceAll('\\', '/');
   final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
-  return parts.isEmpty ? '当前工作区' : parts.last;
+  return parts.isEmpty ? 'Current workspace' : parts.last;
 }

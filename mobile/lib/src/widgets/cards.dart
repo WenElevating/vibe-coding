@@ -244,7 +244,7 @@ class CodeDiff extends StatelessWidget {
               color: const Color(0xFF081018),
               borderRadius: BorderRadius.circular(6)),
           child: const Text(
-              '@@ -48,7 +48,13 @@ Future<User?> login(String email)\n\n-  throw Exception(\'Login failed\');\n+  // 处理边界情况\n+  if (response.body == null ||\n+      response.body.isEmpty) {\n+    throw Exception(\'Empty response\');\n+  }\n+\n   final data = jsonDecode(response.body);',
+              '@@ -48,7 +48,13 @@ Future<User?> login(String email)\n\n-  throw Exception(\'Login failed\');\n+  // Handle edge cases\n+  if (response.body == null ||\n+      response.body.isEmpty) {\n+    throw Exception(\'Empty response\');\n+  }\n+\n   final data = jsonDecode(response.body);',
               style: TextStyle(
                   fontFamily: 'monospace',
                   color: Color(0xFF66E69A),
@@ -264,12 +264,12 @@ class ApprovalPreview extends StatelessWidget {
         Row(children: [
           Icon(Icons.warning_amber_rounded, color: theme.amber, size: 18),
           SizedBox(width: 8),
-          Text('需要你审批', style: TextStyle(fontWeight: FontWeight.w800)),
+          Text('Needs your approval', style: TextStyle(fontWeight: FontWeight.w800)),
           Spacer(),
           Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
         ]),
         SizedBox(height: 8),
-        Text('修改文件', style: TextStyle(fontWeight: FontWeight.w800)),
+        Text('Modify file', style: TextStyle(fontWeight: FontWeight.w800)),
         SizedBox(height: 4),
         Text('lib/services/auth_service.dart   +32 -8',
             style: TextStyle(color: theme.muted, fontSize: 12))

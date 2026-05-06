@@ -39,13 +39,13 @@ class AdapterPickerSheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('选择模型 / CLI',
+                const Text('Choose model / CLI',
                     style: TextStyle(
                         color: theme.text,
                         fontSize: 16,
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
-                const Text('会用于下一次真实 daemon run，运行中不可切换。',
+                const Text('Used for the next real daemon run. Cannot switch while running.',
                     style: TextStyle(color: theme.muted, fontSize: 12)),
                 const SizedBox(height: 12),
                 for (final adapter in adapters)
@@ -264,7 +264,7 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const _WorkspaceSheetHeader(
-                    title: '工作区', subtitle: '切换 CLI 执行目录，当前会话会继续保留。'),
+                    title: 'Workspace', subtitle: 'Switch CLI execution directory. Current session stays available.'),
                 const SizedBox(height: 12),
                 Container(
                     padding: const EdgeInsets.all(10),
@@ -277,17 +277,17 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
                       Row(children: [
                         Expanded(
                             child: _MiniInput(
-                                controller: _path, hint: '输入或浏览文件夹路径')),
+                                controller: _path, hint: 'Enter or browse a folder path')),
                         const SizedBox(width: 8),
-                        TinyActionButton('浏览', onTap: _browse),
+                        TinyActionButton('Browse', onTap: _browse),
                       ]),
                       const SizedBox(height: 8),
                       Row(children: [
                         Expanded(
                             child:
-                                _MiniInput(controller: _name, hint: '名称（可选）')),
+                                _MiniInput(controller: _name, hint: 'Name (optional)')),
                         const SizedBox(width: 8),
-                        TinyActionButton(_creating ? '创建中' : '创建',
+                        TinyActionButton(_creating ? 'Creating' : 'Create',
                             onTap: _creating ? null : _create, primary: true),
                       ]),
                     ])),
@@ -299,7 +299,7 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
                       style: const TextStyle(color: theme.red, fontSize: 11)),
                 ],
                 const SizedBox(height: 14),
-                const _WorkspaceSectionHeader(title: '已有工作区', meta: '安全执行目录'),
+                const _WorkspaceSectionHeader(title: 'Existing workspaces', meta: 'Safe execution directory'),
                 const SizedBox(height: 6),
                 Flexible(
                     child: ListView(
@@ -378,17 +378,17 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
               const Expanded(
-                  child: Text('添加工作区',
+                  child: Text('Add workspace',
                       style: TextStyle(
                           color: theme.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w900))),
-              TinyActionButton('浏览', onTap: _browse),
+              TinyActionButton('Browse', onTap: _browse),
             ]),
             const SizedBox(height: 10),
-            _MiniInput(controller: _path, hint: '选择或输入文件夹路径'),
+            _MiniInput(controller: _path, hint: 'Choose or enter a folder path'),
             const SizedBox(height: 8),
-            _MiniInput(controller: _name, hint: '名称（可选）'),
+            _MiniInput(controller: _name, hint: 'Name (optional)'),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!,
@@ -399,7 +399,7 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
             const SizedBox(height: 12),
             SizedBox(
                 width: double.infinity,
-                child: TinyActionButton(_creating ? '创建中' : '创建并使用',
+                child: TinyActionButton(_creating ? 'Creating' : 'Create and use',
                     onTap: _creating ? null : _create, primary: true)),
           ])));
 }
@@ -600,18 +600,18 @@ class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               const Expanded(
-                  child: Text('选择文件夹',
+                  child: Text('Choose folder',
                       style: TextStyle(
                           color: theme.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w900))),
               if (_currentPath != null)
-                TinyActionButton('选择当前',
+                TinyActionButton('Select current',
                     onTap: () => Navigator.of(context).pop(_currentPath),
                     primary: true),
             ]),
             const SizedBox(height: 6),
-            Text(_currentPath ?? '选择磁盘或根目录后继续进入文件夹',
+            Text(_currentPath ?? 'Choose a drive or root directory, then continue into a folder',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: theme.muted, fontSize: 12)),
