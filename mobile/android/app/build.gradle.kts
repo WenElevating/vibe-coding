@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "com.example.lan_ai_cli_control"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "28.2.13676358"
+    ndkPath = "D:\\Android\\Sdk\\ndk\\28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
