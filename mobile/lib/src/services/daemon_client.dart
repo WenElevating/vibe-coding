@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../models/protocol.dart';
+import 'daemon_connection_config.dart';
 
 abstract class SecureTokenStore {
   Future<void> writeDeviceToken(String deviceId, String token);
@@ -31,8 +34,12 @@ class DaemonClient {
   DaemonClient(
       {required this.baseUri,
       required this.tokenStore,
-      http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+      http.Client? httpClient,
+      DaemonProxyMode proxyMode = DaemonProxyMode.direct,
+      Uri? manualProxy})
+      : _httpClient = httpClient ??
+            createDaemonHttpClient(
+                proxyMode: proxyMode, manualProxy: manualProxy);
 
   final Uri baseUri;
   final SecureTokenStore tokenStore;
@@ -385,12 +392,51 @@ class DaemonClient {
   }
 
   Map<String, Object?> _decode(http.Response response) {
-    final decoded = jsonDecode(response.body) as Map<String, Object?>;
+    final decoded = _decodeResponseBody(response);
     if (response.statusCode >= 400) {
       throw DaemonClientException(response.statusCode, decoded);
     }
     return decoded;
   }
+
+  Map<String, Object?> _decodeResponseBody(http.Response response) {
+    if (response.body.trim().isEmpty) {
+      throw DaemonClientException(response.statusCode, <String, Object?>{
+        'error': 'invalid_response',
+        'message': 'daemon returned an empty response body',
+      });
+    }
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, Object?>) return decoded;
+      throw const FormatException('response body is not a JSON object');
+    } on FormatException catch (error) {
+      throw DaemonClientException(response.statusCode, <String, Object?>{
+        'error': 'invalid_response',
+        'message': 'daemon returned an invalid JSON response: ${error.message}',
+      });
+    }
+  }
+}
+
+http.Client createDaemonHttpClient(
+    {DaemonProxyMode proxyMode = DaemonProxyMode.direct, Uri? manualProxy}) {
+  final client = HttpClient()
+    ..findProxy = (uri) => daemonClientProxyForUri(uri,
+        proxyMode: proxyMode, manualProxy: manualProxy);
+  return IOClient(client);
+}
+
+String daemonClientProxyForUri(Uri uri,
+    {DaemonProxyMode proxyMode = DaemonProxyMode.direct, Uri? manualProxy}) {
+  if (isLocalOrPrivateDaemonHost(uri.host)) return 'DIRECT';
+  return switch (proxyMode) {
+    DaemonProxyMode.direct => 'DIRECT',
+    DaemonProxyMode.system => HttpClient.findProxyFromEnvironment(uri),
+    DaemonProxyMode.manual => manualProxy == null
+        ? 'DIRECT'
+        : 'PROXY ${manualProxy.host}:${manualProxy.port}',
+  };
 }
 
 class DaemonClientException implements Exception {
