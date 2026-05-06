@@ -43,6 +43,23 @@
   "settingsProxyDirect": "直连",
   "settingsProxySystem": "系统代理",
   "settingsProxyManual": "手动代理",
+  "connectionTitle": "连接",
+  "connectionSubtitle": "加载工作区前确认 daemon 目标",
+  "connectionAddressSection": "连接地址",
+  "connectionProxySection": "网络代理",
+  "connectionConnectAction": "连接",
+  "connectionReconnectAction": "重连",
+  "connectionStatusLoadingConfig": "正在加载连接设置",
+  "connectionStatusIdle": "未连接",
+  "connectionStatusValidating": "正在解析连接地址",
+  "connectionStatusCheckingHealth": "正在检查 daemon 状态",
+  "connectionStatusLoadingSnapshot": "正在同步工作区状态",
+  "connectionStatusConnected": "已连接",
+  "connectionStatusFailed": "连接失败",
+  "connectionStatusReady": "就绪",
+  "connectionStatusError": "错误",
+  "connectionTargetLabel": "目标",
+  "connectionProxyLabel": "代理",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {

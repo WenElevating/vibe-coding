@@ -295,6 +295,26 @@ void main() {
     expect(find.byType(BottomNav), findsNothing);
   });
 
+  testWidgets('connection page renders Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const LanAiCliControlApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('\u8fde\u63a5'), findsWidgets);
+    expect(find.text('\u8fde\u63a5\u5730\u5740'), findsOneWidget);
+    expect(find.text('\u7f51\u7edc\u4ee3\u7406'), findsOneWidget);
+    expect(find.text('\u76f4\u8fde'), findsWidgets);
+    expect(find.text('\u672a\u8fde\u63a5'), findsOneWidget);
+    expect(find.text('\u76ee\u6807'), findsOneWidget);
+    expect(find.text('\u4ee3\u7406'), findsOneWidget);
+    expect(find.text('Connection'), findsNothing);
+    expect(find.text('Network proxy'), findsNothing);
+    expect(find.text('Not connected'), findsNothing);
+  });
+
   testWidgets('connection page keeps address and proxy editable after failure',
       (WidgetTester tester) async {
     final controller = DaemonConnectionController(

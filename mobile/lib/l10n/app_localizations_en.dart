@@ -147,6 +147,57 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsProxyManual => 'Manual proxy';
 
   @override
+  String get connectionTitle => 'Connection';
+
+  @override
+  String get connectionSubtitle => 'Confirm daemon target before workspaces load';
+
+  @override
+  String get connectionAddressSection => 'Connection address';
+
+  @override
+  String get connectionProxySection => 'Network proxy';
+
+  @override
+  String get connectionConnectAction => 'Connect';
+
+  @override
+  String get connectionReconnectAction => 'Reconnect';
+
+  @override
+  String get connectionStatusLoadingConfig => 'Loading connection settings';
+
+  @override
+  String get connectionStatusIdle => 'Not connected';
+
+  @override
+  String get connectionStatusValidating => 'Resolving connection address';
+
+  @override
+  String get connectionStatusCheckingHealth => 'Checking daemon health';
+
+  @override
+  String get connectionStatusLoadingSnapshot => 'Syncing workspace state';
+
+  @override
+  String get connectionStatusConnected => 'Connected';
+
+  @override
+  String get connectionStatusFailed => 'Connection failed';
+
+  @override
+  String get connectionStatusReady => 'READY';
+
+  @override
+  String get connectionStatusError => 'ERROR';
+
+  @override
+  String get connectionTargetLabel => 'Target';
+
+  @override
+  String get connectionProxyLabel => 'Proxy';
+
+  @override
   String get homeOverviewTitle => 'Overview';
 
   @override

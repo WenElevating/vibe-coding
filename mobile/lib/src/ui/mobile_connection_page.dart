@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../services/daemon_connection_config.dart';
 import '../state/daemon_connection_controller.dart';
 import '../theme/theme.dart' as theme;
@@ -51,15 +52,18 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
       animation: widget.controller,
       builder: (context, _) {
         final controller = widget.controller;
+        final l10n = AppLocalizations.of(context);
         return Scaffold(
           body: MobileUiFrame(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
               children: [
-                const _ConnectionHeader(),
+                _ConnectionHeader(
+                    title: l10n.connectionTitle,
+                    subtitle: l10n.connectionSubtitle),
                 const SizedBox(height: 22),
                 _ConnectionSection(
-                  title: 'Connection address',
+                  title: l10n.connectionAddressSection,
                   child: _ConnectionTextField(
                     controller: _addressController,
                     enabled: !controller.isBusy,
@@ -69,12 +73,13 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
                 ),
                 const SizedBox(height: 20),
                 _ConnectionSection(
-                  title: 'Network proxy',
+                  title: l10n.connectionProxySection,
                   child: Column(
                     children: [
                       for (final mode in DaemonProxyMode.values)
                         _ProxyModeRow(
                           mode: mode,
+                          label: _proxyModeLabel(l10n, mode),
                           selected: controller.proxyMode == mode,
                           enabled: !controller.isBusy,
                           onTap: () => controller.setProxyMode(mode),
@@ -92,12 +97,12 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                _ConnectionStatusPanel(controller: controller),
+                _ConnectionStatusPanel(controller: controller, l10n: l10n),
                 const SizedBox(height: 20),
                 _ConnectionActionButton(
                   controller.status == DaemonConnectionStatus.failed
-                      ? 'Reconnect'
-                      : 'Connect',
+                      ? l10n.connectionReconnectAction
+                      : l10n.connectionConnectAction,
                   onTap: controller.isBusy ? () {} : controller.connect,
                 ),
               ],
@@ -110,16 +115,18 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
 }
 
 class _ConnectionHeader extends StatelessWidget {
-  const _ConnectionHeader();
+  const _ConnectionHeader({required this.title, required this.subtitle});
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Expanded(
-              child: Text('Connection',
-                  style: TextStyle(
+            Expanded(
+              child: Text(title,
+                  style: const TextStyle(
                       fontSize: 25,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.8)),
@@ -141,8 +148,8 @@ class _ConnectionHeader extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 6),
-          const Text('Confirm daemon target before workspaces load',
-              style: TextStyle(
+          Text(subtitle,
+              style: const TextStyle(
                   color: theme.faint,
                   fontSize: 12.5,
                   height: 1.35,
@@ -231,12 +238,14 @@ class _ConnectionTextField extends StatelessWidget {
 class _ProxyModeRow extends StatelessWidget {
   const _ProxyModeRow({
     required this.mode,
+    required this.label,
     required this.selected,
     required this.enabled,
     required this.onTap,
   });
 
   final DaemonProxyMode mode;
+  final String label;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
@@ -268,7 +277,7 @@ class _ProxyModeRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(mode.label,
+              child: Text(label,
                   style: TextStyle(
                       color: selected ? theme.text : theme.muted,
                       fontSize: 12.5,
@@ -282,9 +291,10 @@ class _ProxyModeRow extends StatelessWidget {
 }
 
 class _ConnectionStatusPanel extends StatelessWidget {
-  const _ConnectionStatusPanel({required this.controller});
+  const _ConnectionStatusPanel({required this.controller, required this.l10n});
 
   final DaemonConnectionController controller;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -307,12 +317,12 @@ class _ConnectionStatusPanel extends StatelessWidget {
                   shape: BoxShape.circle)),
           const SizedBox(width: 9),
           Expanded(
-              child: Text(controller.statusLabel,
+              child: Text(_connectionStatusLabel(l10n, controller.status),
                   style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -.1))),
-          Text(failed ? 'ERROR' : 'READY',
+          Text(failed ? l10n.connectionStatusError : l10n.connectionStatusReady,
               style: TextStyle(
                   color: failed ? theme.red : theme.green,
                   fontSize: 10,
@@ -320,9 +330,12 @@ class _ConnectionStatusPanel extends StatelessWidget {
                   letterSpacing: 1.1)),
         ]),
         const SizedBox(height: 12),
-        _ConnectionMetaRow(label: 'Target', value: controller.addressInput),
+        _ConnectionMetaRow(
+            label: l10n.connectionTargetLabel, value: controller.addressInput),
         const SizedBox(height: 6),
-        _ConnectionMetaRow(label: 'Proxy', value: controller.proxyMode.label),
+        _ConnectionMetaRow(
+            label: l10n.connectionProxyLabel,
+            value: _proxyModeLabel(l10n, controller.proxyMode)),
         if (controller.inputError != null ||
             controller.errorSummary != null) ...[
           const SizedBox(height: 12),
@@ -340,6 +353,27 @@ class _ConnectionStatusPanel extends StatelessWidget {
     );
   }
 }
+
+String _connectionStatusLabel(
+        AppLocalizations l10n, DaemonConnectionStatus status) =>
+    switch (status) {
+      DaemonConnectionStatus.loadingConfig => l10n.connectionStatusLoadingConfig,
+      DaemonConnectionStatus.idle => l10n.connectionStatusIdle,
+      DaemonConnectionStatus.validating => l10n.connectionStatusValidating,
+      DaemonConnectionStatus.checkingHealth =>
+        l10n.connectionStatusCheckingHealth,
+      DaemonConnectionStatus.loadingSnapshot =>
+        l10n.connectionStatusLoadingSnapshot,
+      DaemonConnectionStatus.connected => l10n.connectionStatusConnected,
+      DaemonConnectionStatus.failed => l10n.connectionStatusFailed,
+    };
+
+String _proxyModeLabel(AppLocalizations l10n, DaemonProxyMode mode) =>
+    switch (mode) {
+      DaemonProxyMode.direct => l10n.settingsProxyDirect,
+      DaemonProxyMode.system => l10n.settingsProxySystem,
+      DaemonProxyMode.manual => l10n.settingsProxyManual,
+    };
 
 class _ConnectionMetaRow extends StatelessWidget {
   const _ConnectionMetaRow({required this.label, required this.value});
