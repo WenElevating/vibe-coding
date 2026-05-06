@@ -1,6 +1,7 @@
 export 'main_tab_items.dart';
 export 'main_tabs_page.dart';
 export 'main_route_overlay.dart';
+export 'mobile_connection_page.dart';
 export 'mobile_connection_error_page.dart';
 export 'mobile_loading_page.dart';
 export 'mobile_ui.dart';

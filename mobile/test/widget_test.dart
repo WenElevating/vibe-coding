@@ -8,7 +8,12 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
+import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/state/daemon_connection_controller.dart';
+import 'package:lan_ai_cli_control/src/theme/theme.dart' as theme;
+import 'package:lan_ai_cli_control/src/ui/mobile_connection_page.dart';
+import 'package:lan_ai_cli_control/src/widgets/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {
@@ -47,8 +52,8 @@ class _LocalizedSettingsLabelAppState
               localeResolutionCallback: (locale, supportedLocales) =>
                   resolveSupportedLocale(locale, supportedLocales),
               home: Builder(
-                  builder: (context) => Text(
-                      AppLocalizations.of(context).navSettings)))));
+                  builder: (context) =>
+                      Text(AppLocalizations.of(context).navSettings)))));
 }
 
 class _LocalizedSettingsPageApp extends StatefulWidget {
@@ -204,7 +209,8 @@ void main() {
     expect(find.text('设置'), findsWidgets);
   });
 
-  testWidgets('home quick actions render Chinese when forced to Simplified Chinese',
+  testWidgets(
+      'home quick actions render Chinese when forced to Simplified Chinese',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
@@ -264,6 +270,39 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('connection page keeps address and proxy editable after failure',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async {
+        throw const DaemonClientException(502, <String, Object?>{
+          'error': 'invalid_response',
+          'message': 'daemon returned an empty response body',
+        });
+      },
+    );
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+
+    await tester.pumpWidget(MaterialApp(
+      theme: theme.buildAppTheme(),
+      home: MobileConnectionPage(controller: controller),
+    ));
+
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connection failed'), findsOneWidget);
+    expect(find.textContaining('proxy or gateway'), findsOneWidget);
+    expect(find.byType(TextField), findsWidgets);
+    expect(find.text('System proxy'), findsOneWidget);
+    expect(find.text('Manual proxy'), findsOneWidget);
+    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.byType(BottomNav), findsNothing);
+  });
+
   testWidgets('MobileUiFrame renders supplied child',
       (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(
@@ -302,7 +341,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
-    expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')), findsOneWidget);
+    expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')),
+        findsOneWidget);
     expect(find.text('Select workspace for this coding session'), findsNothing);
   });
 
