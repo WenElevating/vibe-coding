@@ -261,13 +261,19 @@ void main() {
     expect(find.textContaining('<script>'), findsNothing);
   });
 
-  testWidgets(
-      'shows connection error when daemon is unavailable in widget tests',
+  testWidgets('app starts on editable connection page without bottom nav',
       (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
     await tester.pumpWidget(const LanAiCliControlApp());
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Connection'), findsOneWidget);
+    expect(find.text('Connect'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('System proxy'), findsOneWidget);
+    expect(find.byType(BottomNav), findsNothing);
   });
 
   testWidgets('connection page keeps address and proxy editable after failure',

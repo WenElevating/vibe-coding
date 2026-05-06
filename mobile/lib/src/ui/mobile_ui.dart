@@ -1,49 +1,63 @@
 import 'package:flutter/material.dart';
 
 import '../services/daemon_client.dart';
-import '../shell/app_snapshot.dart';
+import '../services/daemon_connection_config_store.dart';
+import '../state/daemon_connection_controller.dart';
 import 'main_tabs_page.dart';
-import 'mobile_connection_error_page.dart';
+import 'mobile_connection_page.dart';
 import 'mobile_loading_page.dart';
 
 class MobileUi extends StatefulWidget {
-  const MobileUi({super.key});
+  const MobileUi({super.key, this.connectionController});
+
+  final DaemonConnectionController? connectionController;
 
   @override
   State<MobileUi> createState() => _MobileUiState();
 }
 
 class _MobileUiState extends State<MobileUi> {
-  late final DaemonClient _client;
-  late Future<AppSnapshot> _snapshot;
+  late final DaemonConnectionController _connectionController;
+  late final bool _ownsConnectionController;
 
   @override
   void initState() {
     super.initState();
-    _client = DaemonClient(
-      baseUri: Uri.parse('http://127.0.0.1:4317'),
-      tokenStore: MemoryTokenStore(),
-    );
-    _snapshot = AppSnapshot.load(_client);
+    _ownsConnectionController = widget.connectionController == null;
+    _connectionController = widget.connectionController ??
+        DaemonConnectionController(
+          store: DaemonConnectionConfigStore(),
+          tokenStore: MemoryTokenStore(),
+        );
+    _connectionController.load();
   }
 
-  void _refresh() => setState(() => _snapshot = AppSnapshot.load(_client));
+  @override
+  void dispose() {
+    if (_ownsConnectionController) {
+      _connectionController.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<AppSnapshot>(
-      future: _snapshot,
+    return AnimatedBuilder(
+      animation: _connectionController,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (_connectionController.status ==
+            DaemonConnectionStatus.loadingConfig) {
           return const MobileLoadingPage();
         }
-        if (snapshot.hasError) {
-          return MobileConnectionErrorPage(
-            error: snapshot.error.toString(),
-            onRetry: _refresh,
+        if (_connectionController.status == DaemonConnectionStatus.connected &&
+            _connectionController.snapshot != null &&
+            _connectionController.client != null) {
+          return MainTabsPage(
+            data: _connectionController.snapshot!,
+            client: _connectionController.client!,
           );
         }
-        return MainTabsPage(data: snapshot.requireData, client: _client);
+        return MobileConnectionPage(controller: _connectionController);
       },
     );
   }
