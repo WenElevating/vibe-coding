@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
@@ -80,6 +82,34 @@ void main() {
     expect(saved.addressInput, '192.168.1.23');
     expect(saved.proxyMode, DaemonProxyMode.manual);
     expect(saved.manualProxyInput, 'http://proxy.local:8080');
+  });
+
+  test('connection timeout restores idle affordance and ignores late success',
+      () async {
+    final healthCompleter = Completer<void>();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectionTimeout: const Duration(milliseconds: 20),
+      snapshotLoader: (_) async => _snapshot(),
+      healthProbe: (_) => healthCompleter.future,
+    );
+    await controller.load();
+
+    final connection = controller.connect();
+    expect(controller.isBusy, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    expect(controller.status, DaemonConnectionStatus.failed);
+    expect(controller.isBusy, isFalse);
+    expect(controller.errorSummary, 'The daemon did not respond in time.');
+
+    healthCompleter.complete();
+    await connection;
+
+    expect(controller.status, DaemonConnectionStatus.failed);
+    expect(controller.snapshot, isNull);
   });
 }
 

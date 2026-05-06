@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../services/daemon_client.dart';
@@ -25,14 +27,17 @@ class DaemonConnectionController extends ChangeNotifier {
     required this.tokenStore,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
+    Duration connectionTimeout = const Duration(seconds: 10),
   })  : _snapshotLoader =
             snapshotLoader ?? ((client) => AppSnapshot.load(client)),
-        _healthProbe = healthProbe ?? ((client) async => client.health());
+        _healthProbe = healthProbe ?? ((client) async => client.health()),
+        _connectionTimeout = connectionTimeout;
 
   final DaemonConnectionConfigStore store;
   final SecureTokenStore tokenStore;
   final DaemonSnapshotLoader _snapshotLoader;
   final DaemonHealthProbe _healthProbe;
+  final Duration _connectionTimeout;
 
   DaemonConnectionStatus _status = DaemonConnectionStatus.loadingConfig;
   String _addressInput = DaemonConnectionConfig.fallback.addressInput;
@@ -44,6 +49,7 @@ class DaemonConnectionController extends ChangeNotifier {
   AppSnapshot? _snapshot;
   DaemonClient? _client;
   DaemonConnectionConfig? _connectedConfig;
+  int _connectionAttempt = 0;
 
   DaemonConnectionStatus get status => _status;
   String get addressInput => _addressInput;
@@ -99,6 +105,11 @@ class DaemonConnectionController extends ChangeNotifier {
   }
 
   Future<void> connect() async {
+    if (isBusy) {
+      return;
+    }
+
+    final attempt = ++_connectionAttempt;
     _status = DaemonConnectionStatus.validating;
     _inputError = null;
     _errorSummary = null;
@@ -127,24 +138,27 @@ class DaemonConnectionController extends ChangeNotifier {
     );
 
     try {
-      _status = DaemonConnectionStatus.checkingHealth;
-      notifyListeners();
-      await _healthProbe(client);
-      _status = DaemonConnectionStatus.loadingSnapshot;
-      notifyListeners();
-      final loaded = await _snapshotLoader(client);
-      final connectedConfig = DaemonConnectionConfig(
-        addressInput: _addressInput.trim(),
-        proxyMode: _proxyMode,
-        manualProxyInput: _manualProxyInput.trim(),
+      await _runConnectionAttempt(client, attempt).timeout(
+        _connectionTimeout,
+        onTimeout: () {
+          if (attempt == _connectionAttempt && isBusy) {
+            _connectionAttempt++;
+            _client = null;
+            _snapshot = null;
+            _connectedConfig = null;
+            _errorSummary = 'The daemon did not respond in time.';
+            _errorDetail =
+                'Connection attempt exceeded ${_connectionTimeout.inSeconds}s.';
+            _status = DaemonConnectionStatus.failed;
+            notifyListeners();
+          }
+          throw TimeoutException('Connection attempt timed out.');
+        },
       );
-      await store.save(connectedConfig);
-      _client = client;
-      _snapshot = loaded;
-      _connectedConfig = connectedConfig;
-      _status = DaemonConnectionStatus.connected;
-      notifyListeners();
     } catch (error) {
+      if (attempt != _connectionAttempt) {
+        return;
+      }
       _client = null;
       _snapshot = null;
       _connectedConfig = null;
@@ -155,6 +169,39 @@ class DaemonConnectionController extends ChangeNotifier {
     }
   }
 
+  Future<void> _runConnectionAttempt(
+      DaemonClient client, int attempt) async {
+    if (attempt != _connectionAttempt) {
+      return;
+    }
+    _status = DaemonConnectionStatus.checkingHealth;
+    notifyListeners();
+    await _healthProbe(client);
+    if (attempt != _connectionAttempt) {
+      return;
+    }
+    _status = DaemonConnectionStatus.loadingSnapshot;
+    notifyListeners();
+    final loaded = await _snapshotLoader(client);
+    if (attempt != _connectionAttempt) {
+      return;
+    }
+    final connectedConfig = DaemonConnectionConfig(
+      addressInput: _addressInput.trim(),
+      proxyMode: _proxyMode,
+      manualProxyInput: _manualProxyInput.trim(),
+    );
+    await store.save(connectedConfig);
+    if (attempt != _connectionAttempt) {
+      return;
+    }
+    _client = client;
+    _snapshot = loaded;
+    _connectedConfig = connectedConfig;
+    _status = DaemonConnectionStatus.connected;
+    notifyListeners();
+  }
+
   void _clearTransientErrors() {
     _inputError = null;
     _errorSummary = null;
@@ -163,6 +210,9 @@ class DaemonConnectionController extends ChangeNotifier {
 }
 
 String daemonConnectionErrorSummary(Object error) {
+  if (error is TimeoutException) {
+    return 'The daemon did not respond in time.';
+  }
   if (error is DaemonClientException) {
     final message = '${error.body['message'] ?? ''}';
     if (error.statusCode == 502 && message.contains('empty response')) {

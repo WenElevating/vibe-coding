@@ -150,7 +150,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionTitle => 'Connection';
 
   @override
-  String get connectionSubtitle => 'Confirm daemon target before workspaces load';
+  String get connectionSubtitle =>
+      'Confirm daemon target before workspaces load';
 
   @override
   String get connectionAddressSection => 'Connection address';
