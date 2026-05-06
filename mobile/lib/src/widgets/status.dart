@@ -148,7 +148,7 @@ class WaitingRow extends StatelessWidget {
           const SizedBox(height: 5),
           Text(tool, style: const TextStyle(color: theme.muted, fontSize: 12))
         ])),
-        StatusBadge('等待中', color: theme.amber)
+        StatusBadge('Waiting', color: theme.amber)
       ]),
     );
   }

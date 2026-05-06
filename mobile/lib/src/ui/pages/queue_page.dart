@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../shell/app_snapshot.dart';
 import '../../widgets/widgets.dart';
 import '../../theme/theme.dart' as theme;
@@ -10,24 +11,30 @@ class QueuePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final active =
         data.queue.where((item) => item.status == 'running').toList();
     final waiting =
         data.queue.where((item) => item.status != 'running').toList();
     return PageScroll(
       children: [
-        TopBar(title: '运行队列', leading: true, action: '${data.queue.length} 项'),
+        TopBar(
+            title: l10n.queueTitle,
+            leading: true,
+            action: l10n.queueCountAction(data.queue.length)),
         const SizedBox(height: 20),
         Row(children: [
-          Pill('运行中 ${active.length}', selected: true, green: true),
-          Pill('排队中 ${waiting.length}', amber: true),
-          Pill('总计 ${data.queue.length}')
+          Pill(l10n.queueRunningPill(active.length),
+              selected: true, green: true),
+          Pill(l10n.queueWaitingPill(waiting.length), amber: true),
+          Pill(l10n.queueTotalPill(data.queue.length))
         ]),
         const SizedBox(height: 22),
-        const Subhead('运行中'),
+        Subhead(l10n.queueRunningSection),
         GlassCard(
           child: active.isEmpty
-              ? const Text('暂无运行中队列', style: TextStyle(color: theme.muted))
+              ? Text(l10n.queueNoRunning,
+                  style: const TextStyle(color: theme.muted))
               : Column(children: [
                   for (final item in active) ...[
                     QueueRow(
@@ -39,13 +46,14 @@ class QueuePage extends StatelessWidget {
                 ]),
         ),
         const SizedBox(height: 24),
-        const Subhead('排队中'),
+        Subhead(l10n.queueWaitingSection),
         GlassCard(
           padding: EdgeInsets.zero,
           child: waiting.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('暂无等待任务', style: TextStyle(color: theme.muted)))
+              ? Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text(l10n.queueNoWaiting,
+                      style: const TextStyle(color: theme.muted)))
               : Column(children: [
                   for (final item in waiting) ...[
                     WaitingRow(
@@ -57,9 +65,10 @@ class QueuePage extends StatelessWidget {
                 ]),
         ),
         const SizedBox(height: 20),
-        const Text('队列数据来自 daemon，任务按工作区顺序执行。',
-            style: TextStyle(color: theme.muted, fontSize: 12)),
+        Text(l10n.queueFootnote,
+            style: const TextStyle(color: theme.muted, fontSize: 12)),
       ],
     );
   }
+
 }

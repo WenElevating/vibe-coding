@@ -1,0 +1,308 @@
+{
+  "@@locale": "zh",
+  "appTitle": "AI CLI 控制台",
+  "navHome": "首页",
+  "navRuns": "运行",
+  "navCoding": "编码",
+  "navDevices": "设备",
+  "navSettings": "设置",
+  "settingsTitle": "设置",
+  "settingsPreferencesSection": "偏好设置",
+  "settingsLanguageTitle": "语言",
+  "settingsLanguageSystem": "系统默认",
+  "settingsLanguageZhHans": "简体中文",
+  "settingsLanguageEn": "English",
+  "settingsLanguagePickerTitle": "选择语言",
+  "settingsCodingControlSection": "编码控制",
+  "settingsStreamOutputTitle": "流式输出",
+  "settingsStreamOutputSubtitle": "关闭时只显示最终回复，避免 delta 与完整消息重复。",
+  "settingsExpandThinkingTitle": "显示思考过程",
+  "settingsExpandThinkingSubtitle": "开启后默认展开模型 thinking；关闭时折叠显示。",
+  "settingsPermissionModeTitle": "权限模式",
+  "settingsPermissionDefault": "默认",
+  "settingsPermissionAuto": "自动",
+  "settingsPermissionSubtitle": "默认会请求 CLI 权限确认；自动模式由 CLI 处理。",
+  "settingsDataStatusSection": "数据状态",
+  "settingsDiagnosticsTitle": "代码诊断",
+  "settingsDiagnosticsCount": "{count} 条",
+  "settingsGitStatusTitle": "Git 状态",
+  "settingsGitClean": "干净",
+  "settingsGitFiles": "{count} 个文件",
+  "settingsAboutSection": "关于",
+  "settingsExtensionsTitle": "扩展",
+  "settingsExtensionsCount": "{count} 个",
+  "settingsAdaptersAction": "适配器",
+  "settingsNotificationsAction": "通知",
+  "settingsGenerateDiagnosticsAction": "生成诊断信息",
+  "settingsCurrentConnectionTitle": "当前连接",
+  "settingsConnected": "已连接",
+  "settingsWorkspaceLabel": "工作区",
+  "settingsSecurityModeLabel": "安全模式",
+  "@settingsDiagnosticsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsGitFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsExtensionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeOverviewTitle": "概览",
+  "homeRunningMetricLabel": "运行中",
+  "homeRunningMetricNote": "活跃任务",
+  "homeQueuedMetricLabel": "待审批",
+  "homeQueuedMetricNote": "队列任务",
+  "homeCompletedMetricLabel": "已完成 (24h)",
+  "homeFilesLinesNote": "{files} 个文件 · {lines} 行",
+  "homeRecentRunsTitle": "最近运行",
+  "homeViewAllAction": "查看全部",
+  "homeNoRuns": "暂无运行记录",
+  "homeQuickActionsTitle": "快捷操作",
+  "homeNewTaskTitle": "新建任务",
+  "homeNewTaskSubtitle": "创建新任务",
+  "homeCommandTemplatesTitle": "命令模板",
+  "homeCommandTemplatesSubtitle": "执行预设命令",
+  "homeViewQueueTitle": "查看队列",
+  "homeViewQueueSubtitle": "查看排队任务",
+  "runsTitle": "运行",
+  "runsAllPill": "全部 {count}",
+  "runsRunningPill": "运行中 {count}",
+  "runsCompletedPill": "已完成 {count}",
+  "runsFailedPill": "失败 {count}",
+  "runsEmpty": "暂无运行记录。可以从命令模板启动真实 AI CLI 任务。",
+  "queueTitle": "运行队列",
+  "queueCountAction": "{count} 项",
+  "queueRunningPill": "运行中 {count}",
+  "queueWaitingPill": "排队中 {count}",
+  "queueTotalPill": "总计 {count}",
+  "queueRunningSection": "运行中",
+  "queueWaitingSection": "排队中",
+  "queueNoRunning": "暂无运行中队列项",
+  "queueNoWaiting": "暂无等待任务",
+  "queueFootnote": "队列数据来自 daemon。任务会按工作区顺序运行。",
+  "@homeFilesLinesNote": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsAllPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsCompletedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsFailedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueCountAction": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueWaitingPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueTotalPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonBack": "返回",
+  "adaptersTitle": "适配器状态",
+  "adaptersCount": "{count} 项",
+  "@adaptersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adaptersEmpty": "daemon 未返回适配器",
+  "adaptersExtensionsSection": "扩展",
+  "adaptersNoExtensions": "暂无扩展信息",
+  "adaptersNotInstalled": "未安装",
+  "adaptersStatusOk": "状态                         正常",
+  "adaptersCapabilitiesLabel": "状态                         正常",
+  "diagnosticsTitle": "诊断",
+  "diagnosticsDescription": "导出已脱敏的诊断包，用于排查问题",
+  "diagnosticsSystemInfo": "系统信息",
+  "diagnosticsAdapterStatus": "适配器状态",
+  "diagnosticsRunLogsRecent": "运行日志（最近 7 天）",
+  "diagnosticsEventRecordsRecent": "事件记录（最近 7 天）",
+  "diagnosticsConfigInfo": "配置信息",
+  "diagnosticsEstimatedSize": "预估大小",
+  "diagnosticsGenerateAction": "生成诊断包",
+  "notificationsTitle": "通知",
+  "notificationsTabAll": "全部",
+  "notificationsTabUnread": "未读",
+  "notificationsTabMentions": "提及我",
+  "notificationsApprovalRequired": "需要审批",
+  "notificationsRequestModify": "Claude Code 请求修改\nlib/services/auth_service.dart",
+  "notificationsTaskComplete": "任务完成",
+  "notificationsRunCompletedDuration": "为用户服务添加单元测试\n运行完成，用时 28m 15s",
+  "notificationsTaskFailed": "任务失败",
+  "notificationsDataSyncBody": "优化数据同步逻辑\n运行失败，查看详情",
+  "notificationsYesterday1422": "昨天 14:22",
+  "notificationsQueueUpdate": "队列更新",
+  "notificationsCacheBody": "优化缓存策略\n已开始运行",
+  "notificationsYesterday1315": "昨天 13:15",
+  "notificationsSystemMessage": "系统消息",
+  "notificationsConnectedBody": "已连接到 DESKTOP-DEV",
+  "notificationsYesterday1001": "昨天 10:01",
+  "runDetailTitle": "运行详情",
+  "runDetailMockTask": "修复登录 API 测试失败",
+  "runDetailRunningStatus": "运行中",
+  "runDetailStartedDuration": "10:32 开始 · 用时 12m 45s",
+  "runDetailTabOverview": "概览",
+  "runDetailTabEvents": "事件",
+  "runDetailTabFileChanges": "文件变更",
+  "runDetailTabConfig": "配置",
+  "runDetailUserPromptTitle": "用户提示",
+  "runDetailUserPromptBody": "修复登录 API 测试失败，并添加边界条件测试。",
+  "runDetailThinkingTitle": "Claude 开始思考",
+  "runDetailThinkingBody": "正在分析问题和相关代码...",
+  "runDetailReadFileTitle": "读取文件",
+  "runDetailSearchCodeTitle": "搜索代码",
+  "runDetailSearchBody": "搜索：\"login failure test\"\n找到 12 条结果",
+  "runDetailEditFileTitle": "编辑文件",
+  "runDetailRunCommandTitle": "运行命令",
+  "runDetailCommandBody": "dart test tests/login_test.dart      运行中 ·",
+  "sessionsTitle": "会话",
+  "sessionsCurrentProject": "当前项目",
+  "sessionsSearchPlaceholder": "搜索会话、命令或文件路径...",
+  "sessionsFootnote": "此列表仅显示当前工作区内的会话。",
+  "sessionsEmptyTitle": "这个工作区还没有会话",
+  "sessionsNewSession": "新建会话",
+  "sessionsWaitingApproval": "等待审批",
+  "sessionsPendingBadge": "待处理",
+  "sessionsRunning": "运行中",
+  "sessionsFailed": "失败",
+  "sessionsDone": "已完成",
+  "sessionsSessionNoun": "会话",
+  "sessionsTaskNoun": "任务",
+  "workspaceAdapterPickerTitle": "选择模型 / CLI",
+  "workspaceAdapterPickerSubtitle": "会用于下一次真实 daemon run，运行中不可切换。",
+  "workspaceListTitle": "工作区",
+  "workspaceAvailableSection": "可用工作区",
+  "workspaceListFootnote": "选择 CLI 命令的运行文件夹，然后打开或创建其中的会话。",
+  "workspaceCurrentFallback": "当前工作区",
+  "workspaceSheetTitle": "工作区",
+  "workspaceSheetSubtitle": "切换 CLI 执行目录，当前会话会继续保留。",
+  "workspacePathHint": "输入或浏览文件夹路径",
+  "workspaceBrowseAction": "浏览",
+  "workspaceNameHint": "名称（可选）",
+  "workspaceCreatingAction": "创建中",
+  "workspaceCreateAction": "创建",
+  "workspaceExistingSection": "已有工作区",
+  "workspaceSafeDirectoryMeta": "安全执行目录",
+  "workspaceAddTitle": "添加工作区",
+  "workspaceChoosePathHint": "选择或输入文件夹路径",
+  "workspaceCreateAndUseAction": "创建并使用",
+  "workspaceChooseFolderTitle": "选择文件夹",
+  "workspaceSelectCurrentAction": "选择当前",
+  "workspaceBrowserPlaceholder": "选择磁盘或根目录后继续进入文件夹",
+  "workbenchComposerNoAdapter": "没有可用 CLI adapter",
+  "workbenchComposerFollowUpHint": "要求后续变更…",
+  "workbenchApprovalPageTitle": "需要你审批",
+  "workbenchModifyFileTitle": "修改文件",
+  "workbenchDiffTab": "差异",
+  "workbenchFileContentTab": "文件内容",
+  "workbenchApprovalActionsSection": "审批操作",
+  "workbenchClaudeSuggestionTitle": "Claude 建议的变更",
+  "workbenchMockFixEmptyResponse": "修复空响应导致的测试失败问题",
+  "workbenchRejectAction": "拒绝",
+  "workbenchApproveAction": "批准",
+  "workbenchInlineReady": "准备好接收编码任务",
+  "workbenchInlineCompleted": "本次 CLI 会话已完成 · {count} 个事件已处理",
+  "@workbenchInlineCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchInlineConnecting": "正在连接 {adapter} · 已处理 {count} 个事件",
+  "@workbenchInlineConnecting": {
+    "placeholders": {
+      "adapter": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchApprovalMissingId": "daemon 未提供 approvalId，无法在移动端处理。",
+  "workbenchQuestionTitle": "需要你补充方向",
+  "workbenchCommandDetailTitle": "命令详情",
+  "workbenchOutputDetailTitle": "输出详情",
+  "workbenchCommandMetaEmpty": "执行 1 条命令",
+  "workbenchCommandMetaWithTitle": "执行 1 条命令 · {title}",
+  "@workbenchCommandMetaWithTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCopyAllTooltip": "复制全文",
+  "workbenchCopiedSnack": "已复制到剪贴板",
+  "workbenchCloseTooltip": "关闭",
+  "workbenchPendingRunning": "正在运行",
+  "workbenchPreviewReceivingOutput": "正在接收 CLI 输出...",
+  "workbenchPreviewStartedSession": "已启动 claude 会话",
+  "workbenchApprovalCardTitle": "需要审批",
+  "workbenchRunErrorPrefix": "运行错误：",
+  "workbenchNewSessionTitle": "新的编码会话"
+}

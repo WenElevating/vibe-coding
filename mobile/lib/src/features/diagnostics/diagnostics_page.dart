@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../services/daemon_client.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
@@ -16,33 +17,37 @@ class DiagnosticsPage extends StatelessWidget {
   final DaemonClient client;
 
   @override
-  Widget build(BuildContext context) => PageScroll(children: [
-        TopBar(title: '诊断信息', leading: true, action: '⋯'),
-        const SizedBox(height: 10),
-        const Text('导出诊断包用于问题排查（已脱敏）',
-            style: TextStyle(color: theme.muted, fontSize: 12)),
-        const SizedBox(height: 14),
-        const GlassCard(
-            child: Column(children: [
-          _DiagRow('系统信息', '1.2 KB'),
-          Hairline(),
-          _DiagRow('适配器状态', '2.4 KB'),
-          Hairline(),
-          _DiagRow('运行日志 (最近 7 天)', '512 KB'),
-          Hairline(),
-          _DiagRow('事件记录 (最近 7 天)', '3.1 MB'),
-          Hairline(),
-          _DiagRow('配置信息', '1.8 KB')
-        ])),
-        const SizedBox(height: 18),
-        const Row(children: [
-          Text('预计大小', style: TextStyle(color: theme.muted, fontSize: 12)),
-          Spacer(),
-          Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
-        ]),
-        const SizedBox(height: 18),
-        PrimaryButton('生成诊断包', onTap: onBack),
-      ]);
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return PageScroll(children: [
+      TopBar(title: l10n.diagnosticsTitle, leading: true, action: '?'),
+      const SizedBox(height: 10),
+      Text(l10n.diagnosticsDescription,
+          style: const TextStyle(color: theme.muted, fontSize: 12)),
+      const SizedBox(height: 14),
+      GlassCard(
+          child: Column(children: [
+        _DiagRow(l10n.diagnosticsSystemInfo, '1.2 KB'),
+        const Hairline(),
+        _DiagRow(l10n.diagnosticsAdapterStatus, '2.4 KB'),
+        const Hairline(),
+        _DiagRow(l10n.diagnosticsRunLogsRecent, '512 KB'),
+        const Hairline(),
+        _DiagRow(l10n.diagnosticsEventRecordsRecent, '3.1 MB'),
+        const Hairline(),
+        _DiagRow(l10n.diagnosticsConfigInfo, '1.8 KB')
+      ])),
+      const SizedBox(height: 18),
+      Row(children: [
+        Text(l10n.diagnosticsEstimatedSize,
+            style: const TextStyle(color: theme.muted, fontSize: 12)),
+        const Spacer(),
+        const Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
+      ]),
+      const SizedBox(height: 18),
+      PrimaryButton(l10n.diagnosticsGenerateAction, onTap: onBack),
+    ]);
+  }
 }
 
 class _DiagRow extends StatelessWidget {

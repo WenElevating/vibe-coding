@@ -222,10 +222,16 @@ class QuickAction extends StatelessWidget {
           Icon(icon, color: color, size: 25),
           const Spacer(),
           Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style:
                   const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
           const SizedBox(height: 3),
           Text(subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style: const TextStyle(color: theme.muted, fontSize: 10)),
         ]),
       ),
@@ -244,7 +250,7 @@ class CodeDiff extends StatelessWidget {
               color: const Color(0xFF081018),
               borderRadius: BorderRadius.circular(6)),
           child: const Text(
-              '@@ -48,7 +48,13 @@ Future<User?> login(String email)\n\n-  throw Exception(\'Login failed\');\n+  // 处理边界情况\n+  if (response.body == null ||\n+      response.body.isEmpty) {\n+    throw Exception(\'Empty response\');\n+  }\n+\n   final data = jsonDecode(response.body);',
+              '@@ -48,7 +48,13 @@ Future<User?> login(String email)\n\n-  throw Exception(\'Login failed\');\n+  // Handle edge cases\n+  if (response.body == null ||\n+      response.body.isEmpty) {\n+    throw Exception(\'Empty response\');\n+  }\n+\n   final data = jsonDecode(response.body);',
               style: TextStyle(
                   fontFamily: 'monospace',
                   color: Color(0xFF66E69A),
@@ -253,25 +259,31 @@ class CodeDiff extends StatelessWidget {
 }
 
 class ApprovalPreview extends StatelessWidget {
-  const ApprovalPreview({super.key, required this.onTap});
+  const ApprovalPreview(
+      {super.key,
+      required this.title,
+      required this.action,
+      required this.onTap});
+  final String title;
+  final String action;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
-      child: const GlassCard(
+      child: GlassCard(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(Icons.warning_amber_rounded, color: theme.amber, size: 18),
-          SizedBox(width: 8),
-          Text('需要你审批', style: TextStyle(fontWeight: FontWeight.w800)),
-          Spacer(),
-          Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
+          const Icon(Icons.warning_amber_rounded, color: theme.amber, size: 18),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const Spacer(),
+          const Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
         ]),
-        SizedBox(height: 8),
-        Text('修改文件', style: TextStyle(fontWeight: FontWeight.w800)),
-        SizedBox(height: 4),
-        Text('lib/services/auth_service.dart   +32 -8',
+        const SizedBox(height: 8),
+        Text(action, style: const TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text('lib/services/auth_service.dart   +32 -8',
             style: TextStyle(color: theme.muted, fontSize: 12))
       ])));
 }

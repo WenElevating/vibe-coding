@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../state/conversation_reducer.dart';
 import '../../theme/theme.dart' as theme;
@@ -22,11 +23,12 @@ class WorkbenchInlineStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final text = runId == null
-        ? '准备好接收编码任务'
+        ? l10n.workbenchInlineReady
         : terminal
-            ? '本次 CLI 会话已完成 · $eventCount 个事件已处理'
-            : '正在连接 ${adapter ?? 'CLI'} · 已处理 $eventCount 个事件';
+            ? l10n.workbenchInlineCompleted(eventCount)
+            : l10n.workbenchInlineConnecting(adapter ?? 'CLI', eventCount);
     return Container(
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -173,17 +175,17 @@ class WorkbenchMessageCard extends StatelessWidget {
                       if (isApproval) ...[
                         const SizedBox(height: 12),
                         if (message.event?.approvalId == null)
-                          const Text('daemon 未提供 approvalId，无法在移动端处理。',
+                          Text(AppLocalizations.of(context).workbenchApprovalMissingId,
                               style: TextStyle(color: theme.red, fontSize: 12))
                         else
                           Row(children: [
                             Expanded(
-                                child: _ApprovalActionButton('拒绝',
+                                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchRejectAction,
                                     color: theme.red,
                                     onTap: () => onApproval('deny'))),
                             const SizedBox(width: 10),
                             Expanded(
-                                child: _ApprovalActionButton('批准',
+                                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchApproveAction,
                                     color: theme.purple2,
                                     primary: true,
                                     onTap: () => onApproval('allow'))),
@@ -233,8 +235,8 @@ class _QuestionEventCard extends StatelessWidget {
               child: const Icon(Icons.tune_rounded,
                   color: theme.purple2, size: 15)),
           const SizedBox(width: 10),
-          const Expanded(
-              child: Text('需要你补充方向',
+          Expanded(
+              child: Text(AppLocalizations.of(context).workbenchQuestionTitle,
                   style: TextStyle(
                       color: theme.text,
                       fontSize: 13.5,
@@ -500,7 +502,7 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                           text: message.body,
                           onTap: () => _showCommandDetailSheet(
                               context: context,
-                              title: '命令详情',
+                              title: AppLocalizations.of(context).workbenchCommandDetailTitle,
                               subtitle: _commandDetailSubtitle(message),
                               text: message.body)),
                       if (output != null) ...[
@@ -510,7 +512,7 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                             text: output,
                             onTap: () => _showCommandDetailSheet(
                                 context: context,
-                                title: '输出详情',
+                                title: AppLocalizations.of(context).workbenchOutputDetailTitle,
                                 subtitle: _commandDetailSubtitle(message),
                                 text: output)),
                       ]
@@ -637,9 +639,10 @@ Color _toolKindColor(String kind) => switch (kind) {
       _ => theme.faint,
     };
 
-String _commandMeta(WorkbenchMessage message) {
-  if (message.title.trim().isEmpty) return '执行 1 条命令';
-  return '执行 1 条命令 · ${message.title}';
+String _commandMeta(BuildContext context, WorkbenchMessage message) {
+  final l10n = AppLocalizations.of(context);
+  if (message.title.trim().isEmpty) return l10n.workbenchCommandMetaEmpty;
+  return l10n.workbenchCommandMetaWithTitle(message.title);
 }
 
 class _CommandExpandedMeta extends StatelessWidget {
@@ -649,7 +652,7 @@ class _CommandExpandedMeta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final duration = _formatCommandDuration(message.duration);
-    final parts = <String>[_commandMeta(message)];
+    final parts = <String>[_commandMeta(context, message)];
     if (duration != null) parts.add('duration $duration');
     parts.add(message.isError
         ? 'error'
@@ -758,16 +761,16 @@ class _CommandDetailSheet extends StatelessWidget {
                                 fontFamily: 'Consolas')),
                       ])),
                   IconButton(
-                      tooltip: '复制全文',
+                      tooltip: AppLocalizations.of(context).workbenchCopyAllTooltip,
                       onPressed: () async {
                         await Clipboard.setData(ClipboardData(text: text));
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已复制到剪贴板')));
+                            SnackBar(content: Text(AppLocalizations.of(context).workbenchCopiedSnack)));
                       },
                       icon: const Icon(Icons.copy_rounded, color: theme.muted)),
                   IconButton(
-                      tooltip: '关闭',
+                      tooltip: AppLocalizations.of(context).workbenchCloseTooltip,
                       onPressed: () => Navigator.of(context).pop(),
                       icon:
                           const Icon(Icons.close_rounded, color: theme.muted)),
@@ -866,8 +869,8 @@ Widget buildPendingSentinelPreview() => MaterialApp(
             padding: EdgeInsets.all(16),
             child: PendingSentinel(
                 adapter: 'claude',
-                statusText: '正在接收 CLI 输出...',
-                actions: <String>['已启动 claude 会话', 'Claude requesting']))));
+                statusText: 'Receiving CLI output...',
+                actions: <String>['Started claude session', 'Claude requesting']))));
 
 String? _formatCommandDuration(Duration? duration) {
   if (duration == null) return null;
@@ -897,7 +900,7 @@ class _ApprovalEventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _AgentEventCard(
       icon: Icons.priority_high_rounded,
-      title: '需要审批',
+      title: AppLocalizations.of(context).workbenchApprovalCardTitle,
       meta: _approvalMeta(message.event),
       trailing: _eventTime(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -906,16 +909,16 @@ class _ApprovalEventCard extends StatelessWidget {
                 color: theme.muted, fontSize: 12.5, height: 1.55)),
         const SizedBox(height: 12),
         if (message.event?.approvalId == null)
-          const Text('daemon 未提供 approvalId，无法在移动端处理。',
+          Text(AppLocalizations.of(context).workbenchApprovalMissingId,
               style: TextStyle(color: theme.red, fontSize: 12))
         else
           Row(children: [
             Expanded(
-                child: _ApprovalActionButton('拒绝',
+                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchRejectAction,
                     color: theme.red, onTap: () => onApproval('deny'))),
             const SizedBox(width: 10),
             Expanded(
-                child: _ApprovalActionButton('批准',
+                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchApproveAction,
                     color: theme.text,
                     primary: true,
                     onTap: () => onApproval('allow'))),
@@ -1146,7 +1149,7 @@ class _PendingSentinelState extends State<PendingSentinel>
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    const Text('正在运行',
+                    Text(AppLocalizations.of(context).workbenchPendingRunning,
                         style: TextStyle(
                             color: theme.text,
                             fontWeight: FontWeight.w800,

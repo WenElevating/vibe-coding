@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
+import '../../features/workspace_picker/workspace_display.dart';
 import '../../widgets/widgets.dart';
 import '../../theme/theme.dart' as theme;
 import 'run_status_color.dart';
@@ -18,52 +20,55 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return PageScroll(
       children: [
         TopBar(
-            title: data.overview.name,
-            subtitle:
-                '${data.health.bindAddress}:${data.health.port}  ${data.health.status}',
+            title: workspaceDisplayName(data.workspace),
+            subtitle: '${data.health.bindAddress}:${data.health.port}',
+            statusLabel: l10n.settingsConnected,
             showScan: true),
         const SizedBox(height: 18),
-        SectionTitle('概览'),
-        SizedBox(height: 10),
+        SectionTitle(l10n.homeOverviewTitle),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
                 child: MetricCard(
-                    label: '运行中',
+                    label: l10n.homeRunningMetricLabel,
                     value: '${data.runningRuns.length}',
-                    note: '活跃任务',
+                    note: l10n.homeRunningMetricNote,
                     colors: [Color(0xFF322A8D), Color(0xFF18204C)])),
             const SizedBox(width: 8),
             Expanded(
                 child: MetricCard(
-                    label: '待审批',
+                    label: l10n.homeQueuedMetricLabel,
                     value: '${data.queue.length}',
-                    note: '队列任务',
+                    note: l10n.homeQueuedMetricNote,
                     colors: [Color(0xFF073B32), Color(0xFF0B2728)])),
             const SizedBox(width: 8),
             Expanded(
                 child: MetricCard(
-                    label: '已完成 (24h)',
+                    label: l10n.homeCompletedMetricLabel,
                     value: '${data.overview.analysisScore}',
-                    note:
-                        '${data.overview.fileCount} 文件 · ${data.overview.codeLineCount} 行',
+                    note: l10n.homeFilesLinesNote(
+                        data.overview.fileCount, data.overview.codeLineCount),
                     colors: [Color(0xFF18212D), Color(0xFF101721)])),
           ],
         ),
         const SizedBox(height: 18),
-        SectionTitle('最近运行', action: '查看全部', onAction: () => selectTab(1)),
+        SectionTitle(l10n.homeRecentRunsTitle,
+            action: l10n.homeViewAllAction, onAction: () => selectTab(1)),
         const SizedBox(height: 10),
         GlassCard(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               if (data.runs.isEmpty)
-                const Padding(
+                Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('暂无运行记录', style: TextStyle(color: theme.muted)))
+                    child: Text(l10n.homeNoRuns,
+                        style: const TextStyle(color: theme.muted)))
               else
                 for (final run in data.runs.take(4).toList()) ...[
                   CompactRun(
@@ -80,37 +85,40 @@ class HomePage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 22),
-        const SectionTitle('快捷操作'),
+        SectionTitle(l10n.homeQuickActionsTitle),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
                 child: QuickAction(
                     icon: Icons.add_box_rounded,
-                    title: '新建任务',
-                    subtitle: '创建新任务',
+                    title: l10n.homeNewTaskTitle,
+                    subtitle: l10n.homeNewTaskSubtitle,
                     color: theme.purple,
                     onTap: () => selectTab(1))),
             const SizedBox(width: 10),
             Expanded(
                 child: QuickAction(
                     icon: Icons.drive_file_move_rounded,
-                    title: '命令模板',
-                    subtitle: '执行预设命令',
+                    title: l10n.homeCommandTemplatesTitle,
+                    subtitle: l10n.homeCommandTemplatesSubtitle,
                     color: theme.green,
                     onTap: () => selectTab(2))),
             const SizedBox(width: 10),
             Expanded(
                 child: QuickAction(
                     icon: Icons.view_list_rounded,
-                    title: '查看队列',
-                    subtitle: '查看排队任务',
+                    title: l10n.homeViewQueueTitle,
+                    subtitle: l10n.homeViewQueueSubtitle,
                     color: theme.orange,
                     onTap: () => selectTab(3))),
           ],
         ),
         const SizedBox(height: 18),
-        ApprovalPreview(onTap: () => open(RoutePage.approval)),
+        ApprovalPreview(
+            title: l10n.workbenchApprovalPageTitle,
+            action: l10n.workbenchModifyFileTitle,
+            onTap: () => open(RoutePage.approval)),
       ],
     );
   }

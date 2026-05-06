@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
@@ -41,6 +42,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final data = widget.data;
     final pages = [
       HomePage(open: _open, selectTab: _selectTab, data: data),
@@ -83,7 +85,8 @@ class _MainTabsPageState extends State<MainTabsPage> {
       ),
       bottomNavigationBar: _route == RoutePage.tabs &&
               (_tab != 2 || _codingSessionListOpen)
-          ? BottomNav(selected: _tab, items: mainTabItems, onTap: _selectTab)
+          ? BottomNav(
+              selected: _tab, items: mainTabItems(l10n), onTap: _selectTab)
           : null,
       extendBody: true,
     );

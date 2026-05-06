@@ -1,8 +1,248 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
+import 'package:lan_ai_cli_control/l10n/app_localizations.dart';
+import 'package:lan_ai_cli_control/src/app/app_localization.dart';
+import 'package:lan_ai_cli_control/src/app/language_controller.dart';
+import 'package:lan_ai_cli_control/src/app/language_mode.dart';
+import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
+    as settings_feature;
+import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class _LocalizedSettingsLabelApp extends StatefulWidget {
+  const _LocalizedSettingsLabelApp();
+
+  @override
+  State<_LocalizedSettingsLabelApp> createState() =>
+      _LocalizedSettingsLabelAppState();
+}
+
+class _LocalizedSettingsLabelAppState
+    extends State<_LocalizedSettingsLabelApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: Builder(
+                  builder: (context) => Text(
+                      AppLocalizations.of(context).navSettings)))));
+}
+
+class _LocalizedSettingsPageApp extends StatefulWidget {
+  const _LocalizedSettingsPageApp();
+
+  @override
+  State<_LocalizedSettingsPageApp> createState() =>
+      _LocalizedSettingsPageAppState();
+}
+
+class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: Scaffold(
+                  body: settings_feature.SettingsPage(
+                      open: (_) {},
+                      data: _testSnapshot(),
+                      streamOutput: false,
+                      expandThinking: false,
+                      permissionMode: 'default',
+                      onPermissionModeChanged: (_) {},
+                      onStreamOutputChanged: (_) {},
+                      onExpandThinkingChanged: (_) {})))));
+}
+
+class _LocalizedHomePageApp extends StatefulWidget {
+  const _LocalizedHomePageApp();
+
+  @override
+  State<_LocalizedHomePageApp> createState() => _LocalizedHomePageAppState();
+}
+
+class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: Scaffold(
+                  body: HomePage(
+                      open: (_) {},
+                      selectTab: (_) {},
+                      data: _testSnapshot())))));
+}
+
+AppSnapshot _testSnapshot() {
+  const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding');
+  return AppSnapshot(
+      health: DaemonHealth.fromJson(const <String, Object?>{
+        'status': 'ok',
+        'daemonVersion': 'test',
+        'mode': 'test',
+        'lanMode': false,
+        'bindAddress': '127.0.0.1',
+        'port': 4317,
+        'security': {'tokenRequired': false}
+      }),
+      workspaces: const <WorkspaceSummary>[workspace],
+      workspace: workspace,
+      overview: const ProjectOverview(
+          workspaceId: 'workspace_1',
+          name: 'vibe-coding',
+          path: r'D:\AiProject\vibe-coding',
+          fileCount: 0,
+          codeLineCount: 0,
+          symbolCount: 0,
+          analysisScore: 0,
+          recentFiles: <RecentFileSummary>[]),
+      adapters: const <AdapterStatus>[],
+      runs: const <RunSummary>[],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      templates: const <CommandTemplate>[],
+      gitStatus: const GitStatusSummary(
+          workspaceId: 'workspace_1', clean: true, files: <GitStatusFile>[]),
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: const FileTreeResponse(
+          workspaceId: 'workspace_1', root: '', entries: <FileTreeEntry>[]),
+      diagnostics: const CodeDiagnosticsSummary(
+          workspaceId: 'workspace_1',
+          available: true,
+          diagnostics: <CodeDiagnostic>[]),
+      extensions: const <ExtensionSummary>[]);
+}
 
 void main() {
+  testWidgets('app renders English when forced to English',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedSettingsLabelApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settings'), findsWidgets);
+  });
+
+  testWidgets('app renders Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const _LocalizedSettingsLabelApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('设置'), findsWidgets);
+  });
+
+  testWidgets('home quick actions render Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const _LocalizedHomePageApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('\u5feb\u6377\u64cd\u4f5c'), findsOneWidget);
+    expect(find.text('\u547d\u4ee4\u6a21\u677f'), findsOneWidget);
+    expect(find.text('\u9700\u8981\u4f60\u5ba1\u6279'), findsOneWidget);
+    expect(find.text('\u4fee\u6539\u6587\u4ef6'), findsOneWidget);
+    expect(find.text('\u5df2\u8fde\u63a5'), findsOneWidget);
+    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.text('Command templates'), findsNothing);
+    expect(find.text('Needs your approval'), findsNothing);
+    expect(find.text('Modify file'), findsNothing);
+    expect(find.text('online'), findsNothing);
+    expect(find.text('Current Project'), findsNothing);
+  });
+
+  testWidgets('settings language picker shows self-identifying language names',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedSettingsPageApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Language'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('System default'), findsOneWidget);
+    expect(find.text('简体中文'), findsOneWidget);
+    expect(find.text('English'), findsWidgets);
+  });
+
   testWidgets('renders assistant markdown instead of raw syntax',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildAssistantMarkdownPreview(
@@ -62,7 +302,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
-    expect(find.text('New Session'), findsOneWidget);
+    expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')), findsOneWidget);
     expect(find.text('Select workspace for this coding session'), findsNothing);
   });
 
@@ -510,7 +750,7 @@ void main() {
       conversation,
     );
 
-    expect(diagnostic, contains('CLI 未返回内容'));
+    expect(diagnostic, contains('CLI returned no content'));
     expect(diagnostic, contains('Claude exited before returning content'));
   });
 

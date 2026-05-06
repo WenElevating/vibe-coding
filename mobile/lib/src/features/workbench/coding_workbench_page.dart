@@ -339,28 +339,28 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   // ignore: unused_element
   String? _eventActionSummary(AgentEvent event) {
     if (event.type == 'run.started') {
-      return '已启动 ${event.raw['tool'] ?? _selectedAdapter ?? 'CLI'} 会话';
+      return 'Started ${event.raw['tool'] ?? _selectedAdapter ?? 'CLI'} session';
     }
-    if (event.type == 'approval.required') return '等待权限确认';
+    if (event.type == 'approval.required') return 'Waiting for permission confirmation';
     if (event.type == 'tool.started') {
-      final name = event.name ?? _toolNameFromRaw(event) ?? '工具';
+      final name = event.name ?? _toolNameFromRaw(event) ?? 'Tool';
       final target = _toolTargetFromRaw(event);
-      return target == null ? '调用 $name' : '调用 $name：$target';
+      return target == null ? 'Call $name' : 'Call $name: $target';
     }
     if (event.type == 'tool.output') {
       final target = _toolTargetFromRaw(event);
-      return target == null ? '工具返回结果' : '处理完成：$target';
+      return target == null ? 'Tool returned output' : 'Processed: $target';
     }
     if (event.type == 'diff.summary' && event.diff != null) {
-      return '修改 ${event.diff!.filePath}  +${event.diff!.additions} -${event.diff!.deletions}';
+      return 'Changed ${event.diff!.filePath}  +${event.diff!.additions} -${event.diff!.deletions}';
     }
     if (event.type == 'raw.output') {
       final text = event.text?.trim();
       if (text == null || text.isEmpty || text.startsWith('{')) return null;
       return text.length > 64 ? '${text.substring(0, 64)}…' : text;
     }
-    if (event.type == 'run.completed') return '本轮运行完成';
-    if (event.type == 'run.failed') return '运行失败';
+    if (event.type == 'run.completed') return 'Run completed';
+    if (event.type == 'run.failed') return 'Run failed';
     return null;
   }
 
@@ -776,7 +776,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
               event: event,
               runId: event.runId));
         } else {
-          _messages.add(WorkbenchMessage.status('已拒绝权限请求'));
+          _messages.add(WorkbenchMessage.status('Denied permission request'));
         }
       });
       final conversation = _activeConversation;
@@ -852,7 +852,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           if (_error != null) ...[
             const SizedBox(height: 10),
             GlassCard(
-                child: Text('运行错误：$_error',
+                child: Text('Run error: $_error',
                     style: const TextStyle(
                         color: theme.red, fontSize: 12, height: 1.45))),
           ],
@@ -884,7 +884,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   String get _conversationTitle {
     final userMessage = _messages.where((message) => message.role == 'user');
-    if (userMessage.isEmpty) return '新的编码会话';
+    if (userMessage.isEmpty) return 'New coding session';
     final text = userMessage.last.body.trim();
     if (text.length <= 18) return text;
     return '${text.substring(0, 18)}…';

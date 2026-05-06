@@ -1,0 +1,308 @@
+{
+  "@@locale": "en",
+  "appTitle": "AI CLI Control",
+  "navHome": "Home",
+  "navRuns": "Runs",
+  "navCoding": "Coding",
+  "navDevices": "Devices",
+  "navSettings": "Settings",
+  "settingsTitle": "Settings",
+  "settingsPreferencesSection": "Preferences",
+  "settingsLanguageTitle": "Language",
+  "settingsLanguageSystem": "System default",
+  "settingsLanguageZhHans": "简体中文",
+  "settingsLanguageEn": "English",
+  "settingsLanguagePickerTitle": "Choose language",
+  "settingsCodingControlSection": "Coding control",
+  "settingsStreamOutputTitle": "Stream output",
+  "settingsStreamOutputSubtitle": "When off, only the final answer is shown to avoid duplicate deltas and complete messages.",
+  "settingsExpandThinkingTitle": "Show thinking process",
+  "settingsExpandThinkingSubtitle": "When on, model thinking is expanded by default; when off, it stays collapsed.",
+  "settingsPermissionModeTitle": "Permission mode",
+  "settingsPermissionDefault": "Default",
+  "settingsPermissionAuto": "Auto",
+  "settingsPermissionSubtitle": "Default asks for CLI permission confirmation; auto lets the CLI handle permissions.",
+  "settingsDataStatusSection": "Data status",
+  "settingsDiagnosticsTitle": "Code diagnostics",
+  "settingsDiagnosticsCount": "{count} items",
+  "settingsGitStatusTitle": "Git status",
+  "settingsGitClean": "Clean",
+  "settingsGitFiles": "{count} files",
+  "settingsAboutSection": "About",
+  "settingsExtensionsTitle": "Extensions",
+  "settingsExtensionsCount": "{count} items",
+  "settingsAdaptersAction": "Adapters",
+  "settingsNotificationsAction": "Notifications",
+  "settingsGenerateDiagnosticsAction": "Generate diagnostics",
+  "settingsCurrentConnectionTitle": "Current connection",
+  "settingsConnected": "Connected",
+  "settingsWorkspaceLabel": "Workspace",
+  "settingsSecurityModeLabel": "Security mode",
+  "@settingsDiagnosticsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsGitFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@settingsExtensionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeOverviewTitle": "Overview",
+  "homeRunningMetricLabel": "Running",
+  "homeRunningMetricNote": "Active tasks",
+  "homeQueuedMetricLabel": "Pending approval",
+  "homeQueuedMetricNote": "Queued tasks",
+  "homeCompletedMetricLabel": "Completed (24h)",
+  "homeFilesLinesNote": "{files} files ? {lines} lines",
+  "homeRecentRunsTitle": "Recent runs",
+  "homeViewAllAction": "View all",
+  "homeNoRuns": "No runs yet",
+  "homeQuickActionsTitle": "Quick actions",
+  "homeNewTaskTitle": "New task",
+  "homeNewTaskSubtitle": "Create a new task",
+  "homeCommandTemplatesTitle": "Command templates",
+  "homeCommandTemplatesSubtitle": "Run preset commands",
+  "homeViewQueueTitle": "View queue",
+  "homeViewQueueSubtitle": "Review queued tasks",
+  "runsTitle": "Runs",
+  "runsAllPill": "All {count}",
+  "runsRunningPill": "Running {count}",
+  "runsCompletedPill": "Completed {count}",
+  "runsFailedPill": "Failed {count}",
+  "runsEmpty": "No runs yet. Start a real AI CLI task from command templates.",
+  "queueTitle": "Run queue",
+  "queueCountAction": "{count} items",
+  "queueRunningPill": "Running {count}",
+  "queueWaitingPill": "Queued {count}",
+  "queueTotalPill": "Total {count}",
+  "queueRunningSection": "Running",
+  "queueWaitingSection": "Queued",
+  "queueNoRunning": "No running queue items",
+  "queueNoWaiting": "No waiting tasks",
+  "queueFootnote": "Queue data comes from the daemon. Tasks run in workspace order.",
+  "@homeFilesLinesNote": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsAllPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsCompletedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@runsFailedPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueCountAction": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueRunningPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueWaitingPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@queueTotalPill": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonBack": "Back",
+  "adaptersTitle": "Adapter status",
+  "adaptersCount": "{count} items",
+  "@adaptersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adaptersEmpty": "daemon returned no adapters",
+  "adaptersExtensionsSection": "Extensions",
+  "adaptersNoExtensions": "No extension information",
+  "adaptersNotInstalled": "not installed",
+  "adaptersStatusOk": "Status                         OK",
+  "adaptersCapabilitiesLabel": "Capabilities",
+  "diagnosticsTitle": "Diagnostics",
+  "diagnosticsDescription": "Export a redacted diagnostics bundle for troubleshooting",
+  "diagnosticsSystemInfo": "System information",
+  "diagnosticsAdapterStatus": "Adapter status",
+  "diagnosticsRunLogsRecent": "Run logs (last 7 days)",
+  "diagnosticsEventRecordsRecent": "Event records (last 7 days)",
+  "diagnosticsConfigInfo": "Configuration",
+  "diagnosticsEstimatedSize": "Estimated size",
+  "diagnosticsGenerateAction": "Generate diagnostics bundle",
+  "notificationsTitle": "Notifications",
+  "notificationsTabAll": "All",
+  "notificationsTabUnread": "Unread",
+  "notificationsTabMentions": "@me",
+  "notificationsApprovalRequired": "Approval required",
+  "notificationsRequestModify": "Claude Code requests changes\nlib/services/auth_service.dart",
+  "notificationsTaskComplete": "Task complete",
+  "notificationsRunCompletedDuration": "Add unit tests for user service\nRun completed, duration 28m 15s",
+  "notificationsTaskFailed": "Task failed",
+  "notificationsDataSyncBody": "Optimize data sync logic\nRun failed, view details",
+  "notificationsYesterday1422": "Yesterday 14:22",
+  "notificationsQueueUpdate": "Queue update",
+  "notificationsCacheBody": "Optimize cache strategy\nStarted running",
+  "notificationsYesterday1315": "Yesterday 13:15",
+  "notificationsSystemMessage": "System message",
+  "notificationsConnectedBody": "Connected to DESKTOP-DEV",
+  "notificationsYesterday1001": "Yesterday 10:01",
+  "runDetailTitle": "Run details",
+  "runDetailMockTask": "Fix login API test failure",
+  "runDetailRunningStatus": "Running",
+  "runDetailStartedDuration": "10:32 started ? Duration 12m 45s",
+  "runDetailTabOverview": "Overview",
+  "runDetailTabEvents": "Events",
+  "runDetailTabFileChanges": "File changes",
+  "runDetailTabConfig": "Config",
+  "runDetailUserPromptTitle": "User prompt",
+  "runDetailUserPromptBody": "Fix the login API test failure and add boundary-condition tests.",
+  "runDetailThinkingTitle": "Claude starts thinking",
+  "runDetailThinkingBody": "Analyzing the problem and related code...",
+  "runDetailReadFileTitle": "Read file",
+  "runDetailSearchCodeTitle": "Search code",
+  "runDetailSearchBody": "search: \"login failure test\"\nFound 12 results",
+  "runDetailEditFileTitle": "Edit file",
+  "runDetailRunCommandTitle": "Run command",
+  "runDetailCommandBody": "dart test tests/login_test.dart      running ?",
+  "sessionsTitle": "Sessions",
+  "sessionsCurrentProject": "Current project",
+  "sessionsSearchPlaceholder": "Search sessions, commands, file paths?",
+  "sessionsFootnote": "This list only shows sessions in the current workspace.",
+  "sessionsEmptyTitle": "No sessions in this workspace yet",
+  "sessionsNewSession": "New Session",
+  "sessionsWaitingApproval": "Waiting approval",
+  "sessionsPendingBadge": "pending",
+  "sessionsRunning": "Running",
+  "sessionsFailed": "Failed",
+  "sessionsDone": "Done",
+  "sessionsSessionNoun": "session",
+  "sessionsTaskNoun": "task",
+  "workspaceAdapterPickerTitle": "Choose model / CLI",
+  "workspaceAdapterPickerSubtitle": "Used for the next real daemon run. It cannot be switched while running.",
+  "workspaceListTitle": "Workspaces",
+  "workspaceAvailableSection": "Available Workspaces",
+  "workspaceListFootnote": "Choose the folder where CLI commands will run, then open or create a session inside it.",
+  "workspaceCurrentFallback": "Current workspace",
+  "workspaceSheetTitle": "Workspace",
+  "workspaceSheetSubtitle": "Switch the CLI execution directory. The current session stays available.",
+  "workspacePathHint": "Enter or browse a folder path",
+  "workspaceBrowseAction": "Browse",
+  "workspaceNameHint": "Name (optional)",
+  "workspaceCreatingAction": "Creating",
+  "workspaceCreateAction": "Create",
+  "workspaceExistingSection": "Existing workspaces",
+  "workspaceSafeDirectoryMeta": "Safe execution directory",
+  "workspaceAddTitle": "Add workspace",
+  "workspaceChoosePathHint": "Choose or enter a folder path",
+  "workspaceCreateAndUseAction": "Create and use",
+  "workspaceChooseFolderTitle": "Choose folder",
+  "workspaceSelectCurrentAction": "Select current",
+  "workspaceBrowserPlaceholder": "Choose a drive or root directory, then continue into a folder",
+  "workbenchComposerNoAdapter": "No available CLI adapter",
+  "workbenchComposerFollowUpHint": "Request follow-up changes?",
+  "workbenchApprovalPageTitle": "Needs your approval",
+  "workbenchModifyFileTitle": "Modify file",
+  "workbenchDiffTab": "Diff",
+  "workbenchFileContentTab": "File content",
+  "workbenchApprovalActionsSection": "Approval actions",
+  "workbenchClaudeSuggestionTitle": "Claude suggested changes",
+  "workbenchMockFixEmptyResponse": "Fix test failure caused by empty responses",
+  "workbenchRejectAction": "Deny",
+  "workbenchApproveAction": "Approve",
+  "workbenchInlineReady": "Ready for a coding task",
+  "workbenchInlineCompleted": "CLI session complete ? {count} events processed",
+  "@workbenchInlineCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchInlineConnecting": "Connecting {adapter} ? {count} events processed",
+  "@workbenchInlineConnecting": {
+    "placeholders": {
+      "adapter": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchApprovalMissingId": "daemon did not provide approvalId, so mobile cannot process it.",
+  "workbenchQuestionTitle": "Needs your direction",
+  "workbenchCommandDetailTitle": "Command details",
+  "workbenchOutputDetailTitle": "Output details",
+  "workbenchCommandMetaEmpty": "Run 1 command",
+  "workbenchCommandMetaWithTitle": "Run 1 command ? {title}",
+  "@workbenchCommandMetaWithTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCopyAllTooltip": "Copy full text",
+  "workbenchCopiedSnack": "Copied to clipboard",
+  "workbenchCloseTooltip": "Close",
+  "workbenchPendingRunning": "Running",
+  "workbenchPreviewReceivingOutput": "Receiving CLI output...",
+  "workbenchPreviewStartedSession": "Started claude session",
+  "workbenchApprovalCardTitle": "Needs approval",
+  "workbenchRunErrorPrefix": "Run error:",
+  "workbenchNewSessionTitle": "New coding session"
+}

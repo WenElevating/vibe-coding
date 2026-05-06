@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'app_localization.dart';
+import 'language_mode.dart';
 
 const appBg = Color(0xFF0A0B0D);
 const appPanel = Color(0xE6111214);
@@ -30,7 +30,7 @@ const appFontFallback = <String>[
 const appTextStyle = TextStyle(
     fontFamily: 'Segoe UI',
     fontFamilyFallback: appFontFallback,
-    locale: appZhHansCnLocale);
+    locale: AppLanguage.zhHansCnLocale);
 
 ThemeData buildAppTheme() => ThemeData(
       brightness: Brightness.dark,

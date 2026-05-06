@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
+import '../../app/language_mode.dart';
+import '../../app/language_scope.dart';
 import '../../models/protocol.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
@@ -28,66 +31,183 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final language = LanguageScope.watch(context);
     return PageScroll(
       children: [
-        const TopBar(title: '设置'),
+        TopBar(title: l10n.settingsTitle),
         const SizedBox(height: 14),
         _SettingsConnectionCard(
             workspace: data.workspace,
             mode: data.health.mode,
-            lanMode: data.health.lanMode),
+            lanMode: data.health.lanMode,
+            l10n: l10n),
         const SizedBox(height: 20),
-        Subhead('编码控制'),
+        Subhead(l10n.settingsPreferencesSection),
+        _SettingsCard(children: [
+          _SettingsTapRow(
+              title: l10n.settingsLanguageTitle,
+              value: _languageModeLabel(l10n, language.mode),
+              onTap: () => _showLanguagePicker(context)),
+        ]),
+        const SizedBox(height: 20),
+        Subhead(l10n.settingsCodingControlSection),
         _SettingsCard(children: [
           _PermissionModeRow(
-              value: permissionMode, onChanged: onPermissionModeChanged),
+              value: permissionMode,
+              onChanged: onPermissionModeChanged,
+              l10n: l10n),
           _SettingsSwitchRow(
-              title: '流式输出',
-              subtitle: '关闭时只显示最终回复，避免 delta 与完整消息重复。',
+              title: l10n.settingsStreamOutputTitle,
+              subtitle: l10n.settingsStreamOutputSubtitle,
               value: streamOutput,
               onChanged: onStreamOutputChanged),
           _SettingsSwitchRow(
-              title: '显示思考过程',
-              subtitle: '开启后默认展开模型 thinking；关闭时折叠显示。',
+              title: l10n.settingsExpandThinkingTitle,
+              subtitle: l10n.settingsExpandThinkingSubtitle,
               value: expandThinking,
               onChanged: onExpandThinkingChanged),
         ]),
         const SizedBox(height: 20),
-        Subhead('数据状态'),
+        Subhead(l10n.settingsDataStatusSection),
         _SettingsCard(children: [
           _SettingsRow(
-              title: '代码诊断', value: '${data.diagnostics.diagnostics.length} 条'),
+              title: l10n.settingsDiagnosticsTitle,
+              value: l10n.settingsDiagnosticsCount(
+                  data.diagnostics.diagnostics.length)),
           _SettingsRow(
-              title: 'Git 状态',
+              title: l10n.settingsGitStatusTitle,
               value: data.gitStatus?.clean == true
-                  ? '干净'
-                  : '${data.gitStatus?.files.length ?? 0} 文件'),
+                  ? l10n.settingsGitClean
+                  : l10n.settingsGitFiles(data.gitStatus?.files.length ?? 0)),
         ]),
         const SizedBox(height: 20),
-        Subhead('关于'),
+        Subhead(l10n.settingsAboutSection),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
-          _SettingsRow(title: '扩展', value: '${data.extensions.length} 个'),
+          _SettingsRow(
+              title: l10n.settingsExtensionsTitle,
+              value: l10n.settingsExtensionsCount(data.extensions.length)),
         ]),
         const SizedBox(height: 18),
         Row(children: [
           Expanded(
-              child: _SettingsActionButton('适配器',
+              child: _SettingsActionButton(l10n.settingsAdaptersAction,
                   icon: Icons.extension_rounded,
                   onTap: () => open(RoutePage.adapters))),
           const SizedBox(width: 10),
           Expanded(
-              child: _SettingsActionButton('通知',
+              child: _SettingsActionButton(l10n.settingsNotificationsAction,
                   icon: Icons.notifications_rounded,
                   onTap: () => open(RoutePage.notifications))),
         ]),
         const SizedBox(height: 10),
-        _SettingsActionButton('生成诊断信息',
+        _SettingsActionButton(l10n.settingsGenerateDiagnosticsAction,
             icon: Icons.health_and_safety_rounded,
             fullWidth: true,
             onTap: () => open(RoutePage.diagnostics)),
       ],
     );
+  }
+}
+
+String _languageModeLabel(
+        AppLocalizations l10n, LanguageModePreference mode) =>
+    switch (mode) {
+      LanguageModePreference.system => l10n.settingsLanguageSystem,
+      LanguageModePreference.zhHansCn => '简体中文',
+      LanguageModePreference.enUs => 'English',
+    };
+
+void _showLanguagePicker(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  final controller = LanguageScope.read(context);
+  showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LanguagePickerSheet(
+          title: l10n.settingsLanguagePickerTitle,
+          selected: controller.mode,
+          onSelected: (mode) async {
+            Navigator.of(context).pop();
+            await controller.setMode(mode);
+          }));
+}
+
+class _SettingsTapRow extends StatelessWidget {
+  const _SettingsTapRow(
+      {required this.title, required this.value, required this.onTap});
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(children: [
+            Expanded(
+                child: Text(title,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w800))),
+            Text(value,
+                style: const TextStyle(
+                    color: theme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded,
+                color: theme.faint, size: 18),
+          ])));
+}
+
+class _LanguagePickerSheet extends StatelessWidget {
+  const _LanguagePickerSheet(
+      {required this.title, required this.selected, required this.onSelected});
+  final String title;
+  final LanguageModePreference selected;
+  final ValueChanged<LanguageModePreference> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final options = <(LanguageModePreference, String)>[
+      (LanguageModePreference.system, l10n.settingsLanguageSystem),
+      (LanguageModePreference.zhHansCn, '简体中文'),
+      (LanguageModePreference.enUs, 'English'),
+    ];
+    return SafeArea(
+        child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            decoration: BoxDecoration(
+                color: const Color(0xFF101113),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withValues(alpha: .08))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [
+                Expanded(
+                    child: Text(title,
+                        style: const TextStyle(
+                            color: theme.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900))),
+                IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded,
+                        color: theme.muted, size: 18)),
+              ]),
+              for (final option in options)
+                ListTile(
+                    dense: true,
+                    title: Text(option.$2),
+                    trailing: selected == option.$1
+                        ? const Icon(Icons.check_rounded,
+                            color: theme.green, size: 18)
+                        : null,
+                    onTap: () => onSelected(option.$1)),
+            ])));
   }
 }
 
@@ -116,10 +236,14 @@ class _SettingsCard extends StatelessWidget {
 
 class _SettingsConnectionCard extends StatelessWidget {
   const _SettingsConnectionCard(
-      {required this.workspace, required this.mode, required this.lanMode});
+      {required this.workspace,
+      required this.mode,
+      required this.lanMode,
+      required this.l10n});
   final WorkspaceSummary workspace;
   final String mode;
   final bool lanMode;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -146,9 +270,9 @@ class _SettingsConnectionCard extends StatelessWidget {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                const Text('当前连接',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                Text(l10n.settingsCurrentConnectionTitle,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 15)),
                 const SizedBox(height: 4),
                 Text(workspace.path,
                     maxLines: 1,
@@ -158,17 +282,19 @@ class _SettingsConnectionCard extends StatelessWidget {
                         fontSize: 11.5,
                         fontFamily: 'Consolas')),
               ])),
-          const _SettingsPill('已连接')
+          _SettingsPill(l10n.settingsConnected)
         ]),
         const SizedBox(height: 14),
         Row(children: [
           Expanded(
               child: _SettingsMetric(
-                  label: '工作区', value: workspaceDisplayName(workspace))),
+                  label: l10n.settingsWorkspaceLabel,
+                  value: workspaceDisplayName(workspace))),
           const SizedBox(width: 10),
           Expanded(
               child: _SettingsMetric(
-                  label: '安全模式', value: lanMode ? 'LAN' : mode)),
+                  label: l10n.settingsSecurityModeLabel,
+                  value: lanMode ? 'LAN' : mode)),
         ]),
       ]));
 }
@@ -281,31 +407,34 @@ class _SettingsRow extends StatelessWidget {
 }
 
 class _PermissionModeRow extends StatelessWidget {
-  const _PermissionModeRow({required this.value, required this.onChanged});
+  const _PermissionModeRow(
+      {required this.value, required this.onChanged, required this.l10n});
   final String value;
   final ValueChanged<String> onChanged;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(
-              child: Text('权限模式',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14))),
+          Expanded(
+              child: Text(l10n.settingsPermissionModeTitle,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 14))),
           _PermissionChip(
-              label: '默认',
+              label: l10n.settingsPermissionDefault,
               selected: value == 'default',
               onTap: () => onChanged('default')),
           const SizedBox(width: 8),
           _PermissionChip(
-              label: '自动',
+              label: l10n.settingsPermissionAuto,
               selected: value == 'auto',
               onTap: () => onChanged('auto')),
         ]),
         const SizedBox(height: 8),
-        const Text('默认会请求 CLI 权限确认；自动模式由 CLI 处理。',
-            style: TextStyle(
+        Text(l10n.settingsPermissionSubtitle,
+            style: const TextStyle(
                 color: Color(0xFF858A94), fontSize: 11.5, height: 1.35)),
       ]));
 }

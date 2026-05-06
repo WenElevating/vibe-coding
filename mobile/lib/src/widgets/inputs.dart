@@ -19,7 +19,7 @@ class AppSearchBar extends StatelessWidget {
           child: const Row(children: [
             Icon(Icons.search_rounded, color: theme.muted, size: 18),
             SizedBox(width: 8),
-            Text('鎼滅储浠诲姟銆佹弿杩般€佸伐鍏?..',
+            Text('Search tasks, descriptions, tools...',
                 style: TextStyle(color: theme.faint, fontSize: 13))
           ]),
         ),
@@ -50,6 +50,6 @@ class SessionSearchBox extends StatelessWidget {
           color: const Color(0xFF101113),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white.withValues(alpha: .075))),
-      child: const Text('搜索会话、命令、文件路径…',
+      child: const Text('Search sessions, commands, file paths...',
           style: TextStyle(color: Color(0xFF737983), fontSize: 13)));
 }

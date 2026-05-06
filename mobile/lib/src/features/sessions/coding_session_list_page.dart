@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
@@ -25,6 +26,7 @@ class CodingSessionListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final currentItems = items
         .where((item) => item.run.workspaceId == currentWorkspace.id)
         .toList(growable: false);
@@ -50,7 +52,7 @@ class CodingSessionListPage extends StatelessWidget {
                 child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                  const Text('会话列表',
+                  Text(l10n.sessionsTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -77,7 +79,7 @@ class CodingSessionListPage extends StatelessWidget {
             const _SessionSearchBox(),
             const SizedBox(height: 14),
             _SessionGroupHeader(
-                title: '当前项目', meta: workspaceDisplayName(currentWorkspace)),
+                title: l10n.sessionsCurrentProject, meta: workspaceDisplayName(currentWorkspace)),
             const SizedBox(height: 6),
             if (currentItems.isEmpty)
               _EmptySessionStack(onNewSession: onNewSession)
@@ -88,11 +90,11 @@ class CodingSessionListPage extends StatelessWidget {
                           run: item.run, onTap: () => onSelectItem(item)))
                       .toList(growable: false)),
             const SizedBox(height: 16),
-            const Padding(
-                padding: EdgeInsets.fromLTRB(4, 6, 4, 0),
+            Padding(
+                padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
                 child: Text(
-                    'This list only shows sessions in the current workspace.',
-                    style: TextStyle(
+                    l10n.sessionsFootnote,
+                    style: const TextStyle(
                         color: Color(0xFF666D77),
                         fontSize: 11.5,
                         height: 1.5))),
@@ -132,8 +134,8 @@ class _SessionSearchBox extends StatelessWidget {
           color: const Color(0xFF101113),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white.withValues(alpha: .075))),
-      child: const Text('搜索会话、命令、文件路径…',
-          style: TextStyle(color: Color(0xFF737983), fontSize: 13)));
+      child: Text(AppLocalizations.of(context).sessionsSearchPlaceholder,
+          style: const TextStyle(color: Color(0xFF737983), fontSize: 13)));
 }
 
 class _SessionGroupHeader extends StatelessWidget {
@@ -184,13 +186,13 @@ class _EmptySessionStack extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('No sessions in this workspace yet',
-                  style: TextStyle(
+              Text(AppLocalizations.of(context).sessionsEmptyTitle,
+                  style: const TextStyle(
                       color: theme.text,
                       fontSize: 13,
                       fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
-              TinyActionButton('New Session',
+              TinyActionButton(AppLocalizations.of(context).sessionsNewSession,
                   onTap: onNewSession, primary: true),
             ]))
       ]);
@@ -203,7 +205,8 @@ class _SessionRunRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = _sessionRunState(run.status);
+    final l10n = AppLocalizations.of(context);
+    final state = _sessionRunState(run.status, l10n);
     return InkWell(
         onTap: onTap,
         child: Container(
@@ -233,7 +236,7 @@ class _SessionRunRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                    Text(_sessionRunTitle(run),
+                    Text(_sessionRunTitle(run, l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -272,29 +275,29 @@ class _SessionRunVisualState {
   final Color color;
 }
 
-_SessionRunVisualState _sessionRunState(String status) {
+_SessionRunVisualState _sessionRunState(String status, AppLocalizations l10n) {
   final lower = status.toLowerCase();
   if (lower.contains('approval') || lower.contains('pending')) {
-    return const _SessionRunVisualState(
-        icon: '!', label: '等待审批', badge: '待处理', color: theme.amber);
+    return _SessionRunVisualState(
+        icon: '!', label: l10n.sessionsWaitingApproval, badge: l10n.sessionsPendingBadge, color: theme.amber);
   }
   if (lower.contains('running') || lower.contains('start')) {
-    return const _SessionRunVisualState(
-        icon: '●', label: '运行中', badge: 'live', color: theme.green);
+    return _SessionRunVisualState(
+        icon: '?', label: l10n.sessionsRunning, badge: 'live', color: theme.green);
   }
   if (lower.contains('fail') || lower.contains('error')) {
-    return const _SessionRunVisualState(
-        icon: '×', label: '失败', badge: '失败', color: theme.red);
+    return _SessionRunVisualState(
+        icon: '?', label: l10n.sessionsFailed, badge: l10n.sessionsFailed, color: theme.red);
   }
-  return const _SessionRunVisualState(
-      icon: '✓', label: '完成', badge: '完成', color: Color(0xFFA0A0A0));
+  return _SessionRunVisualState(
+      icon: '?', label: l10n.sessionsDone, badge: l10n.sessionsDone, color: const Color(0xFFA0A0A0));
 }
 
-String _sessionRunTitle(RunSummary run) {
+String _sessionRunTitle(RunSummary run, AppLocalizations l10n) {
   if (run.cliSessionId != null && run.cliSessionId!.isNotEmpty) {
-    return '${_toolDisplayName(run.tool)} 会话 ${run.cliSessionId!.split('-').first}';
+    return '${_toolDisplayName(run.tool)} ${l10n.sessionsSessionNoun} ${run.cliSessionId!.split('-').first}';
   }
-  return '${_toolDisplayName(run.tool)} 任务 ${run.id.split('_').last}';
+  return '${_toolDisplayName(run.tool)} ${l10n.sessionsTaskNoun} ${run.id.split('_').last}';
 }
 
 String _toolDisplayName(String tool) {
