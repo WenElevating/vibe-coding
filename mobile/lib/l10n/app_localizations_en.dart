@@ -252,6 +252,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeViewQueueSubtitle => 'Review queued tasks';
 
   @override
+  String get homeNowTitle => 'Now';
+
+  @override
+  String get homeInterruptsTitle => 'Needs attention';
+
+  @override
+  String get homeExecutionStreamTitle => 'Execution stream';
+
+  @override
+  String get homeWorkspaceSignalsTitle => 'Workspace signals';
+
+  @override
+  String get homeIdleNow => 'No blockers in this workspace';
+
+  @override
+  String get homeNoRecentActivity => 'No recent activity in this workspace';
+
+  @override
+  String get homeGitChangedLabel => 'Git changes';
+
+  @override
+  String get homeDiagnosticsLabel => 'Diagnostics';
+
+  @override
+  String get homeQueueLabel => 'Queue';
+
+  @override
+  String get homeRecentFilesLabel => 'Recent files';
+
+  @override
+  String homeMoreSignalsLabel(int count) {
+    return '+$count more';
+  }
+
+  @override
   String get runsTitle => 'Runs';
 
   @override

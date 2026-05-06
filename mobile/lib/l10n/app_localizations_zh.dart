@@ -248,6 +248,41 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeViewQueueSubtitle => '查看排队任务';
 
   @override
+  String get homeNowTitle => '当前焦点';
+
+  @override
+  String get homeInterruptsTitle => '需要关注';
+
+  @override
+  String get homeExecutionStreamTitle => '执行流';
+
+  @override
+  String get homeWorkspaceSignalsTitle => '工作区信号';
+
+  @override
+  String get homeIdleNow => '当前工作区无阻塞';
+
+  @override
+  String get homeNoRecentActivity => '当前工作区暂无活动';
+
+  @override
+  String get homeGitChangedLabel => 'Git 变更';
+
+  @override
+  String get homeDiagnosticsLabel => '诊断';
+
+  @override
+  String get homeQueueLabel => '队列';
+
+  @override
+  String get homeRecentFilesLabel => '最近文件';
+
+  @override
+  String homeMoreSignalsLabel(int count) {
+    return '+$count 项';
+  }
+
+  @override
   String get runsTitle => '运行';
 
   @override

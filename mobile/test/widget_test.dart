@@ -108,7 +108,9 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
 }
 
 class _LocalizedHomePageApp extends StatefulWidget {
-  const _LocalizedHomePageApp();
+  const _LocalizedHomePageApp({this.snapshot});
+
+  final AppSnapshot? snapshot;
 
   @override
   State<_LocalizedHomePageApp> createState() => _LocalizedHomePageAppState();
@@ -144,14 +146,26 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                   body: HomePage(
                       open: (_) {},
                       selectTab: (_) {},
-                      data: _testSnapshot())))));
+                      data: widget.snapshot ?? _testSnapshot())))));
 }
 
-AppSnapshot _testSnapshot() {
+AppSnapshot _testSnapshot({
+  List<WorkspaceSummary>? workspaces,
+  List<RunSummary> runs = const <RunSummary>[],
+  List<ConversationSummary> conversations = const <ConversationSummary>[],
+  List<QueueItem> queue = const <QueueItem>[],
+  List<RecentFileSummary> recentFiles = const <RecentFileSummary>[],
+  GitStatusSummary? gitStatus,
+  CodeDiagnosticsSummary diagnostics = const CodeDiagnosticsSummary(
+      workspaceId: 'workspace_1',
+      available: true,
+      diagnostics: <CodeDiagnostic>[]),
+}) {
   const workspace = WorkspaceSummary(
       id: 'workspace_1',
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
+  final resolvedWorkspaces = workspaces ?? const <WorkspaceSummary>[workspace];
   return AppSnapshot(
       health: DaemonHealth.fromJson(const <String, Object?>{
         'status': 'ok',
@@ -162,7 +176,7 @@ AppSnapshot _testSnapshot() {
         'port': 4317,
         'security': {'tokenRequired': false}
       }),
-      workspaces: const <WorkspaceSummary>[workspace],
+      workspaces: resolvedWorkspaces,
       workspace: workspace,
       overview: const ProjectOverview(
           workspaceId: 'workspace_1',
@@ -172,24 +186,42 @@ AppSnapshot _testSnapshot() {
           codeLineCount: 0,
           symbolCount: 0,
           analysisScore: 0,
-          recentFiles: <RecentFileSummary>[]),
+          recentFiles: recentFiles),
       adapters: const <AdapterStatus>[],
-      runs: const <RunSummary>[],
-      conversations: const <ConversationSummary>[],
-      queue: const <QueueItem>[],
+      runs: runs,
+      conversations: conversations,
+      queue: queue,
       templates: const <CommandTemplate>[],
-      gitStatus: const GitStatusSummary(
-          workspaceId: 'workspace_1', clean: true, files: <GitStatusFile>[]),
+      gitStatus: gitStatus ??
+          const GitStatusSummary(
+              workspaceId: 'workspace_1',
+              clean: true,
+              files: <GitStatusFile>[]),
       diffs: const <DiffSummary>[],
       commits: const <GitCommitSummary>[],
       fileTree: const FileTreeResponse(
           workspaceId: 'workspace_1', root: '', entries: <FileTreeEntry>[]),
-      diagnostics: const CodeDiagnosticsSummary(
-          workspaceId: 'workspace_1',
-          available: true,
-          diagnostics: <CodeDiagnostic>[]),
+      diagnostics: diagnostics,
       extensions: const <ExtensionSummary>[]);
 }
+
+ConversationSummary _conversationSummary({
+  required String id,
+  required String workspaceId,
+  required String status,
+  ConversationBlockingItem? blockingItem,
+}) =>
+    ConversationSummary(
+      id: id,
+      workspaceId: workspaceId,
+      adapter: 'codex',
+      status: status,
+      capabilities:
+          ConversationCapabilities.fromJson(const <String, Object?>{}),
+      createdAt: '2026-05-06T10:00:00.000Z',
+      updatedAt: '2026-05-06T10:01:00.000Z',
+      blockingItem: blockingItem,
+    );
 
 void main() {
   testWidgets('app renders English when forced to English',
@@ -214,8 +246,7 @@ void main() {
     expect(find.text('设置'), findsWidgets);
   });
 
-  testWidgets(
-      'home quick actions render Chinese when forced to Simplified Chinese',
+  testWidgets('home command deck renders Chinese when forced to Simplified Chinese',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
@@ -223,17 +254,94 @@ void main() {
     await tester.pumpWidget(const _LocalizedHomePageApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('\u5feb\u6377\u64cd\u4f5c'), findsOneWidget);
-    expect(find.text('\u547d\u4ee4\u6a21\u677f'), findsOneWidget);
-    expect(find.text('\u9700\u8981\u4f60\u5ba1\u6279'), findsOneWidget);
-    expect(find.text('\u4fee\u6539\u6587\u4ef6'), findsOneWidget);
-    expect(find.text('\u5df2\u8fde\u63a5'), findsOneWidget);
+    expect(find.text('当前焦点'), findsOneWidget);
+    expect(find.text('当前工作区无阻塞'), findsOneWidget);
+    expect(find.text('工作区信号'), findsOneWidget);
+    expect(find.text('命令模板'), findsOneWidget);
+    expect(find.text('已连接'), findsNothing);
     expect(find.text('vibe-coding'), findsOneWidget);
     expect(find.text('Command templates'), findsNothing);
     expect(find.text('Needs your approval'), findsNothing);
     expect(find.text('Modify file'), findsNothing);
     expect(find.text('online'), findsNothing);
     expect(find.text('Current Project'), findsNothing);
+  });
+
+  testWidgets('home command deck hides connection controls',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedHomePageApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connected'), findsNothing);
+    expect(find.text('127.0.0.1:4317'), findsNothing);
+    expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
+  });
+
+  testWidgets('home command deck shows overflow and deduplicates now item',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final snapshot = _testSnapshot(
+      runs: const <RunSummary>[
+        RunSummary(
+            id: 'run_failed',
+            tool: 'codex',
+            workspaceId: 'workspace_1',
+            status: 'failed'),
+      ],
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_approval',
+          workspaceId: 'workspace_1',
+          status: 'waiting_approval',
+          blockingItem: const ConversationBlockingItem(
+            type: 'approval_request',
+            approvalId: 'ap1',
+            summary: 'Modify file',
+          ),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_LocalizedHomePageApp(snapshot: snapshot));
+    await tester.pumpAndSettle();
+
+    expect(find.text('+1 more'), findsOneWidget);
+    expect(find.text('Modify file'), findsOneWidget);
+    expect(find.textContaining('run_failed'), findsOneWidget);
+  });
+
+  testWidgets(
+      'home command deck shows other workspace running only while current is idle',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final snapshot = _testSnapshot(
+      workspaces: const <WorkspaceSummary>[
+        WorkspaceSummary(
+            id: 'workspace_1',
+            name: 'Current Project',
+            path: r'D:\AiProject\vibe-coding'),
+        WorkspaceSummary(
+            id: 'workspace_2', name: 'daemon', path: r'D:\AiProject\daemon'),
+      ],
+      runs: const <RunSummary>[
+        RunSummary(
+            id: 'run_other',
+            tool: 'claude',
+            workspaceId: 'workspace_2',
+            status: 'running'),
+      ],
+    );
+
+    await tester.pumpWidget(_LocalizedHomePageApp(snapshot: snapshot));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.textContaining('daemon'), findsWidgets);
   });
 
   testWidgets('settings language picker shows self-identifying language names',

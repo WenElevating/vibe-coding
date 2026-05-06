@@ -98,6 +98,17 @@
   "homeCommandTemplatesSubtitle": "执行预设命令",
   "homeViewQueueTitle": "查看队列",
   "homeViewQueueSubtitle": "查看排队任务",
+  "homeNowTitle": "当前焦点",
+  "homeInterruptsTitle": "需要关注",
+  "homeExecutionStreamTitle": "执行流",
+  "homeWorkspaceSignalsTitle": "工作区信号",
+  "homeIdleNow": "当前工作区无阻塞",
+  "homeNoRecentActivity": "当前工作区暂无活动",
+  "homeGitChangedLabel": "Git 变更",
+  "homeDiagnosticsLabel": "诊断",
+  "homeQueueLabel": "队列",
+  "homeRecentFilesLabel": "最近文件",
+  "homeMoreSignalsLabel": "+{count} 项",
   "runsTitle": "运行",
   "runsAllPill": "全部 {count}",
   "runsRunningPill": "运行中 {count}",
@@ -120,6 +131,13 @@
         "type": "int"
       },
       "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@homeMoreSignalsLabel": {
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }

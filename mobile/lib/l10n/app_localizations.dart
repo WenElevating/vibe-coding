@@ -560,6 +560,72 @@ abstract class AppLocalizations {
   /// **'Review queued tasks'**
   String get homeViewQueueSubtitle;
 
+  /// No description provided for @homeNowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get homeNowTitle;
+
+  /// No description provided for @homeInterruptsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs attention'**
+  String get homeInterruptsTitle;
+
+  /// No description provided for @homeExecutionStreamTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Execution stream'**
+  String get homeExecutionStreamTitle;
+
+  /// No description provided for @homeWorkspaceSignalsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace signals'**
+  String get homeWorkspaceSignalsTitle;
+
+  /// No description provided for @homeIdleNow.
+  ///
+  /// In en, this message translates to:
+  /// **'No blockers in this workspace'**
+  String get homeIdleNow;
+
+  /// No description provided for @homeNoRecentActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent activity in this workspace'**
+  String get homeNoRecentActivity;
+
+  /// No description provided for @homeGitChangedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Git changes'**
+  String get homeGitChangedLabel;
+
+  /// No description provided for @homeDiagnosticsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get homeDiagnosticsLabel;
+
+  /// No description provided for @homeQueueLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue'**
+  String get homeQueueLabel;
+
+  /// No description provided for @homeRecentFilesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent files'**
+  String get homeRecentFilesLabel;
+
+  /// No description provided for @homeMoreSignalsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'+{count} more'**
+  String homeMoreSignalsLabel(int count);
+
   /// No description provided for @runsTitle.
   ///
   /// In en, this message translates to:

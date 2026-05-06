@@ -98,6 +98,17 @@
   "homeCommandTemplatesSubtitle": "Run preset commands",
   "homeViewQueueTitle": "View queue",
   "homeViewQueueSubtitle": "Review queued tasks",
+  "homeNowTitle": "Now",
+  "homeInterruptsTitle": "Needs attention",
+  "homeExecutionStreamTitle": "Execution stream",
+  "homeWorkspaceSignalsTitle": "Workspace signals",
+  "homeIdleNow": "No blockers in this workspace",
+  "homeNoRecentActivity": "No recent activity in this workspace",
+  "homeGitChangedLabel": "Git changes",
+  "homeDiagnosticsLabel": "Diagnostics",
+  "homeQueueLabel": "Queue",
+  "homeRecentFilesLabel": "Recent files",
+  "homeMoreSignalsLabel": "+{count} more",
   "runsTitle": "Runs",
   "runsAllPill": "All {count}",
   "runsRunningPill": "Running {count}",
@@ -120,6 +131,13 @@
         "type": "int"
       },
       "lines": {
+        "type": "int"
+      }
+    }
+  },
+  "@homeMoreSignalsLabel": {
+    "placeholders": {
+      "count": {
         "type": "int"
       }
     }
