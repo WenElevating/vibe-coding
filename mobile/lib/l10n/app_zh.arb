@@ -38,6 +38,11 @@
   "settingsConnected": "已连接",
   "settingsWorkspaceLabel": "工作区",
   "settingsSecurityModeLabel": "安全模式",
+  "settingsDaemonAddressLabel": "守护进程地址",
+  "settingsProxyModeLabel": "代理模式",
+  "settingsProxyDirect": "直连",
+  "settingsProxySystem": "系统代理",
+  "settingsProxyManual": "手动代理",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {

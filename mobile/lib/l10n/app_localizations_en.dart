@@ -132,6 +132,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSecurityModeLabel => 'Security mode';
 
   @override
+  String get settingsDaemonAddressLabel => 'Daemon address';
+
+  @override
+  String get settingsProxyModeLabel => 'Proxy mode';
+
+  @override
+  String get settingsProxyDirect => 'Direct';
+
+  @override
+  String get settingsProxySystem => 'System proxy';
+
+  @override
+  String get settingsProxyManual => 'Manual proxy';
+
+  @override
   String get homeOverviewTitle => 'Overview';
 
   @override

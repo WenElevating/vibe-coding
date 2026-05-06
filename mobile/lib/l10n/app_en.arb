@@ -38,6 +38,11 @@
   "settingsConnected": "Connected",
   "settingsWorkspaceLabel": "Workspace",
   "settingsSecurityModeLabel": "Security mode",
+  "settingsDaemonAddressLabel": "Daemon address",
+  "settingsProxyModeLabel": "Proxy mode",
+  "settingsProxyDirect": "Direct",
+  "settingsProxySystem": "System proxy",
+  "settingsProxyManual": "Manual proxy",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {

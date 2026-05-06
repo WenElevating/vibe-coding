@@ -85,26 +85,28 @@ The `dart.bat` wrapper hung during formatting in the sandbox. Direct SDK invocat
 D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe format ...
 ```
 
-## Remaining Work
+## Task 7 Update
 
-Task 7 from the plan is still pending:
+Task 7 from the plan has been implemented on branch `feature/mobile-connection-settings`:
 
-- Thread active daemon connection config into settings.
-- Show active daemon address and proxy mode in the settings UI.
-- Update constructor call sites:
-  - `mobile/lib/src/ui/main_tabs_page.dart`
-  - `mobile/lib/src/ui/pages/settings_page.dart`
-  - `mobile/lib/src/features/settings/settings_page.dart`
-  - relevant tests in `mobile/test/widget_test.dart`
-- Add a widget test for settings visibility.
+- Threaded active daemon connection config from `MobileUi` into `MainTabsPage` and the settings page wrappers.
+- Added settings UI metrics for the active daemon address and proxy mode.
+- Added localized labels for daemon address, proxy mode, and direct/system/manual proxy modes.
+- Added widget coverage for settings visibility: `settings shows active daemon address and proxy mode`.
 
-Suggested next test:
+Targeted verification attempted:
 
 ```powershell
 $env:NO_PROXY='localhost,127.0.0.1,::1'
 $env:no_proxy='localhost,127.0.0.1,::1'
 flutter test test\widget_test.dart -r expanded --plain-name "settings shows active daemon address and proxy mode"
 ```
+
+In this Codex sandbox, Flutter commands currently fail before execution with sandbox setup / cache access errors, and `flutter analyze` without `--no-pub` also fails on `pub.dev` socket resolution. Static consistency checks were run instead:
+
+- localization keys exist in `app_en.arb`, `app_zh.arb`, and generated localization Dart files
+- connection config constructor call sites are all wired
+- `git diff --check` reports no whitespace errors
 
 Final verification still pending:
 

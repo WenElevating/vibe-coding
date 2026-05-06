@@ -129,6 +129,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSecurityModeLabel => '安全模式';
 
   @override
+  String get settingsDaemonAddressLabel => '守护进程地址';
+
+  @override
+  String get settingsProxyModeLabel => '代理模式';
+
+  @override
+  String get settingsProxyDirect => '直连';
+
+  @override
+  String get settingsProxySystem => '系统代理';
+
+  @override
+  String get settingsProxyManual => '手动代理';
+
+  @override
   String get homeOverviewTitle => '概览';
 
   @override

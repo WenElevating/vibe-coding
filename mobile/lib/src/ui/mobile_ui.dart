@@ -55,6 +55,7 @@ class _MobileUiState extends State<MobileUi> {
           return MainTabsPage(
             data: _connectionController.snapshot!,
             client: _connectionController.client!,
+            connectionConfig: _connectionController.connectedConfig!,
           );
         }
         return MobileConnectionPage(controller: _connectionController);

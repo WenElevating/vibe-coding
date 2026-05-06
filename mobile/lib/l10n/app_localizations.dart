@@ -326,6 +326,36 @@ abstract class AppLocalizations {
   /// **'Security mode'**
   String get settingsSecurityModeLabel;
 
+  /// No description provided for @settingsDaemonAddressLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Daemon address'**
+  String get settingsDaemonAddressLabel;
+
+  /// No description provided for @settingsProxyModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy mode'**
+  String get settingsProxyModeLabel;
+
+  /// No description provided for @settingsProxyDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct'**
+  String get settingsProxyDirect;
+
+  /// No description provided for @settingsProxySystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System proxy'**
+  String get settingsProxySystem;
+
+  /// No description provided for @settingsProxyManual.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual proxy'**
+  String get settingsProxyManual;
+
   /// No description provided for @homeOverviewTitle.
   ///
   /// In en, this message translates to:
