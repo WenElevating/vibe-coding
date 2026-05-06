@@ -75,336 +75,379 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPermissionSubtitle => '默认会请求 CLI 权限确认；自动模式由 CLI 处理。';
 
   @override
-  String get settingsDataStatusSection => 'Data status';
+  String get settingsDataStatusSection => '数据状态';
 
   @override
-  String get settingsDiagnosticsTitle => 'Code diagnostics';
+  String get settingsDiagnosticsTitle => '代码诊断';
 
   @override
-  String settingsDiagnosticsCount(int count) => '$count items';
+  String settingsDiagnosticsCount(int count) {
+    return '$count 条';
+  }
 
   @override
-  String get settingsGitStatusTitle => 'Git status';
+  String get settingsGitStatusTitle => 'Git 状态';
 
   @override
-  String get settingsGitClean => 'Clean';
+  String get settingsGitClean => '干净';
 
   @override
-  String settingsGitFiles(int count) => '$count files';
+  String settingsGitFiles(int count) {
+    return '$count 个文件';
+  }
 
   @override
-  String get settingsAboutSection => 'About';
+  String get settingsAboutSection => '关于';
 
   @override
-  String get settingsExtensionsTitle => 'Extensions';
+  String get settingsExtensionsTitle => '扩展';
 
   @override
-  String settingsExtensionsCount(int count) => '$count items';
+  String settingsExtensionsCount(int count) {
+    return '$count 个';
+  }
 
   @override
-  String get settingsAdaptersAction => 'Adapters';
+  String get settingsAdaptersAction => '适配器';
 
   @override
-  String get settingsNotificationsAction => 'Notifications';
+  String get settingsNotificationsAction => '通知';
 
   @override
-  String get settingsGenerateDiagnosticsAction => 'Generate diagnostics';
+  String get settingsGenerateDiagnosticsAction => '生成诊断信息';
 
   @override
-  String get settingsCurrentConnectionTitle => 'Current connection';
+  String get settingsCurrentConnectionTitle => '当前连接';
 
   @override
-  String get settingsConnected => 'Connected';
+  String get settingsConnected => '已连接';
 
   @override
-  String get settingsWorkspaceLabel => 'Workspace';
+  String get settingsWorkspaceLabel => '工作区';
 
   @override
-  String get settingsSecurityModeLabel => 'Security mode';
+  String get settingsSecurityModeLabel => '安全模式';
 
   @override
-  String get homeOverviewTitle => 'Overview';
+  String get homeOverviewTitle => '概览';
 
   @override
-  String get homeRunningMetricLabel => 'Running';
+  String get homeRunningMetricLabel => '运行中';
 
   @override
-  String get homeRunningMetricNote => 'Active tasks';
+  String get homeRunningMetricNote => '活跃任务';
 
   @override
-  String get homeQueuedMetricLabel => 'Pending approval';
+  String get homeQueuedMetricLabel => '待审批';
 
   @override
-  String get homeQueuedMetricNote => 'Queued tasks';
+  String get homeQueuedMetricNote => '队列任务';
 
   @override
-  String get homeCompletedMetricLabel => 'Completed (24h)';
+  String get homeCompletedMetricLabel => '已完成 (24h)';
 
   @override
-  String homeFilesLinesNote(int files, int lines) => '$files files ? $lines lines';
+  String homeFilesLinesNote(int files, int lines) {
+    return '$files 个文件 · $lines 行';
+  }
 
   @override
-  String get homeRecentRunsTitle => 'Recent runs';
+  String get homeRecentRunsTitle => '最近运行';
 
   @override
-  String get homeViewAllAction => '最近运行';
+  String get homeViewAllAction => '查看全部';
 
   @override
-  String get homeNoRuns => 'No runs yet';
+  String get homeNoRuns => '暂无运行记录';
 
   @override
-  String get homeQuickActionsTitle => 'Quick actions';
+  String get homeQuickActionsTitle => '快捷操作';
 
   @override
-  String get homeNewTaskTitle => 'New task';
+  String get homeNewTaskTitle => '新建任务';
 
   @override
-  String get homeNewTaskSubtitle => 'Create a new task';
+  String get homeNewTaskSubtitle => '创建新任务';
 
   @override
-  String get homeCommandTemplatesTitle => 'Command templates';
+  String get homeCommandTemplatesTitle => '命令模板';
 
   @override
-  String get homeCommandTemplatesSubtitle => 'Run preset commands';
+  String get homeCommandTemplatesSubtitle => '执行预设命令';
 
   @override
-  String get homeViewQueueTitle => 'View queue';
+  String get homeViewQueueTitle => '查看队列';
 
   @override
-  String get homeViewQueueSubtitle => 'Review queued tasks';
+  String get homeViewQueueSubtitle => '查看排队任务';
 
   @override
-  String get runsTitle => 'Runs';
+  String get runsTitle => '运行';
 
   @override
-  String runsAllPill(int count) => 'All $count';
+  String runsAllPill(int count) {
+    return '全部 $count';
+  }
 
   @override
-  String runsRunningPill(int count) => 'Running $count';
+  String runsRunningPill(int count) {
+    return '运行中 $count';
+  }
 
   @override
-  String runsCompletedPill(int count) => 'Completed $count';
+  String runsCompletedPill(int count) {
+    return '已完成 $count';
+  }
 
   @override
-  String runsFailedPill(int count) => 'Failed $count';
+  String runsFailedPill(int count) {
+    return '失败 $count';
+  }
 
   @override
-  String get runsEmpty => 'No runs yet. Start a real AI CLI task from command templates.';
+  String get runsEmpty => '暂无运行记录。可以从命令模板启动真实 AI CLI 任务。';
 
   @override
-  String get queueTitle => 'Run queue';
+  String get queueTitle => '运行队列';
 
   @override
-  String queueCountAction(int count) => '$count items';
+  String queueCountAction(int count) {
+    return '$count 项';
+  }
 
   @override
-  String queueRunningPill(int count) => 'Running $count';
+  String queueRunningPill(int count) {
+    return '运行中 $count';
+  }
 
   @override
-  String queueWaitingPill(int count) => 'Queued $count';
+  String queueWaitingPill(int count) {
+    return '排队中 $count';
+  }
 
   @override
-  String queueTotalPill(int count) => 'Total $count';
+  String queueTotalPill(int count) {
+    return '总计 $count';
+  }
 
   @override
-  String get queueRunningSection => 'Running';
+  String get queueRunningSection => '运行中';
 
   @override
-  String get queueWaitingSection => 'Queued';
+  String get queueWaitingSection => '排队中';
 
   @override
-  String get queueNoRunning => 'No running queue items';
+  String get queueNoRunning => '暂无运行中队列项';
 
   @override
-  String get queueNoWaiting => 'No waiting tasks';
+  String get queueNoWaiting => '暂无等待任务';
 
   @override
-  String get queueFootnote => 'Queue data comes from the daemon. Tasks run in workspace order.';
-  @override
-  String get commonBack => 'Back';
+  String get queueFootnote => '队列数据来自 daemon。任务会按工作区顺序运行。';
 
   @override
-  String get adaptersTitle => 'Adapter status';
+  String get commonBack => '返回';
 
   @override
-  String adaptersCount(int count) => '$count items';
+  String get adaptersTitle => '适配器状态';
 
   @override
-  String get adaptersEmpty => 'daemon returned no adapters';
+  String adaptersCount(int count) {
+    return '$count 项';
+  }
 
   @override
-  String get adaptersExtensionsSection => 'Extensions';
+  String get adaptersEmpty => 'daemon 未返回适配器';
 
   @override
-  String get adaptersNoExtensions => 'No extension information';
+  String get adaptersExtensionsSection => '扩展';
 
   @override
-  String get adaptersNotInstalled => 'not installed';
+  String get adaptersNoExtensions => '暂无扩展信息';
 
   @override
-  String get adaptersStatusOk => 'Status                         OK';
+  String get adaptersNotInstalled => '未安装';
+
+  @override
+  String get adaptersStatusOk => '状态                         正常';
 
   @override
   String get adaptersCapabilitiesLabel => '状态                         正常';
 
   @override
-  String get diagnosticsTitle => 'Diagnostics';
+  String get diagnosticsTitle => '诊断';
 
   @override
-  String get diagnosticsDescription => 'Export a redacted diagnostics bundle for troubleshooting';
+  String get diagnosticsDescription => '导出已脱敏的诊断包，用于排查问题';
 
   @override
-  String get diagnosticsSystemInfo => 'System information';
+  String get diagnosticsSystemInfo => '系统信息';
 
   @override
-  String get diagnosticsAdapterStatus => 'Adapter status';
+  String get diagnosticsAdapterStatus => '适配器状态';
 
   @override
-  String get diagnosticsRunLogsRecent => 'Run logs (last 7 days)';
+  String get diagnosticsRunLogsRecent => '运行日志（最近 7 天）';
 
   @override
-  String get diagnosticsEventRecordsRecent => 'Event records (last 7 days)';
+  String get diagnosticsEventRecordsRecent => '事件记录（最近 7 天）';
 
   @override
-  String get diagnosticsConfigInfo => 'Configuration';
+  String get diagnosticsConfigInfo => '配置信息';
 
   @override
-  String get diagnosticsEstimatedSize => 'Estimated size';
+  String get diagnosticsEstimatedSize => '预估大小';
 
   @override
-  String get diagnosticsGenerateAction => 'Generate diagnostics bundle';
+  String get diagnosticsGenerateAction => '生成诊断包';
 
   @override
-  String get notificationsTitle => 'Notifications';
+  String get notificationsTitle => '通知';
 
   @override
-  String get notificationsTabAll => 'All';
+  String get notificationsTabAll => '全部';
 
   @override
-  String get notificationsTabUnread => 'Unread';
+  String get notificationsTabUnread => '未读';
 
   @override
-  String get notificationsTabMentions => '全部';
+  String get notificationsTabMentions => '提及我';
 
   @override
-  String get notificationsApprovalRequired => 'Approval required';
+  String get notificationsApprovalRequired => '需要审批';
 
   @override
-  String get notificationsRequestModify => 'Claude Code requests changes\nlib/services/auth_service.dart';
+  String get notificationsRequestModify =>
+      'Claude Code 请求修改\nlib/services/auth_service.dart';
 
   @override
-  String get notificationsTaskComplete => 'Task complete';
+  String get notificationsTaskComplete => '任务完成';
 
   @override
-  String get notificationsRunCompletedDuration => 'Add unit tests for user service\nRun completed, duration 28m 15s';
+  String get notificationsRunCompletedDuration =>
+      '为用户服务添加单元测试\n运行完成，用时 28m 15s';
 
   @override
-  String get notificationsTaskFailed => 'Task failed';
+  String get notificationsTaskFailed => '任务失败';
 
   @override
-  String get notificationsDataSyncBody => 'Optimize data sync logic\nRun failed, view details';
+  String get notificationsDataSyncBody => '优化数据同步逻辑\n运行失败，查看详情';
 
   @override
-  String get notificationsYesterday1422 => 'Yesterday 14:22';
+  String get notificationsYesterday1422 => '昨天 14:22';
 
   @override
-  String get notificationsQueueUpdate => 'Queue update';
+  String get notificationsQueueUpdate => '队列更新';
 
   @override
-  String get notificationsCacheBody => 'Optimize cache strategy\nStarted running';
+  String get notificationsCacheBody => '优化缓存策略\n已开始运行';
 
   @override
-  String get notificationsYesterday1315 => 'Yesterday 13:15';
+  String get notificationsYesterday1315 => '昨天 13:15';
 
   @override
-  String get notificationsSystemMessage => 'System message';
+  String get notificationsSystemMessage => '系统消息';
 
   @override
-  String get notificationsConnectedBody => 'Connected to DESKTOP-DEV';
+  String get notificationsConnectedBody => '已连接到 DESKTOP-DEV';
 
   @override
-  String get notificationsYesterday1001 => 'Yesterday 10:01';
+  String get notificationsYesterday1001 => '昨天 10:01';
 
   @override
-  String get runDetailTitle => 'Run details';
+  String get runDetailTitle => '运行详情';
 
   @override
-  String get runDetailMockTask => 'Fix login API test failure';
+  String get runDetailMockTask => '修复登录 API 测试失败';
 
   @override
-  String get runDetailRunningStatus => 'Running';
+  String get runDetailRunningStatus => '运行中';
 
   @override
-  String get runDetailStartedDuration => '10:32 started ? Duration 12m 45s';
+  String get runDetailStartedDuration => '10:32 开始 · 用时 12m 45s';
 
   @override
-  String get runDetailTabOverview => 'Overview';
+  String get runDetailTabOverview => '概览';
 
   @override
-  String get runDetailTabEvents => 'Events';
+  String get runDetailTabEvents => '事件';
 
   @override
-  String get runDetailTabFileChanges => '概览';
+  String get runDetailTabFileChanges => '文件变更';
 
   @override
-  String get runDetailTabConfig => 'Config';
+  String get runDetailTabConfig => '配置';
 
   @override
-  String get runDetailUserPromptTitle => 'User prompt';
+  String get runDetailUserPromptTitle => '用户提示';
 
   @override
-  String get runDetailUserPromptBody => 'Fix the login API test failure and add boundary-condition tests.';
+  String get runDetailUserPromptBody => '修复登录 API 测试失败，并添加边界条件测试。';
 
   @override
-  String get runDetailThinkingTitle => 'Claude starts thinking';
+  String get runDetailThinkingTitle => 'Claude 开始思考';
 
   @override
-  String get runDetailThinkingBody => 'Analyzing the problem and related code...';
+  String get runDetailThinkingBody => '正在分析问题和相关代码...';
 
   @override
-  String get runDetailReadFileTitle => 'Read file';
+  String get runDetailReadFileTitle => '读取文件';
 
   @override
-  String get runDetailSearchCodeTitle => 'Search code';
+  String get runDetailSearchCodeTitle => '搜索代码';
 
   @override
-  String get runDetailSearchBody => 'search: "login failure test"\nFound 12 results';
+  String get runDetailSearchBody => '搜索：\"login failure test\"\n找到 12 条结果';
 
   @override
-  String get runDetailEditFileTitle => 'Edit file';
+  String get runDetailEditFileTitle => '编辑文件';
 
   @override
-  String get runDetailRunCommandTitle => 'Run command';
+  String get runDetailRunCommandTitle => '运行命令';
 
   @override
-  String get runDetailCommandBody => 'dart test tests/login_test.dart      running ?';
+  String get runDetailCommandBody =>
+      'dart test tests/login_test.dart      运行中 ·';
 
   @override
-  String get sessionsTitle => 'Sessions';
+  String get sessionsTitle => '会话';
+
   @override
-  String get sessionsCurrentProject => 'Current project';
+  String get sessionsCurrentProject => '当前项目';
+
   @override
-  String get sessionsSearchPlaceholder => 'Search sessions, commands, file paths?';
+  String get sessionsSearchPlaceholder => '搜索会话、命令或文件路径...';
+
   @override
-  String get sessionsFootnote => 'This list only shows sessions in the current workspace.';
+  String get sessionsFootnote => '此列表仅显示当前工作区内的会话。';
+
   @override
-  String get sessionsEmptyTitle => 'No sessions in this workspace yet';
+  String get sessionsEmptyTitle => '这个工作区还没有会话';
+
   @override
-  String get sessionsNewSession => 'New Session';
+  String get sessionsNewSession => '新建会话';
+
   @override
-  String get sessionsWaitingApproval => 'Waiting approval';
+  String get sessionsWaitingApproval => '等待审批';
+
   @override
-  String get sessionsPendingBadge => 'pending';
+  String get sessionsPendingBadge => '待处理';
+
   @override
-  String get sessionsRunning => 'Running';
+  String get sessionsRunning => '运行中';
+
   @override
-  String get sessionsFailed => 'Failed';
+  String get sessionsFailed => '失败';
+
   @override
-  String get sessionsDone => 'Done';
+  String get sessionsDone => '已完成';
+
   @override
-  String get sessionsSessionNoun => 'session';
+  String get sessionsSessionNoun => '会话';
+
   @override
-  String get sessionsTaskNoun => 'task';
+  String get sessionsTaskNoun => '任务';
+
   @override
   String get workspaceAdapterPickerTitle => '选择模型 / CLI';
 
@@ -412,13 +455,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workspaceAdapterPickerSubtitle => '会用于下一次真实 daemon run，运行中不可切换。';
 
   @override
-  String get workspaceListTitle => 'Workspaces';
+  String get workspaceListTitle => '工作区';
 
   @override
-  String get workspaceAvailableSection => 'Available Workspaces';
+  String get workspaceAvailableSection => '可用工作区';
 
   @override
-  String get workspaceListFootnote => 'Choose the folder where CLI commands will run, then open or create a session inside it.';
+  String get workspaceListFootnote => '选择 CLI 命令的运行文件夹，然后打开或创建其中的会话。';
 
   @override
   String get workspaceCurrentFallback => '当前工作区';
@@ -505,10 +548,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workbenchInlineReady => '准备好接收编码任务';
 
   @override
-  String workbenchInlineCompleted(int count) => '本次 CLI 会话已完成 · $count 个事件已处理';
+  String workbenchInlineCompleted(int count) {
+    return '本次 CLI 会话已完成 · $count 个事件已处理';
+  }
 
   @override
-  String workbenchInlineConnecting(String adapter, int count) => '正在连接 $adapter · 已处理 $count 个事件';
+  String workbenchInlineConnecting(String adapter, int count) {
+    return '正在连接 $adapter · 已处理 $count 个事件';
+  }
 
   @override
   String get workbenchApprovalMissingId => 'daemon 未提供 approvalId，无法在移动端处理。';
@@ -526,7 +573,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workbenchCommandMetaEmpty => '执行 1 条命令';
 
   @override
-  String workbenchCommandMetaWithTitle(String title) => '执行 1 条命令 · $title';
+  String workbenchCommandMetaWithTitle(String title) {
+    return '执行 1 条命令 · $title';
+  }
 
   @override
   String get workbenchCopyAllTooltip => '复制全文';
@@ -554,5 +603,4 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get workbenchNewSessionTitle => '新的编码会话';
-
 }

@@ -97,6 +97,46 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
                       onExpandThinkingChanged: (_) {})))));
 }
 
+class _LocalizedHomePageApp extends StatefulWidget {
+  const _LocalizedHomePageApp();
+
+  @override
+  State<_LocalizedHomePageApp> createState() => _LocalizedHomePageAppState();
+}
+
+class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              home: Scaffold(
+                  body: HomePage(
+                      open: (_) {},
+                      selectTab: (_) {},
+                      data: _testSnapshot())))));
+}
+
 AppSnapshot _testSnapshot() {
   const workspace = WorkspaceSummary(
       id: 'workspace_1',
@@ -162,6 +202,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('设置'), findsWidgets);
+  });
+
+  testWidgets('home quick actions render Chinese when forced to Simplified Chinese',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
+
+    await tester.pumpWidget(const _LocalizedHomePageApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('\u5feb\u6377\u64cd\u4f5c'), findsOneWidget);
+    expect(find.text('\u547d\u4ee4\u6a21\u677f'), findsOneWidget);
+    expect(find.text('\u9700\u8981\u4f60\u5ba1\u6279'), findsOneWidget);
+    expect(find.text('\u4fee\u6539\u6587\u4ef6'), findsOneWidget);
+    expect(find.text('\u5df2\u8fde\u63a5'), findsOneWidget);
+    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.text('Command templates'), findsNothing);
+    expect(find.text('Needs your approval'), findsNothing);
+    expect(find.text('Modify file'), findsNothing);
+    expect(find.text('online'), findsNothing);
+    expect(find.text('Current Project'), findsNothing);
   });
 
   testWidgets('settings language picker shows self-identifying language names',

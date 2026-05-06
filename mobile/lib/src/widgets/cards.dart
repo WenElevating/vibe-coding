@@ -222,10 +222,16 @@ class QuickAction extends StatelessWidget {
           Icon(icon, color: color, size: 25),
           const Spacer(),
           Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style:
                   const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
           const SizedBox(height: 3),
           Text(subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style: const TextStyle(color: theme.muted, fontSize: 10)),
         ]),
       ),
@@ -253,25 +259,31 @@ class CodeDiff extends StatelessWidget {
 }
 
 class ApprovalPreview extends StatelessWidget {
-  const ApprovalPreview({super.key, required this.onTap});
+  const ApprovalPreview(
+      {super.key,
+      required this.title,
+      required this.action,
+      required this.onTap});
+  final String title;
+  final String action;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
-      child: const GlassCard(
+      child: GlassCard(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(Icons.warning_amber_rounded, color: theme.amber, size: 18),
-          SizedBox(width: 8),
-          Text('Needs your approval', style: TextStyle(fontWeight: FontWeight.w800)),
-          Spacer(),
-          Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
+          const Icon(Icons.warning_amber_rounded, color: theme.amber, size: 18),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const Spacer(),
+          const Text('10:35', style: TextStyle(color: theme.muted, fontSize: 12))
         ]),
-        SizedBox(height: 8),
-        Text('Modify file', style: TextStyle(fontWeight: FontWeight.w800)),
-        SizedBox(height: 4),
-        Text('lib/services/auth_service.dart   +32 -8',
+        const SizedBox(height: 8),
+        Text(action, style: const TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text('lib/services/auth_service.dart   +32 -8',
             style: TextStyle(color: theme.muted, fontSize: 12))
       ])));
 }

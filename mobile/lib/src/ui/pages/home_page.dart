@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
+import '../../features/workspace_picker/workspace_display.dart';
 import '../../widgets/widgets.dart';
 import '../../theme/theme.dart' as theme;
 import 'run_status_color.dart';
@@ -23,9 +24,9 @@ class HomePage extends StatelessWidget {
     return PageScroll(
       children: [
         TopBar(
-            title: data.overview.name,
-            subtitle:
-                '${data.health.bindAddress}:${data.health.port}  ${data.health.status}',
+            title: workspaceDisplayName(data.workspace),
+            subtitle: '${data.health.bindAddress}:${data.health.port}',
+            statusLabel: l10n.settingsConnected,
             showScan: true),
         const SizedBox(height: 18),
         SectionTitle(l10n.homeOverviewTitle),
@@ -114,7 +115,10 @@ class HomePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        ApprovalPreview(onTap: () => open(RoutePage.approval)),
+        ApprovalPreview(
+            title: l10n.workbenchApprovalPageTitle,
+            action: l10n.workbenchModifyFileTitle,
+            onTap: () => open(RoutePage.approval)),
       ],
     );
   }

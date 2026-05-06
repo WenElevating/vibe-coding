@@ -7,11 +7,13 @@ class TopBar extends StatelessWidget {
       {super.key,
       required this.title,
       this.subtitle,
+      this.statusLabel,
       this.showScan = false,
       this.leading = false,
       this.action});
   final String title;
   final String? subtitle;
+  final String? statusLabel;
   final bool showScan;
   final bool leading;
   final String? action;
@@ -40,18 +42,24 @@ class TopBar extends StatelessWidget {
                   if (subtitle != null) ...[
                     const SizedBox(height: 4),
                     Row(children: [
-                      Text(subtitle!.replaceAll('online', ''),
-                          style: const TextStyle(
-                              color: theme.muted,
-                              fontSize: 12,
-                              letterSpacing: .5)),
-                      const Text('online',
-                          style: TextStyle(
-                              color: theme.green,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700)),
-                      const SizedBox(width: 4),
-                      const Dot(color: theme.green, size: 5),
+                      Flexible(
+                          child: Text(subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12,
+                                  letterSpacing: .5))),
+                      if (statusLabel != null) ...[
+                        const SizedBox(width: 8),
+                        Text(statusLabel!,
+                            style: const TextStyle(
+                                color: theme.green,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 4),
+                        const Dot(color: theme.green, size: 5),
+                      ],
                     ]),
                   ],
                 ],

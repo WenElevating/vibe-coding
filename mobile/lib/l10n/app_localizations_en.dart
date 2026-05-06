@@ -39,7 +39,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsLanguageSystem => 'System default';
 
   @override
-  String get settingsLanguageZhHans => 'Simplified Chinese';
+  String get settingsLanguageZhHans => '简体中文';
 
   @override
   String get settingsLanguageEn => 'English';
@@ -54,13 +54,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsStreamOutputTitle => 'Stream output';
 
   @override
-  String get settingsStreamOutputSubtitle => 'When off, only the final answer is shown to avoid duplicate deltas and complete messages.';
+  String get settingsStreamOutputSubtitle =>
+      'When off, only the final answer is shown to avoid duplicate deltas and complete messages.';
 
   @override
   String get settingsExpandThinkingTitle => 'Show thinking process';
 
   @override
-  String get settingsExpandThinkingSubtitle => 'When on, model thinking is expanded by default; when off, it stays collapsed.';
+  String get settingsExpandThinkingSubtitle =>
+      'When on, model thinking is expanded by default; when off, it stays collapsed.';
 
   @override
   String get settingsPermissionModeTitle => 'Permission mode';
@@ -72,7 +74,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPermissionAuto => 'Auto';
 
   @override
-  String get settingsPermissionSubtitle => 'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.';
+  String get settingsPermissionSubtitle =>
+      'Default asks for CLI permission confirmation; auto lets the CLI handle permissions.';
 
   @override
   String get settingsDataStatusSection => 'Data status';
@@ -81,7 +84,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDiagnosticsTitle => 'Code diagnostics';
 
   @override
-  String settingsDiagnosticsCount(int count) => '$count items';
+  String settingsDiagnosticsCount(int count) {
+    return '$count items';
+  }
 
   @override
   String get settingsGitStatusTitle => 'Git status';
@@ -90,7 +95,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsGitClean => 'Clean';
 
   @override
-  String settingsGitFiles(int count) => '$count files';
+  String settingsGitFiles(int count) {
+    return '$count files';
+  }
 
   @override
   String get settingsAboutSection => 'About';
@@ -99,7 +106,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsExtensionsTitle => 'Extensions';
 
   @override
-  String settingsExtensionsCount(int count) => '$count items';
+  String settingsExtensionsCount(int count) {
+    return '$count items';
+  }
 
   @override
   String get settingsAdaptersAction => 'Adapters';
@@ -141,7 +150,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeCompletedMetricLabel => 'Completed (24h)';
 
   @override
-  String homeFilesLinesNote(int files, int lines) => '$files files ? $lines lines';
+  String homeFilesLinesNote(int files, int lines) {
+    return '$files files ? $lines lines';
+  }
 
   @override
   String get homeRecentRunsTitle => 'Recent runs';
@@ -177,34 +188,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get runsTitle => 'Runs';
 
   @override
-  String runsAllPill(int count) => 'All $count';
+  String runsAllPill(int count) {
+    return 'All $count';
+  }
 
   @override
-  String runsRunningPill(int count) => 'Running $count';
+  String runsRunningPill(int count) {
+    return 'Running $count';
+  }
 
   @override
-  String runsCompletedPill(int count) => 'Completed $count';
+  String runsCompletedPill(int count) {
+    return 'Completed $count';
+  }
 
   @override
-  String runsFailedPill(int count) => 'Failed $count';
+  String runsFailedPill(int count) {
+    return 'Failed $count';
+  }
 
   @override
-  String get runsEmpty => 'No runs yet. Start a real AI CLI task from command templates.';
+  String get runsEmpty =>
+      'No runs yet. Start a real AI CLI task from command templates.';
 
   @override
   String get queueTitle => 'Run queue';
 
   @override
-  String queueCountAction(int count) => '$count items';
+  String queueCountAction(int count) {
+    return '$count items';
+  }
 
   @override
-  String queueRunningPill(int count) => 'Running $count';
+  String queueRunningPill(int count) {
+    return 'Running $count';
+  }
 
   @override
-  String queueWaitingPill(int count) => 'Queued $count';
+  String queueWaitingPill(int count) {
+    return 'Queued $count';
+  }
 
   @override
-  String queueTotalPill(int count) => 'Total $count';
+  String queueTotalPill(int count) {
+    return 'Total $count';
+  }
 
   @override
   String get queueRunningSection => 'Running';
@@ -219,7 +247,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get queueNoWaiting => 'No waiting tasks';
 
   @override
-  String get queueFootnote => 'Queue data comes from the daemon. Tasks run in workspace order.';
+  String get queueFootnote =>
+      'Queue data comes from the daemon. Tasks run in workspace order.';
+
   @override
   String get commonBack => 'Back';
 
@@ -227,7 +257,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get adaptersTitle => 'Adapter status';
 
   @override
-  String adaptersCount(int count) => '$count items';
+  String adaptersCount(int count) {
+    return '$count items';
+  }
 
   @override
   String get adaptersEmpty => 'daemon returned no adapters';
@@ -251,7 +283,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get diagnosticsTitle => 'Diagnostics';
 
   @override
-  String get diagnosticsDescription => 'Export a redacted diagnostics bundle for troubleshooting';
+  String get diagnosticsDescription =>
+      'Export a redacted diagnostics bundle for troubleshooting';
 
   @override
   String get diagnosticsSystemInfo => 'System information';
@@ -290,19 +323,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notificationsApprovalRequired => 'Approval required';
 
   @override
-  String get notificationsRequestModify => 'Claude Code requests changes\nlib/services/auth_service.dart';
+  String get notificationsRequestModify =>
+      'Claude Code requests changes\nlib/services/auth_service.dart';
 
   @override
   String get notificationsTaskComplete => 'Task complete';
 
   @override
-  String get notificationsRunCompletedDuration => 'Add unit tests for user service\nRun completed, duration 28m 15s';
+  String get notificationsRunCompletedDuration =>
+      'Add unit tests for user service\nRun completed, duration 28m 15s';
 
   @override
   String get notificationsTaskFailed => 'Task failed';
 
   @override
-  String get notificationsDataSyncBody => 'Optimize data sync logic\nRun failed, view details';
+  String get notificationsDataSyncBody =>
+      'Optimize data sync logic\nRun failed, view details';
 
   @override
   String get notificationsYesterday1422 => 'Yesterday 14:22';
@@ -311,7 +347,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notificationsQueueUpdate => 'Queue update';
 
   @override
-  String get notificationsCacheBody => 'Optimize cache strategy\nStarted running';
+  String get notificationsCacheBody =>
+      'Optimize cache strategy\nStarted running';
 
   @override
   String get notificationsYesterday1315 => 'Yesterday 13:15';
@@ -353,13 +390,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get runDetailUserPromptTitle => 'User prompt';
 
   @override
-  String get runDetailUserPromptBody => 'Fix the login API test failure and add boundary-condition tests.';
+  String get runDetailUserPromptBody =>
+      'Fix the login API test failure and add boundary-condition tests.';
 
   @override
   String get runDetailThinkingTitle => 'Claude starts thinking';
 
   @override
-  String get runDetailThinkingBody => 'Analyzing the problem and related code...';
+  String get runDetailThinkingBody =>
+      'Analyzing the problem and related code...';
 
   @override
   String get runDetailReadFileTitle => 'Read file';
@@ -368,7 +407,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get runDetailSearchCodeTitle => 'Search code';
 
   @override
-  String get runDetailSearchBody => 'search: "login failure test"\nFound 12 results';
+  String get runDetailSearchBody =>
+      'search: \"login failure test\"\nFound 12 results';
 
   @override
   String get runDetailEditFileTitle => 'Edit file';
@@ -377,7 +417,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get runDetailRunCommandTitle => 'Run command';
 
   @override
-  String get runDetailCommandBody => 'dart test tests/login_test.dart      running ?';
+  String get runDetailCommandBody =>
+      'dart test tests/login_test.dart      running ?';
 
   @override
   String get sessionsTitle => 'Sessions';
@@ -386,10 +427,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sessionsCurrentProject => 'Current project';
 
   @override
-  String get sessionsSearchPlaceholder => 'Search sessions, commands, file paths?';
+  String get sessionsSearchPlaceholder =>
+      'Search sessions, commands, file paths?';
 
   @override
-  String get sessionsFootnote => 'This list only shows sessions in the current workspace.';
+  String get sessionsFootnote =>
+      'This list only shows sessions in the current workspace.';
 
   @override
   String get sessionsEmptyTitle => 'No sessions in this workspace yet';
@@ -422,7 +465,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workspaceAdapterPickerTitle => 'Choose model / CLI';
 
   @override
-  String get workspaceAdapterPickerSubtitle => 'Used for the next real daemon run. It cannot be switched while running.';
+  String get workspaceAdapterPickerSubtitle =>
+      'Used for the next real daemon run. It cannot be switched while running.';
 
   @override
   String get workspaceListTitle => 'Workspaces';
@@ -431,7 +475,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workspaceAvailableSection => 'Available Workspaces';
 
   @override
-  String get workspaceListFootnote => 'Choose the folder where CLI commands will run, then open or create a session inside it.';
+  String get workspaceListFootnote =>
+      'Choose the folder where CLI commands will run, then open or create a session inside it.';
 
   @override
   String get workspaceCurrentFallback => 'Current workspace';
@@ -440,7 +485,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workspaceSheetTitle => 'Workspace';
 
   @override
-  String get workspaceSheetSubtitle => 'Switch the CLI execution directory. The current session stays available.';
+  String get workspaceSheetSubtitle =>
+      'Switch the CLI execution directory. The current session stays available.';
 
   @override
   String get workspacePathHint => 'Enter or browse a folder path';
@@ -479,7 +525,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workspaceSelectCurrentAction => 'Select current';
 
   @override
-  String get workspaceBrowserPlaceholder => 'Choose a drive or root directory, then continue into a folder';
+  String get workspaceBrowserPlaceholder =>
+      'Choose a drive or root directory, then continue into a folder';
 
   @override
   String get workbenchComposerNoAdapter => 'No available CLI adapter';
@@ -506,7 +553,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workbenchClaudeSuggestionTitle => 'Claude suggested changes';
 
   @override
-  String get workbenchMockFixEmptyResponse => 'Fix test failure caused by empty responses';
+  String get workbenchMockFixEmptyResponse =>
+      'Fix test failure caused by empty responses';
 
   @override
   String get workbenchRejectAction => 'Deny';
@@ -518,13 +566,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workbenchInlineReady => 'Ready for a coding task';
 
   @override
-  String workbenchInlineCompleted(int count) => 'CLI session complete ? $count events processed';
+  String workbenchInlineCompleted(int count) {
+    return 'CLI session complete ? $count events processed';
+  }
 
   @override
-  String workbenchInlineConnecting(String adapter, int count) => 'Connecting $adapter ? $count events processed';
+  String workbenchInlineConnecting(String adapter, int count) {
+    return 'Connecting $adapter ? $count events processed';
+  }
 
   @override
-  String get workbenchApprovalMissingId => 'daemon did not provide approvalId, so mobile cannot process it.';
+  String get workbenchApprovalMissingId =>
+      'daemon did not provide approvalId, so mobile cannot process it.';
 
   @override
   String get workbenchQuestionTitle => 'Needs your direction';
@@ -539,7 +592,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workbenchCommandMetaEmpty => 'Run 1 command';
 
   @override
-  String workbenchCommandMetaWithTitle(String title) => 'Run 1 command ? $title';
+  String workbenchCommandMetaWithTitle(String title) {
+    return 'Run 1 command ? $title';
+  }
 
   @override
   String get workbenchCopyAllTooltip => 'Copy full text';
@@ -567,5 +622,4 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workbenchNewSessionTitle => 'New coding session';
-
 }
