@@ -89,15 +89,21 @@ HomeCommandDeckData buildHomeCommandDeckData({
   };
   final currentWorkspaceId = currentWorkspace.id;
   final allSignals = <HomeSignalItem>[
-    ...conversations.map((conversation) => _conversationSignal(
-          conversation,
-          _workspaceName(workspaceNames, conversation.workspaceId),
-        )),
-    ...runs.map(
-        (run) => _runSignal(run, _workspaceName(workspaceNames, run.workspaceId))),
-    ...queue.map((item) =>
-        _queueSignal(item, _workspaceName(workspaceNames, item.workspaceId))),
-  ].whereType<HomeSignalItem>().toList()
+    ...conversations
+        .map((conversation) => _conversationSignal(
+              conversation,
+              _workspaceName(workspaceNames, conversation.workspaceId),
+            ))
+        .whereType<HomeSignalItem>(),
+    ...runs
+        .map((run) =>
+            _runSignal(run, _workspaceName(workspaceNames, run.workspaceId)))
+        .whereType<HomeSignalItem>(),
+    ...queue
+        .map((item) =>
+            _queueSignal(item, _workspaceName(workspaceNames, item.workspaceId)))
+        .whereType<HomeSignalItem>(),
+  ]
     ..sort(_compareSignals);
 
   final currentSignals = allSignals
