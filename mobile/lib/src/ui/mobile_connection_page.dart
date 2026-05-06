@@ -322,12 +322,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
                       fontSize: 13.5,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -.1))),
-          Text(failed ? l10n.connectionStatusError : l10n.connectionStatusReady,
-              style: TextStyle(
-                  color: failed ? theme.red : theme.green,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.1)),
+          _ConnectionStatusTrailing(controller: controller, l10n: l10n),
         ]),
         const SizedBox(height: 12),
         _ConnectionMetaRow(
@@ -351,6 +346,34 @@ class _ConnectionStatusPanel extends StatelessWidget {
         ],
       ]),
     );
+  }
+}
+
+class _ConnectionStatusTrailing extends StatelessWidget {
+  const _ConnectionStatusTrailing({required this.controller, required this.l10n});
+  final DaemonConnectionController controller;
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.isBusy) {
+      return const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: theme.green,
+              backgroundColor: Color(0x2232D583)));
+    }
+    if (controller.status == DaemonConnectionStatus.failed) {
+      return Text(l10n.connectionStatusError,
+          style: const TextStyle(
+              color: theme.red,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.1));
+    }
+    return const SizedBox.shrink();
   }
 }
 
