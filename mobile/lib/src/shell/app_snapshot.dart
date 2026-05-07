@@ -82,7 +82,63 @@ class AppSnapshot {
       extensions: results[11] as List<ExtensionSummary>,
     );
   }
+
+  static Future<AppSnapshot> loadBootstrap(DaemonClient client,
+      {DaemonHealth? health}) async {
+    final resolvedHealth = health ?? await client.health();
+    final pairingCode = await client.createPairingCode();
+    await client.pair(code: pairingCode, label: 'Windows preview');
+    final workspaces = await client.listWorkspaces();
+    final workspace = workspaces.first;
+    final results = await Future.wait<Object?>([
+      _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
+      _loadStep('conversations', client.listConversations),
+      _loadStep('queue', client.listQueue),
+    ]);
+    return AppSnapshot(
+      health: resolvedHealth,
+      workspaces: workspaces,
+      workspace: workspace,
+      overview: _deferredOverview(workspace),
+      adapters: const <AdapterStatus>[],
+      runs: results[0] as List<RunSummary>,
+      conversations: results[1] as List<ConversationSummary>,
+      queue: results[2] as List<QueueItem>,
+      templates: const <CommandTemplate>[],
+      gitStatus: null,
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: _deferredFileTree(workspace),
+      diagnostics: _deferredDiagnostics(workspace),
+      extensions: const <ExtensionSummary>[],
+    );
+  }
 }
+
+ProjectOverview _deferredOverview(WorkspaceSummary workspace) => ProjectOverview(
+      workspaceId: workspace.id,
+      name: workspace.name,
+      path: workspace.path,
+      fileCount: 0,
+      codeLineCount: 0,
+      symbolCount: 0,
+      analysisScore: 0,
+      recentFiles: const <RecentFileSummary>[],
+    );
+
+FileTreeResponse _deferredFileTree(WorkspaceSummary workspace) =>
+    FileTreeResponse(
+      workspaceId: workspace.id,
+      root: workspace.path,
+      entries: const <FileTreeEntry>[],
+    );
+
+CodeDiagnosticsSummary _deferredDiagnostics(WorkspaceSummary workspace) =>
+    CodeDiagnosticsSummary(
+      workspaceId: workspace.id,
+      available: false,
+      diagnostics: const <CodeDiagnostic>[],
+    );
 
 Future<T> _loadStep<T>(String label, Future<T> Function() load) async {
   try {

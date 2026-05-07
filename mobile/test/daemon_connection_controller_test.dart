@@ -84,6 +84,17 @@ void main() {
     expect(saved.manualProxyInput, 'http://proxy.local:8080');
   });
 
+  test('default connection timeout is ten seconds for bootstrap loading', () {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => _snapshot(),
+      healthProbe: (_) async => _health(),
+    );
+
+    expect(controller.connectionTimeout, const Duration(seconds: 10));
+  });
+
   test('connection timeout restores idle affordance and ignores late success',
       () async {
     final healthCompleter = Completer<void>();

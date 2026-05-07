@@ -32,10 +32,10 @@ class HomeWorkspaceSignalsData {
     required this.recentFiles,
   });
 
-  final int changedFiles;
-  final int diagnostics;
+  final int? changedFiles;
+  final int? diagnostics;
   final int queue;
-  final int recentFiles;
+  final int? recentFiles;
 }
 
 class WorkspaceRunSummary {
@@ -80,9 +80,9 @@ HomeCommandDeckData buildHomeCommandDeckData({
   required List<RunSummary> runs,
   required List<ConversationSummary> conversations,
   required List<QueueItem> queue,
-  required int changedFiles,
-  required int diagnostics,
-  required int recentFiles,
+  required int? changedFiles,
+  required int? diagnostics,
+  required int? recentFiles,
 }) {
   final workspaceNames = <String, String>{
     for (final workspace in workspaces) workspace.id: workspace.name,

@@ -148,6 +148,24 @@ void main() {
     expect(data.signals.queue, 1);
     expect(data.signals.recentFiles, 4);
   });
+
+  test('workspace signals preserve deferred unknown counts', () {
+    final data = buildHomeCommandDeckData(
+      currentWorkspace: current,
+      workspaces: const <WorkspaceSummary>[current],
+      runs: const <RunSummary>[],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      changedFiles: null,
+      diagnostics: null,
+      recentFiles: null,
+    );
+
+    expect(data.signals.changedFiles, isNull);
+    expect(data.signals.diagnostics, isNull);
+    expect(data.signals.queue, 0);
+    expect(data.signals.recentFiles, isNull);
+  });
 }
 
 ConversationSummary conversation({

@@ -28,9 +28,11 @@ class HomePage extends StatelessWidget {
       runs: data.runs,
       conversations: data.conversations,
       queue: data.queue,
-      changedFiles: data.gitStatus?.files.length ?? 0,
-      diagnostics: data.diagnostics.diagnostics.length,
-      recentFiles: data.overview.recentFiles.length,
+      changedFiles: data.gitStatus?.files.length,
+      diagnostics:
+          data.diagnostics.available ? data.diagnostics.diagnostics.length : null,
+      recentFiles:
+          data.diagnostics.available ? data.overview.recentFiles.length : null,
     );
 
     return PageScroll(
@@ -237,14 +239,14 @@ class _HomeWorkspaceSignals extends StatelessWidget {
             children: [
               _SignalChip(
                   label: l10n.homeGitChangedLabel,
-                  value: '${data.changedFiles}'),
+                  value: _signalValue(data.changedFiles)),
               _SignalChip(
                   label: l10n.homeDiagnosticsLabel,
-                  value: '${data.diagnostics}'),
+                  value: _signalValue(data.diagnostics)),
               _SignalChip(label: l10n.homeQueueLabel, value: '${data.queue}'),
               _SignalChip(
                   label: l10n.homeRecentFilesLabel,
-                  value: '${data.recentFiles}'),
+                  value: _signalValue(data.recentFiles)),
             ],
           ),
         ],
@@ -429,3 +431,5 @@ Color _signalColor(HomeSignalKind kind) => switch (kind) {
       HomeSignalKind.queue => theme.purple,
       HomeSignalKind.idle => theme.muted,
     };
+
+String _signalValue(int? value) => value == null ? '—' : '$value';

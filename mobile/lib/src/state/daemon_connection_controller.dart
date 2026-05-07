@@ -27,9 +27,9 @@ class DaemonConnectionController extends ChangeNotifier {
     required this.tokenStore,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
-    Duration connectionTimeout = const Duration(seconds: 30),
+    Duration connectionTimeout = const Duration(seconds: 10),
   })  : _snapshotLoader =
-            snapshotLoader ?? ((client) => AppSnapshot.load(client)),
+            snapshotLoader ?? ((client) => AppSnapshot.loadBootstrap(client)),
         _healthProbe = healthProbe ?? ((client) async => client.health()),
         _connectionTimeout = connectionTimeout;
 
@@ -61,6 +61,7 @@ class DaemonConnectionController extends ChangeNotifier {
   AppSnapshot? get snapshot => _snapshot;
   DaemonClient? get client => _client;
   DaemonConnectionConfig? get connectedConfig => _connectedConfig;
+  Duration get connectionTimeout => _connectionTimeout;
 
   bool get isBusy =>
       _status == DaemonConnectionStatus.validating ||
