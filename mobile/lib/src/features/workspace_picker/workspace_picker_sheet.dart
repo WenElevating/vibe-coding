@@ -45,7 +45,8 @@ class AdapterPickerSheet extends StatelessWidget {
                         fontSize: 16,
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
-                const Text('Used for the next real daemon run. Cannot switch while running.',
+                const Text(
+                    'Used for the next real daemon run. Cannot switch while running.',
                     style: TextStyle(color: theme.muted, fontSize: 12)),
                 const SizedBox(height: 12),
                 for (final adapter in adapters)
@@ -113,7 +114,8 @@ class WorkspaceListPage extends StatelessWidget {
               const SessionSearchBox(),
               const SizedBox(height: 14),
               _WorkspaceSectionHeader(
-                  title: AppLocalizations.of(context).workspaceAvailableSection, meta: '${workspaces.length}'),
+                  title: AppLocalizations.of(context).workspaceAvailableSection,
+                  meta: '${workspaces.length}'),
               const SizedBox(height: 8),
               for (final workspace in workspaces)
                 _WorkspaceChoiceRow(
@@ -222,7 +224,8 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
     final path = _path.text.trim();
     if (_creating) return;
     if (path.isEmpty) {
-      setState(() => _error = 'Choose or enter a folder path first.');
+      setState(() =>
+          _error = AppLocalizations.of(context).workspacePathRequiredError);
       return;
     }
     setState(() {
@@ -242,77 +245,90 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-      top: false,
-      child: Container(
-          margin: const EdgeInsets.all(12),
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * .78),
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-          decoration: BoxDecoration(
-              color: const Color(0xF608090B),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: Colors.white.withValues(alpha: .075)),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: .56),
-                    blurRadius: 34,
-                    offset: const Offset(0, 20))
-              ]),
-          child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _WorkspaceSheetHeader(
-                    title: 'Workspace', subtitle: 'Switch CLI execution directory. Current session stays available.'),
-                const SizedBox(height: 12),
-                Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        color: const Color(0xFF101113),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: .075))),
-                    child: Column(children: [
-                      Row(children: [
-                        Expanded(
-                            child: _MiniInput(
-                                controller: _path, hint: 'Enter or browse a folder path')),
-                        const SizedBox(width: 8),
-                        TinyActionButton('Browse', onTap: _browse),
-                      ]),
-                      const SizedBox(height: 8),
-                      Row(children: [
-                        Expanded(
-                            child:
-                                _MiniInput(controller: _name, hint: 'Name (optional)')),
-                        const SizedBox(width: 8),
-                        TinyActionButton(_creating ? 'Creating' : 'Create',
-                            onTap: _creating ? null : _create, primary: true),
-                      ]),
-                    ])),
-                if (_error != null) ...[
-                  const SizedBox(height: 8),
-                  Text(_error!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: theme.red, fontSize: 11)),
-                ],
-                const SizedBox(height: 14),
-                const _WorkspaceSectionHeader(title: 'Existing workspaces', meta: 'Safe execution directory'),
-                const SizedBox(height: 6),
-                Flexible(
-                    child: ListView(
-                        shrinkWrap: true,
-                        padding: EdgeInsets.zero,
-                        children: [
-                      for (final workspace in widget.workspaces)
-                        _WorkspaceChoiceRow(
-                            workspace: workspace,
-                            selected: workspace.id == widget.selected.id,
-                            onTap: () => widget.onSelected(workspace)),
-                    ])),
-              ])));
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SafeArea(
+        top: false,
+        child: Container(
+            margin: const EdgeInsets.all(12),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * .78),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            decoration: BoxDecoration(
+                color: const Color(0xF608090B),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: Colors.white.withValues(alpha: .075)),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .56),
+                      blurRadius: 34,
+                      offset: const Offset(0, 20))
+                ]),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _WorkspaceSheetHeader(
+                      title: l10n.workspaceSheetTitle,
+                      subtitle: l10n.workspaceSheetSubtitle),
+                  const SizedBox(height: 12),
+                  Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF101113),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: .075))),
+                      child: Column(children: [
+                        Row(children: [
+                          Expanded(
+                              child: _MiniInput(
+                                  controller: _path,
+                                  hint: l10n.workspacePathHint)),
+                          const SizedBox(width: 8),
+                          TinyActionButton(l10n.workspaceBrowseAction,
+                              onTap: _browse),
+                        ]),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(
+                              child: _MiniInput(
+                                  controller: _name,
+                                  hint: l10n.workspaceNameHint)),
+                          const SizedBox(width: 8),
+                          TinyActionButton(
+                              _creating
+                                  ? l10n.workspaceCreatingAction
+                                  : l10n.workspaceCreateAction,
+                              onTap: _creating ? null : _create,
+                              primary: true),
+                        ]),
+                      ])),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_error!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: theme.red, fontSize: 11)),
+                  ],
+                  const SizedBox(height: 14),
+                  _WorkspaceSectionHeader(
+                      title: l10n.workspaceExistingSection,
+                      meta: l10n.workspaceSafeDirectoryMeta),
+                  const SizedBox(height: 6),
+                  Flexible(
+                      child: ListView(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          children: [
+                        for (final workspace in widget.workspaces)
+                          _WorkspaceChoiceRow(
+                              workspace: workspace,
+                              selected: workspace.id == widget.selected.id,
+                              onTap: () => widget.onSelected(workspace)),
+                      ])),
+                ])));
+  }
 }
 
 class AddWorkspaceSheet extends StatefulWidget {
@@ -366,42 +382,49 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-      top: false,
-      child: Container(
-          margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          decoration: BoxDecoration(
-              color: const Color(0xFF0D131D),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: .08))),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              const Expanded(
-                  child: Text('Add workspace',
-                      style: TextStyle(
-                          color: theme.text,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900))),
-              TinyActionButton('Browse', onTap: _browse),
-            ]),
-            const SizedBox(height: 10),
-            _MiniInput(controller: _path, hint: 'Choose or enter a folder path'),
-            const SizedBox(height: 8),
-            _MiniInput(controller: _name, hint: 'Name (optional)'),
-            if (_error != null) ...[
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SafeArea(
+        top: false,
+        child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            decoration: BoxDecoration(
+                color: const Color(0xFF0D131D),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withValues(alpha: .08))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [
+                Expanded(
+                    child: Text(l10n.workspaceAddTitle,
+                        style: const TextStyle(
+                            color: theme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900))),
+                TinyActionButton(l10n.workspaceBrowseAction, onTap: _browse),
+              ]),
+              const SizedBox(height: 10),
+              _MiniInput(controller: _path, hint: l10n.workspaceChoosePathHint),
               const SizedBox(height: 8),
-              Text(_error!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: theme.red, fontSize: 11)),
-            ],
-            const SizedBox(height: 12),
-            SizedBox(
-                width: double.infinity,
-                child: TinyActionButton(_creating ? 'Creating' : 'Create and use',
-                    onTap: _creating ? null : _create, primary: true)),
-          ])));
+              _MiniInput(controller: _name, hint: l10n.workspaceNameHint),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: theme.red, fontSize: 11)),
+              ],
+              const SizedBox(height: 12),
+              SizedBox(
+                  width: double.infinity,
+                  child: TinyActionButton(
+                      _creating
+                          ? l10n.workspaceCreatingAction
+                          : l10n.workspaceCreateAndUseAction,
+                      onTap: _creating ? null : _create,
+                      primary: true)),
+            ])));
+  }
 }
 
 class _WorkspaceSheetHeader extends StatelessWidget {
@@ -544,7 +567,7 @@ class _WorkspaceAddIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-      message: 'Add workspace',
+      message: AppLocalizations.of(context).workspaceAddTitle,
       child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(14),
@@ -611,7 +634,9 @@ class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
                     primary: true),
             ]),
             const SizedBox(height: 6),
-            Text(_currentPath ?? 'Choose a drive or root directory, then continue into a folder',
+            Text(
+                _currentPath ??
+                    'Choose a drive or root directory, then continue into a folder',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: theme.muted, fontSize: 12)),

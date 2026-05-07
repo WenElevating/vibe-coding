@@ -260,7 +260,7 @@
   "runDetailCommandBody": "dart test tests/login_test.dart      running ?",
   "sessionsTitle": "Sessions",
   "sessionsCurrentProject": "Current project",
-  "sessionsSearchPlaceholder": "Search sessions, commands, file paths?",
+  "sessionsSearchPlaceholder": "Search sessions, commands, file paths...",
   "sessionsFootnote": "This list only shows sessions in the current workspace.",
   "sessionsEmptyTitle": "No sessions in this workspace yet",
   "sessionsNewSession": "New Session",
@@ -284,6 +284,7 @@
   "workspaceNameHint": "Name (optional)",
   "workspaceCreatingAction": "Creating",
   "workspaceCreateAction": "Create",
+  "workspacePathRequiredError": "Choose or enter a folder path first.",
   "workspaceExistingSection": "Existing workspaces",
   "workspaceSafeDirectoryMeta": "Safe execution directory",
   "workspaceAddTitle": "Add workspace",
@@ -344,5 +345,24 @@
   "workbenchPreviewStartedSession": "Started claude session",
   "workbenchApprovalCardTitle": "Needs approval",
   "workbenchRunErrorPrefix": "Run error:",
+  "workbenchPendingInterrupted": "Session interrupted. Send a new message to resume context",
+  "workbenchPendingWaitingInput": "Waiting for your answer...",
+  "workbenchPendingWaitingApproval": "Waiting for permission confirmation...",
+  "workbenchPendingStarting": "Starting CLI session...",
+  "workbenchPendingGenerating": "Generating response...",
+  "workbenchPendingRunningTool": "Running {tool}...",
+  "@workbenchPendingRunningTool": {
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchPendingToolFallback": "tool call",
+  "workbenchPendingReceivingToolOutput": "Receiving tool output...",
+  "workbenchPendingSummarizingDiff": "Summarizing file changes...",
+  "workbenchPendingReadingContext": "CLI session started. Reading context...",
+  "workbenchPendingWaitingNextEvent": "Waiting for the next event...",
+  "workbenchThinkingProcessTitle": "Thinking process",
   "workbenchNewSessionTitle": "New coding session"
 }

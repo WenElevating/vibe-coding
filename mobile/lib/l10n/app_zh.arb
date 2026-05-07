@@ -284,6 +284,7 @@
   "workspaceNameHint": "名称（可选）",
   "workspaceCreatingAction": "创建中",
   "workspaceCreateAction": "创建",
+  "workspacePathRequiredError": "请先选择或输入文件夹路径。",
   "workspaceExistingSection": "已有工作区",
   "workspaceSafeDirectoryMeta": "安全执行目录",
   "workspaceAddTitle": "添加工作区",
@@ -344,5 +345,24 @@
   "workbenchPreviewStartedSession": "已启动 claude 会话",
   "workbenchApprovalCardTitle": "需要审批",
   "workbenchRunErrorPrefix": "运行错误：",
+  "workbenchPendingInterrupted": "会话已中断，发送新消息可恢复上下文",
+  "workbenchPendingWaitingInput": "正在等待你的回复...",
+  "workbenchPendingWaitingApproval": "正在等待权限确认...",
+  "workbenchPendingStarting": "正在启动 CLI 会话...",
+  "workbenchPendingGenerating": "正在生成回复...",
+  "workbenchPendingRunningTool": "正在运行 {tool}...",
+  "@workbenchPendingRunningTool": {
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchPendingToolFallback": "工具调用",
+  "workbenchPendingReceivingToolOutput": "正在接收工具输出...",
+  "workbenchPendingSummarizingDiff": "正在汇总文件变更...",
+  "workbenchPendingReadingContext": "CLI 会话已启动，正在读取上下文...",
+  "workbenchPendingWaitingNextEvent": "正在等待下一个事件...",
+  "workbenchThinkingProcessTitle": "思考过程",
   "workbenchNewSessionTitle": "新的编码会话"
 }

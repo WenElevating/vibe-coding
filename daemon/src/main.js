@@ -33,7 +33,7 @@ function createApp({
   codexCommand = process.env.CODEX_COMMAND || 'codex',
   codexEnabled = process.env.CODEX_ENABLED === '1',
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
-  devAdapters = process.env.DEV_ADAPTERS === '1' || mode === 'dev',
+  devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
   conversationDbPath = process.env.CONVERSATION_DB_PATH,
   appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath()

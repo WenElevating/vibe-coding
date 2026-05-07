@@ -2,25 +2,27 @@
 
 const { spawn, spawnSync } = require('node:child_process');
 const { eventTypes } = require('./protocol');
+const { resolveCliInvocation } = require('./cli-resolver');
 
 class ClaudeAdapter {
-  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync } = {}) {
+  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {} } = {}) {
     this.name = 'claude';
     this.command = command;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
+    this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
   }
 
   detectCapabilities() {
-    const version = this.spawnSyncFn(this.command, ['--version'], { encoding: 'utf8' });
-    const help = this.spawnSyncFn(this.command, ['--help'], { encoding: 'utf8' });
+    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8' });
+    const help = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--help'], { encoding: 'utf8' });
     if (version.error || version.status !== 0) {
       this.capability = unavailableCapability(this.command, version.error || version.stderr);
       return this.capability;
     }
     const helpText = `${help.stdout}\n${help.stderr}`;
-    const permissionModes = detectPermissionModes(this.command, this.spawnSyncFn, helpText);
+    const permissionModes = detectPermissionModes(this.invocation, this.spawnSyncFn, helpText);
     this.capability = {
       adapter: 'claude',
       version: String(version.stdout || version.stderr || '').trim(),
@@ -57,12 +59,12 @@ class ClaudeAdapter {
   }
 
   startRun({ prompt, workspacePath, sessionId, resume = false, permissionMode = 'default', onEvent }) {
+    assertWorkspacePath(workspacePath);
     this.ensureAvailable();
     const launchOptions = buildClaudeArgs({ permissionMode, sessionId, resume }, this.capability);
     const args = launchOptions.args;
     const effectivePermissionMode = launchOptions.effectivePermissionMode;
-    const launch = shellLaunchInWorkspace(this.command, args, workspacePath);
-    const child = this.spawnFn(launch.command, launch.args, {
+    const child = this.spawnFn(this.invocation.command, [...this.invocation.argsPrefix, ...args], {
       cwd: workspacePath,
       windowsHide: true,
       env: sdkProcessEnvForWorkspace(process.env, workspacePath)
@@ -243,10 +245,10 @@ function shouldCloseStdinAfterPrompt(permissionMode) {
   return ['auto', 'bypassPermissions', 'dontAsk', 'acceptEdits'].includes(permissionMode);
 }
 
-function detectPermissionModes(command, spawnSyncFn, helpText) {
+function detectPermissionModes(invocation, spawnSyncFn, helpText) {
   const parsed = parsePermissionModes(helpText);
   if (parsed.length > 1) return parsed;
-  const probed = probePermissionMode(command, spawnSyncFn, 'auto');
+  const probed = probePermissionMode(invocation, spawnSyncFn, 'auto');
   if (probed) return Array.from(new Set([...parsed, 'auto']));
   return parsed;
 }
@@ -263,8 +265,8 @@ function parsePermissionModes(helpText) {
   return Array.from(supported);
 }
 
-function probePermissionMode(command, spawnSyncFn, mode) {
-  const result = spawnSyncFn(command, ['--permission-mode', mode, '--print', '--max-turns', '0', 'true'], { encoding: 'utf8' });
+function probePermissionMode(invocation, spawnSyncFn, mode) {
+  const result = spawnSyncFn(invocation.command, [...invocation.argsPrefix, '--permission-mode', mode, '--print', '--max-turns', '0', 'true'], { encoding: 'utf8' });
   if (result.error) return false;
   const text = `${result.stdout || ''}\n${result.stderr || ''}`;
   return result.status === 0 || !/invalid|unknown|unsupported|parse|option/i.test(text);
@@ -499,35 +501,8 @@ function looksLikeProtocolLeak(text) {
     && normalized.includes('"message"');
 }
 
-function shellLaunchInWorkspace(command, args, workspacePath) {
-  if (!command || !String(command).trim()) throw new Error('command is required');
+function assertWorkspacePath(workspacePath) {
   if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
-  if (process.platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', `cd /d "${escapeCmdPath(workspacePath)}" && ${cmdQuote(command)} ${args.map(cmdQuote).join(' ')}`]
-    };
-  }
-  return {
-    command: 'sh',
-    args: ['-c', `cd ${shQuote(workspacePath)} && ${shQuote(command)} ${args.map(shQuote).join(' ')}`]
-  };
-}
-
-function cmdQuote(value) {
-  return `"${escapeCmdArg(value)}"`;
-}
-
-function escapeCmdPath(value) {
-  return escapeCmdArg(value);
-}
-
-function escapeCmdArg(value) {
-  return String(value).replace(/([\^&|<>()%!])/g, '^$1').replace(/"/g, '""');
-}
-
-function shQuote(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function isTerminalEvent(event) {

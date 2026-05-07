@@ -530,7 +530,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sessionsSearchPlaceholder =>
-      'Search sessions, commands, file paths?';
+      'Search sessions, commands, file paths...';
 
   @override
   String get sessionsFootnote =>
@@ -604,6 +604,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workspaceCreateAction => 'Create';
+
+  @override
+  String get workspacePathRequiredError =>
+      'Choose or enter a folder path first.';
 
   @override
   String get workspaceExistingSection => 'Existing workspaces';
@@ -721,6 +725,48 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workbenchRunErrorPrefix => 'Run error:';
+
+  @override
+  String get workbenchPendingInterrupted =>
+      'Session interrupted. Send a new message to resume context';
+
+  @override
+  String get workbenchPendingWaitingInput => 'Waiting for your answer...';
+
+  @override
+  String get workbenchPendingWaitingApproval =>
+      'Waiting for permission confirmation...';
+
+  @override
+  String get workbenchPendingStarting => 'Starting CLI session...';
+
+  @override
+  String get workbenchPendingGenerating => 'Generating response...';
+
+  @override
+  String workbenchPendingRunningTool(String tool) {
+    return 'Running $tool...';
+  }
+
+  @override
+  String get workbenchPendingToolFallback => 'tool call';
+
+  @override
+  String get workbenchPendingReceivingToolOutput => 'Receiving tool output...';
+
+  @override
+  String get workbenchPendingSummarizingDiff => 'Summarizing file changes...';
+
+  @override
+  String get workbenchPendingReadingContext =>
+      'CLI session started. Reading context...';
+
+  @override
+  String get workbenchPendingWaitingNextEvent =>
+      'Waiting for the next event...';
+
+  @override
+  String get workbenchThinkingProcessTitle => 'Thinking process';
 
   @override
   String get workbenchNewSessionTitle => 'New coding session';

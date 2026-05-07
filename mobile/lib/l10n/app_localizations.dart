@@ -1055,7 +1055,7 @@ abstract class AppLocalizations {
   /// No description provided for @sessionsSearchPlaceholder.
   ///
   /// In en, this message translates to:
-  /// **'Search sessions, commands, file paths?'**
+  /// **'Search sessions, commands, file paths...'**
   String get sessionsSearchPlaceholder;
 
   /// No description provided for @sessionsFootnote.
@@ -1195,6 +1195,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Create'**
   String get workspaceCreateAction;
+
+  /// No description provided for @workspacePathRequiredError.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose or enter a folder path first.'**
+  String get workspacePathRequiredError;
 
   /// No description provided for @workspaceExistingSection.
   ///
@@ -1411,6 +1417,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Run error:'**
   String get workbenchRunErrorPrefix;
+
+  /// No description provided for @workbenchPendingInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'Session interrupted. Send a new message to resume context'**
+  String get workbenchPendingInterrupted;
+
+  /// No description provided for @workbenchPendingWaitingInput.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for your answer...'**
+  String get workbenchPendingWaitingInput;
+
+  /// No description provided for @workbenchPendingWaitingApproval.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for permission confirmation...'**
+  String get workbenchPendingWaitingApproval;
+
+  /// No description provided for @workbenchPendingStarting.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting CLI session...'**
+  String get workbenchPendingStarting;
+
+  /// No description provided for @workbenchPendingGenerating.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating response...'**
+  String get workbenchPendingGenerating;
+
+  /// No description provided for @workbenchPendingRunningTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Running {tool}...'**
+  String workbenchPendingRunningTool(String tool);
+
+  /// No description provided for @workbenchPendingToolFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'tool call'**
+  String get workbenchPendingToolFallback;
+
+  /// No description provided for @workbenchPendingReceivingToolOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Receiving tool output...'**
+  String get workbenchPendingReceivingToolOutput;
+
+  /// No description provided for @workbenchPendingSummarizingDiff.
+  ///
+  /// In en, this message translates to:
+  /// **'Summarizing file changes...'**
+  String get workbenchPendingSummarizingDiff;
+
+  /// No description provided for @workbenchPendingReadingContext.
+  ///
+  /// In en, this message translates to:
+  /// **'CLI session started. Reading context...'**
+  String get workbenchPendingReadingContext;
+
+  /// No description provided for @workbenchPendingWaitingNextEvent.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the next event...'**
+  String get workbenchPendingWaitingNextEvent;
+
+  /// No description provided for @workbenchThinkingProcessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Thinking process'**
+  String get workbenchThinkingProcessTitle;
 
   /// No description provided for @workbenchNewSessionTitle.
   ///

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../features/sessions/sessions.dart';
 import '../features/workbench/workbench.dart';
 import '../features/workspace_picker/workspace_picker.dart';
@@ -56,8 +57,11 @@ List<String> debugMergeSessionIds(
         .toList(growable: false);
 
 @visibleForTesting
-String debugConversationPendingStatusText(String status) =>
-    conversationPendingStatusText(status, const <ConversationEvent>[]);
+String debugConversationPendingStatusText(String status,
+        {Locale locale = theme.zhHansCnLocale,
+        Iterable<ConversationEvent> events = const <ConversationEvent>[]}) =>
+    conversationPendingStatusText(
+        lookupAppLocalizations(locale), status, events);
 
 @visibleForTesting
 bool debugShouldPollAfterApproval(ConversationSummary conversation) =>

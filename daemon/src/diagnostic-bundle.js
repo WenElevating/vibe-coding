@@ -21,7 +21,7 @@ class DiagnosticBundleService {
     const content = redact({
       bundleId,
       createdAt,
-      daemon_status: await this.diagnostics.status(),
+      daemon_status: await this.diagnostics.status({ includeAdapters: true }),
       run_summary: this.runs.publicSummaries ? this.runs.publicSummaries() : [],
       queue_summary: this.runQueue.list(),
       command_template_summary: this.commandTemplates.list().map((item) => ({ id: item.id, label: item.label, requiresApproval: item.requiresApproval })),

@@ -589,6 +589,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workspaceCreateAction => '创建';
 
   @override
+  String get workspacePathRequiredError => '请先选择或输入文件夹路径。';
+
+  @override
   String get workspaceExistingSection => '已有工作区';
 
   @override
@@ -701,6 +704,44 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get workbenchRunErrorPrefix => '运行错误：';
+
+  @override
+  String get workbenchPendingInterrupted => '会话已中断，发送新消息可恢复上下文';
+
+  @override
+  String get workbenchPendingWaitingInput => '正在等待你的回复...';
+
+  @override
+  String get workbenchPendingWaitingApproval => '正在等待权限确认...';
+
+  @override
+  String get workbenchPendingStarting => '正在启动 CLI 会话...';
+
+  @override
+  String get workbenchPendingGenerating => '正在生成回复...';
+
+  @override
+  String workbenchPendingRunningTool(String tool) {
+    return '正在运行 $tool...';
+  }
+
+  @override
+  String get workbenchPendingToolFallback => '工具调用';
+
+  @override
+  String get workbenchPendingReceivingToolOutput => '正在接收工具输出...';
+
+  @override
+  String get workbenchPendingSummarizingDiff => '正在汇总文件变更...';
+
+  @override
+  String get workbenchPendingReadingContext => 'CLI 会话已启动，正在读取上下文...';
+
+  @override
+  String get workbenchPendingWaitingNextEvent => '正在等待下一个事件...';
+
+  @override
+  String get workbenchThinkingProcessTitle => '思考过程';
 
   @override
   String get workbenchNewSessionTitle => '新的编码会话';

@@ -15,8 +15,10 @@ class DiagnosticsService {
     this.versionInfo = versionInfo;
   }
 
-  async status() {
-    const adapters = await this.adapterRegistry.listCapabilities();
+  async status({ includeAdapters = false } = {}) {
+    const adapters = includeAdapters
+      ? await this.adapterRegistry.listCapabilities()
+      : [];
     const runs = this.runs.publicSummaries ? this.runs.publicSummaries() : [];
     return {
       status: 'ok',
@@ -36,7 +38,7 @@ class DiagnosticsService {
         queuedRuns: this.runQueue.list().length
       },
       security: { ptyEnabled: false, rawCommandApiEnabled: false, tokenHashing: true },
-      adapters,
+      ...(includeAdapters ? { adapters } : {}),
       auditRecords: this.auditLog.list().length
     };
   }

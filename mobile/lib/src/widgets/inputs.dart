@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../theme/theme.dart' as theme;
 
 class AppSearchBar extends StatelessWidget {
@@ -50,6 +51,6 @@ class SessionSearchBox extends StatelessWidget {
           color: const Color(0xFF101113),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white.withValues(alpha: .075))),
-      child: const Text('Search sessions, commands, file paths...',
-          style: TextStyle(color: Color(0xFF737983), fontSize: 13)));
+      child: Text(AppLocalizations.of(context).sessionsSearchPlaceholder,
+          style: const TextStyle(color: Color(0xFF737983), fontSize: 13)));
 }

@@ -10,6 +10,7 @@ const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { createApp } = require('../daemon/src/main');
 
 const tests = [];
@@ -194,6 +195,23 @@ test('createApp prefers APP_DB_PATH over CONVERSATION_DB_PATH compatibility alia
   const app = createApp({ port: 0, appDbPath, conversationDbPath, devAdapters: false });
   assert.equal(app.appSqliteStore.dbPath, appDbPath);
   app.appSqliteStore.close();
+});
+
+test('createApp does not expose synthetic adapters unless explicitly enabled', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const appDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-adapters-')), 'app.sqlite');
+
+  const app = createApp({ port: 0, mode: 'dev', appDbPath });
+  try {
+    const adapterNames = Array.from(app.adapterRegistry.adapters.keys());
+    assert.equal(adapterNames.includes('synthetic-jsonl'), false);
+    assert.equal(adapterNames.includes('synthetic-text'), false);
+    assert.equal(adapterNames.includes('claude'), true);
+  } finally {
+    app.appSqliteStore.close();
+  }
 });
 
 test('app SQLite store persists workspaces and device authorizations', () => {
@@ -632,7 +650,7 @@ test('Claude adapter filters escaped protocol payloads from assistant text', () 
   assert.equal(event.text, '');
 });
 
-test('Claude adapter starts CLI after explicitly changing to workspace', async () => {
+test('Claude adapter starts CLI directly in workspace cwd', async () => {
   let spawnCommand = null;
   let spawnArgs = null;
   let spawnOptions = null;
@@ -655,11 +673,10 @@ test('Claude adapter starts CLI after explicitly changing to workspace', async (
   adapter.startRun({ prompt: 'cwd smoke', workspacePath, permissionMode: 'auto', onEvent: () => {} });
   await new Promise((resolve) => setTimeout(resolve, 10));
 
-  assert.equal(spawnCommand, process.platform === 'win32' ? 'cmd.exe' : 'sh');
-  const launchScript = spawnArgs.join(' ');
-  assert.equal(launchScript.includes(workspacePath), true);
-  assert.equal(launchScript.includes(process.platform === 'win32' ? 'cd /d' : 'cd '), true);
-  assert.equal(launchScript.includes('claude'), true);
+  assert.equal(spawnCommand, 'claude');
+  assert.equal(spawnArgs.includes('--input-format'), true);
+  assert.equal(spawnArgs.includes('stream-json'), true);
+  assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
 });
@@ -736,17 +753,24 @@ test('Claude adapter rejects missing workspace before spawning', () => {
   );
 });
 
-test('Claude adapter shell launch escapes Windows workspace metacharacters', () => {
+test('Claude adapter passes metacharacter workspace as cwd without shell script', () => {
+  let spawnCommand = null;
+  let spawnArgs = null;
+  let spawnOptions = null;
   const adapter = new ClaudeAdapter({
     spawnSyncFn: fakeSpawnSync,
-    spawnFn: (_cmd, args) => {
-      const script = args.join(' ');
-      assert.equal(script.includes('A^&B^(C^)'), true);
+    spawnFn: (cmd, args, options) => {
+      spawnCommand = cmd;
+      spawnArgs = args;
+      spawnOptions = options;
       return fakeSpawn();
     }
   });
 
   adapter.startRun({ prompt: 'x', workspacePath: 'D:\\A&B(C)', permissionMode: 'auto', onEvent: () => {} });
+  assert.equal(spawnCommand, 'claude');
+  assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
+  assert.equal(spawnOptions.cwd, 'D:\\A&B(C)');
 });
 
 test('Claude adapter does not force an empty system prompt', () => {
@@ -1680,6 +1704,119 @@ test('Codex adapter can run when explicitly enabled and still rejects arbitrary 
     await new Promise((resolve) => app.server.close(resolve));
   }
 });
+
+test('Windows npm shim resolution launches Codex through node script', () => {
+  const resolved = resolveCliInvocation('codex', {
+    platform: 'win32',
+    nodePath: 'D:\\nodejs\\node.exe',
+    which: () => 'C:\\Users\\wenmm\\npm-global\\codex.cmd',
+    readTextFile: () => [
+      '@ECHO off',
+      'IF EXIST "%dp0%\\node.exe" (',
+      '  SET "_prog=%dp0%\\node.exe"',
+      ') ELSE (',
+      '  SET "_prog=node"',
+      ')',
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*'
+    ].join('\n')
+  });
+
+  assert.deepEqual(resolved, {
+    command: 'D:\\nodejs\\node.exe',
+    argsPrefix: ['C:\\Users\\wenmm\\npm-global\\node_modules\\@openai\\codex\\bin\\codex.js']
+  });
+});
+
+test('Windows npm shim resolution launches Claude through packaged exe', () => {
+  const resolved = resolveCliInvocation('claude', {
+    platform: 'win32',
+    which: () => 'C:\\Users\\wenmm\\npm-global\\claude.cmd',
+    readTextFile: () => [
+      '@ECHO off',
+      'GOTO start',
+      ':find_dp0',
+      'SET dp0=%~dp0',
+      'EXIT /b',
+      ':start',
+      'SETLOCAL',
+      'CALL :find_dp0',
+      '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'
+    ].join('\n')
+  });
+
+  assert.deepEqual(resolved, {
+    command: 'C:\\Users\\wenmm\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe',
+    argsPrefix: []
+  });
+});
+
+test('Claude capability detection uses resolved Windows npm shim exe', () => {
+  const exePath = 'C:\\Users\\wenmm\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: claudeShimResolverOptions(),
+    spawnSyncFn: (cmd, args) => {
+      if (cmd === 'where.exe') return { status: 0, stdout: 'C:\\Users\\wenmm\\npm-global\\claude.cmd\n', stderr: '' };
+      if (cmd !== exePath) return { status: 1, stdout: '', stderr: 'wrong command' };
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.132 (Claude Code)', stderr: '' };
+      if (args.includes('--help')) return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode [default|auto]', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+  assert.equal(capability.available, true);
+  assert.equal(capability.version, '2.1.132 (Claude Code)');
+});
+
+test('Claude conversation adapter starts with resolved Windows npm shim exe', async () => {
+  const exePath = 'C:\\Users\\wenmm\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
+  let spawnCommand = null;
+  let spawnArgs = null;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {}, end() { this.destroyed = true; } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    cliResolverOptions: claudeShimResolverOptions(),
+    spawnSyncFn: (cmd, args) => {
+      if (cmd === 'where.exe') return { status: 0, stdout: 'C:\\Users\\wenmm\\npm-global\\claude.cmd\n', stderr: '' };
+      if (cmd !== exePath) return { status: 1, stdout: '', stderr: 'wrong command' };
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.132 (Claude Code)', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    },
+    spawnFn: (cmd, args) => {
+      spawnCommand = cmd;
+      spawnArgs = args;
+      return child;
+    }
+  });
+
+  await adapter.startConversation({ conversationId: 'conv_claude_shim', workspacePath: 'D:\\AiProject\\vibe-coding', onEvent: () => {} });
+  assert.equal(spawnCommand, exePath);
+  assert.equal(spawnArgs.includes('--output-format'), true);
+  assert.equal(spawnArgs.includes('stream-json'), true);
+});
+
+function claudeShimResolverOptions() {
+  return {
+    platform: 'win32',
+    readTextFile: () => [
+      '@ECHO off',
+      'GOTO start',
+      ':find_dp0',
+      'SET dp0=%~dp0',
+      'EXIT /b',
+      ':start',
+      'SETLOCAL',
+      'CALL :find_dp0',
+      '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'
+    ].join('\n')
+  };
+}
+
 function fakeSpawnSync(_cmd, args) {
   if (args.includes('--version')) return { status: 0, stdout: 'claude-test', stderr: '' };
   return { status: 0, stdout: '-p --bare --output-format stream-json --verbose --include-partial-messages --resume', stderr: '' };
@@ -1780,6 +1917,11 @@ test('V1.2 git service parses status and diff output', () => {
 });
 test('V1.3 health and version expose release readiness without secrets', async () => {
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
+  for (const adapter of app.adapterRegistry.adapters.values()) {
+    adapter.detectCapabilities = () => {
+      throw new Error('health must not inspect adapter capabilities');
+    };
+  }
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
   try {
@@ -1787,6 +1929,7 @@ test('V1.3 health and version expose release readiness without secrets', async (
     assert.equal(health.status, 200);
     assert.equal(health.body.daemonVersion, '1.3.0');
     assert.equal(health.body.security.ptyEnabled, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(health.body, 'adapters'), false);
     assert.equal(JSON.stringify(health.body).includes('Bearer'), false);
     const version = await request(port, 'GET', '/api/version');
     assert.equal(version.body.schemaVersion, 5);

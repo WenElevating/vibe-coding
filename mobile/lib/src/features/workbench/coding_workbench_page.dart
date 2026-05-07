@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../../shell/shell.dart';
@@ -211,12 +212,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncWorkspacesFromSnapshot(widget.data.workspaces);
+    _syncSelectedAdapterFromSnapshot();
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     if (_isListOpen) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setSessionListOpen(true);
     });
+  }
+
+  void _syncSelectedAdapterFromSnapshot() {
+    final selected = _selectedAdapter;
+    final selectedStillAvailable = selected != null &&
+        widget.data.adapters
+            .any((adapter) => adapter.adapter == selected && adapter.available);
+    if (selectedStillAvailable) return;
+    _selectedAdapter = _preferredAdapter()?.adapter;
   }
 
   @override
@@ -323,13 +334,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     }
   }
 
-  String get _pendingStatusText => _conversationPendingStatusText(
-      _activeConversation?.status ?? _conversationState.status,
-      _conversationEvents);
+  String _pendingStatusText(AppLocalizations l10n) =>
+      _conversationPendingStatusText(
+          l10n,
+          _activeConversation?.status ?? _conversationState.status,
+          _conversationEvents);
 
-  String _conversationPendingStatusText(
-      String status, Iterable<ConversationEvent> events) {
-    return conversationPendingStatusText(status, events);
+  String _conversationPendingStatusText(AppLocalizations l10n, String status,
+      Iterable<ConversationEvent> events) {
+    return conversationPendingStatusText(l10n, status, events);
   }
 
   List<String> get _recentActionSummaries {
@@ -341,7 +354,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     if (event.type == 'run.started') {
       return 'Started ${event.raw['tool'] ?? _selectedAdapter ?? 'CLI'} session';
     }
-    if (event.type == 'approval.required') return 'Waiting for permission confirmation';
+    if (event.type == 'approval.required') {
+      return 'Waiting for permission confirmation';
+    }
     if (event.type == 'tool.started') {
       final name = event.name ?? _toolNameFromRaw(event) ?? 'Tool';
       final target = _toolTargetFromRaw(event);
@@ -811,6 +826,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           onSelectItem: _openSession,
           onBackToWorkspaces: _openWorkspaceList);
     }
+    final l10n = AppLocalizations.of(context);
     final adapter = _selectedAdapter;
     final canSend = adapter != null && !_sending;
     return Column(key: const ValueKey('coding-workbench-detail'), children: [
@@ -822,7 +838,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
                   bottom:
                       BorderSide(color: Colors.white.withValues(alpha: .075)))),
           child: _CodingHeader(
-              title: _conversationTitle,
+              title: _conversationTitle(l10n),
               workspace: _selectedWorkspace,
               adapter: adapter,
               running: _isRunningCli,
@@ -860,7 +876,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
             const SizedBox(height: 10),
             PendingSentinel(
                 adapter: adapter ?? 'CLI',
-                statusText: _pendingStatusText,
+                statusText: _pendingStatusText(l10n),
                 actions: _recentActionSummaries),
           ],
         ],
@@ -882,9 +898,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     ]);
   }
 
-  String get _conversationTitle {
+  String _conversationTitle(AppLocalizations l10n) {
     final userMessage = _messages.where((message) => message.role == 'user');
-    if (userMessage.isEmpty) return 'New coding session';
+    if (userMessage.isEmpty) return l10n.workbenchNewSessionTitle;
     final text = userMessage.last.body.trim();
     if (text.length <= 18) return text;
     return '${text.substring(0, 18)}…';

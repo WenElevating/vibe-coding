@@ -3,19 +3,21 @@
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { unavailableCapability } = require('./claude-adapter');
+const { resolveCliInvocation } = require('./cli-resolver');
 
 class ClaudeConversationAdapter {
-  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync } = {}) {
+  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {} } = {}) {
     this.name = 'claude';
     this.command = command;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
+    this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.capabilities = { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true };
   }
 
   detectCapabilities() {
-    const version = this.spawnSyncFn(this.command, ['--version'], { encoding: 'utf8' });
+    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8' });
     if (version.error || version.status !== 0) {
       this.capability = unavailableCapability(this.command, version.error || version.stderr);
       return this.capability;
@@ -41,6 +43,7 @@ class ClaudeConversationAdapter {
   }
 
   async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, onEvent }) {
+    if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
     this.ensureAvailable();
     const args = [
       '--output-format', 'stream-json',
@@ -52,7 +55,7 @@ class ClaudeConversationAdapter {
       ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'
     ];
-    const child = this.spawnFn(this.command, args, {
+    const child = this.spawnFn(this.invocation.command, [...this.invocation.argsPrefix, ...args], {
       cwd: workspacePath,
       windowsHide: true,
       env: sdkProcessEnvForWorkspace(process.env, workspacePath)

@@ -27,7 +27,7 @@ class DaemonConnectionController extends ChangeNotifier {
     required this.tokenStore,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
-    Duration connectionTimeout = const Duration(seconds: 10),
+    Duration connectionTimeout = const Duration(seconds: 30),
   })  : _snapshotLoader =
             snapshotLoader ?? ((client) => AppSnapshot.loadBootstrap(client)),
         _healthProbe = healthProbe ?? ((client) async => client.health()),

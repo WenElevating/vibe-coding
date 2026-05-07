@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../state/conversation_reducer.dart';
 
@@ -14,24 +15,33 @@ bool hasExplicitWorkspaceSelectionState({
     workspaceConfirmedForSession || activeRunId != null;
 
 String conversationPendingStatusText(
-    String status, Iterable<ConversationEvent> events) {
-  if (status == 'interrupted') return 'Session interrupted. Send a new message to resume context';
-  if (status == 'waiting_input') return 'Waiting for your answer?';
-  if (status == 'waiting_approval') return 'Waiting for permission confirmation?';
+    AppLocalizations l10n, String status, Iterable<ConversationEvent> events) {
+  if (status == 'interrupted') return l10n.workbenchPendingInterrupted;
+  if (status == 'waiting_input') return l10n.workbenchPendingWaitingInput;
+  if (status == 'waiting_approval') {
+    return l10n.workbenchPendingWaitingApproval;
+  }
   final list = events.toList(growable: false);
-  if (list.isEmpty) return 'Starting CLI session?';
+  if (list.isEmpty) return l10n.workbenchPendingStarting;
   for (final event in list.reversed) {
-    if (event.type == 'assistant.partial') return 'Generating response?';
-    if (event.type == 'tool.started') {
-      return 'Running ${event.toolName ?? 'tool call'}?';
+    if (event.type == 'assistant.partial') {
+      return l10n.workbenchPendingGenerating;
     }
-    if (event.type == 'tool.output') return 'Receiving tool output?';
-    if (event.type == 'diff.summary') return 'Summarizing file changes?';
+    if (event.type == 'tool.started') {
+      return l10n.workbenchPendingRunningTool(
+          event.toolName ?? l10n.workbenchPendingToolFallback);
+    }
+    if (event.type == 'tool.output') {
+      return l10n.workbenchPendingReceivingToolOutput;
+    }
+    if (event.type == 'diff.summary') {
+      return l10n.workbenchPendingSummarizingDiff;
+    }
     if (event.type == 'conversation.started') {
-      return 'CLI session started. Reading context?';
+      return l10n.workbenchPendingReadingContext;
     }
   }
-  return 'Waiting for the next event?';
+  return l10n.workbenchPendingWaitingNextEvent;
 }
 
 List<ConversationMessage> messagesForConversationSnapshot(
@@ -64,7 +74,9 @@ String? emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
       .whereType<String>()
       .where((text) => text.isNotEmpty)
       .toList(growable: false);
-  if (warnings.isEmpty) return 'CLI returned no content. Check whether Claude started correctly, or inspect daemon logs.';
+  if (warnings.isEmpty) {
+    return 'CLI returned no content. Check whether Claude started correctly, or inspect daemon logs.';
+  }
   return 'CLI returned no content. Diagnostics:\n${warnings.join('\n')}';
 }
 
@@ -138,7 +150,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
       return WorkbenchMessage('notice', 'System notice', message.text,
           event: event, runId: 'conversation');
     case 'approval':
-      return WorkbenchMessage('approval', 'Permission confirmation', message.text,
+      return WorkbenchMessage(
+          'approval', 'Permission confirmation', message.text,
           event: event, runId: 'conversation');
     case 'command':
       return WorkbenchMessage('command', 'Run command', message.text,
@@ -226,14 +239,17 @@ class WorkbenchMessage {
     if (event.type == 'approval.required') {
       final toolName = event.name ?? 'Tool';
       final target = _approvalTarget(event);
-      final body =
-          target == null ? '$toolName requested permission without arguments.' : '$toolName requested access: $target';
-      return WorkbenchMessage('approval', 'Permission confirmation', visibleText ?? body,
+      final body = target == null
+          ? '$toolName requested permission without arguments.'
+          : '$toolName requested access: $target';
+      return WorkbenchMessage(
+          'approval', 'Permission confirmation', visibleText ?? body,
           event: event, runId: event.runId);
     }
     if (event.type == 'assistant.question') {
       final question = visibleText ?? event.text ?? toolEventBody(event);
-      return WorkbenchMessage('question', 'Needs your direction', question.trim(),
+      return WorkbenchMessage(
+          'question', 'Needs your direction', question.trim(),
           event: event,
           runId: event.runId,
           suggestions: _eventSuggestions(event));
@@ -241,11 +257,13 @@ class WorkbenchMessage {
     if (visibleText != null && visibleText.trim().isNotEmpty) {
       if (parsed?.kind == _VisibleTextKind.delta) {
         if (!streamOutput) return null;
-        return WorkbenchMessage('assistant_stream', 'CLI assistant', visibleText,
+        return WorkbenchMessage(
+            'assistant_stream', 'CLI assistant', visibleText,
             event: event, runId: event.runId);
       }
       if (parsed?.kind == _VisibleTextKind.finalMessage) {
-        return WorkbenchMessage('assistant', 'CLI assistant', visibleText.trim(),
+        return WorkbenchMessage(
+            'assistant', 'CLI assistant', visibleText.trim(),
             event: event, runId: event.runId);
       }
     }

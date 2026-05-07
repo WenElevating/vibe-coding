@@ -2,9 +2,10 @@
 
 const { spawn, spawnSync } = require('node:child_process');
 const { eventTypes } = require('./protocol');
+const { resolveCliInvocation } = require('./cli-resolver');
 
 class JsonLineProcessAdapter {
-  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true } = {}) {
+  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
     this.name = name;
     this.command = command;
     this.capabilityArgs = capabilityArgs;
@@ -14,6 +15,7 @@ class JsonLineProcessAdapter {
     this.spawnSyncFn = spawnSyncFn;
     this.explicitEnabled = explicitEnabled;
     this.capability = null;
+    this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
   }
 
   detectCapabilities() {
@@ -21,14 +23,14 @@ class JsonLineProcessAdapter {
       this.capability = capability(this.name, false, 'disabled', `${this.name} requires explicit enablement in Settings.`);
       return this.capability;
     }
-    const version = this.spawnSyncFn(this.command, this.capabilityArgs, { encoding: 'utf8' });
+    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, ...this.capabilityArgs], { encoding: 'utf8' });
     if (version.error || version.status !== 0) {
       this.capability = capability(this.name, false, 'unavailable', `${this.name} CLI unavailable. Check installation and PATH.`, version);
       return this.capability;
     }
     let helpText = '';
     if (this.requiredHelp.length > 0) {
-      const help = this.spawnSyncFn(this.command, ['--help'], { encoding: 'utf8' });
+      const help = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--help'], { encoding: 'utf8' });
       helpText = `${help.stdout || ''}\n${help.stderr || ''}`;
       const missing = this.requiredHelp.filter((needle) => !helpText.includes(needle));
       if (missing.length > 0) {
@@ -55,7 +57,7 @@ class JsonLineProcessAdapter {
   startRun({ prompt, workspacePath, sessionId, resume = false, permissionMode = 'default', onEvent }) {
     this.ensureAvailable();
     const args = this.runArgs(prompt, workspacePath, sessionId, resume, permissionMode);
-    const child = this.spawnFn(this.command, args, { cwd: workspacePath, windowsHide: true });
+    const child = this.spawnFn(this.invocation.command, [...this.invocation.argsPrefix, ...args], { cwd: workspacePath, windowsHide: true });
     child.stdout.on('data', (chunk) => parseJsonOrRawLines(chunk, onEvent));
     child.stderr.on('data', (chunk) => onEvent({ type: eventTypes.RAW_OUTPUT, text: chunk.toString() }));
     child.on('error', (error) => onEvent({ type: eventTypes.ADAPTER_ERROR, ...adapterError(this.name, error) }));
@@ -103,7 +105,8 @@ function createCodexAdapter(options = {}) {
     ],
     explicitEnabled: options.explicitEnabled ?? false,
     spawnFn: options.spawnFn,
-    spawnSyncFn: options.spawnSyncFn
+    spawnSyncFn: options.spawnSyncFn,
+    cliResolverOptions: options.cliResolverOptions
   });
 }
 

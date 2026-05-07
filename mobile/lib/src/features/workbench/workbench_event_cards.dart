@@ -175,17 +175,23 @@ class WorkbenchMessageCard extends StatelessWidget {
                       if (isApproval) ...[
                         const SizedBox(height: 12),
                         if (message.event?.approvalId == null)
-                          Text(AppLocalizations.of(context).workbenchApprovalMissingId,
+                          Text(
+                              AppLocalizations.of(context)
+                                  .workbenchApprovalMissingId,
                               style: TextStyle(color: theme.red, fontSize: 12))
                         else
                           Row(children: [
                             Expanded(
-                                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchRejectAction,
+                                child: _ApprovalActionButton(
+                                    AppLocalizations.of(context)
+                                        .workbenchRejectAction,
                                     color: theme.red,
                                     onTap: () => onApproval('deny'))),
                             const SizedBox(width: 10),
                             Expanded(
-                                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchApproveAction,
+                                child: _ApprovalActionButton(
+                                    AppLocalizations.of(context)
+                                        .workbenchApproveAction,
                                     color: theme.purple2,
                                     primary: true,
                                     onTap: () => onApproval('allow'))),
@@ -319,7 +325,9 @@ class _ThinkingFoldoutState extends State<_ThinkingFoldout> {
                         const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
                     child: Row(children: [
                       Expanded(
-                          child: Text(widget.message.title,
+                          child: Text(
+                              AppLocalizations.of(context)
+                                  .workbenchThinkingProcessTitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -502,7 +510,8 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                           text: message.body,
                           onTap: () => _showCommandDetailSheet(
                               context: context,
-                              title: AppLocalizations.of(context).workbenchCommandDetailTitle,
+                              title: AppLocalizations.of(context)
+                                  .workbenchCommandDetailTitle,
                               subtitle: _commandDetailSubtitle(message),
                               text: message.body)),
                       if (output != null) ...[
@@ -512,7 +521,8 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                             text: output,
                             onTap: () => _showCommandDetailSheet(
                                 context: context,
-                                title: AppLocalizations.of(context).workbenchOutputDetailTitle,
+                                title: AppLocalizations.of(context)
+                                    .workbenchOutputDetailTitle,
                                 subtitle: _commandDetailSubtitle(message),
                                 text: output)),
                       ]
@@ -553,47 +563,47 @@ class _ToolDetailBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-            padding: const EdgeInsets.only(left: 1, bottom: 4),
-            child: Text(label,
-                style: const TextStyle(
-                    color: theme.faint,
-                    fontSize: 9.5,
-                    fontFamily: 'Consolas',
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .7))),
-        Material(
-            color: Colors.transparent,
-            child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(9),
-                child: Container(
-                    width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .018),
-                        borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: .045))),
-                    child: Row(children: [
-                      Expanded(
-                          child: Text(text,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: theme.muted,
-                                  fontSize: 12,
-                                  fontFamily: 'Consolas',
-                                  height: 1.35))),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.open_in_full_rounded,
-                          color: theme.faint, size: 12),
-                    ]))))
-      ]);
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+                padding: const EdgeInsets.only(left: 1, bottom: 4),
+                child: Text(label,
+                    style: const TextStyle(
+                        color: theme.faint,
+                        fontSize: 9.5,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .7))),
+            Material(
+                color: Colors.transparent,
+                child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(9),
+                    child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .018),
+                            borderRadius: BorderRadius.circular(9),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: .045))),
+                        child: Row(children: [
+                          Expanded(
+                              child: Text(text,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: theme.muted,
+                                      fontSize: 12,
+                                      fontFamily: 'Consolas',
+                                      height: 1.35))),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.open_in_full_rounded,
+                              color: theme.faint, size: 12),
+                        ]))))
+          ]);
 }
 
 String _toolKindLabel(WorkbenchMessage message) {
@@ -761,16 +771,19 @@ class _CommandDetailSheet extends StatelessWidget {
                                 fontFamily: 'Consolas')),
                       ])),
                   IconButton(
-                      tooltip: AppLocalizations.of(context).workbenchCopyAllTooltip,
+                      tooltip:
+                          AppLocalizations.of(context).workbenchCopyAllTooltip,
                       onPressed: () async {
                         await Clipboard.setData(ClipboardData(text: text));
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(AppLocalizations.of(context).workbenchCopiedSnack)));
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(AppLocalizations.of(context)
+                                .workbenchCopiedSnack)));
                       },
                       icon: const Icon(Icons.copy_rounded, color: theme.muted)),
                   IconButton(
-                      tooltip: AppLocalizations.of(context).workbenchCloseTooltip,
+                      tooltip:
+                          AppLocalizations.of(context).workbenchCloseTooltip,
                       onPressed: () => Navigator.of(context).pop(),
                       icon:
                           const Icon(Icons.close_rounded, color: theme.muted)),
@@ -870,7 +883,10 @@ Widget buildPendingSentinelPreview() => MaterialApp(
             child: PendingSentinel(
                 adapter: 'claude',
                 statusText: 'Receiving CLI output...',
-                actions: <String>['Started claude session', 'Claude requesting']))));
+                actions: <String>[
+                  'Started claude session',
+                  'Claude requesting'
+                ]))));
 
 String? _formatCommandDuration(Duration? duration) {
   if (duration == null) return null;
@@ -914,11 +930,14 @@ class _ApprovalEventCard extends StatelessWidget {
         else
           Row(children: [
             Expanded(
-                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchRejectAction,
-                    color: theme.red, onTap: () => onApproval('deny'))),
+                child: _ApprovalActionButton(
+                    AppLocalizations.of(context).workbenchRejectAction,
+                    color: theme.red,
+                    onTap: () => onApproval('deny'))),
             const SizedBox(width: 10),
             Expanded(
-                child: _ApprovalActionButton(AppLocalizations.of(context).workbenchApproveAction,
+                child: _ApprovalActionButton(
+                    AppLocalizations.of(context).workbenchApproveAction,
                     color: theme.text,
                     primary: true,
                     onTap: () => onApproval('allow'))),

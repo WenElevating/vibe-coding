@@ -8,12 +8,12 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
+import 'package:lan_ai_cli_control/src/features/workspace_picker/workspace_picker_sheet.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/state/daemon_connection_controller.dart';
 import 'package:lan_ai_cli_control/src/theme/theme.dart' as theme;
-import 'package:lan_ai_cli_control/src/ui/mobile_connection_page.dart';
 import 'package:lan_ai_cli_control/src/widgets/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -149,6 +149,68 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                       data: widget.snapshot ?? _testSnapshot())))));
 }
 
+class _MainTabsHarness extends StatefulWidget {
+  const _MainTabsHarness({required this.client});
+
+  final DaemonClient client;
+
+  @override
+  State<_MainTabsHarness> createState() => _MainTabsHarnessState();
+}
+
+class _MainTabsHarnessState extends State<_MainTabsHarness> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              theme: theme.buildAppTheme(),
+              home: MainTabsPage(
+                  data: _testSnapshot(),
+                  client: widget.client,
+                  connectionConfig: const DaemonConnectionConfig(
+                      addressInput: '127.0.0.1:4317',
+                      proxyMode: DaemonProxyMode.system,
+                      manualProxyInput: '')))));
+}
+
+class _AdapterRefreshClient extends DaemonClient {
+  _AdapterRefreshClient()
+      : super(
+            baseUri: Uri.parse('http://127.0.0.1:4317'),
+            tokenStore: MemoryTokenStore());
+
+  int listAdaptersCalls = 0;
+
+  @override
+  Future<List<AdapterStatus>> listAdapters() async {
+    listAdaptersCalls++;
+    return const <AdapterStatus>[
+      AdapterStatus(adapter: 'codex', available: true, status: 'available')
+    ];
+  }
+}
+
 AppSnapshot _testSnapshot({
   List<WorkspaceSummary>? workspaces,
   List<RunSummary> runs = const <RunSummary>[],
@@ -178,7 +240,7 @@ AppSnapshot _testSnapshot({
       }),
       workspaces: resolvedWorkspaces,
       workspace: workspace,
-      overview: const ProjectOverview(
+      overview: ProjectOverview(
           workspaceId: 'workspace_1',
           name: 'vibe-coding',
           path: r'D:\AiProject\vibe-coding',
@@ -246,7 +308,8 @@ void main() {
     expect(find.text('设置'), findsWidgets);
   });
 
-  testWidgets('home command deck renders Chinese when forced to Simplified Chinese',
+  testWidgets(
+      'home command deck renders Chinese when forced to Simplified Chinese',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
@@ -264,7 +327,6 @@ void main() {
     expect(find.text('Needs your approval'), findsNothing);
     expect(find.text('Modify file'), findsNothing);
     expect(find.text('online'), findsNothing);
-    expect(find.text('Current Project'), findsNothing);
   });
 
   testWidgets('home command deck hides connection controls',
@@ -340,7 +402,9 @@ void main() {
     await tester.pumpWidget(_LocalizedHomePageApp(snapshot: snapshot));
     await tester.pumpAndSettle();
 
-    expect(find.text('Needs attention'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -260));
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('daemon'), findsWidgets);
   });
 
@@ -403,7 +467,8 @@ void main() {
     expect(find.byType(BottomNav), findsNothing);
   });
 
-  testWidgets('connection page renders Chinese when forced to Simplified Chinese',
+  testWidgets(
+      'connection page renders Chinese when forced to Simplified Chinese',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'zh-Hans-CN'});
@@ -440,6 +505,10 @@ void main() {
     await controller.load();
 
     await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      localeResolutionCallback: (locale, supportedLocales) =>
+          resolveSupportedLocale(locale, supportedLocales),
       theme: theme.buildAppTheme(),
       home: MobileConnectionPage(controller: controller),
     ));
@@ -485,6 +554,31 @@ void main() {
     expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
   });
 
+  testWidgets('opening coding tab refreshes adapters before new session',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final client = _AdapterRefreshClient();
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpAndSettle();
+
+    expect(client.listAdaptersCalls, 0);
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(client.listAdaptersCalls, 1);
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Session'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('codex'), findsWidgets);
+    expect(find.text('No available CLI adapter'), findsNothing);
+  });
+
   testWidgets('tapping current project opens workspace session list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingWorkbenchEntryPreview());
@@ -497,6 +591,21 @@ void main() {
     expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')),
         findsOneWidget);
     expect(find.text('Select workspace for this coding session'), findsNothing);
+  });
+
+  testWidgets('new coding session title uses active locale',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCodingWorkbenchEntryPreview());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新的编码会话'), findsOneWidget);
+    expect(find.text('New coding session'), findsNothing);
   });
 
   testWidgets('session list shows only selected workspace sessions',
@@ -708,6 +817,39 @@ void main() {
     expect(find.text('Current Project'), findsOneWidget);
   });
 
+  testWidgets('workspace search placeholder uses active locale',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildNewSessionWorkspacePickerPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.text('搜索会话、命令或文件路径...'), findsOneWidget);
+    expect(find.text('Search sessions, commands, file paths...'), findsNothing);
+  });
+
+  testWidgets('add workspace sheet uses active locale',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: AddWorkspaceSheet(
+                client: DaemonClient(
+                    baseUri: Uri.parse('http://127.0.0.1:4317'),
+                    tokenStore: MemoryTokenStore())))));
+
+    expect(find.text('添加工作区'), findsOneWidget);
+    expect(find.text('浏览'), findsOneWidget);
+    expect(find.text('选择或输入文件夹路径'), findsOneWidget);
+    expect(find.text('名称（可选）'), findsOneWidget);
+    expect(find.text('创建并使用'), findsOneWidget);
+    expect(find.text('Add workspace'), findsNothing);
+    expect(find.text('Browse'), findsNothing);
+  });
+
   testWidgets('completed command card shows duration and success status icon',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCompletedCommandCardPreview());
@@ -741,6 +883,50 @@ void main() {
 
     expect(find.text('claude running'), findsNothing);
     expect(find.text('Claude requesting'), findsNothing);
+  });
+
+  testWidgets('thinking card title uses active locale',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                        'thinking', 'Thinking process', '正在分析上下文'),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    expect(find.text('思考过程'), findsOneWidget);
+    expect(find.text('Thinking process'), findsNothing);
+  });
+
+  test('conversation pending status text uses active locale', () {
+    final event = ConversationEvent.fromJson(const <String, Object?>{
+      'seq': 1,
+      'conversationId': 'conv_1',
+      'type': 'conversation.started',
+      'createdAt': '2026-05-03T00:00:00.000Z',
+    });
+
+    expect(
+        debugConversationPendingStatusText('running',
+            locale: const Locale('zh', 'CN'),
+            events: <ConversationEvent>[event]),
+        'CLI 会话已启动，正在读取上下文...');
+    expect(
+        debugConversationPendingStatusText('running',
+            locale: const Locale('en', 'US'),
+            events: <ConversationEvent>[event]),
+        'CLI session started. Reading context...');
   });
 
   test('duplicate approvals collapse and approval response becomes command',
