@@ -21,6 +21,41 @@ void main() {
     );
   });
 
+  test('GET retries once after transient client exception', () async {
+    var calls = 0;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://192.168.3.94:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        calls++;
+        if (calls == 1) throw http.ClientException('write failed', request.url);
+        return http.Response('{"status":"ok","security":{}}', 200);
+      }),
+    );
+
+    final health = await client.health();
+
+    expect(health.status, 'ok');
+    expect(calls, 2);
+  });
+
+  test('recordException returns daemon trace id', () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/exceptions');
+        return http.Response(
+            '{"traceId":"trc_test","createdAt":"2026-05-07T00:00:00.000Z"}',
+            201);
+      }),
+    );
+
+    final trace = await client.recordException(message: 'SocketException');
+
+    expect(trace.traceId, 'trc_test');
+  });
+
   test('daemon direct proxy mode always bypasses proxies', () {
     expect(
       daemonClientProxyForUri(

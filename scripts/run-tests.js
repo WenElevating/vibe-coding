@@ -11,6 +11,7 @@ const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
+const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
 
 const tests = [];
@@ -195,6 +196,28 @@ test('createApp prefers APP_DB_PATH over CONVERSATION_DB_PATH compatibility alia
   const app = createApp({ port: 0, appDbPath, conversationDbPath, devAdapters: false });
   assert.equal(app.appSqliteStore.dbPath, appDbPath);
   app.appSqliteStore.close();
+});
+
+test('createApp defaults daemon binding to all interfaces for LAN access', () => {
+  const originalHost = process.env.DAEMON_HOST;
+  delete process.env.DAEMON_HOST;
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-lan-default-'), devAdapters: false });
+  try {
+    assert.equal(app.config.host, '0.0.0.0');
+  } finally {
+    app.appSqliteStore.close();
+    if (originalHost === undefined) delete process.env.DAEMON_HOST;
+    else process.env.DAEMON_HOST = originalHost;
+  }
+});
+
+test('createApp preserves explicit daemon host override', () => {
+  const app = createApp({ host: '127.0.0.1', port: 0, appDbPath: tempConversationDbPath('app-db-loopback-'), devAdapters: false });
+  try {
+    assert.equal(app.config.host, '127.0.0.1');
+  } finally {
+    app.appSqliteStore.close();
+  }
 });
 
 test('createApp does not expose synthetic adapters unless explicitly enabled', () => {
@@ -1991,6 +2014,48 @@ test('V1.3 health and version expose release readiness without secrets', async (
   }
 });
 
+test('adapter capability loading shares concurrent probes', async () => {
+  let firstCalls = 0;
+  let secondCalls = 0;
+  let releaseProbe;
+  const probeReleased = new Promise((resolve) => {
+    releaseProbe = resolve;
+  });
+  const registry = new AdapterRegistry([
+    {
+      name: 'first',
+      async detectCapabilities() {
+        firstCalls++;
+        await probeReleased;
+        return { adapter: 'first', available: true, status: 'available' };
+      },
+    },
+    {
+      name: 'second',
+      async detectCapabilities() {
+        secondCalls++;
+        await probeReleased;
+        return { adapter: 'second', available: true, status: 'available' };
+      },
+    },
+  ]);
+
+  const firstLoad = registry.listCapabilities();
+  const secondLoad = registry.listCapabilities();
+  assert.equal(firstLoad, secondLoad);
+  assert.equal(firstCalls, 1);
+  assert.equal(secondCalls, 1);
+
+  releaseProbe();
+  const [firstResult, secondResult] = await Promise.all([firstLoad, secondLoad]);
+  assert.deepEqual(firstResult, secondResult);
+  assert.equal(firstResult.length, 2);
+
+  await registry.listCapabilities();
+  assert.equal(firstCalls, 2);
+  assert.equal(secondCalls, 2);
+});
+
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -2005,6 +2070,39 @@ test('V1.3 diagnostic export is authenticated, redacted, and audited', async () 
     assert.equal(exported.body.redacted, true);
     assert.equal(exported.body.items.includes('redaction_report'), true);
     assert.equal(app.auditLog.list().some((record) => record.type === 'diagnostic.export'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
+test('exceptions are persisted with trace ids and exported in diagnostics', async () => {
+  const appDbPath = tempConversationDbPath('app-db-exceptions-');
+  const app = createApp({ port: 0, mode: 'dev', devAdapters: true, appDbPath });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const recorded = await request(port, 'POST', '/api/exceptions', {
+      source: 'mobile',
+      message: 'SocketException: Write failed',
+      path: '/api/conversations/conv_1/events?afterSeq=44',
+      conversationId: 'conv_1',
+      metadata: { operation: 'pollConversationEvents' }
+    }, token);
+    assert.equal(recorded.status, 201);
+    assert.match(recorded.body.traceId, /^trc_/);
+    assert.equal(app.appSqliteStore.listExceptions()[0].traceId, recorded.body.traceId);
+    const exported = await request(port, 'POST', '/api/diagnostics/export', {}, token);
+    const fs = require('node:fs');
+    const bundle = JSON.parse(fs.readFileSync(exported.body.path, 'utf8'));
+    assert.equal(bundle.recent_errors[0].traceId, recorded.body.traceId);
+
+    const failed = await request(port, 'GET', '/api/not-found-for-trace', null, token);
+    assert.equal(failed.status, 404);
+    assert.match(failed.body.error.traceId, /^trc_/);
+    assert.equal(app.appSqliteStore.listExceptions().some((item) => item.traceId === failed.body.error.traceId), true);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }

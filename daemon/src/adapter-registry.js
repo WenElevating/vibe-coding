@@ -3,6 +3,7 @@
 class AdapterRegistry {
   constructor(adapters) {
     this.adapters = new Map(adapters.map((adapter) => [adapter.name, adapter]));
+    this.capabilitiesLoad = null;
   }
 
   get(name) {
@@ -17,7 +18,13 @@ class AdapterRegistry {
   }
 
   listCapabilities() {
-    return Promise.all(Array.from(this.adapters.values()).map(async (adapter) => enrich(adapter, await adapter.detectCapabilities())));
+    if (!this.capabilitiesLoad) {
+      this.capabilitiesLoad = Promise.all(Array.from(this.adapters.values()).map(async (adapter) => enrich(adapter, await adapter.detectCapabilities())))
+        .finally(() => {
+          this.capabilitiesLoad = null;
+        });
+    }
+    return this.capabilitiesLoad;
   }
 }
 

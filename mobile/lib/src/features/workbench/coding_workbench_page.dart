@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
@@ -58,6 +59,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   int _lastSeq = 0;
   bool _sending = false;
   String? _error;
+  String? _errorTraceId;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
   CodingWorkbenchListMode _listMode = CodingWorkbenchListMode.workspaces;
@@ -480,8 +482,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       }
       _scrollToBottom();
       await _restartConversationPolling();
-    } catch (err) {
-      setState(() => _error = err.toString());
+    } catch (err, stack) {
+      final traced = await _recordWorkbenchException(
+        err,
+        stack,
+        operation: 'sendMessage',
+      );
+      setState(() {
+        _error = traced.message;
+        _errorTraceId = traced.traceId;
+      });
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -520,8 +530,45 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       });
       _scrollToBottom();
       if (!_isRunningCli) _poller?.cancel();
-    } catch (err) {
-      if (mounted) setState(() => _error = err.toString());
+    } catch (err, stack) {
+      final traced = await _recordWorkbenchException(
+        err,
+        stack,
+        operation: 'pollConversationEvents',
+        path: conversationId == null
+            ? null
+            : '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
+      );
+      if (mounted) {
+        setState(() {
+          _error = traced.message;
+          _errorTraceId = traced.traceId;
+        });
+      }
+      _poller?.cancel();
+    }
+  }
+
+  Future<_WorkbenchTraceError> _recordWorkbenchException(
+    Object error,
+    StackTrace stack, {
+    required String operation,
+    String? path,
+  }) async {
+    final message = error.toString();
+    try {
+      final trace = await widget.client.recordException(
+        message: message,
+        stack: stack.toString(),
+        path: path,
+        method: path == null ? null : 'GET',
+        conversationId: _activeConversationId,
+        runId: _activeRunId,
+        metadata: <String, Object?>{'operation': operation},
+      );
+      return _WorkbenchTraceError(message, trace.traceId);
+    } catch (_) {
+      return _WorkbenchTraceError(message, null);
     }
   }
 
@@ -871,9 +918,36 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           if (_error != null) ...[
             const SizedBox(height: 10),
             GlassCard(
-                child: Text('Run error: $_error',
-                    style: const TextStyle(
-                        color: theme.red, fontSize: 12, height: 1.45))),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text('Run error: $_error',
+                      style: const TextStyle(
+                          color: theme.red, fontSize: 12, height: 1.45)),
+                  if (_errorTraceId != null) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          SelectableText('Trace ID: $_errorTraceId',
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12,
+                                  height: 1.35)),
+                          TinyActionButton('Copy Trace ID',
+                              onTap: () async {
+                            await Clipboard.setData(
+                                ClipboardData(text: _errorTraceId!));
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Trace ID copied')));
+                          })
+                        ])
+                  ]
+                ])),
           ],
           if (_isBusyCli) ...[
             const SizedBox(height: 10),
@@ -908,6 +982,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     if (text.length <= 18) return text;
     return '${text.substring(0, 18)}…';
   }
+}
+
+class _WorkbenchTraceError {
+  const _WorkbenchTraceError(this.message, this.traceId);
+
+  final String message;
+  final String? traceId;
 }
 
 bool _isSelectableCliAdapter(AdapterStatus adapter) {

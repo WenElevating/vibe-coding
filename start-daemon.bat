@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 if "%PORT%"=="" set PORT=4317
-if "%DAEMON_HOST%"=="" set DAEMON_HOST=127.0.0.1
+if "%DAEMON_HOST%"=="" set DAEMON_HOST=0.0.0.0
 if "%DAEMON_MODE%"=="" set DAEMON_MODE=dev
 if "%CODEX_ENABLED%"=="" set CODEX_ENABLED=1
 if "%DEV_ADAPTERS%"=="" set DEV_ADAPTERS=1

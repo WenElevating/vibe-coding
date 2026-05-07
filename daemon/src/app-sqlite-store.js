@@ -73,6 +73,24 @@ class AppSqliteStore {
         ON workspaces(owner_device_id, path);
       CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
         ON workspace_device_authorizations(device_id);
+      CREATE TABLE IF NOT EXISTS exceptions (
+        trace_id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        message TEXT NOT NULL,
+        stack TEXT,
+        path TEXT,
+        method TEXT,
+        device_id TEXT,
+        conversation_id TEXT,
+        run_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_exceptions_created
+        ON exceptions(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_exceptions_device_created
+        ON exceptions(device_id, created_at DESC);
     `);
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
@@ -204,9 +222,61 @@ class AppSqliteStore {
     return Boolean(row);
   }
 
+  recordException(input) {
+    const traceId = input.traceId || `trc_${crypto.randomUUID()}`;
+    const createdAt = input.createdAt || this.now().toISOString();
+    this.db.prepare(`
+      INSERT INTO exceptions(
+        trace_id, source, severity, message, stack, path, method, device_id,
+        conversation_id, run_id, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      traceId,
+      input.source || 'daemon',
+      input.severity || 'error',
+      String(input.message || 'Unknown error'),
+      input.stack || null,
+      input.path || null,
+      input.method || null,
+      input.deviceId || null,
+      input.conversationId || null,
+      input.runId || null,
+      JSON.stringify(input.metadata || {}),
+      createdAt
+    );
+    return { traceId, createdAt };
+  }
+
+  listExceptions({ limit = 50 } = {}) {
+    return this.db.prepare(`
+      SELECT trace_id, source, severity, message, stack, path, method, device_id,
+        conversation_id, run_id, metadata_json, created_at
+      FROM exceptions
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(Math.max(1, Math.min(Number(limit || 50), 200))).map(deserializeException);
+  }
+
   close() {
     this.db.close();
   }
+}
+
+function deserializeException(row) {
+  return {
+    traceId: row.trace_id,
+    source: row.source,
+    severity: row.severity,
+    message: row.message,
+    stack: row.stack,
+    path: row.path,
+    method: row.method,
+    deviceId: row.device_id,
+    conversationId: row.conversation_id,
+    runId: row.run_id,
+    metadata: parseJson(row.metadata_json, {}),
+    createdAt: row.created_at
+  };
 }
 
 function defaultAppDbPath() {

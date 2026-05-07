@@ -287,6 +287,29 @@ class DaemonClient {
         <String, Object?>{'decision': decision});
   }
 
+  Future<ExceptionTrace> recordException({
+    required String message,
+    String? stack,
+    String? path,
+    String? method,
+    String? conversationId,
+    String? runId,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) async {
+    final response = await _post('/api/exceptions', <String, Object?>{
+      'source': 'mobile',
+      'severity': 'error',
+      'message': message,
+      if (stack != null) 'stack': stack,
+      if (path != null) 'path': path,
+      if (method != null) 'method': method,
+      if (conversationId != null) 'conversationId': conversationId,
+      if (runId != null) 'runId': runId,
+      if (metadata.isNotEmpty) 'metadata': metadata,
+    });
+    return ExceptionTrace.fromJson(response);
+  }
+
   Future<List<ConversationSummary>> listConversations() async {
     final response = await _get('/api/conversations');
     final items = response['conversations'] as List<Object?>;
@@ -321,8 +344,8 @@ class DaemonClient {
 
   Future<List<ConversationEvent>> fetchConversationEvents(String conversationId,
       {int afterSeq = 0}) async {
-    final response = await _get(
-        '/api/conversations/$conversationId/events?afterSeq=$afterSeq');
+    final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
+    final response = await _get(path);
     final items = response['events'] as List<Object?>;
     return items
         .cast<Map<String, Object?>>()
@@ -369,9 +392,24 @@ class DaemonClient {
 
   Future<Map<String, Object?>> _get(String path,
       {bool authorize = true}) async {
-    final response = await _httpClient.get(baseUri.resolve(path),
-        headers: _headers(authorize: authorize));
+    final response = await _getWithRetry(path, authorize: authorize);
     return _decode(response);
+  }
+
+  Future<http.Response> _getWithRetry(String path,
+      {required bool authorize}) async {
+    try {
+      return await _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize));
+    } on http.ClientException {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize));
+    } on SocketException {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize));
+    }
   }
 
   Future<Map<String, Object?>> _post(String path, Map<String, Object?> body,
@@ -417,6 +455,28 @@ class DaemonClient {
       });
     }
   }
+}
+
+class ExceptionTrace {
+  const ExceptionTrace({required this.traceId, required this.createdAt});
+
+  final String traceId;
+  final String createdAt;
+
+  factory ExceptionTrace.fromJson(Map<String, Object?> json) => ExceptionTrace(
+        traceId: json['traceId'] as String,
+        createdAt: json['createdAt'] as String? ?? '',
+      );
+}
+
+class TracedClientException implements Exception {
+  const TracedClientException(this.message, this.traceId);
+
+  final String message;
+  final String traceId;
+
+  @override
+  String toString() => '$message (traceId: $traceId)';
 }
 
 http.Client createDaemonHttpClient(

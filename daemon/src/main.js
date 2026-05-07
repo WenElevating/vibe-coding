@@ -26,7 +26,7 @@ const { versionInfo } = require('./version');
 const { createServer } = require('./server');
 
 function createApp({
-  host = process.env.DAEMON_HOST || '127.0.0.1',
+  host = process.env.DAEMON_HOST || '0.0.0.0',
   port = Number(process.env.PORT || 4317),
   mode = process.env.DAEMON_MODE || 'dev',
   claudeCommand = process.env.CLAUDE_COMMAND || 'claude',
@@ -68,7 +68,7 @@ function createApp({
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
   });
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
-  const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog });
+  const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version });
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version };
 }

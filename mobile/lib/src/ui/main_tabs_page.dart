@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -11,6 +13,8 @@ import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
+
+enum _CodingAdapterLoadState { idle, loading, loaded, failed }
 
 class MainTabsPage extends StatefulWidget {
   const MainTabsPage(
@@ -34,8 +38,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
   String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _codingSessionListOpenRequest = 0;
-  bool _codingAdaptersLoaded = false;
-  bool _codingAdaptersLoading = false;
+  _CodingAdapterLoadState _codingAdapterLoadState =
+      _CodingAdapterLoadState.idle;
+  Future<void>? _codingAdapterLoadFuture;
+  Object? _codingAdapterLoadError;
   late AppSnapshot _data;
   RoutePage _route = RoutePage.tabs;
 
@@ -43,12 +49,22 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void initState() {
     super.initState();
     _data = widget.data;
+    unawaited(_ensureCodingAdaptersLoaded());
   }
 
   @override
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.data != widget.data && !_codingAdaptersLoaded) {
+    if (oldWidget.client != widget.client) {
+      _codingAdapterLoadState = _CodingAdapterLoadState.idle;
+      _codingAdapterLoadFuture = null;
+      _codingAdapterLoadError = null;
+      _data = widget.data;
+      unawaited(_ensureCodingAdaptersLoaded());
+      return;
+    }
+    if (oldWidget.data != widget.data &&
+        _codingAdapterLoadState != _CodingAdapterLoadState.loaded) {
       _data = widget.data;
     }
   }
@@ -64,23 +80,61 @@ class _MainTabsPageState extends State<MainTabsPage> {
         _codingSessionListOpenRequest++;
       }
     });
-    if (index == 2) _ensureCodingAdaptersLoaded();
+    if (index == 2) unawaited(_ensureCodingAdaptersLoaded());
   }
 
   Future<void> _ensureCodingAdaptersLoaded() async {
-    if (_codingAdaptersLoaded || _codingAdaptersLoading) return;
-    _codingAdaptersLoading = true;
+    if (_codingAdapterLoadState == _CodingAdapterLoadState.loaded) return;
+    final existingLoad = _codingAdapterLoadFuture;
+    if (existingLoad != null) return existingLoad;
+    setState(() {
+      _codingAdapterLoadState = _CodingAdapterLoadState.loading;
+      _codingAdapterLoadError = null;
+    });
+    final load = _loadCodingAdapters();
+    _codingAdapterLoadFuture = load;
+    return load;
+  }
+
+  Future<void> _loadCodingAdapters() async {
     try {
       final adapters = await widget.client.listAdapters();
       if (!mounted) return;
       setState(() {
         _data = _snapshotWithAdapters(_data, adapters);
-        _codingAdaptersLoaded = true;
-        _codingAdaptersLoading = false;
+        _codingAdapterLoadState = _CodingAdapterLoadState.loaded;
+        _codingAdapterLoadError = null;
+        _codingAdapterLoadFuture = null;
       });
-    } catch (_) {
-      _codingAdaptersLoading = false;
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _codingAdapterLoadState = _CodingAdapterLoadState.failed;
+        _codingAdapterLoadError = error;
+        _codingAdapterLoadFuture = null;
+      });
     }
+  }
+
+  Widget _buildCodingTab() {
+    if (_codingAdapterLoadState == _CodingAdapterLoadState.loaded) {
+      return CodingPage(
+        data: _data,
+        client: widget.client,
+        onBack: () => _selectTab(0),
+        onSessionListChanged: (open) =>
+            setState(() => _codingSessionListOpen = open),
+        openSessionListRequest: _codingSessionListOpenRequest,
+        streamOutput: _streamOutput,
+        expandThinking: _expandThinking,
+        permissionMode: _permissionMode,
+      );
+    }
+    return _CodingAdapterGate(
+      failed: _codingAdapterLoadState == _CodingAdapterLoadState.failed,
+      error: _codingAdapterLoadError,
+      onRetry: () => unawaited(_ensureCodingAdaptersLoaded()),
+    );
   }
 
   @override
@@ -90,17 +144,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
     final pages = [
       HomePage(open: _open, selectTab: _selectTab, data: data),
       RunsPage(open: _open, data: data),
-      CodingPage(
-        data: data,
-        client: widget.client,
-        onBack: () => _selectTab(0),
-        onSessionListChanged: (open) =>
-            setState(() => _codingSessionListOpen = open),
-        openSessionListRequest: _codingSessionListOpenRequest,
-        streamOutput: _streamOutput,
-        expandThinking: _expandThinking,
-        permissionMode: _permissionMode,
-      ),
+      _buildCodingTab(),
       QueuePage(data: data),
       SettingsPage(
         open: _open,
@@ -133,6 +177,47 @@ class _MainTabsPageState extends State<MainTabsPage> {
                   selected: _tab, items: mainTabItems(l10n), onTap: _selectTab)
               : null,
       extendBody: true,
+    );
+  }
+}
+
+class _CodingAdapterGate extends StatelessWidget {
+  const _CodingAdapterGate({
+    required this.failed,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final bool failed;
+  final Object? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!failed) ...[
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text('Loading CLI...'),
+            ] else ...[
+              const Icon(Icons.error_outline, size: 42),
+              const SizedBox(height: 12),
+              const Text('Unable to load CLI adapters'),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text('$error', textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 16),
+              PrimaryButton('Retry loading CLI', onTap: onRetry),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

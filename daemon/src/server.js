@@ -28,6 +28,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       const device = auth.authenticate(req.headers.authorization);
 
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());
+      if (method === 'POST' && url.pathname === '/api/exceptions') return json(res, 201, recordClientException(await readJson(req), { device, diagnosticBundle, req }));
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });
       if (method === 'GET' && url.pathname === '/api/extensions') return json(res, 200, await workspaceInspector.extensions(adapterRegistry));
       if (method === 'GET' && url.pathname === '/api/queue') return json(res, 200, { queue: runQueue.list() });
@@ -101,9 +102,38 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       throw Object.assign(new Error('not found'), { status: 404 });
     } catch (error) {
-      json(res, error.status || 500, { error: { code: error.code || 'ERROR', message: error.message, details: error.details, actionable: error.actionable, userAction: error.userAction, recoverable: error.recoverable } });
+      const trace = diagnosticBundle.recordException({
+        source: 'daemon',
+        message: error.message,
+        stack: error.stack,
+        path: req.url,
+        method: req.method,
+        deviceId: safeDeviceId(error),
+        metadata: { code: error.code || 'ERROR', status: error.status || 500 }
+      });
+      json(res, error.status || 500, { error: { code: error.code || 'ERROR', message: error.message, details: error.details, actionable: error.actionable, userAction: error.userAction, recoverable: error.recoverable, traceId: trace.traceId } });
     }
   });
+}
+
+function recordClientException(body, { device, diagnosticBundle, req }) {
+  const trace = diagnosticBundle.recordException({
+    source: 'mobile',
+    severity: body.severity || 'error',
+    message: body.message,
+    stack: body.stack,
+    path: body.path,
+    method: body.method,
+    deviceId: device.id,
+    conversationId: body.conversationId,
+    runId: body.runId,
+    metadata: { ...(body.metadata || {}), remoteAddress: req.socket?.remoteAddress }
+  });
+  return { traceId: trace.traceId, createdAt: trace.createdAt };
+}
+
+function safeDeviceId(error) {
+  return error && error.deviceId ? error.deviceId : null;
 }
 
 async function runSmoke({ config, adapterRegistry, eventStore }) {

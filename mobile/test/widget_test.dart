@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
@@ -218,6 +220,37 @@ class _AdapterRefreshClient extends DaemonClient {
           status: 'available',
           version: 'synthetic')
     ];
+  }
+}
+
+class _PendingAdapterClient extends DaemonClient {
+  _PendingAdapterClient()
+      : super(
+            baseUri: Uri.parse('http://127.0.0.1:4317'),
+            tokenStore: MemoryTokenStore());
+
+  int listAdaptersCalls = 0;
+  Completer<List<AdapterStatus>> adaptersCompleter =
+      Completer<List<AdapterStatus>>();
+
+  @override
+  Future<List<AdapterStatus>> listAdapters() {
+    listAdaptersCalls++;
+    return adaptersCompleter.future;
+  }
+
+  void completeWithAdapters() {
+    adaptersCompleter.complete(const <AdapterStatus>[
+      AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+    ]);
+  }
+
+  void completeWithError() {
+    adaptersCompleter.completeError(Exception('adapter probe failed'));
+  }
+
+  void resetCompleter() {
+    adaptersCompleter = Completer<List<AdapterStatus>>();
   }
 }
 
@@ -564,7 +597,7 @@ void main() {
     expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
   });
 
-  testWidgets('opening coding tab refreshes adapters before new session',
+  testWidgets('connected app preloads adapters before new session',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -573,7 +606,7 @@ void main() {
     await tester.pumpWidget(_MainTabsHarness(client: client));
     await tester.pumpAndSettle();
 
-    expect(client.listAdaptersCalls, 0);
+    expect(client.listAdaptersCalls, 1);
 
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
@@ -594,6 +627,64 @@ void main() {
     expect(find.byKey(const ValueKey('adapter-picker-sheet')), findsOneWidget);
     expect(find.text('synthetic-jsonl'), findsNothing);
     expect(find.text('synthetic-text'), findsNothing);
+  });
+
+  testWidgets('coding waits for pending adapter preload',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final client = _PendingAdapterClient();
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pump();
+
+    expect(client.listAdaptersCalls, 1);
+
+    await tester.tap(find.text('Coding'));
+    await tester.pump();
+
+    expect(find.text('Loading CLI...'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
+    expect(find.text('New Session'), findsNothing);
+    expect(client.listAdaptersCalls, 1);
+
+    client.completeWithAdapters();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Loading CLI...'), findsNothing);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+  });
+
+  testWidgets('coding adapter preload failure can retry',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final client = _PendingAdapterClient();
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pump();
+    client.completeWithError();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unable to load CLI adapters'), findsOneWidget);
+    expect(find.text('Retry loading CLI'), findsOneWidget);
+
+    client.resetCompleter();
+    await tester.tap(find.text('Retry loading CLI'));
+    await tester.pump();
+
+    expect(find.text('Loading CLI...'), findsOneWidget);
+    expect(client.listAdaptersCalls, 2);
+
+    client.completeWithAdapters();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Unable to load CLI adapters'), findsNothing);
   });
 
   testWidgets('adapter picker scrolls on compact screens',
