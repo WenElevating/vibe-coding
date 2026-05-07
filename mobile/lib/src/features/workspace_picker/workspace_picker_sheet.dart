@@ -21,9 +21,10 @@ class AdapterPickerSheet extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
       top: false,
       child: Container(
+          key: const ValueKey('adapter-picker-sheet'),
           margin: const EdgeInsets.all(12),
           constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * .68),
+              maxHeight: MediaQuery.of(context).size.height * .72),
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           decoration: BoxDecoration(
               color: const Color(0xFF0D131D),
@@ -49,11 +50,18 @@ class AdapterPickerSheet extends StatelessWidget {
                     'Used for the next real daemon run. Cannot switch while running.',
                     style: TextStyle(color: theme.muted, fontSize: 12)),
                 const SizedBox(height: 12),
-                for (final adapter in adapters)
-                  _AdapterChoiceRow(
-                      adapter: adapter,
-                      selected: adapter.adapter == selected,
-                      onTap: () => onSelected(adapter.adapter)),
+                Flexible(
+                    child: ListView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: adapters.length,
+                        itemBuilder: (context, index) {
+                          final adapter = adapters[index];
+                          return _AdapterChoiceRow(
+                              adapter: adapter,
+                              selected: adapter.adapter == selected,
+                              onTap: () => onSelected(adapter.adapter));
+                        })),
               ])));
 }
 

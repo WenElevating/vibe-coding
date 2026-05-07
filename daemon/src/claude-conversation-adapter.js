@@ -2,30 +2,39 @@
 
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
-const { unavailableCapability } = require('./claude-adapter');
+const { detectClaudeCodeInstallation, unavailableCapability } = require('./claude-adapter');
 const { resolveCliInvocation } = require('./cli-resolver');
 
 class ClaudeConversationAdapter {
-  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {} } = {}) {
+  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile } = {}) {
     this.name = 'claude';
     this.command = command;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
+    this.readTextFile = readTextFile;
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.capabilities = { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true };
   }
 
   detectCapabilities() {
-    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8' });
-    if (version.error || version.status !== 0) {
-      this.capability = unavailableCapability(this.command, version.error || version.stderr);
+    const detection = detectClaudeCodeInstallation({
+      command: this.command,
+      invocation: this.invocation,
+      spawnSyncFn: this.spawnSyncFn,
+      ...(this.readTextFile ? { readTextFile: this.readTextFile } : {})
+    });
+    if (!detection.installed) {
+      this.capability = unavailableCapability(this.command, detection.error || 'Claude Code CLI was not found');
       return this.capability;
     }
     this.capability = {
       adapter: 'claude',
-      version: String(version.stdout || version.stderr || '').trim(),
+      version: detection.version,
       available: true,
+      command: this.command,
+      path: detection.path,
+      detectionMethod: detection.method,
       capabilities: this.capabilities
     };
     return this.capability;

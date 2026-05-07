@@ -1,40 +1,54 @@
 ﻿'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { eventTypes } = require('./protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
 
 class ClaudeAdapter {
-  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {} } = {}) {
+  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8') } = {}) {
     this.name = 'claude';
     this.command = command;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
+    this.readTextFile = readTextFile;
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
   }
 
   detectCapabilities() {
-    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8' });
-    const help = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--help'], { encoding: 'utf8' });
-    if (version.error || version.status !== 0) {
-      this.capability = unavailableCapability(this.command, version.error || version.stderr);
+    const detection = detectClaudeCodeInstallation({
+      command: this.command,
+      invocation: this.invocation,
+      spawnSyncFn: this.spawnSyncFn,
+      readTextFile: this.readTextFile
+    });
+    if (!detection.installed) {
+      this.capability = unavailableCapability(this.command, detection.error || 'Claude Code CLI was not found');
       return this.capability;
     }
+    const help = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--help'], { encoding: 'utf8', timeout: 5000 });
+    const helpAvailable = !help.error && help.status === 0;
     const helpText = `${help.stdout}\n${help.stderr}`;
-    const permissionModes = detectPermissionModes(this.invocation, this.spawnSyncFn, helpText);
+    const permissionModes = helpAvailable
+      ? detectPermissionModes(this.invocation, this.spawnSyncFn, helpText)
+      : ['default', 'auto'];
     this.capability = {
       adapter: 'claude',
-      version: String(version.stdout || version.stderr || '').trim(),
+      version: detection.version,
       available: true,
+      command: this.command,
+      path: detection.path,
+      detectionMethod: detection.method,
       capabilities: {
-        print: helpText.includes('-p') || helpText.includes('--print'),
-        bare: helpText.includes('--bare'),
-        streamJson: helpText.includes('stream-json'),
-        inputFormat: helpText.includes('--input-format') || helpText.includes('input-format'),
-        verbose: helpText.includes('--verbose'),
-        includePartialMessages: helpText.includes('--include-partial-messages'),
-        resume: helpText.includes('--resume') || helpText.includes('resume'),
+        print: !helpAvailable || helpText.includes('-p') || helpText.includes('--print'),
+        bare: helpAvailable && helpText.includes('--bare'),
+        streamJson: !helpAvailable || helpText.includes('stream-json'),
+        inputFormat: !helpAvailable || helpText.includes('--input-format') || helpText.includes('input-format'),
+        verbose: !helpAvailable || helpText.includes('--verbose'),
+        includePartialMessages: !helpAvailable || helpText.includes('--include-partial-messages'),
+        resume: !helpAvailable || helpText.includes('--resume') || helpText.includes('resume'),
         permissionModes
       }
     };
@@ -114,6 +128,66 @@ class ClaudeAdapter {
     const fallback = setTimeout(sendPrompt, 1500);
     if (typeof fallback.unref === 'function') fallback.unref();
     return child;
+  }
+}
+
+function detectClaudeCodeInstallation({
+  command = 'claude',
+  invocation = { command, argsPrefix: [] },
+  spawnSyncFn = spawnSync,
+  readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8')
+} = {}) {
+  const result = {
+    installed: false,
+    path: invocationPath(command, invocation),
+    version: null,
+    method: null,
+    error: null
+  };
+  if (result.path) result.method = 'which';
+
+  const version = spawnSyncFn(invocation.command, [...(invocation.argsPrefix || []), '--version'], {
+    encoding: 'utf8',
+    timeout: 5000
+  });
+  if (!version.error && version.status === 0) {
+    result.version = String(version.stdout || version.stderr || '').trim();
+    result.installed = !!result.version;
+    result.method = result.method || 'exec';
+    return result;
+  }
+
+  result.error = version.error || version.stderr || `claude --version exited with ${version.status}`;
+  const packageVersion = readClaudeCodePackageVersion(invocation, readTextFile);
+  if (result.path && packageVersion) {
+    result.version = `${packageVersion} (Claude Code)`;
+    result.installed = true;
+    result.method = `${result.method || 'path'}+package`;
+  }
+  return result;
+}
+
+function invocationPath(command, invocation) {
+  const argsPrefix = invocation?.argsPrefix || [];
+  if (argsPrefix.length > 0) return argsPrefix[0];
+  const resolvedCommand = invocation?.command;
+  if (resolvedCommand && resolvedCommand !== command) return resolvedCommand;
+  return null;
+}
+
+function readClaudeCodePackageVersion(invocation, readTextFile) {
+  const entryPath = invocationPath('claude', invocation);
+  if (!entryPath) return null;
+  const normalized = String(entryPath).replace(/\\/g, '/');
+  const marker = '/node_modules/@anthropic-ai/claude-code/';
+  const markerIndex = normalized.toLowerCase().indexOf(marker);
+  if (markerIndex < 0) return null;
+  const packageRoot = entryPath.slice(0, markerIndex + marker.length);
+  try {
+    const pkg = JSON.parse(readTextFile(path.join(packageRoot, 'package.json')));
+    return typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version.trim() : null;
+  } catch {
+    return null;
   }
 }
 
@@ -515,6 +589,7 @@ module.exports = {
   ClaudeAdapter,
   parseJsonLines,
   mapClaudeEvent,
+  detectClaudeCodeInstallation,
   unavailableCapability,
   buildClaudeArgs,
   resolvePermissionMode,

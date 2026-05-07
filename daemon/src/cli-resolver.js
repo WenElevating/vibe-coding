@@ -31,6 +31,13 @@ function findCliPath(command, { which, existsSync, spawnSyncFn, env, homeDir }) 
   if (isExplicitPath(command)) {
     return existsSync(command) ? command : null;
   }
+  if (which !== defaultWhich) {
+    const injected = which(command, { spawnSyncFn });
+    if (injected) return injected;
+    if (injected === '') return null;
+  }
+  const fromPath = findPathExecutable(command, { existsSync, env });
+  if (fromPath) return fromPath;
   const found = which(command, { spawnSyncFn });
   if (found) return found;
   if (found === '') return null;
@@ -58,6 +65,19 @@ function findCommonCliPath(command, { existsSync, env, homeDir }) {
     path.join(homeDir, '.yarn', 'bin'),
     path.join(homeDir, '.claude', 'local')
   ].filter(Boolean);
+  for (const directory of directories) {
+    for (const baseName of baseNames) {
+      const candidate = path.join(directory, baseName);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function findPathExecutable(command, { existsSync, env }) {
+  const rawPath = env?.PATH || env?.Path || env?.path || '';
+  const directories = String(rawPath).split(path.delimiter).filter(Boolean);
+  const baseNames = cliBaseNames(command);
   for (const directory of directories) {
     for (const baseName of baseNames) {
       const candidate = path.join(directory, baseName);

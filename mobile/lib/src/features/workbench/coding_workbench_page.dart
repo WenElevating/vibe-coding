@@ -240,11 +240,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   AdapterStatus? _preferredAdapter() {
     for (final name in const ['claude', 'codex', 'opencode']) {
-      final found =
-          widget.data.adapters.where((a) => a.adapter == name && a.available);
+      final found = widget.data.adapters.where((a) =>
+          a.adapter == name && a.available && _isSelectableCliAdapter(a));
       if (found.isNotEmpty) return found.first;
     }
-    final available = widget.data.adapters.where((a) => a.available);
+    final available = widget.data.adapters
+        .where((a) => a.available && _isSelectableCliAdapter(a));
     return available.isEmpty ? null : available.first;
   }
 
@@ -269,14 +270,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       (_activeConversation?.status ?? _conversationState.status) !=
           'waiting_approval';
 
-  List<AdapterStatus> get _availableAdapters =>
-      widget.data.adapters.where((adapter) => adapter.available).toList();
+  List<AdapterStatus> get _availableAdapters => widget.data.adapters
+      .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
+      .toList();
 
   void _showAdapterPicker() {
     final adapters = _availableAdapters;
     if (adapters.isEmpty || _isRunningCli) return;
     showModalBottomSheet<void>(
         context: context,
+        isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (context) => AdapterPickerSheet(
             adapters: adapters,
@@ -905,6 +908,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     if (text.length <= 18) return text;
     return '${text.substring(0, 18)}…';
   }
+}
+
+bool _isSelectableCliAdapter(AdapterStatus adapter) {
+  final id = adapter.adapter.trim().toLowerCase();
+  if (id.isEmpty || id.startsWith('synthetic-')) return false;
+  return const {'claude', 'codex', 'opencode'}.contains(id);
 }
 
 class _CodingHeader extends StatelessWidget {

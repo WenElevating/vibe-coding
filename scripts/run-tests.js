@@ -485,7 +485,11 @@ test('audit redacts token-like fields', () => {
 });
 
 test('Claude capability detection marks adapter unavailable on missing CLI', () => {
-  const adapter = new ClaudeAdapter({ command: 'claude', spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'not found' }) });
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'not found' })
+  });
   const capability = adapter.detectCapabilities();
   assert.equal(capability.available, false);
   assert.equal(capability.capabilities.streamJson, false);
@@ -589,7 +593,11 @@ test('Claude startRun waits for initialize response before prompt', async () => 
 });
 
 test('startRun emits actionable unavailable error before spawning', () => {
-  const adapter = new ClaudeAdapter({ spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'missing' }), spawnFn: () => new EventEmitter() });
+  const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'missing' }),
+    spawnFn: () => new EventEmitter()
+  });
   assert.throws(() => adapter.startRun({ prompt: 'x', workspacePath: '.', onEvent: () => {} }), /Unable to inspect Claude CLI/);
 });
 
@@ -661,6 +669,7 @@ test('Claude adapter starts CLI directly in workspace cwd', async () => {
   child.kill = () => child.emit('exit', null, 'SIGTERM');
   const workspacePath = 'D:\\AiProject\\vibe-coding';
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: fakeSpawnSync,
     spawnFn: (cmd, args, options) => {
       spawnCommand = cmd;
@@ -693,6 +702,7 @@ test('Claude conversation adapter starts long-lived CLI directly in workspace cw
   child.kill = () => child.emit('exit', null, 'SIGTERM');
   const workspacePath = 'D:\\AiProject\\vibe-coding';
   const adapter = new ClaudeConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: fakeSpawnSync,
     spawnFn: (cmd, args, options) => {
       spawnCommand = cmd;
@@ -758,6 +768,7 @@ test('Claude adapter passes metacharacter workspace as cwd without shell script'
   let spawnArgs = null;
   let spawnOptions = null;
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: fakeSpawnSync,
     spawnFn: (cmd, args, options) => {
       spawnCommand = cmd;
@@ -1769,6 +1780,35 @@ test('Claude capability detection uses resolved Windows npm shim exe', () => {
   assert.equal(capability.version, '2.1.132 (Claude Code)');
 });
 
+test('Claude capability detection accepts installed shim when version exec is blocked', () => {
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: {
+      platform: 'win32',
+      nodePath: 'D:\\nodejs\\node.exe',
+      which: () => 'C:\\Users\\wenmm\\npm-global\\claude.cmd',
+      readTextFile: claudeCliJsShimText
+    },
+    readTextFile: () => JSON.stringify({ version: '2.1.112' }),
+    spawnSyncFn: (cmd) => {
+      if (cmd === 'where.exe') return { status: 1, stdout: '', stderr: 'not used' };
+      return {
+        error: Object.assign(new Error(`spawnSync ${cmd} EPERM`), { code: 'EPERM' }),
+        status: null,
+        stdout: '',
+        stderr: ''
+      };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+  assert.equal(capability.available, true);
+  assert.equal(capability.path, 'C:\\Users\\wenmm\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\cli.js');
+  assert.equal(capability.version, '2.1.112 (Claude Code)');
+  assert.equal(capability.detectionMethod, 'which+package');
+  assert.equal(capability.capabilities.streamJson, true);
+});
+
 test('Claude conversation adapter starts with resolved Windows npm shim exe', async () => {
   const exePath = 'C:\\Users\\wenmm\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
   let spawnCommand = null;
@@ -1815,6 +1855,18 @@ function claudeShimResolverOptions() {
       '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'
     ].join('\n')
   };
+}
+
+function claudeCliJsShimText() {
+  return [
+    '@ECHO off',
+    'IF EXIST "%dp0%\\node.exe" (',
+    '  SET "_prog=%dp0%\\node.exe"',
+    ') ELSE (',
+    '  SET "_prog=node"',
+    ')',
+    'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*'
+  ].join('\n');
 }
 
 function fakeSpawnSync(_cmd, args) {

@@ -206,7 +206,17 @@ class _AdapterRefreshClient extends DaemonClient {
   Future<List<AdapterStatus>> listAdapters() async {
     listAdaptersCalls++;
     return const <AdapterStatus>[
-      AdapterStatus(adapter: 'codex', available: true, status: 'available')
+      AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+      AdapterStatus(
+          adapter: 'synthetic-jsonl',
+          available: true,
+          status: 'available',
+          version: 'synthetic'),
+      AdapterStatus(
+          adapter: 'synthetic-text',
+          available: true,
+          status: 'available',
+          version: 'synthetic')
     ];
   }
 }
@@ -577,6 +587,60 @@ void main() {
 
     expect(find.text('codex'), findsWidgets);
     expect(find.text('No available CLI adapter'), findsNothing);
+
+    await tester.tap(find.text('codex').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('adapter-picker-sheet')), findsOneWidget);
+    expect(find.text('synthetic-jsonl'), findsNothing);
+    expect(find.text('synthetic-text'), findsNothing);
+  });
+
+  testWidgets('adapter picker scrolls on compact screens',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(375, 440);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: AdapterPickerSheet(
+                selected: 'codex',
+                onSelected: (_) {},
+                adapters: const <AdapterStatus>[
+                  AdapterStatus(
+                      adapter: 'claude',
+                      available: true,
+                      status: 'available',
+                      version: '2.1.112 (Claude Code)'),
+                  AdapterStatus(
+                      adapter: 'codex',
+                      available: true,
+                      status: 'available',
+                      version: 'codex-cli 0.128.0'),
+                  AdapterStatus(
+                      adapter: 'opencode',
+                      available: true,
+                      status: 'available',
+                      version: '0.9.0'),
+                  AdapterStatus(
+                      adapter: 'custom-a',
+                      available: true,
+                      status: 'available',
+                      version: '1.0.0'),
+                  AdapterStatus(
+                      adapter: 'custom-b',
+                      available: true,
+                      status: 'available',
+                      version: '1.0.0'),
+                ]))));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('adapter-picker-sheet')), findsOneWidget);
   });
 
   testWidgets('tapping current project opens workspace session list',
