@@ -24,6 +24,7 @@ const { DiagnosticsService } = require('./diagnostics');
 const { DiagnosticBundleService } = require('./diagnostic-bundle');
 const { versionInfo } = require('./version');
 const { createServer } = require('./server');
+const { AsrModelAsset } = require('./asr-model-asset');
 
 function createApp({
   host = process.env.DAEMON_HOST || '0.0.0.0',
@@ -36,7 +37,8 @@ function createApp({
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
   conversationDbPath = process.env.CONVERSATION_DB_PATH,
-  appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath()
+  appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath(),
+  asrModelAsset = new AsrModelAsset()
 } = {}) {
   const auth = new AuthManager();
   const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
@@ -69,8 +71,8 @@ function createApp({
   });
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version });
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version };
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset });
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version, asrModelAsset };
 }
 
 function createConversationAdapters({ claudeCommand }) {

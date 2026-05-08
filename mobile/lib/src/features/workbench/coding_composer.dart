@@ -77,9 +77,11 @@ class CodingComposer extends StatelessWidget {
                       isDense: true,
                       border: InputBorder.none,
                       hintText: adapter == null
-                          ? AppLocalizations.of(context).workbenchComposerNoAdapter
+                          ? AppLocalizations.of(context)
+                              .workbenchComposerNoAdapter
                           : running
-                              ? AppLocalizations.of(context).workbenchComposerFollowUpHint
+                              ? AppLocalizations.of(context)
+                                  .workbenchComposerFollowUpHint
                               : 'Add feedback...',
                       hintStyle: theme.appTextStyle.copyWith(
                           color: theme.faint,
@@ -96,9 +98,6 @@ class CodingComposer extends StatelessWidget {
                     voiceState == VoiceInputState.stopping) ...[
                   const SizedBox(height: 8),
                   const _VoiceInputStatus('Listening… release to finish'),
-                ] else if (voiceError != null) ...[
-                  const SizedBox(height: 8),
-                  _VoiceInputStatus(voiceError!),
                 ],
                 const SizedBox(height: 8),
                 Row(children: [
@@ -285,12 +284,13 @@ class _VoiceInputButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       child: GestureDetector(
+          onTap: enabled ? (_active ? onStop : onStart) : null,
           onLongPressStart: enabled ? (_) => onStart() : null,
           onLongPressEnd: enabled ? (_) => onStop() : null,
           onLongPressCancel: enabled ? onCancel : null,
           child: Tooltip(
               message: enabled
-                  ? 'Hold to speak'
+                  ? 'Tap or hold to speak'
                   : 'Voice input is not available on this platform yet.',
               child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),

@@ -665,6 +665,34 @@ void main() {
     expect(find.textContaining('Listening'), findsOneWidget);
   });
 
+  testWidgets('coding composer does not render voice errors inline',
+      (WidgetTester tester) async {
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.failed,
+                voiceEnabled: true,
+                voiceError: '未检测到可用麦克风，请连接或启用录音设备后重试。',
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(find.textContaining('未检测到可用麦克风'), findsNothing);
+  });
+
   testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());
@@ -850,7 +878,8 @@ void main() {
     await tester.tap(find.text('New Session'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
     expect(find.byType(BottomNav), findsNothing);
 
     await tester.binding.handlePopRoute();
@@ -885,7 +914,8 @@ void main() {
     await tester.tap(find.text('New Session'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
 
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();

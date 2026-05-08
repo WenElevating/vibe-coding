@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
+import '../../services/asr_model_manager.dart';
 import '../../services/daemon_client.dart';
+import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../theme/theme.dart' as theme;
@@ -29,7 +31,8 @@ class CodingWorkbenchPage extends StatefulWidget {
       required this.streamOutput,
       required this.expandThinking,
       required this.permissionMode,
-      this.speechInputService});
+      this.speechInputService,
+      this.asrModelManager});
   final AppSnapshot data;
   final DaemonClient client;
   final VoidCallback onBack;
@@ -39,6 +42,7 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool expandThinking;
   final String permissionMode;
   final SpeechInputService? speechInputService;
+  final AsrModelManager? asrModelManager;
 
   @override
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
@@ -54,6 +58,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
   late final VoiceInputController _voiceInput;
+  late final AsrModelManager _asrModelManager;
+  late final bool _ownsAsrModelManager;
+  SherpaSpeechInputService? _ownedSpeechInputService;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
@@ -70,6 +77,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _sending = false;
   String? _error;
   String? _errorTraceId;
+  String? _lastVoiceErrorNotice;
+  bool _voiceErrorDialogOpen = false;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
   String _currentRoute = _routeWorkspaces;
@@ -120,8 +129,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _goToWorkspaces() {
-    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        _routeWorkspaces, (route) => false);
+    _navigatorKey.currentState
+        ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
   }
 
   void _openWorkspaceList() {
@@ -246,6 +255,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _selectedAdapter = _preferredAdapter()?.adapter;
     _workspaces = List<WorkspaceSummary>.of(widget.data.workspaces);
     _selectedWorkspace = widget.data.workspace;
+    final injectedAsrModelManager = widget.asrModelManager;
+    _ownsAsrModelManager = injectedAsrModelManager == null;
+    _asrModelManager = injectedAsrModelManager ??
+        AsrModelManager(client: widget.client.createAsrModelClient());
     _voiceInput = VoiceInputController(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
     _syncWorkspacesFromSnapshot(widget.data.workspaces);
@@ -282,6 +295,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
+    if (_ownsAsrModelManager) _asrModelManager.dispose();
+    _ownedSpeechInputService = null;
     _scrollController.dispose();
     _prompt.dispose();
     super.dispose();
@@ -290,6 +305,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   SpeechInputService _createSpeechInputService() {
     final injected = widget.speechInputService;
     if (injected != null) return injected;
+    final owned = _ownedSpeechInputService;
+    if (owned != null) return owned;
     return const DisabledSpeechInputService();
   }
 
@@ -311,18 +328,55 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             selection: TextSelection.collapsed(offset: preview.length));
       }
     }
+    final voiceError = _voiceInput.error;
+    if (_voiceInput.state == VoiceInputState.failed &&
+        voiceError != null &&
+        voiceError != _lastVoiceErrorNotice) {
+      _lastVoiceErrorNotice = voiceError;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showVoiceErrorDialog(voiceError);
+      });
+    } else if (_voiceInput.state != VoiceInputState.failed) {
+      _lastVoiceErrorNotice = null;
+    }
     setState(() {});
   }
 
+  Future<void> _showVoiceErrorDialog(String message) async {
+    if (_voiceErrorDialogOpen) return;
+    _voiceErrorDialogOpen = true;
+    await showDialog<void>(
+        context: context,
+        builder: (context) => _VoiceInputErrorDialog(message: message));
+    _voiceErrorDialogOpen = false;
+  }
+
   Future<void> _startVoiceInput() async {
+    if (widget.speechInputService == null) {
+      final modelDirectory = await _showAsrDownloadDialog();
+      if (modelDirectory == null || !mounted) return;
+      final nextService =
+          SherpaSpeechInputService(modelDirectory: modelDirectory);
+      _ownedSpeechInputService = nextService;
+      _voiceInput.updateService(nextService);
+    }
     await _voiceInput.start(currentPrompt: _prompt.text);
+  }
+
+  Future<String?> _showAsrDownloadDialog() {
+    return showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) =>
+            _AsrModelDownloadDialog(manager: _asrModelManager));
   }
 
   Future<void> _stopVoiceInput() async {
     final merged = await _voiceInput.stop(currentPrompt: _prompt.text);
     if (!mounted) return;
     _prompt.value = TextEditingValue(
-        text: merged, selection: TextSelection.collapsed(offset: merged.length));
+        text: merged,
+        selection: TextSelection.collapsed(offset: merged.length));
     setState(() {});
   }
 
@@ -1014,8 +1068,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               workspace: _selectedWorkspace,
               adapter: adapter,
               running: _isRunningCli,
-              onBack: () => _navigatorKey.currentState
-                  ?.popUntil((route) => route.settings.name == _routeSessions))),
+              onBack: () => _navigatorKey.currentState?.popUntil(
+                  (route) => route.settings.name == _routeSessions))),
       Expanded(
           child: ListView(
         controller: _scrollController,
@@ -1059,8 +1113,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                                   color: theme.muted,
                                   fontSize: 12,
                                   height: 1.35)),
-                          TinyActionButton('Copy Trace ID',
-                              onTap: () async {
+                          TinyActionButton('Copy Trace ID', onTap: () async {
                             final messenger = ScaffoldMessenger.of(context);
                             await Clipboard.setData(
                                 ClipboardData(text: _errorTraceId!));
@@ -1088,8 +1141,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           canSend: canSend,
           sending: _sending,
           voiceState: _voiceInput.state,
-          voiceEnabled: widget.speechInputService != null,
-          voiceError: _voiceInput.error,
+          voiceEnabled: true,
+          voiceError: null,
           onModelTap: _showAdapterPicker,
           onVoiceStart: () => unawaited(_startVoiceInput()),
           onVoiceStop: () => unawaited(_stopVoiceInput()),
@@ -1117,6 +1170,201 @@ class _WorkbenchTraceError {
 
   final String message;
   final String? traceId;
+}
+
+class _VoiceInputErrorDialog extends StatelessWidget {
+  const _VoiceInputErrorDialog({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+      child: Container(
+          constraints: const BoxConstraints(maxWidth: 360),
+          padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+          decoration: BoxDecoration(
+              color: const Color(0xFF111214),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: .10)),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: .48),
+                    blurRadius: 28,
+                    offset: const Offset(0, 18))
+              ]),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                      color: theme.amber.withValues(alpha: .12),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: theme.amber.withValues(alpha: .28))),
+                  child: const Icon(Icons.mic_off_rounded,
+                      color: theme.amber, size: 18)),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    const Text('语音输入不可用',
+                        style: TextStyle(
+                            color: theme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25)),
+                    const SizedBox(height: 7),
+                    Text(message,
+                        style: const TextStyle(
+                            color: theme.muted, fontSize: 13, height: 1.45))
+                  ]))
+            ]),
+            const SizedBox(height: 18),
+            Align(
+                alignment: Alignment.centerRight,
+                child: TinyActionButton('知道了',
+                    primary: true, onTap: () => Navigator.of(context).pop()))
+          ])));
+}
+
+class _AsrModelDownloadDialog extends StatefulWidget {
+  const _AsrModelDownloadDialog({required this.manager});
+
+  final AsrModelManager manager;
+
+  @override
+  State<_AsrModelDownloadDialog> createState() =>
+      _AsrModelDownloadDialogState();
+}
+
+class _AsrModelDownloadDialogState extends State<_AsrModelDownloadDialog> {
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  void _start() {
+    unawaited(widget.manager.ensureReady().then((path) {
+      if (mounted) Navigator.of(context).pop(path);
+    }).catchError((_) {}));
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: widget.manager,
+      builder: (context, _) {
+        final state = widget.manager.state;
+        final failed = state.status == AsrModelStatus.failed;
+        final paused = state.status == AsrModelStatus.paused;
+        return AlertDialog(
+            backgroundColor: const Color(0xFF111214),
+            title: const Text('Voice model',
+                style: TextStyle(color: theme.text, fontSize: 17)),
+            content: SizedBox(
+                width: 340,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(_statusLabel(state),
+                          style: const TextStyle(
+                              color: theme.muted, fontSize: 13, height: 1.35))),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                      value: state.totalBytes > 0 ? state.progress : null,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: .08),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(theme.purple)),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                        child: Text(_bytesLabel(state),
+                            style: const TextStyle(
+                                color: theme.faint, fontSize: 12))),
+                    Text(_speedLabel(state),
+                        style:
+                            const TextStyle(color: theme.faint, fontSize: 12)),
+                  ]),
+                  if (state.errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(state.errorMessage!,
+                        style: const TextStyle(
+                            color: theme.red, fontSize: 12, height: 1.35)),
+                  ],
+                  if (state.traceId != null) ...[
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(
+                          child: SelectableText('Trace ID: ${state.traceId}',
+                              style: const TextStyle(
+                                  color: theme.muted, fontSize: 12))),
+                      TextButton(
+                          onPressed: () => Clipboard.setData(
+                              ClipboardData(text: state.traceId!)),
+                          child: const Text('Copy')),
+                    ]),
+                  ],
+                ])),
+            actions: [
+              if (state.status == AsrModelStatus.downloading)
+                TextButton(
+                    onPressed: widget.manager.pause,
+                    child: const Text('Pause')),
+              if (paused)
+                TextButton(
+                    onPressed: widget.manager.resume,
+                    child: const Text('Resume')),
+              if (failed)
+                TextButton(onPressed: _start, child: const Text('Retry')),
+              TextButton(
+                  onPressed: () {
+                    widget.manager.cancel();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Cancel')),
+            ]);
+      });
+
+  String _statusLabel(AsrModelState state) => switch (state.status) {
+        AsrModelStatus.idle => 'Preparing voice model...',
+        AsrModelStatus.checking => 'Checking paired daemon model...',
+        AsrModelStatus.downloading => 'Downloading ${state.version ?? 'model'}',
+        AsrModelStatus.paused => 'Download paused',
+        AsrModelStatus.verifying => 'Verifying downloaded model...',
+        AsrModelStatus.extracting => 'Extracting model files...',
+        AsrModelStatus.ready => 'Voice model ready',
+        AsrModelStatus.failed => 'Voice model preparation failed',
+        AsrModelStatus.cancelled => 'Voice model download cancelled',
+      };
+
+  String _bytesLabel(AsrModelState state) {
+    if (state.totalBytes <= 0) return 'Waiting for size';
+    return '${_formatBytes(state.downloadedBytes)} / ${_formatBytes(state.totalBytes)}';
+  }
+
+  String _speedLabel(AsrModelState state) {
+    if (state.speedBytesPerSecond <= 0 ||
+        state.status != AsrModelStatus.downloading) {
+      return '';
+    }
+    return '${_formatBytes(state.speedBytesPerSecond.round())}/s';
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '$bytes B';
+  }
 }
 
 class _CodingRouteObserver extends NavigatorObserver {

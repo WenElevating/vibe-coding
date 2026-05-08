@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../models/protocol.dart';
+import 'asr_model_client.dart';
 import 'daemon_connection_config.dart';
 
 abstract class SecureTokenStore {
@@ -47,6 +48,11 @@ class DaemonClient {
 
   String? _deviceId;
   String? _token;
+
+  String? get currentToken => _token;
+
+  AsrModelClient createAsrModelClient() => AsrModelClient(
+      baseUri: baseUri, tokenProvider: () => _token, httpClient: _httpClient);
 
   Future<DaemonHealth> health() async {
     final response = await _get('/api/health', authorize: false);

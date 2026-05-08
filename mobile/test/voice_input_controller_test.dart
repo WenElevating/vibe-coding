@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/features/workbench/voice_input.dart';
 
@@ -95,5 +96,29 @@ void main() {
     expect(controller.state, VoiceInputState.failed);
     expect(controller.error, 'Voice input unavailable');
     expect(service.cancelCalls, 1);
+  });
+
+  test('missing recording device is reported as a friendly message', () async {
+    final service = _FakeSpeechInputService()
+      ..startError = PlatformException(code: 'Record', message: '未找到任何录音设备');
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: '');
+
+    expect(controller.state, VoiceInputState.failed);
+    expect(controller.error, '未检测到可用麦克风，请连接或启用录音设备后重试。');
+    expect(controller.error, isNot(contains('PlatformException')));
+  });
+
+  test('microphone permission denial is reported as a friendly message',
+      () async {
+    final service = _FakeSpeechInputService()
+      ..startError = StateError('Microphone permission denied');
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: '');
+
+    expect(controller.state, VoiceInputState.failed);
+    expect(controller.error, '麦克风权限未开启，请允许访问麦克风后重试。');
   });
 }

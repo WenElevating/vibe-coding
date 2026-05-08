@@ -7,7 +7,7 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset }) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -27,6 +27,8 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       const device = auth.authenticate(req.headers.authorization);
 
+      if (method === 'GET' && url.pathname === '/api/asr-model') return json(res, 200, await asrModelAsset.metadata());
+      if (method === 'GET' && url.pathname === '/api/asr-model/download') return asrModelAsset.streamDownload(req, res);
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());
       if (method === 'POST' && url.pathname === '/api/exceptions') return json(res, 201, recordClientException(await readJson(req), { device, diagnosticBundle, req }));
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });

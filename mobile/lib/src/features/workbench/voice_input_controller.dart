@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 enum VoiceInputState {
   idle,
@@ -43,7 +44,7 @@ class VoiceInputController extends ChangeNotifier {
   })  : _service = service,
         _initializeTimeout = initializeTimeout;
 
-  final SpeechInputService _service;
+  SpeechInputService _service;
   final Duration _initializeTimeout;
   VoiceInputState _state = VoiceInputState.idle;
   String _partialText = '';
@@ -55,6 +56,18 @@ class VoiceInputController extends ChangeNotifier {
   String? get error => _error;
   bool get isBusy =>
       _state != VoiceInputState.idle && _state != VoiceInputState.failed;
+
+  void updateService(SpeechInputService service) {
+    if (identical(_service, service)) return;
+    if (isBusy) {
+      throw StateError(
+          'Cannot replace voice input service while it is active.');
+    }
+    _service.dispose();
+    _service = service;
+    _error = null;
+    if (_state == VoiceInputState.failed) _setState(VoiceInputState.idle);
+  }
 
   Future<void> start({required String currentPrompt}) async {
     if (_state == VoiceInputState.initializing ||
@@ -79,7 +92,7 @@ class VoiceInputController extends ChangeNotifier {
       _setState(VoiceInputState.failed);
       await _service.cancel();
     } catch (error) {
-      _error = error.toString();
+      _error = friendlyVoiceInputError(error);
       _setState(VoiceInputState.failed);
     }
   }
@@ -96,7 +109,7 @@ class VoiceInputController extends ChangeNotifier {
       _setState(VoiceInputState.idle);
       return merged;
     } catch (error) {
-      _error = error.toString();
+      _error = friendlyVoiceInputError(error);
       _setState(VoiceInputState.failed);
       return currentPrompt;
     }
@@ -143,4 +156,28 @@ class VoiceInputController extends ChangeNotifier {
     _service.dispose();
     super.dispose();
   }
+}
+
+@visibleForTesting
+String friendlyVoiceInputError(Object error) {
+  if (error is PlatformException) {
+    final details = [
+      error.code,
+      if (error.message != null) error.message!,
+      if (error.details != null) error.details.toString(),
+    ].join(' ').toLowerCase();
+    if (details.contains('no recording device') ||
+        details.contains('no input device') ||
+        details.contains('not found') ||
+        details.contains('未找到') ||
+        details.contains('录音设备') ||
+        details.contains('麦克风')) {
+      return '未检测到可用麦克风，请连接或启用录音设备后重试。';
+    }
+    return '语音输入暂时不可用，请检查麦克风权限或设备状态后重试。';
+  }
+  if (error is StateError && error.message == 'Microphone permission denied') {
+    return '麦克风权限未开启，请允许访问麦克风后重试。';
+  }
+  return '语音输入暂时不可用，请稍后重试。';
 }
