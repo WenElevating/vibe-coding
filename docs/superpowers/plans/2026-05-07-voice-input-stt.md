@@ -17,6 +17,13 @@
 - The mobile tree currently has Android, web, and Windows targets. There is no `mobile/ios/Runner/Info.plist`, so iOS permission work is out of scope for this repository state.
 - The spec is `docs/superpowers/specs/2026-05-07-voice-input-stt-design.md`.
 
+## Model Distribution Decision
+
+- Decision: manual local assets for development; do not commit ONNX model files in this implementation.
+- Model candidate: sherpa-onnx streaming bilingual zh/en Zipformer.
+- Observed size: not present locally during planning; repository scan found no `sherpa`/`zipformer` model directory or `assets/models` model files.
+- Runtime behavior when model files are absent: voice input is hidden or disabled with a recoverable “voice input unavailable” message; text input remains available.
+
 ## File Structure
 
 - Create `mobile/lib/src/features/workbench/voice_input.dart`: export voice input abstractions.
@@ -545,3 +552,8 @@ Expected: build succeeds; voice UI is hidden or disabled on Windows until suppor
 - Spec coverage: text mode, voice affordance, no auto-send, newline append, lazy init timeout, cancellation, lifecycle, Windows disabled, model blocker, tests.
 - Placeholder scan: no `TBD`, `TODO`, or unresolved implementation placeholders should remain before execution.
 - Type consistency: `VoiceInputState`, `SpeechInputService`, and `VoiceInputController` names must match across controller, composer, workbench, and tests.
+
+
+## Execution Note (2026-05-08)
+
+Flutter dependency resolution for `record`, `sherpa_onnx`, and `permission_handler` succeeded on the development machine, and `pubspec.lock` now records the native speech dependencies. The first implemented slice keeps native ASR behind the `SpeechInputService` interface and uses `DisabledSpeechInputService` by default until model distribution is finalized, so the app stays buildable without committing ONNX model assets.

@@ -12,6 +12,7 @@ class CodingPage extends StatelessWidget {
     required this.onBack,
     required this.onSessionListChanged,
     required this.openSessionListRequest,
+    required this.workbenchKey,
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
@@ -22,6 +23,7 @@ class CodingPage extends StatelessWidget {
   final VoidCallback onBack;
   final ValueChanged<bool> onSessionListChanged;
   final int openSessionListRequest;
+  final GlobalKey<CodingWorkbenchPageState> workbenchKey;
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
@@ -29,6 +31,7 @@ class CodingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CodingWorkbenchPage(
+      key: workbenchKey,
       data: data,
       client: client,
       onBack: onBack,

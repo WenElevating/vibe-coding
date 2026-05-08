@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../features/workbench/workbench.dart';
 import '../models/protocol.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config.dart';
@@ -38,6 +40,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
   String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _codingSessionListOpenRequest = 0;
+  final _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   _CodingAdapterLoadState _codingAdapterLoadState =
       _CodingAdapterLoadState.idle;
   Future<void>? _codingAdapterLoadFuture;
@@ -80,7 +83,29 @@ class _MainTabsPageState extends State<MainTabsPage> {
         _codingSessionListOpenRequest++;
       }
     });
-    if (index == 2) unawaited(_ensureCodingAdaptersLoaded());
+    if (index == 2) {
+      unawaited(_ensureCodingAdaptersLoaded());
+    }
+  }
+
+  Future<void> _handleSystemBack() async {
+    if (_route != RoutePage.tabs) {
+      _back();
+      return;
+    }
+    if (_tab == 2) {
+      final consumed =
+          await (_codingWorkbenchKey.currentState?.handleSystemBack() ??
+              Future<bool>.value(false));
+      if (consumed) return;
+      _selectTab(0);
+      return;
+    }
+    if (_tab != 0) {
+      _selectTab(0);
+      return;
+    }
+    await SystemNavigator.pop();
   }
 
   Future<void> _ensureCodingAdaptersLoaded() async {
@@ -121,6 +146,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
       return CodingPage(
         data: _data,
         client: widget.client,
+        workbenchKey: _codingWorkbenchKey,
         onBack: () => _selectTab(0),
         onSessionListChanged: (open) =>
             setState(() => _codingSessionListOpen = open),
@@ -160,23 +186,31 @@ class _MainTabsPageState extends State<MainTabsPage> {
             setState(() => _expandThinking = value),
       ),
     ];
-    return Scaffold(
-      body: MobileUiFrame(
-        child: _route == RoutePage.tabs
-            ? IndexedStack(index: _tab, children: pages)
-            : MainRouteOverlay(
-                route: _route,
-                data: data,
-                client: widget.client,
-                onBack: _back,
-              ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_handleSystemBack());
+      },
+      child: Scaffold(
+        body: MobileUiFrame(
+          child: _route == RoutePage.tabs
+              ? IndexedStack(index: _tab, children: pages)
+              : MainRouteOverlay(
+                  route: _route,
+                  data: data,
+                  client: widget.client,
+                  onBack: _back,
+                ),
+        ),
+        bottomNavigationBar:
+            _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
+                ? BottomNav(
+                    selected: _tab,
+                    items: mainTabItems(l10n),
+                    onTap: _selectTab)
+                : null,
+        extendBody: true,
       ),
-      bottomNavigationBar:
-          _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
-              ? BottomNav(
-                  selected: _tab, items: mainTabItems(l10n), onTap: _selectTab)
-              : null,
-      extendBody: true,
     );
   }
 }

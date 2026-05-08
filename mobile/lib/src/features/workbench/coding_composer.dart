@@ -4,6 +4,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../theme/theme.dart' as theme;
 import '../workspace_picker/workspace_picker.dart';
+import 'voice_input.dart';
 
 class CodingComposer extends StatelessWidget {
   const CodingComposer(
@@ -14,7 +15,13 @@ class CodingComposer extends StatelessWidget {
       required this.running,
       required this.canSend,
       required this.sending,
+      required this.voiceState,
+      required this.voiceEnabled,
+      required this.voiceError,
       required this.onModelTap,
+      required this.onVoiceStart,
+      required this.onVoiceStop,
+      required this.onVoiceCancel,
       required this.onSend,
       required this.onCancel});
   final TextEditingController controller;
@@ -23,7 +30,13 @@ class CodingComposer extends StatelessWidget {
   final bool running;
   final bool canSend;
   final bool sending;
+  final VoiceInputState voiceState;
+  final bool voiceEnabled;
+  final String? voiceError;
   final VoidCallback onModelTap;
+  final VoidCallback onVoiceStart;
+  final VoidCallback onVoiceStop;
+  final VoidCallback onVoiceCancel;
   final VoidCallback onSend;
   final VoidCallback onCancel;
 
@@ -78,6 +91,15 @@ class CodingComposer extends StatelessWidget {
                     if (canSend) onSend();
                   },
                 ),
+                if (voiceState == VoiceInputState.initializing ||
+                    voiceState == VoiceInputState.listening ||
+                    voiceState == VoiceInputState.stopping) ...[
+                  const SizedBox(height: 8),
+                  const _VoiceInputStatus('Listening… release to finish'),
+                ] else if (voiceError != null) ...[
+                  const SizedBox(height: 8),
+                  _VoiceInputStatus(voiceError!),
+                ],
                 const SizedBox(height: 8),
                 Row(children: [
                   InkWell(
@@ -87,7 +109,12 @@ class CodingComposer extends StatelessWidget {
                   const Spacer(),
                   const _ComposerIcon(Icons.add_rounded),
                   const SizedBox(width: 12),
-                  const _ComposerIcon(Icons.keyboard_command_key_rounded),
+                  _VoiceInputButton(
+                      state: voiceState,
+                      enabled: voiceEnabled && !running && !sending,
+                      onStart: onVoiceStart,
+                      onStop: onVoiceStop,
+                      onCancel: onVoiceCancel),
                   const SizedBox(width: 12),
                   _SendPromptButton(
                       enabled: canSend,
@@ -231,6 +258,72 @@ class _ComposerIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Icon(icon, color: theme.muted, size: 19);
+}
+
+class _VoiceInputButton extends StatelessWidget {
+  const _VoiceInputButton(
+      {required this.state,
+      required this.enabled,
+      required this.onStart,
+      required this.onStop,
+      required this.onCancel});
+
+  final VoiceInputState state;
+  final bool enabled;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+  final VoidCallback onCancel;
+
+  bool get _active =>
+      state == VoiceInputState.initializing ||
+      state == VoiceInputState.listening ||
+      state == VoiceInputState.stopping;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+      label: 'Voice input',
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+          onLongPressStart: enabled ? (_) => onStart() : null,
+          onLongPressEnd: enabled ? (_) => onStop() : null,
+          onLongPressCancel: enabled ? onCancel : null,
+          child: Tooltip(
+              message: enabled
+                  ? 'Hold to speak'
+                  : 'Voice input is not available on this platform yet.',
+              child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                      color: _active
+                          ? theme.purple.withValues(alpha: .18)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: _active ? theme.purple : Colors.transparent)),
+                  child: Icon(
+                      _active ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: enabled ? theme.muted : theme.faint,
+                      size: 19)))));
+}
+
+class _VoiceInputStatus extends StatelessWidget {
+  const _VoiceInputStatus(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        const Icon(Icons.graphic_eq_rounded, color: theme.muted, size: 14),
+        const SizedBox(width: 7),
+        Expanded(
+            child: Text(text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: theme.muted, fontSize: 12)))
+      ]);
 }
 
 class _SendGlyph extends StatelessWidget {

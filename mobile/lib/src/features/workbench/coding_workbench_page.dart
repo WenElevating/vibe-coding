@@ -14,6 +14,7 @@ import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
 import 'coding_workbench_controller.dart';
+import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
 
@@ -27,7 +28,8 @@ class CodingWorkbenchPage extends StatefulWidget {
       required this.openSessionListRequest,
       required this.streamOutput,
       required this.expandThinking,
-      required this.permissionMode});
+      required this.permissionMode,
+      this.speechInputService});
   final AppSnapshot data;
   final DaemonClient client;
   final VoidCallback onBack;
@@ -36,14 +38,22 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final SpeechInputService? speechInputService;
 
   @override
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
 }
 
-class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
+class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
+    with WidgetsBindingObserver {
+  static const String _routeWorkspaces = 'workspaces';
+  static const String _routeSessions = 'sessions';
+  static const String _routeConversation = 'conversation';
+
+  final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
+  late final VoiceInputController _voiceInput;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
@@ -62,7 +72,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   String? _errorTraceId;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
-  CodingWorkbenchListMode _listMode = CodingWorkbenchListMode.workspaces;
+  String _currentRoute = _routeWorkspaces;
+  bool? _lastReportedListOpen = true;
   late int _handledOpenSessionListRequest;
 
   List<SessionItem> get _sessionItems => mergeSessionItems(
@@ -78,21 +89,39 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     _resetConversationState();
     _error = null;
     _workspaceConfirmedForSession = false;
-    _listMode = CodingWorkbenchListMode.workspaces;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.onSessionListChanged(true);
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _goToWorkspaces());
   }
 
-  bool get _isListOpen => _listMode != CodingWorkbenchListMode.conversation;
+  Future<bool> handleSystemBack() async {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return false;
+    return navigator.maybePop<void>();
+  }
 
-  void _setSessionListOpen(bool open) {
-    final nextMode = open
-        ? CodingWorkbenchListMode.sessions
-        : CodingWorkbenchListMode.conversation;
-    if (_listMode == nextMode) return;
-    setState(() => _listMode = nextMode);
-    widget.onSessionListChanged(open);
+  void showSessionListFromShell() {
+    if (_workspaceConfirmedForSession) {
+      _goToSessions(_selectedWorkspace);
+    } else {
+      _goToWorkspaces();
+    }
+  }
+
+  void _setCurrentRoute(String route) {
+    if (_currentRoute != route) {
+      setState(() => _currentRoute = route);
+    }
+    if (route != _routeConversation && _voiceInput.isBusy) {
+      unawaited(_cancelVoiceInput());
+    }
+    final listOpen = route != _routeConversation;
+    if (_lastReportedListOpen == listOpen) return;
+    _lastReportedListOpen = listOpen;
+    widget.onSessionListChanged(listOpen);
+  }
+
+  void _goToWorkspaces() {
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        _routeWorkspaces, (route) => false);
   }
 
   void _openWorkspaceList() {
@@ -103,17 +132,29 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           duration: Duration(seconds: 2)));
       return;
     }
-    setState(() => _listMode = CodingWorkbenchListMode.workspaces);
-    widget.onSessionListChanged(true);
+    _goToWorkspaces();
+  }
+
+  void _returnToWorkspaceList() {
+    _goToWorkspaces();
   }
 
   void _openWorkspaceSessions(WorkspaceSummary workspace) {
+    _goToSessions(workspace);
+  }
+
+  void _goToSessions(WorkspaceSummary workspace) {
     setState(() {
       _selectedWorkspace = workspace;
       _workspaceConfirmedForSession = true;
-      _listMode = CodingWorkbenchListMode.sessions;
     });
-    widget.onSessionListChanged(true);
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+  }
+
+  void _goToConversation() {
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        _routeConversation, (route) => route.settings.name == _routeSessions);
   }
 
   void _rememberRun(RunSummary run) {
@@ -152,11 +193,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _selectedWorkspace = _workspaceForId(item.run.workspaceId);
       _workspaceConfirmedForSession = true;
       _error = null;
-      _listMode = CodingWorkbenchListMode.conversation;
     });
-    widget.onSessionListChanged(false);
-    if (item.conversation == null) return;
-    await _pollEvents();
+    if (item.conversation != null) await _pollEvents();
+    if (!mounted) return;
+    _goToConversation();
+    _scrollToBottom(jump: true);
   }
 
   WorkspaceSummary _workspaceForId(String workspaceId) {
@@ -200,13 +241,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     _selectedAdapter = _preferredAdapter()?.adapter;
     _workspaces = List<WorkspaceSummary>.of(widget.data.workspaces);
     _selectedWorkspace = widget.data.workspace;
+    _voiceInput = VoiceInputController(service: _createSpeechInputService())
+      ..addListener(_syncVoicePreviewText);
     _syncWorkspacesFromSnapshot(widget.data.workspaces);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.onSessionListChanged(_isListOpen);
+      if (mounted) _setCurrentRoute(_routeWorkspaces);
     });
   }
 
@@ -217,9 +261,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     _syncSelectedAdapterFromSnapshot();
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
-    if (_isListOpen) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _setSessionListOpen(true);
+      if (mounted) showSessionListFromShell();
     });
   }
 
@@ -234,10 +277,65 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
+    if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
+    _voiceInput.removeListener(_syncVoicePreviewText);
+    _voiceInput.dispose();
     _scrollController.dispose();
     _prompt.dispose();
     super.dispose();
+  }
+
+  SpeechInputService _createSpeechInputService() {
+    final injected = widget.speechInputService;
+    if (injected != null) return injected;
+    return const DisabledSpeechInputService();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed && _voiceInput.isBusy) {
+      unawaited(_cancelVoiceInput());
+    }
+  }
+
+  void _syncVoicePreviewText() {
+    if (!mounted) return;
+    if (_voiceInput.state == VoiceInputState.listening) {
+      final preview = _voiceInput.previewText();
+      if (preview != _prompt.text) {
+        _prompt.value = TextEditingValue(
+            text: preview,
+            selection: TextSelection.collapsed(offset: preview.length));
+      }
+    }
+    setState(() {});
+  }
+
+  Future<void> _startVoiceInput() async {
+    await _voiceInput.start(currentPrompt: _prompt.text);
+  }
+
+  Future<void> _stopVoiceInput() async {
+    final merged = await _voiceInput.stop(currentPrompt: _prompt.text);
+    if (!mounted) return;
+    _prompt.value = TextEditingValue(
+        text: merged, selection: TextSelection.collapsed(offset: merged.length));
+    setState(() {});
+  }
+
+  Future<void> _cancelVoiceInput() async {
+    await _voiceInput.cancel();
+    if (!mounted) return;
+    final restored = _voiceInput.restoreBaseText();
+    if (_prompt.text != restored) {
+      _prompt.value = TextEditingValue(
+          text: restored,
+          selection: TextSelection.collapsed(offset: restored.length));
+    }
+    setState(() {});
   }
 
   AdapterStatus? _preferredAdapter() {
@@ -309,19 +407,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           CodingWorkbenchState(
             workspaces: _workspaces,
             selectedWorkspace: _selectedWorkspace,
-            listMode: _listMode,
+            listMode: CodingWorkbenchListMode.workspaces,
           ),
           daemonWorkspaces,
           selectedWorkspaceId: workspace.id,
         );
         _workspaces = next.workspaces;
         _selectedWorkspace = next.selectedWorkspace;
-        _listMode = CodingWorkbenchListMode.workspaces;
         _workspaceConfirmedForSession = true;
         _resetConversationState();
         _error = null;
       });
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Workspace ready: ${workspace.name}'),
           duration: const Duration(seconds: 2)));
@@ -330,9 +427,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       setState(() {
         _error =
             'Workspace was saved, but the list could not be refreshed: $error';
-        _listMode = CodingWorkbenchListMode.workspaces;
       });
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Workspace saved. Refresh workspaces to see it.'),
           duration: Duration(seconds: 3)));
@@ -407,14 +503,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     return null;
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool jump = false, int retries = 2}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
+      if (!_scrollController.hasClients) {
+        if (retries > 0) _scrollToBottom(jump: jump, retries: retries - 1);
+        return;
+      }
+      final target = _scrollController.position.maxScrollExtent;
+      if (jump) {
+        _scrollController.jumpTo(target);
+      } else {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
@@ -431,8 +535,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
             orElse: () => null);
     final pendingQuestionId = pendingQuestion?.questionId;
     if (_activeRunId == null && !_hasExplicitWorkspaceSelection) {
-      setState(() => _listMode = CodingWorkbenchListMode.workspaces);
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       return;
     }
     setState(() {
@@ -462,6 +565,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
         final updated = await widget.client
             .sendConversationMessage(conversation.id, prompt);
         if (mounted) setState(() => _activeConversation = updated);
+        if (mounted) _goToConversation();
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
         final conversation = await widget.client.answerConversationQuestion(
             existingConversationId, pendingQuestionId, prompt);
@@ -535,9 +639,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
         err,
         stack,
         operation: 'pollConversationEvents',
-        path: conversationId == null
-            ? null
-            : '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
+        path: '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
       );
       if (mounted) {
         setState(() {
@@ -795,9 +897,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _error = null;
       _workspaceConfirmedForSession = true;
       _prompt.clear();
-      _listMode = CodingWorkbenchListMode.conversation;
     });
-    widget.onSessionListChanged(false);
+    _goToConversation();
   }
 
   String? _approvalResolvedCommand(AgentEvent event) {
@@ -860,22 +961,43 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_listMode == CodingWorkbenchListMode.workspaces) {
-      return WorkspaceListPage(
-          workspaces: _workspaces,
-          selected: _selectedWorkspace,
-          onSelected: _openWorkspaceSessions,
-          onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
-    }
-    if (_listMode == CodingWorkbenchListMode.sessions) {
-      return CodingSessionListPage(
-          data: widget.data,
-          items: _sessionItems,
-          currentWorkspace: _selectedWorkspace,
-          onNewSession: _startNewSessionFromList,
-          onSelectItem: _openSession,
-          onBackToWorkspaces: _openWorkspaceList);
-    }
+    return Navigator(
+      key: _navigatorKey,
+      initialRoute: _routeWorkspaces,
+      onGenerateRoute: (settings) {
+        final name = settings.name ?? _routeWorkspaces;
+        return PageRouteBuilder<void>(
+          settings: RouteSettings(name: name),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, __, ___) => _buildRoute(name),
+        );
+      },
+      observers: [_CodingRouteObserver(_setCurrentRoute)],
+    );
+  }
+
+  Widget _buildRoute(String route) {
+    if (route == _routeSessions) return _buildSessionList();
+    if (route == _routeConversation) return _buildConversationDetail();
+    return _buildWorkspaceList();
+  }
+
+  Widget _buildWorkspaceList() => WorkspaceListPage(
+      workspaces: _workspaces,
+      selected: _selectedWorkspace,
+      onSelected: _openWorkspaceSessions,
+      onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
+
+  Widget _buildSessionList() => CodingSessionListPage(
+      data: widget.data,
+      items: _sessionItems,
+      currentWorkspace: _selectedWorkspace,
+      onNewSession: _startNewSessionFromList,
+      onSelectItem: _openSession,
+      onBackToWorkspaces: _returnToWorkspaceList);
+
+  Widget _buildConversationDetail() {
     final l10n = AppLocalizations.of(context);
     final adapter = _selectedAdapter;
     final canSend = adapter != null && !_sending;
@@ -892,7 +1014,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
               workspace: _selectedWorkspace,
               adapter: adapter,
               running: _isRunningCli,
-              onBack: () => _setSessionListOpen(true))),
+              onBack: () => _navigatorKey.currentState
+                  ?.popUntil((route) => route.settings.name == _routeSessions))),
       Expanded(
           child: ListView(
         controller: _scrollController,
@@ -938,12 +1061,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
                                   height: 1.35)),
                           TinyActionButton('Copy Trace ID',
                               onTap: () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             await Clipboard.setData(
                                 ClipboardData(text: _errorTraceId!));
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Trace ID copied')));
+                            messenger.showSnackBar(const SnackBar(
+                                content: Text('Trace ID copied')));
                           })
                         ])
                   ]
@@ -965,7 +1087,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           running: _isRunningCli,
           canSend: canSend,
           sending: _sending,
+          voiceState: _voiceInput.state,
+          voiceEnabled: widget.speechInputService != null,
+          voiceError: _voiceInput.error,
           onModelTap: _showAdapterPicker,
+          onVoiceStart: () => unawaited(_startVoiceInput()),
+          onVoiceStop: () => unawaited(_stopVoiceInput()),
+          onVoiceCancel: () => unawaited(_cancelVoiceInput()),
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(
@@ -989,6 +1117,35 @@ class _WorkbenchTraceError {
 
   final String message;
   final String? traceId;
+}
+
+class _CodingRouteObserver extends NavigatorObserver {
+  _CodingRouteObserver(this.onRouteChanged);
+
+  final ValueChanged<String> onRouteChanged;
+
+  void _notify(Route<dynamic>? route) {
+    final name = route?.settings.name;
+    if (name is String && name.isNotEmpty) onRouteChanged(name);
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    _notify(route);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute);
+    _notify(previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    _notify(newRoute);
+  }
 }
 
 bool _isSelectableCliAdapter(AdapterStatus adapter) {

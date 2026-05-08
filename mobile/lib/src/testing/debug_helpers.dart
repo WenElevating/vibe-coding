@@ -135,7 +135,13 @@ Widget buildRunningComposerPreview() => MaterialApp(
             running: true,
             canSend: true,
             sending: false,
+            voiceState: VoiceInputState.idle,
+            voiceEnabled: false,
+            voiceError: null,
             onModelTap: () {},
+            onVoiceStart: () {},
+            onVoiceStop: () {},
+            onVoiceCancel: () {},
             onSend: () {},
             onCancel: () {})));
 

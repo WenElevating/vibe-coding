@@ -577,6 +577,94 @@ void main() {
     expect(find.text('frame child'), findsOneWidget);
   });
 
+  testWidgets('coding composer exposes voice input semantics',
+      (WidgetTester tester) async {
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(find.bySemanticsLabel('Voice input'), findsOneWidget);
+  });
+
+  testWidgets('coding composer does not send when voice pointer is released',
+      (WidgetTester tester) async {
+    var sends = 0;
+    final controller = TextEditingController(text: 'hello');
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: true,
+                sending: false,
+                voiceState: VoiceInputState.listening,
+                voiceEnabled: true,
+                voiceError: null,
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onSend: () => sends++,
+                onCancel: () {}))));
+
+    await tester.tap(find.bySemanticsLabel('Voice input'));
+    await tester.pumpAndSettle();
+
+    expect(sends, 0);
+  });
+
+  testWidgets('coding composer shows listening state while recording',
+      (WidgetTester tester) async {
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.listening,
+                voiceEnabled: true,
+                voiceError: null,
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(find.textContaining('Listening'), findsOneWidget);
+  });
+
   testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());
@@ -746,6 +834,64 @@ void main() {
     expect(find.textContaining(RegExp('New Session|\u65b0\u5efa\u4f1a\u8bdd')),
         findsOneWidget);
     expect(find.text('Select workspace for this coding session'), findsNothing);
+  });
+
+  testWidgets('system back walks coding nested navigator before home',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Session'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+    expect(find.byType(BottomNav), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.byType(BottomNav), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Current Project'), findsWidgets);
+    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+  });
+
+  testWidgets('reselecting coding tab returns conversation to sessions',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Session'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
   });
 
   testWidgets('new coding session title uses active locale',
