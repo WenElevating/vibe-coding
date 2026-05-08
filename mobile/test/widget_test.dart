@@ -8,6 +8,7 @@ import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:lan_ai_cli_control/src/features/sessions/sessions.dart';
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/features/workspace_picker/workspace_picker_sheet.dart';
@@ -314,6 +315,10 @@ ConversationSummary _conversationSummary({
   required String id,
   required String workspaceId,
   required String status,
+  String? cliSessionId,
+  String sessionBinding = 'unknown',
+  int userMessageCount = 0,
+  ConversationCapabilities? capabilities,
   ConversationBlockingItem? blockingItem,
 }) =>
     ConversationSummary(
@@ -321,7 +326,10 @@ ConversationSummary _conversationSummary({
       workspaceId: workspaceId,
       adapter: 'codex',
       status: status,
-      capabilities:
+      cliSessionId: cliSessionId,
+      sessionBinding: sessionBinding,
+      userMessageCount: userMessageCount,
+      capabilities: capabilities ??
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-06T10:00:00.000Z',
       updatedAt: '2026-05-06T10:01:00.000Z',
@@ -1026,6 +1034,76 @@ void main() {
             const <ConversationSummary>[persisted, emptyDraft],
             const <RunSummary>[legacyRun]),
         const <String>['conv_local', 'conv_persisted', 'run_legacy']);
+  });
+
+  test(
+      'cancelled failed and interrupted conversations stay conversation backed in session list',
+      () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_cancelled',
+        workspaceId: 'workspace_1',
+        status: 'cancelled',
+        cliSessionId: 'claude-session-1',
+        sessionBinding: 'confirmed',
+        capabilities: capabilities,
+      ),
+      _conversationSummary(
+        id: 'conv_failed',
+        workspaceId: 'workspace_1',
+        status: 'failed',
+        cliSessionId: 'claude-session-2',
+        sessionBinding: 'confirmed',
+        capabilities: capabilities,
+      ),
+      _conversationSummary(
+        id: 'conv_interrupted',
+        workspaceId: 'workspace_1',
+        status: 'interrupted',
+        sessionBinding: 'unknown',
+        userMessageCount: 1,
+        capabilities: capabilities,
+      ),
+    ];
+
+    final items = mergeSessionItems(
+      const <SessionItem>[],
+      conversations,
+      const <RunSummary>[],
+    );
+
+    expect(
+      items.map((item) => item.id),
+      <String>['conv_cancelled', 'conv_failed', 'conv_interrupted'],
+    );
+    expect(items.every((item) => item.conversation != null), isTrue);
+    expect(items.last.run.status, 'interrupted');
+  });
+
+  test('idle empty draft without messages remains hidden from session list',
+      () {
+    final items = mergeSessionItems(
+      const <SessionItem>[],
+      <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_empty',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'unknown',
+          userMessageCount: 0,
+        ),
+      ],
+      const <RunSummary>[],
+    );
+
+    expect(items, isEmpty);
   });
 
   test('approval response resumes polling only for active conversations', () {

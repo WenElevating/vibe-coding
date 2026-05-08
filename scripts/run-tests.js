@@ -53,17 +53,31 @@ test('V1 rejects arbitrary shell and PTY payloads', () => {
 test('conversation protocol validates statuses and blocking payloads', () => {
   const {
     conversationStatuses,
+    conversationSessionBindings,
     conversationEventTypes,
     normalizeConversationCreate,
     normalizeMessagePayload,
     normalizeQuestionResponse,
-    normalizeApprovalDecision
+    normalizeApprovalDecision,
+    isConversationActiveStatus,
+    isConversationReusableStatus,
+    isConversationTerminalStatus
   } = require('../daemon/src/conversation-protocol');
 
   assert.equal(conversationStatuses.IDLE, 'idle');
   assert.equal(conversationStatuses.WAITING_INPUT, 'waiting_input');
   assert.equal(conversationStatuses.WAITING_APPROVAL, 'waiting_approval');
   assert.equal(conversationStatuses.INTERRUPTED, 'interrupted');
+  assert.equal(conversationSessionBindings.UNKNOWN, 'unknown');
+  assert.equal(conversationSessionBindings.CONFIRMED, 'confirmed');
+  assert.equal(conversationSessionBindings.DRIFTED, 'drifted');
+  assert.equal(isConversationActiveStatus('running'), true);
+  assert.equal(isConversationActiveStatus('waiting_approval'), true);
+  assert.equal(isConversationReusableStatus('cancelled'), true);
+  assert.equal(isConversationReusableStatus('failed'), true);
+  assert.equal(isConversationReusableStatus('interrupted'), true);
+  assert.equal(isConversationTerminalStatus('expired'), true);
+  assert.equal(isConversationTerminalStatus('cancelled'), false);
   assert.equal(conversationEventTypes.ASSISTANT_MESSAGE, 'assistant.message');
   assert.equal(conversationEventTypes.APPROVAL_REQUESTED, 'approval.requested');
 
@@ -312,6 +326,43 @@ test('conversation event store continues sequence numbers from SQLite', () => {
   sqlite.close();
 });
 
+test('app SQLite store persists session binding and user message count', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-binding-') });
+  sqlite.saveConversation({
+    id: 'conv_binding', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
+    permissionMode: 'default', deviceId: 'device_1', status: 'cancelled', cliSessionId: 'claude-session-1',
+    sessionBinding: 'confirmed', userMessageCount: 3, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-08T00:00:00.000Z', updatedAt: '2026-05-08T00:00:01.000Z', capabilities: { resume: true }, handle: null
+  });
+
+  const loaded = sqlite.loadConversations()[0];
+  assert.equal(loaded.sessionBinding, 'confirmed');
+  assert.equal(loaded.userMessageCount, 3);
+  assert.equal(loaded.cliSessionId, 'claude-session-1');
+  sqlite.close();
+});
+
+test('app SQLite store restores legacy user-message conversations as interrupted', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-legacy-') });
+  sqlite.saveConversation({
+    id: 'conv_legacy', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
+    permissionMode: 'default', deviceId: 'device_1', status: 'idle', cliSessionId: null,
+    sessionBinding: 'unknown', userMessageCount: 0, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-08T00:00:00.000Z', updatedAt: '2026-05-08T00:00:01.000Z', capabilities: { resume: true }, handle: null
+  });
+  const events = new ConversationEventStore({ persistentStore: sqlite, now: () => new Date('2026-05-08T00:00:02.000Z') });
+  events.append('conv_legacy', 'user.message', { text: 'hello' });
+
+  const loaded = sqlite.loadConversations()[0];
+  assert.equal(loaded.status, 'interrupted');
+  assert.equal(loaded.sessionBinding, 'unknown');
+  assert.equal(loaded.userMessageCount, 1);
+  sqlite.close();
+});
+
 test('conversation manager handles input and approval blocking states', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -394,6 +445,120 @@ test('conversation manager handles input and approval blocking states', async ()
   assert.equal(events.at(-1).type, 'system.notice');
   assert.equal(events.at(-1).text, 'Claude retry 1/3');
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
+});
+
+test('conversation cancel preserves confirmed CLI session and resumes next message', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const handles = [];
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true, partialOutput: true },
+    startCalls: [],
+    async startConversation(input) {
+      adapter.startCalls.push({ sessionId: input.sessionId || null });
+      const handle = {
+        sent: [],
+        cancelled: false,
+        sendUserMessage(text) { this.sent.push(text); },
+        cancel() { this.cancelled = true; },
+        dispose() {}
+      };
+      handles.push(handle);
+      adapter.onEvent = input.onEvent;
+      return handle;
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-08T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-08T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'first' }, device);
+  adapter.onEvent({ type: 'system.notice', sessionId: 'claude-session-1', text: 'started' });
+  const cancelled = await manager.cancelConversation(conversation.id, device);
+  await manager.sendMessage(conversation.id, { text: 'second' }, device);
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.cliSessionId, 'claude-session-1');
+  assert.equal(cancelled.sessionBinding, 'confirmed');
+  assert.equal(handles[0].cancelled, true);
+  assert.deepEqual(adapter.startCalls.map((call) => call.sessionId), [null, 'claude-session-1']);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === 'conversation.cancelled' && event.status === 'cancelled'), true);
+});
+
+test('conversation cancel before session id marks interrupted without clearing history', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true },
+    async startConversation() {
+      return { sendUserMessage() {}, cancel() {}, dispose() {} };
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-08T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-08T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'first' }, device);
+  const cancelled = await manager.cancelConversation(conversation.id, device);
+  const events = eventStore.list(conversation.id, 0);
+
+  assert.equal(cancelled.status, 'interrupted');
+  assert.equal(cancelled.cliSessionId, null);
+  assert.equal(cancelled.sessionBinding, 'unknown');
+  assert.equal(events.some((event) => event.type === 'user.message' && event.text === 'first'), true);
+});
+
+test('conversation session drift keeps original CLI session id', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true },
+    async startConversation({ onEvent }) {
+      adapter.onEvent = onEvent;
+      return { sendUserMessage() {}, cancel() {}, dispose() {} };
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-08T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-08T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'first' }, device);
+  adapter.onEvent({ type: 'system.notice', sessionId: 'original-session', text: 'started' });
+  adapter.onEvent({ type: 'system.notice', sessionId: 'drifted-session', text: 'started elsewhere' });
+
+  const summary = manager.getConversation(conversation.id, device);
+  const warning = eventStore.list(conversation.id, 0).find((event) => event.type === 'protocol.warning' && event.warning === 'session_id_drift');
+  assert.equal(summary.cliSessionId, 'original-session');
+  assert.equal(summary.sessionBinding, 'drifted');
+  assert.equal(warning.expectedSessionId, 'original-session');
+  assert.equal(warning.receivedSessionId, 'drifted-session');
 });
 
 test('conversation manager restores persisted live conversation as interrupted', () => {

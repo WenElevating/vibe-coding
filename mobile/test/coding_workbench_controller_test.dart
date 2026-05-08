@@ -58,4 +58,23 @@ void main() {
     expect(next.selectedWorkspace, created);
     expect(next.listMode, CodingWorkbenchListMode.workspaces);
   });
+
+  test('reusable conversation statuses can send another message', () {
+    expect(canSendInConversationStatus(null), isTrue);
+    expect(canSendInConversationStatus('idle'), isTrue);
+    expect(canSendInConversationStatus('cancelled'), isTrue);
+    expect(canSendInConversationStatus('failed'), isTrue);
+    expect(canSendInConversationStatus('interrupted'), isTrue);
+    expect(canSendInConversationStatus('running'), isFalse);
+    expect(canSendInConversationStatus('waiting_input'), isFalse);
+    expect(canSendInConversationStatus('waiting_approval'), isFalse);
+  });
+
+  test('active conversation status helper matches executor states', () {
+    expect(isActiveConversationStatus('running'), isTrue);
+    expect(isActiveConversationStatus('waiting_input'), isTrue);
+    expect(isActiveConversationStatus('waiting_approval'), isTrue);
+    expect(isActiveConversationStatus('cancelled'), isFalse);
+    expect(isActiveConversationStatus('interrupted'), isFalse);
+  });
 }

@@ -612,6 +612,8 @@ class ConversationSummary {
     this.effectivePermissionMode = '',
     this.permissionSupport = const <String, Object?>{},
     this.cliSessionId,
+    this.sessionBinding = 'unknown',
+    this.userMessageCount = 0,
     this.blockingItem,
     this.idleExpiresAt,
   });
@@ -621,6 +623,8 @@ class ConversationSummary {
   final String adapter;
   final String status;
   final String? cliSessionId;
+  final String sessionBinding;
+  final int userMessageCount;
   final ConversationBlockingItem? blockingItem;
   final String? idleExpiresAt;
   final String createdAt;
@@ -638,6 +642,8 @@ class ConversationSummary {
         adapter: json['adapter'] as String? ?? '',
         status: json['status'] as String? ?? '',
         cliSessionId: json['cliSessionId'] as String?,
+        sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
+        userMessageCount: json['userMessageCount'] as int? ?? 0,
         blockingItem: json['blockingItem'] is Map<String, Object?>
             ? ConversationBlockingItem.fromJson(
                 json['blockingItem']! as Map<String, Object?>)

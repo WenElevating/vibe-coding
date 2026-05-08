@@ -11,9 +11,7 @@ List<SessionItem> mergeSessionItems(
     if (seen.add(item.id)) items.add(item);
   }
   for (final conversation in snapshotConversations) {
-    if (conversation.status == 'idle' && conversation.cliSessionId == null) {
-      continue;
-    }
+    if (!shouldShowConversationInSessionList(conversation)) continue;
     if (seen.add(conversation.id)) {
       items.add(SessionItem(
           run: runSummaryFromConversation(conversation),
@@ -24,6 +22,15 @@ List<SessionItem> mergeSessionItems(
     if (seen.add(run.id)) items.add(SessionItem(run: run));
   }
   return items;
+}
+
+bool shouldShowConversationInSessionList(ConversationSummary conversation) {
+  if (conversation.status == 'idle' &&
+      conversation.cliSessionId == null &&
+      conversation.userMessageCount == 0) {
+    return false;
+  }
+  return true;
 }
 
 RunSummary runSummaryFromConversation(ConversationSummary conversation) {
@@ -37,6 +44,8 @@ RunSummary runSummaryFromConversation(ConversationSummary conversation) {
 
 String runStatusFromConversation(String status) {
   if (status == 'idle') return 'completed';
-  if (status == 'cancelled' || status == 'failed') return status;
+  if (status == 'cancelled' || status == 'failed' || status == 'interrupted') {
+    return status;
+  }
   return 'running';
 }

@@ -14,6 +14,30 @@ const conversationStatuses = Object.freeze({
   EXPIRED: 'expired'
 });
 
+const conversationSessionBindings = Object.freeze({
+  UNKNOWN: 'unknown',
+  CONFIRMED: 'confirmed',
+  DRIFTED: 'drifted'
+});
+
+const activeConversationStatuses = new Set([
+  conversationStatuses.RUNNING,
+  conversationStatuses.WAITING_INPUT,
+  conversationStatuses.WAITING_APPROVAL
+]);
+
+const reusableConversationStatuses = new Set([
+  conversationStatuses.IDLE,
+  conversationStatuses.CANCELLED,
+  conversationStatuses.FAILED,
+  conversationStatuses.INTERRUPTED
+]);
+
+const terminalConversationStatuses = new Set([
+  conversationStatuses.COMPLETED,
+  conversationStatuses.EXPIRED
+]);
+
 const conversationEventTypes = Object.freeze({
   CONVERSATION_STARTED: 'conversation.started',
   STATUS_CHANGED: 'conversation.status_changed',
@@ -138,12 +162,28 @@ function badRequest(message) {
   return error;
 }
 
+function isConversationActiveStatus(status) {
+  return activeConversationStatuses.has(status);
+}
+
+function isConversationReusableStatus(status) {
+  return reusableConversationStatuses.has(status);
+}
+
+function isConversationTerminalStatus(status) {
+  return terminalConversationStatuses.has(status);
+}
+
 module.exports = {
   supportedConversationAdapters,
   conversationStatuses,
+  conversationSessionBindings,
   conversationEventTypes,
   normalizeConversationCreate,
   normalizeMessagePayload,
   normalizeQuestionResponse,
-  normalizeApprovalDecision
+  normalizeApprovalDecision,
+  isConversationActiveStatus,
+  isConversationReusableStatus,
+  isConversationTerminalStatus
 };

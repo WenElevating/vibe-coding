@@ -32,6 +32,8 @@ class AppSqliteStore {
         device_id TEXT NOT NULL,
         status TEXT NOT NULL,
         cli_session_id TEXT,
+        session_binding TEXT NOT NULL DEFAULT 'unknown',
+        user_message_count INTEGER NOT NULL DEFAULT 0,
         blocking_item_json TEXT,
         idle_expires_at TEXT,
         created_at TEXT NOT NULL,
@@ -92,6 +94,8 @@ class AppSqliteStore {
       CREATE INDEX IF NOT EXISTS idx_exceptions_device_created
         ON exceptions(device_id, created_at DESC);
     `);
+    ensureColumn(this.db, 'conversations', 'session_binding', "TEXT NOT NULL DEFAULT 'unknown'");
+    ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
   }
@@ -101,9 +105,10 @@ class AppSqliteStore {
     this.db.prepare(`
       INSERT INTO conversations (
         id, workspace_id, workspace_path, adapter, permission_mode, device_id,
-        status, cli_session_id, blocking_item_json, idle_expires_at,
+        status, cli_session_id, session_binding, user_message_count,
+        blocking_item_json, idle_expires_at,
         created_at, updated_at, capabilities_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         workspace_path = excluded.workspace_path,
@@ -112,6 +117,8 @@ class AppSqliteStore {
         device_id = excluded.device_id,
         status = excluded.status,
         cli_session_id = excluded.cli_session_id,
+        session_binding = excluded.session_binding,
+        user_message_count = excluded.user_message_count,
         blocking_item_json = excluded.blocking_item_json,
         idle_expires_at = excluded.idle_expires_at,
         created_at = excluded.created_at,
@@ -126,6 +133,8 @@ class AppSqliteStore {
       row.device_id,
       row.status,
       row.cli_session_id,
+      row.session_binding,
+      row.user_message_count,
       row.blocking_item_json,
       row.idle_expires_at,
       row.created_at,
@@ -137,7 +146,26 @@ class AppSqliteStore {
   loadConversations() {
     return this.db.prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
       .all()
-      .map(deserializeConversation);
+      .map((row) => this.normalizeLoadedConversation(deserializeConversation(row)));
+  }
+
+  normalizeLoadedConversation(conversation) {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM conversation_events
+      WHERE conversation_id = ? AND type = 'user.message'
+    `).get(conversation.id);
+    const userMessageCount = Number(row && row.count ? row.count : 0);
+    if (conversation.userMessageCount === 0 && userMessageCount > 0) {
+      conversation.userMessageCount = userMessageCount;
+    }
+    if (!conversation.cliSessionId && conversation.userMessageCount > 0 && conversation.status === 'idle') {
+      conversation.status = 'interrupted';
+      conversation.sessionBinding = 'unknown';
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+    }
+    return conversation;
   }
 
   appendEvent(event) {
@@ -293,6 +321,8 @@ function serializeConversation(conversation) {
     device_id: conversation.deviceId,
     status: conversation.status,
     cli_session_id: conversation.cliSessionId || null,
+    session_binding: conversation.sessionBinding || (conversation.cliSessionId ? 'confirmed' : 'unknown'),
+    user_message_count: Number(conversation.userMessageCount || 0),
     blocking_item_json: conversation.blockingItem ? JSON.stringify(conversation.blockingItem) : null,
     idle_expires_at: conversation.idleExpiresAt || null,
     created_at: conversation.createdAt,
@@ -312,6 +342,8 @@ function deserializeConversation(row) {
     deviceId: row.device_id,
     status: wasLive ? 'interrupted' : row.status,
     cliSessionId: row.cli_session_id || null,
+    sessionBinding: row.session_binding || (row.cli_session_id ? 'confirmed' : 'unknown'),
+    userMessageCount: Number(row.user_message_count || 0),
     blockingItem: wasLive ? null : parseJson(row.blocking_item_json, null),
     idleExpiresAt: wasLive ? null : row.idle_expires_at,
     createdAt: row.created_at,
@@ -342,6 +374,12 @@ function deserializeWorkspace(row) {
 function parseJson(value, fallback) {
   if (!value) return fallback;
   return JSON.parse(value);
+}
+
+function ensureColumn(db, table, column, definition) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (rows.some((row) => row.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 module.exports = { AppSqliteStore, defaultAppDbPath };

@@ -10,6 +10,8 @@ void main() {
       'adapter': 'claude',
       'status': 'waiting_input',
       'cliSessionId': 'session_1',
+      'sessionBinding': 'confirmed',
+      'userMessageCount': 2,
       'protocolVersion': 2,
       'requestedPermissionMode': 'auto',
       'effectivePermissionMode': 'default',
@@ -31,6 +33,8 @@ void main() {
 
     expect(summary.id, 'conv_1');
     expect(summary.status, 'waiting_input');
+    expect(summary.sessionBinding, 'confirmed');
+    expect(summary.userMessageCount, 2);
     expect(summary.protocolVersion, 2);
     expect(summary.requestedPermissionMode, 'auto');
     expect(summary.effectivePermissionMode, 'default');
@@ -40,6 +44,21 @@ void main() {
     expect(summary.blockingItem?.multiSelect, true);
     expect(summary.blockingItem?.expiresAt, '2026-05-04T00:01:00.000Z');
     expect(summary.capabilities.waitingInput, true);
+  });
+
+  test('ConversationSummary defaults legacy lifecycle fields safely', () {
+    final summary = ConversationSummary.fromJson(const <String, Object?>{
+      'id': 'conv_legacy',
+      'workspaceId': 'default',
+      'adapter': 'claude',
+      'status': 'interrupted',
+      'capabilities': <String, Object?>{},
+      'createdAt': '2026-05-08T00:00:00.000Z',
+      'updatedAt': '2026-05-08T00:00:01.000Z',
+    });
+
+    expect(summary.sessionBinding, 'unknown');
+    expect(summary.userMessageCount, 0);
   });
 
   test('ConversationEvent parses normalized assistant and approval events', () {

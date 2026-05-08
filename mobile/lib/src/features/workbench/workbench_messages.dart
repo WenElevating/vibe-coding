@@ -92,6 +92,8 @@ ConversationSummary copyConversationStatus(
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       cliSessionId: conversation.cliSessionId,
+      sessionBinding: conversation.sessionBinding,
+      userMessageCount: conversation.userMessageCount,
       blockingItem: blockingItem,
       idleExpiresAt: conversation.idleExpiresAt);
 }

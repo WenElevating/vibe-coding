@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const {
   conversationStatuses,
+  conversationSessionBindings,
   conversationEventTypes,
   normalizeConversationCreate,
   normalizeMessagePayload,
@@ -71,6 +72,8 @@ class ConversationManager {
       deviceId: device.id,
       status: conversationStatuses.IDLE,
       cliSessionId: null,
+      sessionBinding: conversationSessionBindings.UNKNOWN,
+      userMessageCount: 0,
       blockingItem: null,
       idleExpiresAt: addMs(this.now(), this.idleTtlMs).toISOString(),
       createdAt: this.now().toISOString(),
@@ -109,6 +112,7 @@ class ConversationManager {
     conversation.status = conversationStatuses.RUNNING;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
+    conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: message.text });
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
@@ -158,13 +162,19 @@ class ConversationManager {
   async cancelConversation(conversationId, device) {
     const conversation = this.requireConversation(conversationId, device);
     if (conversation.handle && typeof conversation.handle.cancel === 'function') await conversation.handle.cancel();
-    conversation.status = conversationStatuses.CANCELLED;
+    conversation.handle = null;
+    conversation.status = conversation.cliSessionId ? conversationStatuses.CANCELLED : conversationStatuses.INTERRUPTED;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
     this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.CONVERSATION_CANCELLED, { reason: 'user_cancelled' });
+    this.eventStore.append(conversation.id, conversationEventTypes.CONVERSATION_CANCELLED, {
+      reason: 'user_cancelled',
+      status: conversation.status,
+      cliSessionId: conversation.cliSessionId || null,
+      sessionBinding: conversation.sessionBinding || conversationSessionBindings.UNKNOWN
+    });
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-    this.auditLog.record('conversation.cancel', { conversationId: conversation.id, deviceId: device.id });
+    this.auditLog.record('conversation.cancel', { conversationId: conversation.id, deviceId: device.id, status: conversation.status });
     return publicConversation(conversation);
   }
 
@@ -175,9 +185,9 @@ class ConversationManager {
 
   recordAdapterEvent(conversation, event) {
     if (!event || typeof event !== 'object') return;
-    if (event.sessionId && !conversation.cliSessionId) {
-      conversation.cliSessionId = event.sessionId;
-      this.persistConversation(conversation);
+    if (event.sessionId) {
+      const persisted = this.confirmSessionBinding(conversation, event.sessionId);
+      if (!persisted) return;
     }
     if (event.type === conversationEventTypes.ASSISTANT_QUESTION) {
       this.setBlockingItem(conversation, {
@@ -232,6 +242,48 @@ class ConversationManager {
     if (event.type === conversationEventTypes.RUN_ERROR) {
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     }
+  }
+
+  confirmSessionBinding(conversation, receivedSessionId) {
+    if (!receivedSessionId) return true;
+    if (!conversation.cliSessionId) {
+      const previousSessionId = conversation.cliSessionId;
+      const previousBinding = conversation.sessionBinding;
+      conversation.cliSessionId = receivedSessionId;
+      conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+      try {
+        this.persistConversation(conversation);
+        return true;
+      } catch (error) {
+        conversation.cliSessionId = previousSessionId || null;
+        conversation.sessionBinding = previousBinding || conversationSessionBindings.UNKNOWN;
+        conversation.status = conversationStatuses.FAILED;
+        conversation.blockingItem = null;
+        conversation.idleExpiresAt = null;
+        this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, {
+          message: `Failed to persist CLI session binding: ${error.message}`,
+          recoverable: true
+        });
+        this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+        return false;
+      }
+    }
+    if (conversation.cliSessionId !== receivedSessionId) {
+      conversation.sessionBinding = conversationSessionBindings.DRIFTED;
+      this.persistConversation(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
+        warning: 'session_id_drift',
+        conversationId: conversation.id,
+        expectedSessionId: conversation.cliSessionId,
+        receivedSessionId,
+        adapter: conversation.adapter
+      });
+      return true;
+    }
+    if (conversation.sessionBinding !== conversationSessionBindings.DRIFTED) {
+      conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    }
+    return true;
   }
 
   async ensureStarted(conversation) {
@@ -305,6 +357,8 @@ function publicConversation(conversation) {
     adapter: conversation.adapter,
     status: conversation.status,
     cliSessionId: conversation.cliSessionId || null,
+    sessionBinding: conversation.sessionBinding || (conversation.cliSessionId ? conversationSessionBindings.CONFIRMED : conversationSessionBindings.UNKNOWN),
+    userMessageCount: Number(conversation.userMessageCount || 0),
     blockingItem: conversation.blockingItem || null,
     idleExpiresAt: conversation.idleExpiresAt || null,
     createdAt: conversation.createdAt,

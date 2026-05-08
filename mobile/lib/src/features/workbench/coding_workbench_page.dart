@@ -405,11 +405,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   bool get _isTerminal {
     final status = _activeConversation?.status ?? _conversationState.status;
-    return status == 'idle' ||
-        status == 'failed' ||
-        status == 'cancelled' ||
-        status == 'interrupted' ||
-        status == 'expired';
+    return !isActiveConversationStatus(status);
   }
 
   bool get _isRunningCli =>
@@ -418,7 +414,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   bool get _isBusyCli =>
       _activeConversationId != null &&
-      !_isTerminal &&
+      isActiveConversationStatus(
+          _activeConversation?.status ?? _conversationState.status) &&
       (_activeConversation?.status ?? _conversationState.status) !=
           'waiting_input' &&
       (_activeConversation?.status ?? _conversationState.status) !=
@@ -578,6 +575,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _sendPrompt() async {
     final prompt = _prompt.text.trim();
+    final draft = _prompt.text;
     final adapter = _selectedAdapter;
     if (prompt.isEmpty || adapter == null || _sending) return;
     final pendingQuestion = _conversationState.messages
@@ -647,6 +645,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         operation: 'sendMessage',
       );
       setState(() {
+        if (_prompt.text.isEmpty && draft.isNotEmpty) {
+          _prompt.value = TextEditingValue(
+              text: draft,
+              selection: TextSelection.collapsed(offset: draft.length));
+        }
         _error = traced.message;
         _errorTraceId = traced.traceId;
       });
@@ -731,7 +734,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Future<void> _restartConversationPolling() async {
     _poller?.cancel();
     await _pollEvents();
-    if (!mounted || _activeConversationId == null || _isTerminal) return;
+    if (!mounted ||
+        _activeConversationId == null ||
+        !isActiveConversationStatus(
+            _activeConversation?.status ?? _conversationState.status)) {
+      return;
+    }
     _poller =
         Timer.periodic(const Duration(milliseconds: 900), (_) => _pollEvents());
   }
@@ -768,7 +776,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       status = 'running';
       blockingItem = null;
     } else if (event.type == 'conversation.cancelled') {
-      status = 'cancelled';
+      status = event.raw['status'] as String? ?? 'cancelled';
       blockingItem = null;
     } else if (event.type == 'run.error') {
       status = 'failed';
@@ -1054,7 +1062,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Widget _buildConversationDetail() {
     final l10n = AppLocalizations.of(context);
     final adapter = _selectedAdapter;
-    final canSend = adapter != null && !_sending;
+    final canSend = adapter != null &&
+        !_sending &&
+        canSendInConversationStatus(
+            _activeConversation?.status ?? _conversationState.status);
     return Column(key: const ValueKey('coding-workbench-detail'), children: [
       Container(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),

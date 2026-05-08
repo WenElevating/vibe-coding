@@ -51,3 +51,17 @@ CodingWorkbenchState replaceWorkspacesFromDaemon(
     listMode: state.listMode,
   );
 }
+
+bool canSendInConversationStatus(String? status) {
+  return status == null ||
+      status == 'idle' ||
+      status == 'cancelled' ||
+      status == 'failed' ||
+      status == 'interrupted';
+}
+
+bool isActiveConversationStatus(String? status) {
+  return status == 'running' ||
+      status == 'waiting_input' ||
+      status == 'waiting_approval';
+}
