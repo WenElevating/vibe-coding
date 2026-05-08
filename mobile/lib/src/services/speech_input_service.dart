@@ -11,6 +11,13 @@ import '../features/workbench/voice_input.dart';
 
 const _sampleRate = 16000;
 
+bool get isVoiceInputPlatformSupported =>
+    !kIsWeb &&
+    (Platform.isAndroid ||
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        Platform.isLinux);
+
 typedef SherpaOnnxInitializer = void Function();
 
 @visibleForTesting

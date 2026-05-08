@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,4 +49,8 @@ void main() {
 
     expect(calls, 2);
   });
+
+  test('voice input is disabled by default on unverified Windows platform', () {
+    expect(isVoiceInputPlatformSupported, isFalse);
+  }, skip: !Platform.isWindows);
 }

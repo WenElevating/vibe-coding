@@ -1141,7 +1141,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           canSend: canSend,
           sending: _sending,
           voiceState: _voiceInput.state,
-          voiceEnabled: true,
+          voiceEnabled: widget.speechInputService != null ||
+              isVoiceInputPlatformSupported,
           voiceError: null,
           onModelTap: _showAdapterPicker,
           onVoiceStart: () => unawaited(_startVoiceInput()),
