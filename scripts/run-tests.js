@@ -1867,6 +1867,8 @@ test('Claude conversation adapter starts with resolved Windows npm shim exe', as
 function claudeShimResolverOptions() {
   return {
     platform: 'win32',
+    env: { PATH: '' },
+    existsSync: () => false,
     readTextFile: () => [
       '@ECHO off',
       'GOTO start',
