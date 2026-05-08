@@ -223,20 +223,33 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     setState(() => _sending = true);
     try {
       RunSummary? run;
+      ConversationSummary? conversation;
       if (conversationId != null) {
-        final conversation =
-            await widget.client.cancelConversation(conversationId);
+        conversation = await widget.client.cancelConversation(conversationId);
         run = runSummaryFromConversation(conversation);
       } else if (runId != null) {
         run = await widget.client.cancelRun(runId);
       }
       if (!mounted) return;
       setState(() {
-        if (run != null) _rememberRun(run);
-        _conversationState = const ConversationViewState(status: 'cancelled');
-        _activeRunId = null;
-        _activeConversationId = null;
-        _activeConversation = null;
+        if (conversation != null) {
+          final cancelled = applyCancelledConversationSummary(conversation);
+          _activeConversation = cancelled;
+          _activeConversationId = cancelled.id;
+          _activeRunId = run?.id ?? cancelled.id;
+          _rememberConversation(cancelled);
+          _conversationState = ConversationViewState(
+              messages: _conversationState.messages,
+              lastSeq: _conversationState.lastSeq,
+              status: cancelled.status,
+              pendingPartial: _conversationState.pendingPartial);
+        } else {
+          if (run != null) _rememberRun(run);
+          _conversationState = const ConversationViewState(status: 'cancelled');
+          _activeRunId = null;
+          _activeConversationId = null;
+          _activeConversation = null;
+        }
         _lastSeq = 0;
       });
       _poller?.cancel();

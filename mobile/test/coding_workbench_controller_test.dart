@@ -77,4 +77,34 @@ void main() {
     expect(isActiveConversationStatus('cancelled'), isFalse);
     expect(isActiveConversationStatus('interrupted'), isFalse);
   });
+
+  test('cancelled conversation summary keeps product identity and binding', () {
+    const conversation = ConversationSummary(
+      id: 'conv_1',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'cancelled',
+      cliSessionId: 'claude-session-1',
+      sessionBinding: 'confirmed',
+      userMessageCount: 2,
+      capabilities: ConversationCapabilities(
+        longLivedProcess: true,
+        waitingInput: true,
+        waitingApproval: true,
+        resume: true,
+        partialOutput: true,
+      ),
+      blockingItem: ConversationBlockingItem(type: 'approval_request'),
+      createdAt: '2026-05-08T00:00:00.000Z',
+      updatedAt: '2026-05-08T00:00:01.000Z',
+    );
+
+    final cancelled = applyCancelledConversationSummary(conversation);
+
+    expect(cancelled.id, 'conv_1');
+    expect(cancelled.cliSessionId, 'claude-session-1');
+    expect(cancelled.sessionBinding, 'confirmed');
+    expect(cancelled.userMessageCount, 2);
+    expect(cancelled.blockingItem, isNull);
+  });
 }
