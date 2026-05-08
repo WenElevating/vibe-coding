@@ -12,6 +12,7 @@ docs/
 # Runtime data
 data/**/*.sqlite
 data/**/*.sqlite-*
+daemon/asset/
 
 # Flutter / Dart generated files
 **/.dart_tool/
