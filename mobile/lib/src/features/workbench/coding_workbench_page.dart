@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
+import '../../services/asr_model_manager.dart';
 import '../../services/daemon_client.dart';
+import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../theme/theme.dart' as theme;
@@ -14,6 +16,7 @@ import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
 import 'coding_workbench_controller.dart';
+import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
 
@@ -27,7 +30,9 @@ class CodingWorkbenchPage extends StatefulWidget {
       required this.openSessionListRequest,
       required this.streamOutput,
       required this.expandThinking,
-      required this.permissionMode});
+      required this.permissionMode,
+      this.speechInputService,
+      this.asrModelManager});
   final AppSnapshot data;
   final DaemonClient client;
   final VoidCallback onBack;
@@ -36,14 +41,26 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final SpeechInputService? speechInputService;
+  final AsrModelManager? asrModelManager;
 
   @override
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
 }
 
-class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
+class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
+    with WidgetsBindingObserver {
+  static const String _routeWorkspaces = 'workspaces';
+  static const String _routeSessions = 'sessions';
+  static const String _routeConversation = 'conversation';
+
+  final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
+  late final VoiceInputController _voiceInput;
+  late final AsrModelManager _asrModelManager;
+  late final bool _ownsAsrModelManager;
+  SherpaSpeechInputService? _ownedSpeechInputService;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
@@ -60,9 +77,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   bool _sending = false;
   String? _error;
   String? _errorTraceId;
+  String? _lastVoiceErrorNotice;
+  bool _voiceErrorDialogOpen = false;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
-  CodingWorkbenchListMode _listMode = CodingWorkbenchListMode.workspaces;
+  String _currentRoute = _routeWorkspaces;
+  bool? _lastReportedListOpen = true;
   late int _handledOpenSessionListRequest;
 
   List<SessionItem> get _sessionItems => mergeSessionItems(
@@ -78,21 +98,39 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     _resetConversationState();
     _error = null;
     _workspaceConfirmedForSession = false;
-    _listMode = CodingWorkbenchListMode.workspaces;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.onSessionListChanged(true);
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _goToWorkspaces());
   }
 
-  bool get _isListOpen => _listMode != CodingWorkbenchListMode.conversation;
+  Future<bool> handleSystemBack() async {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return false;
+    return navigator.maybePop<void>();
+  }
 
-  void _setSessionListOpen(bool open) {
-    final nextMode = open
-        ? CodingWorkbenchListMode.sessions
-        : CodingWorkbenchListMode.conversation;
-    if (_listMode == nextMode) return;
-    setState(() => _listMode = nextMode);
-    widget.onSessionListChanged(open);
+  void showSessionListFromShell() {
+    if (_workspaceConfirmedForSession) {
+      _goToSessions(_selectedWorkspace);
+    } else {
+      _goToWorkspaces();
+    }
+  }
+
+  void _setCurrentRoute(String route) {
+    if (_currentRoute != route) {
+      setState(() => _currentRoute = route);
+    }
+    if (route != _routeConversation && _voiceInput.isBusy) {
+      unawaited(_cancelVoiceInput());
+    }
+    final listOpen = route != _routeConversation;
+    if (_lastReportedListOpen == listOpen) return;
+    _lastReportedListOpen = listOpen;
+    widget.onSessionListChanged(listOpen);
+  }
+
+  void _goToWorkspaces() {
+    _navigatorKey.currentState
+        ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
   }
 
   void _openWorkspaceList() {
@@ -103,17 +141,29 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           duration: Duration(seconds: 2)));
       return;
     }
-    setState(() => _listMode = CodingWorkbenchListMode.workspaces);
-    widget.onSessionListChanged(true);
+    _goToWorkspaces();
+  }
+
+  void _returnToWorkspaceList() {
+    _goToWorkspaces();
   }
 
   void _openWorkspaceSessions(WorkspaceSummary workspace) {
+    _goToSessions(workspace);
+  }
+
+  void _goToSessions(WorkspaceSummary workspace) {
     setState(() {
       _selectedWorkspace = workspace;
       _workspaceConfirmedForSession = true;
-      _listMode = CodingWorkbenchListMode.sessions;
     });
-    widget.onSessionListChanged(true);
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+  }
+
+  void _goToConversation() {
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        _routeConversation, (route) => route.settings.name == _routeSessions);
   }
 
   void _rememberRun(RunSummary run) {
@@ -152,11 +202,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _selectedWorkspace = _workspaceForId(item.run.workspaceId);
       _workspaceConfirmedForSession = true;
       _error = null;
-      _listMode = CodingWorkbenchListMode.conversation;
     });
-    widget.onSessionListChanged(false);
-    if (item.conversation == null) return;
-    await _pollEvents();
+    if (item.conversation != null) await _pollEvents();
+    if (!mounted) return;
+    _goToConversation();
+    _scrollToBottom(jump: true);
   }
 
   WorkspaceSummary _workspaceForId(String workspaceId) {
@@ -200,13 +250,20 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     _selectedAdapter = _preferredAdapter()?.adapter;
     _workspaces = List<WorkspaceSummary>.of(widget.data.workspaces);
     _selectedWorkspace = widget.data.workspace;
+    final injectedAsrModelManager = widget.asrModelManager;
+    _ownsAsrModelManager = injectedAsrModelManager == null;
+    _asrModelManager = injectedAsrModelManager ??
+        AsrModelManager(client: widget.client.createAsrModelClient());
+    _voiceInput = VoiceInputController(service: _createSpeechInputService())
+      ..addListener(_syncVoicePreviewText);
     _syncWorkspacesFromSnapshot(widget.data.workspaces);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.onSessionListChanged(_isListOpen);
+      if (mounted) _setCurrentRoute(_routeWorkspaces);
     });
   }
 
@@ -217,9 +274,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     _syncSelectedAdapterFromSnapshot();
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
-    if (_isListOpen) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _setSessionListOpen(true);
+      if (mounted) showSessionListFromShell();
     });
   }
 
@@ -234,10 +290,106 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
+    if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
+    _voiceInput.removeListener(_syncVoicePreviewText);
+    _voiceInput.dispose();
+    if (_ownsAsrModelManager) _asrModelManager.dispose();
+    _ownedSpeechInputService = null;
     _scrollController.dispose();
     _prompt.dispose();
     super.dispose();
+  }
+
+  SpeechInputService _createSpeechInputService() {
+    final injected = widget.speechInputService;
+    if (injected != null) return injected;
+    final owned = _ownedSpeechInputService;
+    if (owned != null) return owned;
+    return const DisabledSpeechInputService();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed && _voiceInput.isBusy) {
+      unawaited(_cancelVoiceInput());
+    }
+  }
+
+  void _syncVoicePreviewText() {
+    if (!mounted) return;
+    if (_voiceInput.state == VoiceInputState.listening) {
+      final preview = _voiceInput.previewText();
+      if (preview != _prompt.text) {
+        _prompt.value = TextEditingValue(
+            text: preview,
+            selection: TextSelection.collapsed(offset: preview.length));
+      }
+    }
+    final voiceError = _voiceInput.error;
+    if (_voiceInput.state == VoiceInputState.failed &&
+        voiceError != null &&
+        voiceError != _lastVoiceErrorNotice) {
+      _lastVoiceErrorNotice = voiceError;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showVoiceErrorDialog(voiceError);
+      });
+    } else if (_voiceInput.state != VoiceInputState.failed) {
+      _lastVoiceErrorNotice = null;
+    }
+    setState(() {});
+  }
+
+  Future<void> _showVoiceErrorDialog(String message) async {
+    if (_voiceErrorDialogOpen) return;
+    _voiceErrorDialogOpen = true;
+    await showDialog<void>(
+        context: context,
+        builder: (context) => _VoiceInputErrorDialog(message: message));
+    _voiceErrorDialogOpen = false;
+  }
+
+  Future<void> _startVoiceInput() async {
+    if (widget.speechInputService == null) {
+      final modelDirectory = await _showAsrDownloadDialog();
+      if (modelDirectory == null || !mounted) return;
+      final nextService =
+          SherpaSpeechInputService(modelDirectory: modelDirectory);
+      _ownedSpeechInputService = nextService;
+      _voiceInput.updateService(nextService);
+    }
+    await _voiceInput.start(currentPrompt: _prompt.text);
+  }
+
+  Future<String?> _showAsrDownloadDialog() {
+    return showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) =>
+            _AsrModelDownloadDialog(manager: _asrModelManager));
+  }
+
+  Future<void> _stopVoiceInput() async {
+    final merged = await _voiceInput.stop(currentPrompt: _prompt.text);
+    if (!mounted) return;
+    _prompt.value = TextEditingValue(
+        text: merged,
+        selection: TextSelection.collapsed(offset: merged.length));
+    setState(() {});
+  }
+
+  Future<void> _cancelVoiceInput() async {
+    await _voiceInput.cancel();
+    if (!mounted) return;
+    final restored = _voiceInput.restoreBaseText();
+    if (_prompt.text != restored) {
+      _prompt.value = TextEditingValue(
+          text: restored,
+          selection: TextSelection.collapsed(offset: restored.length));
+    }
+    setState(() {});
   }
 
   AdapterStatus? _preferredAdapter() {
@@ -309,19 +461,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           CodingWorkbenchState(
             workspaces: _workspaces,
             selectedWorkspace: _selectedWorkspace,
-            listMode: _listMode,
+            listMode: CodingWorkbenchListMode.workspaces,
           ),
           daemonWorkspaces,
           selectedWorkspaceId: workspace.id,
         );
         _workspaces = next.workspaces;
         _selectedWorkspace = next.selectedWorkspace;
-        _listMode = CodingWorkbenchListMode.workspaces;
         _workspaceConfirmedForSession = true;
         _resetConversationState();
         _error = null;
       });
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Workspace ready: ${workspace.name}'),
           duration: const Duration(seconds: 2)));
@@ -330,9 +481,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       setState(() {
         _error =
             'Workspace was saved, but the list could not be refreshed: $error';
-        _listMode = CodingWorkbenchListMode.workspaces;
       });
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Workspace saved. Refresh workspaces to see it.'),
           duration: Duration(seconds: 3)));
@@ -407,14 +557,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
     return null;
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool jump = false, int retries = 2}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
+      if (!_scrollController.hasClients) {
+        if (retries > 0) _scrollToBottom(jump: jump, retries: retries - 1);
+        return;
+      }
+      final target = _scrollController.position.maxScrollExtent;
+      if (jump) {
+        _scrollController.jumpTo(target);
+      } else {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
@@ -431,8 +589,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
             orElse: () => null);
     final pendingQuestionId = pendingQuestion?.questionId;
     if (_activeRunId == null && !_hasExplicitWorkspaceSelection) {
-      setState(() => _listMode = CodingWorkbenchListMode.workspaces);
-      widget.onSessionListChanged(true);
+      _goToWorkspaces();
       return;
     }
     setState(() {
@@ -462,6 +619,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
         final updated = await widget.client
             .sendConversationMessage(conversation.id, prompt);
         if (mounted) setState(() => _activeConversation = updated);
+        if (mounted) _goToConversation();
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
         final conversation = await widget.client.answerConversationQuestion(
             existingConversationId, pendingQuestionId, prompt);
@@ -535,9 +693,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
         err,
         stack,
         operation: 'pollConversationEvents',
-        path: conversationId == null
-            ? null
-            : '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
+        path: '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
       );
       if (mounted) {
         setState(() {
@@ -795,9 +951,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
       _error = null;
       _workspaceConfirmedForSession = true;
       _prompt.clear();
-      _listMode = CodingWorkbenchListMode.conversation;
     });
-    widget.onSessionListChanged(false);
+    _goToConversation();
   }
 
   String? _approvalResolvedCommand(AgentEvent event) {
@@ -860,22 +1015,43 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_listMode == CodingWorkbenchListMode.workspaces) {
-      return WorkspaceListPage(
-          workspaces: _workspaces,
-          selected: _selectedWorkspace,
-          onSelected: _openWorkspaceSessions,
-          onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
-    }
-    if (_listMode == CodingWorkbenchListMode.sessions) {
-      return CodingSessionListPage(
-          data: widget.data,
-          items: _sessionItems,
-          currentWorkspace: _selectedWorkspace,
-          onNewSession: _startNewSessionFromList,
-          onSelectItem: _openSession,
-          onBackToWorkspaces: _openWorkspaceList);
-    }
+    return Navigator(
+      key: _navigatorKey,
+      initialRoute: _routeWorkspaces,
+      onGenerateRoute: (settings) {
+        final name = settings.name ?? _routeWorkspaces;
+        return PageRouteBuilder<void>(
+          settings: RouteSettings(name: name),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, __, ___) => _buildRoute(name),
+        );
+      },
+      observers: [_CodingRouteObserver(_setCurrentRoute)],
+    );
+  }
+
+  Widget _buildRoute(String route) {
+    if (route == _routeSessions) return _buildSessionList();
+    if (route == _routeConversation) return _buildConversationDetail();
+    return _buildWorkspaceList();
+  }
+
+  Widget _buildWorkspaceList() => WorkspaceListPage(
+      workspaces: _workspaces,
+      selected: _selectedWorkspace,
+      onSelected: _openWorkspaceSessions,
+      onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
+
+  Widget _buildSessionList() => CodingSessionListPage(
+      data: widget.data,
+      items: _sessionItems,
+      currentWorkspace: _selectedWorkspace,
+      onNewSession: _startNewSessionFromList,
+      onSelectItem: _openSession,
+      onBackToWorkspaces: _returnToWorkspaceList);
+
+  Widget _buildConversationDetail() {
     final l10n = AppLocalizations.of(context);
     final adapter = _selectedAdapter;
     final canSend = adapter != null && !_sending;
@@ -892,7 +1068,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
               workspace: _selectedWorkspace,
               adapter: adapter,
               running: _isRunningCli,
-              onBack: () => _setSessionListOpen(true))),
+              onBack: () => _navigatorKey.currentState?.popUntil(
+                  (route) => route.settings.name == _routeSessions))),
       Expanded(
           child: ListView(
         controller: _scrollController,
@@ -936,14 +1113,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
                                   color: theme.muted,
                                   fontSize: 12,
                                   height: 1.35)),
-                          TinyActionButton('Copy Trace ID',
-                              onTap: () async {
+                          TinyActionButton('Copy Trace ID', onTap: () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             await Clipboard.setData(
                                 ClipboardData(text: _errorTraceId!));
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Trace ID copied')));
+                            messenger.showSnackBar(const SnackBar(
+                                content: Text('Trace ID copied')));
                           })
                         ])
                   ]
@@ -965,7 +1140,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage> {
           running: _isRunningCli,
           canSend: canSend,
           sending: _sending,
+          voiceState: _voiceInput.state,
+          voiceEnabled: true,
+          voiceError: null,
           onModelTap: _showAdapterPicker,
+          onVoiceStart: () => unawaited(_startVoiceInput()),
+          onVoiceStop: () => unawaited(_stopVoiceInput()),
+          onVoiceCancel: () => unawaited(_cancelVoiceInput()),
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(
@@ -989,6 +1170,230 @@ class _WorkbenchTraceError {
 
   final String message;
   final String? traceId;
+}
+
+class _VoiceInputErrorDialog extends StatelessWidget {
+  const _VoiceInputErrorDialog({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+      child: Container(
+          constraints: const BoxConstraints(maxWidth: 360),
+          padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+          decoration: BoxDecoration(
+              color: const Color(0xFF111214),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: .10)),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: .48),
+                    blurRadius: 28,
+                    offset: const Offset(0, 18))
+              ]),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                      color: theme.amber.withValues(alpha: .12),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: theme.amber.withValues(alpha: .28))),
+                  child: const Icon(Icons.mic_off_rounded,
+                      color: theme.amber, size: 18)),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    const Text('语音输入不可用',
+                        style: TextStyle(
+                            color: theme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25)),
+                    const SizedBox(height: 7),
+                    Text(message,
+                        style: const TextStyle(
+                            color: theme.muted, fontSize: 13, height: 1.45))
+                  ]))
+            ]),
+            const SizedBox(height: 18),
+            Align(
+                alignment: Alignment.centerRight,
+                child: TinyActionButton('知道了',
+                    primary: true, onTap: () => Navigator.of(context).pop()))
+          ])));
+}
+
+class _AsrModelDownloadDialog extends StatefulWidget {
+  const _AsrModelDownloadDialog({required this.manager});
+
+  final AsrModelManager manager;
+
+  @override
+  State<_AsrModelDownloadDialog> createState() =>
+      _AsrModelDownloadDialogState();
+}
+
+class _AsrModelDownloadDialogState extends State<_AsrModelDownloadDialog> {
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  void _start() {
+    unawaited(widget.manager.ensureReady().then((path) {
+      if (mounted) Navigator.of(context).pop(path);
+    }).catchError((_) {}));
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: widget.manager,
+      builder: (context, _) {
+        final state = widget.manager.state;
+        final failed = state.status == AsrModelStatus.failed;
+        final paused = state.status == AsrModelStatus.paused;
+        return AlertDialog(
+            backgroundColor: const Color(0xFF111214),
+            title: const Text('Voice model',
+                style: TextStyle(color: theme.text, fontSize: 17)),
+            content: SizedBox(
+                width: 340,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(_statusLabel(state),
+                          style: const TextStyle(
+                              color: theme.muted, fontSize: 13, height: 1.35))),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                      value: state.totalBytes > 0 ? state.progress : null,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: .08),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(theme.purple)),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                        child: Text(_bytesLabel(state),
+                            style: const TextStyle(
+                                color: theme.faint, fontSize: 12))),
+                    Text(_speedLabel(state),
+                        style:
+                            const TextStyle(color: theme.faint, fontSize: 12)),
+                  ]),
+                  if (state.errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(state.errorMessage!,
+                        style: const TextStyle(
+                            color: theme.red, fontSize: 12, height: 1.35)),
+                  ],
+                  if (state.traceId != null) ...[
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(
+                          child: SelectableText('Trace ID: ${state.traceId}',
+                              style: const TextStyle(
+                                  color: theme.muted, fontSize: 12))),
+                      TextButton(
+                          onPressed: () => Clipboard.setData(
+                              ClipboardData(text: state.traceId!)),
+                          child: const Text('Copy')),
+                    ]),
+                  ],
+                ])),
+            actions: [
+              if (state.status == AsrModelStatus.downloading)
+                TextButton(
+                    onPressed: widget.manager.pause,
+                    child: const Text('Pause')),
+              if (paused)
+                TextButton(
+                    onPressed: widget.manager.resume,
+                    child: const Text('Resume')),
+              if (failed)
+                TextButton(onPressed: _start, child: const Text('Retry')),
+              TextButton(
+                  onPressed: () {
+                    widget.manager.cancel();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Cancel')),
+            ]);
+      });
+
+  String _statusLabel(AsrModelState state) => switch (state.status) {
+        AsrModelStatus.idle => 'Preparing voice model...',
+        AsrModelStatus.checking => 'Checking paired daemon model...',
+        AsrModelStatus.downloading => 'Downloading ${state.version ?? 'model'}',
+        AsrModelStatus.paused => 'Download paused',
+        AsrModelStatus.verifying => 'Verifying downloaded model...',
+        AsrModelStatus.extracting => 'Extracting model files...',
+        AsrModelStatus.ready => 'Voice model ready',
+        AsrModelStatus.failed => 'Voice model preparation failed',
+        AsrModelStatus.cancelled => 'Voice model download cancelled',
+      };
+
+  String _bytesLabel(AsrModelState state) {
+    if (state.totalBytes <= 0) return 'Waiting for size';
+    return '${_formatBytes(state.downloadedBytes)} / ${_formatBytes(state.totalBytes)}';
+  }
+
+  String _speedLabel(AsrModelState state) {
+    if (state.speedBytesPerSecond <= 0 ||
+        state.status != AsrModelStatus.downloading) {
+      return '';
+    }
+    return '${_formatBytes(state.speedBytesPerSecond.round())}/s';
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '$bytes B';
+  }
+}
+
+class _CodingRouteObserver extends NavigatorObserver {
+  _CodingRouteObserver(this.onRouteChanged);
+
+  final ValueChanged<String> onRouteChanged;
+
+  void _notify(Route<dynamic>? route) {
+    final name = route?.settings.name;
+    if (name is String && name.isNotEmpty) onRouteChanged(name);
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    _notify(route);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute);
+    _notify(previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    _notify(newRoute);
+  }
 }
 
 bool _isSelectableCliAdapter(AdapterStatus adapter) {

@@ -13,6 +13,7 @@ const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
+const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -1934,6 +1935,30 @@ async function request(port, method, path, body, token) {
   });
 }
 
+async function requestRaw(port, method, path, body, token, extraHeaders = {}) {
+  const payload = body ? JSON.stringify(body) : '';
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path,
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...extraHeaders,
+      }
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
 test('V1.2 queue serializes workspace runs and synthetic adapter completes without provider CLI', async () => {
   const app = createApp({ port: 0, devAdapters: true, conversationDbPath: tempConversationDbPath() });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -2070,6 +2095,80 @@ test('V1.3 diagnostic export is authenticated, redacted, and audited', async () 
     assert.equal(exported.body.redacted, true);
     assert.equal(exported.body.items.includes('redaction_report'), true);
     assert.equal(app.auditLog.list().some((record) => record.type === 'diagnostic.export'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
+test('ASR model API returns metadata and supports full and ranged downloads', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const crypto = require('node:crypto');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asr-model-api-'));
+  const filePath = path.join(dir, 'fixture-model.zip');
+  const bytes = Buffer.from('0123456789abcdef');
+  fs.writeFileSync(filePath, bytes);
+  const app = createApp({
+    port: 0,
+    appDbPath: tempConversationDbPath('app-db-asr-model-'),
+    asrModelAsset: new AsrModelAsset({ filePath, version: 'fixture-model' }),
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const unauthenticated = await request(port, 'GET', '/api/asr-model');
+    assert.equal(unauthenticated.status, 401);
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+
+    const metadata = await request(port, 'GET', '/api/asr-model', null, token);
+    assert.equal(metadata.status, 200);
+    assert.equal(metadata.body.version, 'fixture-model');
+    assert.equal(metadata.body.fileName, 'fixture-model.zip');
+    assert.equal(metadata.body.sizeBytes, bytes.length);
+    assert.equal(metadata.body.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+    assert.equal(metadata.body.downloadPath, '/api/asr-model/download');
+
+    const full = await requestRaw(port, 'GET', '/api/asr-model/download', null, token);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers['accept-ranges'], 'bytes');
+    assert.equal(full.body.toString('utf8'), bytes.toString('utf8'));
+
+    const partial = await requestRaw(port, 'GET', '/api/asr-model/download', null, token, { range: 'bytes=4-9' });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers['content-range'], `bytes 4-9/${bytes.length}`);
+    assert.equal(partial.body.toString('utf8'), '456789');
+
+    const invalid = await requestRaw(port, 'GET', '/api/asr-model/download', null, token, { range: `bytes=${bytes.length}-` });
+    assert.equal(invalid.status, 416);
+    assert.equal(invalid.headers['content-range'], `bytes */${bytes.length}`);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ASR model API reports missing asset as structured traceable error', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const missingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'asr-model-missing-')), 'missing.zip');
+  const app = createApp({
+    port: 0,
+    appDbPath: tempConversationDbPath('app-db-asr-model-missing-'),
+    asrModelAsset: new AsrModelAsset({ filePath: missingPath, version: 'missing' }),
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const response = await request(port, 'GET', '/api/asr-model', null, paired.body.token);
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'ASR_MODEL_UNAVAILABLE');
+    assert.match(response.body.error.traceId, /^trc_/);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }

@@ -12,8 +12,17 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_markdown: 0.7.4
+  archive: ^4.0.7
+  crypto: ^3.0.6
   http: ^1.2.2
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.1
+  record: ^6.2.0
+  sherpa_onnx: 1.12.36
   shared_preferences: ^2.3.3
+
+dependency_overrides:
+  sherpa_onnx_windows: 1.12.36
 
 dev_dependencies:
   flutter_test:
