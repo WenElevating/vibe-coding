@@ -79,6 +79,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String? _errorTraceId;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
+  bool _applyingVoiceText = false;
   bool _workspaceConfirmedForSession = false;
   final Set<String> _resolvedApprovalIds = <String>{};
   String _currentRoute = _routeWorkspaces;
@@ -336,9 +337,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_voiceInput.state == VoiceInputState.listening) {
       final preview = _voiceInput.previewText();
       if (preview != _prompt.text) {
+        _applyingVoiceText = true;
         _prompt.value = TextEditingValue(
             text: preview,
             selection: TextSelection.collapsed(offset: preview.length));
+        _applyingVoiceText = false;
       }
     }
     final voiceError = _voiceInput.error;
@@ -365,8 +368,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _startVoiceInput() async {
-    if (widget.speechInputService == null) {
-      final modelDirectory = await _showAsrDownloadDialog();
+    if (widget.speechInputService == null && _ownedSpeechInputService == null) {
+      final readyState = _asrModelManager.state;
+      final modelDirectory = readyState.status == AsrModelStatus.ready
+          ? readyState.modelDirectory
+          : await _showAsrDownloadDialog();
       if (modelDirectory == null || !mounted) return;
       final nextService =
           SherpaSpeechInputService(modelDirectory: modelDirectory);
@@ -387,22 +393,33 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Future<void> _stopVoiceInput() async {
     final merged = await _voiceInput.stop(currentPrompt: _prompt.text);
     if (!mounted) return;
+    _applyingVoiceText = true;
     _prompt.value = TextEditingValue(
         text: merged,
         selection: TextSelection.collapsed(offset: merged.length));
+    _applyingVoiceText = false;
     setState(() {});
   }
 
   Future<void> _cancelVoiceInput() async {
     await _voiceInput.cancel();
     if (!mounted) return;
-    final restored = _voiceInput.restoreBaseText();
-    if (_prompt.text != restored) {
-      _prompt.value = TextEditingValue(
-          text: restored,
-          selection: TextSelection.collapsed(offset: restored.length));
-    }
     setState(() {});
+  }
+
+  Future<void> _finishVoiceInputForTextEdit() async {
+    if (_applyingVoiceText || !_voiceInput.isBusy) return;
+    await _voiceInput.cancel();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _finishVoiceInputForSend() async {
+    if (!_voiceInput.isBusy) return;
+    if (_voiceInput.state == VoiceInputState.listening) {
+      await _stopVoiceInput();
+      return;
+    }
+    await _cancelVoiceInput();
   }
 
   AdapterStatus? _preferredAdapter() {
@@ -587,6 +604,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _sendPrompt() async {
+    await _finishVoiceInputForSend();
+    if (!mounted) return;
     final prompt = _prompt.text.trim();
     final draft = _prompt.text;
     final adapter = _selectedAdapter;
@@ -1186,6 +1205,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           onVoiceStart: () => unawaited(_startVoiceInput()),
           onVoiceStop: () => unawaited(_stopVoiceInput()),
           onVoiceCancel: () => unawaited(_cancelVoiceInput()),
+          onTextChanged: (_) => unawaited(_finishVoiceInputForTextEdit()),
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(

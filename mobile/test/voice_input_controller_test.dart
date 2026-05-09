@@ -56,6 +56,33 @@ void main() {
     expect(controller.state, VoiceInputState.idle);
   });
 
+  test('stop keeps visible partial when final text is empty', () async {
+    final service = _FakeSpeechInputService()..stopText = '';
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed context');
+    service.onPartial?.call('partial');
+    final preview = controller.previewText();
+
+    final merged = await controller.stop(currentPrompt: preview);
+
+    expect(merged, 'typed context\npartial');
+    expect(controller.state, VoiceInputState.idle);
+  });
+
+  test('stop replaces visible partial with final text', () async {
+    final service = _FakeSpeechInputService()..stopText = 'final';
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed context');
+    service.onPartial?.call('partial');
+
+    final merged =
+        await controller.stop(currentPrompt: controller.previewText());
+
+    expect(merged, 'typed context\nfinal');
+  });
+
   test('cancel discards uncommitted partial text', () async {
     final service = _FakeSpeechInputService();
     final controller = VoiceInputController(service: service);

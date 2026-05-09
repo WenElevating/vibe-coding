@@ -102,7 +102,11 @@ class VoiceInputController extends ChangeNotifier {
     _setState(VoiceInputState.stopping);
     try {
       final finalText = await _service.stop();
-      final merged = mergeVoiceText(currentPrompt, finalText);
+      final merged = finalText.trim().isEmpty
+          ? currentPrompt
+          : mergeVoiceText(
+              currentPrompt == previewText() ? _baseText : currentPrompt,
+              finalText);
       _partialText = '';
       _baseText = merged;
       _error = null;

@@ -22,6 +22,7 @@ class CodingComposer extends StatelessWidget {
       required this.onVoiceStart,
       required this.onVoiceStop,
       required this.onVoiceCancel,
+      required this.onTextChanged,
       required this.onSend,
       required this.onCancel});
   final TextEditingController controller;
@@ -37,6 +38,7 @@ class CodingComposer extends StatelessWidget {
   final VoidCallback onVoiceStart;
   final VoidCallback onVoiceStop;
   final VoidCallback onVoiceCancel;
+  final ValueChanged<String> onTextChanged;
   final VoidCallback onSend;
   final VoidCallback onCancel;
 
@@ -89,6 +91,7 @@ class CodingComposer extends StatelessWidget {
                           fontWeight: FontWeight.w400),
                       contentPadding: EdgeInsets.zero),
                   textInputAction: TextInputAction.send,
+                  onChanged: onTextChanged,
                   onSubmitted: (_) {
                     if (canSend) onSend();
                   },

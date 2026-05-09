@@ -142,6 +142,7 @@ Widget buildRunningComposerPreview() => MaterialApp(
             onVoiceStart: () {},
             onVoiceStop: () {},
             onVoiceCancel: () {},
+            onTextChanged: (_) {},
             onSend: () {},
             onCancel: () {})));
 

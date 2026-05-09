@@ -607,6 +607,7 @@ void main() {
                 onVoiceStart: () {},
                 onVoiceStop: () {},
                 onVoiceCancel: () {},
+                onTextChanged: (_) {},
                 onSend: () {},
                 onCancel: () {}))));
 
@@ -636,6 +637,7 @@ void main() {
                 onVoiceStart: () {},
                 onVoiceStop: () {},
                 onVoiceCancel: () {},
+                onTextChanged: (_) {},
                 onSend: () => sends++,
                 onCancel: () {}))));
 
@@ -667,10 +669,43 @@ void main() {
                 onVoiceStart: () {},
                 onVoiceStop: () {},
                 onVoiceCancel: () {},
+                onTextChanged: (_) {},
                 onSend: () {},
                 onCancel: () {}))));
 
     expect(find.textContaining('Listening'), findsOneWidget);
+  });
+
+  testWidgets('coding composer reports text edits while voice is listening',
+      (WidgetTester tester) async {
+    String? editedText;
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.listening,
+                voiceEnabled: true,
+                voiceError: null,
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (text) => editedText = text,
+                onSend: () {},
+                onCancel: () {}))));
+
+    await tester.enterText(find.byType(TextField), 'manual edit');
+
+    expect(editedText, 'manual edit');
   });
 
   testWidgets('coding composer does not render voice errors inline',
@@ -695,6 +730,7 @@ void main() {
                 onVoiceStart: () {},
                 onVoiceStop: () {},
                 onVoiceCancel: () {},
+                onTextChanged: (_) {},
                 onSend: () {},
                 onCancel: () {}))));
 
