@@ -908,7 +908,7 @@ void main() {
     expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
   });
 
-  testWidgets('reselecting coding tab returns conversation to sessions',
+  testWidgets('system back returns conversation to sessions',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -925,7 +925,7 @@ void main() {
     expect(
         find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
 
-    await tester.tap(find.text('Coding'));
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);

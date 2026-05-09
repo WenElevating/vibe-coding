@@ -1102,11 +1102,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                       BorderSide(color: Colors.white.withValues(alpha: .075)))),
           child: _CodingHeader(
               title: _conversationTitle(l10n),
-              shellActionLabel: l10n.navCoding,
               workspace: _selectedWorkspace,
               adapter: adapter,
               running: _isRunningCli,
-              onShellAction: showSessionListFromShell,
               onBack: () => _navigatorKey.currentState?.popUntil(
                   (route) => route.settings.name == _routeSessions))),
       Expanded(
@@ -1445,18 +1443,14 @@ bool _isSelectableCliAdapter(AdapterStatus adapter) {
 class _CodingHeader extends StatelessWidget {
   const _CodingHeader(
       {required this.title,
-      required this.shellActionLabel,
       required this.workspace,
       required this.adapter,
       required this.running,
-      required this.onShellAction,
       required this.onBack});
   final String title;
-  final String shellActionLabel;
   final WorkspaceSummary workspace;
   final String? adapter;
   final bool running;
-  final VoidCallback onShellAction;
   final VoidCallback onBack;
 
   @override
@@ -1485,13 +1479,6 @@ class _CodingHeader extends StatelessWidget {
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -.15))),
-        const SizedBox(width: 12),
-        TextButton(
-            onPressed: onShellAction,
-            child: Text(shellActionLabel,
-                style: const TextStyle(
-                    color: theme.active,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900))),
+        const SizedBox(width: 46),
       ]);
 }
