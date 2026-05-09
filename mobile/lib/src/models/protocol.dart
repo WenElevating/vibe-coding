@@ -42,6 +42,12 @@ class AgentEvent {
   }
 }
 
+bool conversationEventCompletesTurn(ConversationEvent event) {
+  if (event.type == 'conversation.completed') return true;
+  if (event.type != 'assistant.message') return false;
+  return event.raw['turnFinal'] != false;
+}
+
 class DiffSummary {
   const DiffSummary(
       {required this.filePath,

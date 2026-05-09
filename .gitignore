@@ -24,6 +24,8 @@ daemon/asset/
 **/coverage/
 mobile/.flutter
 mobile/android/local.properties
+mobile/windows/flutter/generated_plugin_registrant.cc
+mobile/windows/flutter/generated_plugins.cmake
 
 # IDE / machine files
 **/.idea/
