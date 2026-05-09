@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../services/daemon_connection_config.dart';
-import '../state/daemon_connection_controller.dart';
+import 'features/connection/view_models/daemon_connection_view_model.dart';
 import '../theme/theme.dart' as theme;
 import 'mobile_ui_frame.dart';
 
 class MobileConnectionPage extends StatefulWidget {
   const MobileConnectionPage({super.key, required this.controller});
 
-  final DaemonConnectionController controller;
+  final DaemonConnectionViewModel controller;
 
   @override
   State<MobileConnectionPage> createState() => _MobileConnectionPageState();
@@ -137,8 +137,8 @@ class _ConnectionHeader extends StatelessWidget {
               decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: .035),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                      color: Colors.white.withValues(alpha: .075))),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .075))),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 _TinySignalDot(color: theme.faint),
                 const SizedBox(width: 4),
@@ -294,7 +294,7 @@ class _ProxyModeRow extends StatelessWidget {
 class _ConnectionStatusPanel extends StatelessWidget {
   const _ConnectionStatusPanel({required this.controller, required this.l10n});
 
-  final DaemonConnectionController controller;
+  final DaemonConnectionViewModel controller;
   final AppLocalizations l10n;
 
   @override
@@ -351,8 +351,9 @@ class _ConnectionStatusPanel extends StatelessWidget {
 }
 
 class _ConnectionStatusTrailing extends StatelessWidget {
-  const _ConnectionStatusTrailing({required this.controller, required this.l10n});
-  final DaemonConnectionController controller;
+  const _ConnectionStatusTrailing(
+      {required this.controller, required this.l10n});
+  final DaemonConnectionViewModel controller;
   final AppLocalizations l10n;
 
   @override
@@ -381,7 +382,8 @@ class _ConnectionStatusTrailing extends StatelessWidget {
 String _connectionStatusLabel(
         AppLocalizations l10n, DaemonConnectionStatus status) =>
     switch (status) {
-      DaemonConnectionStatus.loadingConfig => l10n.connectionStatusLoadingConfig,
+      DaemonConnectionStatus.loadingConfig =>
+        l10n.connectionStatusLoadingConfig,
       DaemonConnectionStatus.idle => l10n.connectionStatusIdle,
       DaemonConnectionStatus.validating => l10n.connectionStatusValidating,
       DaemonConnectionStatus.checkingHealth =>

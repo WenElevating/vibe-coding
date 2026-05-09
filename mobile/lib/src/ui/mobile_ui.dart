@@ -1,34 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../data/repositories/daemon_connection_config_repository.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
-import '../state/daemon_connection_controller.dart';
-import 'main_tabs_page.dart';
-import 'mobile_connection_page.dart';
-import 'mobile_loading_page.dart';
+import '../workflows/connection/daemon_connection_workflow.dart';
+import 'features/connection/view_models/daemon_connection_view_model.dart';
+import 'features/connection/views/mobile_connection_gate.dart';
 
 class MobileUi extends StatefulWidget {
   const MobileUi({super.key, this.connectionController});
 
-  final DaemonConnectionController? connectionController;
+  final DaemonConnectionViewModel? connectionController;
 
   @override
   State<MobileUi> createState() => _MobileUiState();
 }
 
 class _MobileUiState extends State<MobileUi> {
-  late final DaemonConnectionController _connectionController;
+  late final DaemonConnectionViewModel _connectionController;
   late final bool _ownsConnectionController;
 
   @override
   void initState() {
     super.initState();
     _ownsConnectionController = widget.connectionController == null;
-    _connectionController = widget.connectionController ??
-        DaemonConnectionController(
-          store: DaemonConnectionConfigStore(),
-          tokenStore: MemoryTokenStore(),
-        );
+    _connectionController = widget.connectionController ?? _createViewModel();
     _connectionController.load();
   }
 
@@ -41,25 +37,19 @@ class _MobileUiState extends State<MobileUi> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _connectionController,
-      builder: (context, snapshot) {
-        if (_connectionController.status ==
-            DaemonConnectionStatus.loadingConfig) {
-          return const MobileLoadingPage();
-        }
-        if (_connectionController.status == DaemonConnectionStatus.connected &&
-            _connectionController.snapshot != null &&
-            _connectionController.client != null) {
-          return MainTabsPage(
-            data: _connectionController.snapshot!,
-            client: _connectionController.client!,
-            connectionConfig: _connectionController.connectedConfig!,
-          );
-        }
-        return MobileConnectionPage(controller: _connectionController);
-      },
+  Widget build(BuildContext context) =>
+      MobileConnectionGate(viewModel: _connectionController);
+
+  DaemonConnectionViewModel _createViewModel() {
+    final store = DaemonConnectionConfigStore();
+    final repository = DaemonConnectionConfigRepository(store: store);
+    final tokenStore = MemoryTokenStore();
+    return DaemonConnectionViewModel(
+      configRepository: repository,
+      workflow: DaemonConnectionWorkflow(
+        configRepository: repository,
+        tokenStore: tokenStore,
+      ),
     );
   }
 }
