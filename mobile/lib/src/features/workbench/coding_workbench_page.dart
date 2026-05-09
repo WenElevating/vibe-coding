@@ -618,19 +618,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             adapter: adapter,
             permissionMode: widget.permissionMode);
         final run = runSummaryFromConversation(conversation);
+        final runningConversation =
+            copyConversationStatus(conversation, 'running');
         setState(() {
-          _activeConversation = conversation;
-          _rememberConversation(conversation);
+          _activeConversation = runningConversation;
+          _rememberConversation(runningConversation);
           _activeRunId = run.id;
           _activeConversationId = conversation.id;
           _lastSeq = 0;
           _events.clear();
           _resolvedApprovalIds.clear();
         });
-        final updated = await widget.client
-            .sendConversationMessage(conversation.id, prompt);
-        if (mounted) setState(() => _activeConversation = updated);
         if (mounted) _goToConversation();
+        final send = widget.client.sendConversationMessage(conversation.id, prompt);
+        await _restartConversationPolling();
+        final updated = await send;
+        if (mounted) setState(() => _activeConversation = updated);
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
         final conversation = await widget.client.answerConversationQuestion(
             existingConversationId, pendingQuestionId, prompt);
@@ -641,16 +644,26 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         });
       } else {
         if (_isRunningCli) return;
-        final conversation = await widget.client
-            .sendConversationMessage(existingConversationId, prompt);
         setState(() {
-          _activeConversation = conversation;
-          _rememberConversation(conversation);
+          if (_activeConversation != null) {
+            _activeConversation =
+                copyConversationStatus(_activeConversation!, 'running');
+            _rememberConversation(_activeConversation!);
+          }
           _events.removeWhere((event) => event.type == 'run.completed');
         });
+        final send =
+            widget.client.sendConversationMessage(existingConversationId, prompt);
+        await _restartConversationPolling();
+        final conversation = await send;
+        if (mounted) {
+          setState(() {
+            _activeConversation = conversation;
+            _rememberConversation(conversation);
+          });
+        }
       }
       _scrollToBottom();
-      await _restartConversationPolling();
     } catch (err, stack) {
       final traced = await _recordWorkbenchException(
         err,
@@ -764,7 +777,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     ConversationBlockingItem? blockingItem = current.blockingItem;
     if (event.type == 'conversation.status_changed') {
       status = event.raw['status'] as String? ?? status;
-    } else if (event.type == 'assistant.message') {
+    } else if (conversationEventCompletesTurn(event)) {
       status = 'idle';
       blockingItem = null;
     } else if (event.type == 'assistant.question') {

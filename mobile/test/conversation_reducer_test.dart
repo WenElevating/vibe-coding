@@ -54,6 +54,79 @@ void main() {
     expect(state.messages.single.role, 'assistant');
   });
 
+  test('ConversationViewState keeps non-terminal Codex assistant message running',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-09T00:00:00.000Z',
+        'status': 'running'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-09T00:00:01.000Z',
+        'text': '我会先按当前会话要求读取一次规则。',
+        'turnFinal': false
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-09T00:00:02.000Z',
+        'toolUseId': 'item_1',
+        'toolName': 'command_execution',
+        'input': {'command': 'pwsh Get-Content'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-09T00:00:03.000Z',
+        'toolUseId': 'item_1',
+        'text': '--- skill ---'
+      }),
+    ]);
+
+    expect(state.status, 'running');
+    expect(state.messages.map((message) => message.role),
+        const <String>['assistant', 'command']);
+    expect(state.messages.first.text, contains('读取一次规则'));
+    expect(state.messages.last.output, contains('skill'));
+  });
+
+  test('ConversationViewState completes Codex turn on explicit completion', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-09T00:00:00.000Z',
+        'status': 'running'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-09T00:00:01.000Z',
+        'text': '我是 Codex。',
+        'turnFinal': false
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'conversation.completed',
+        'createdAt': '2026-05-09T00:00:02.000Z'
+      }),
+    ]);
+
+    expect(state.status, 'idle');
+    expect(state.messages.single.text, '我是 Codex。');
+  });
+
   test('ConversationViewState keeps thinking separate from final answer', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{
@@ -153,6 +226,32 @@ void main() {
     expect(state.status, isNot('waiting_approval'));
     expect(state.messages.single.role, 'notice');
     expect(state.messages.single.text, 'Claude retry 1/3');
+  });
+
+  test('ConversationViewState records but hides non-visible system notices', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-09T00:00:00.000Z',
+        'text': 'Codex thread started',
+        'noticeKind': 'codex_thread_started',
+        'visible': false
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-09T00:00:01.000Z',
+        'text': 'Codex turn started',
+        'noticeKind': 'codex_turn_started',
+        'visible': false
+      }),
+    ]);
+
+    expect(state.lastSeq, 2);
+    expect(state.messages, isEmpty);
   });
 
   test('ConversationViewState correlates tool output by toolUseId', () {

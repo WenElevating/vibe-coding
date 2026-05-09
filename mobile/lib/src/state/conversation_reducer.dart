@@ -97,7 +97,7 @@ class ConversationViewState {
                     role: 'assistant', text: text, eventSeq: event.seq));
           }
           partial = '';
-          nextStatus = 'idle';
+          if (conversationEventCompletesTurn(event)) nextStatus = 'idle';
           break;
         case 'assistant.question':
           final hadPartialContext = partial.trim().isNotEmpty;
@@ -163,6 +163,7 @@ class ConversationViewState {
           nextStatus = 'running';
           break;
         case 'system.notice':
+          if (event.raw['visible'] == false) break;
           nextMessages.add(ConversationMessage(
             role: 'notice',
             text: event.text ?? event.summary ?? '',

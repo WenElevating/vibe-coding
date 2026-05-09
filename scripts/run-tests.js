@@ -446,6 +446,99 @@ test('conversation manager handles input and approval blocking states', async ()
   assert.equal(events.at(-1).type, 'system.notice');
   assert.equal(events.at(-1).text, 'Claude retry 1/3');
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
+
+  adapter.onEvent({ type: 'system.notice', text: 'hidden lifecycle', visible: false });
+  const hidden = manager.listEvents(conversation.id, 0, device).find((event) => event.text === 'hidden lifecycle');
+  assert.ok(hidden);
+  assert.equal(hidden.visible, false);
+});
+
+test('conversation manager keeps non-terminal assistant messages running until completion', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const adapter = {
+    capabilities: { longLivedProcess: false, resume: true, partialOutput: true, toolEvents: true },
+    async startConversation({ onEvent }) {
+      adapter.onEvent = onEvent;
+      return {
+        sendUserMessage() {},
+        cancel() {},
+        dispose() {}
+      };
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-09T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', adapter]]),
+    now: () => new Date('2026-05-09T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+
+  await manager.sendMessage(conversation.id, { text: '你是谁？' }, device);
+  adapter.onEvent({ type: 'assistant.message', text: '先读取规则。', turnFinal: false });
+  adapter.onEvent({ type: 'tool.started', toolUseId: 'item_1', toolName: 'command_execution', input: { command: 'pwsh Get-Content' } });
+  adapter.onEvent({ type: 'tool.output', toolUseId: 'item_1', toolName: 'command_execution', text: '---skill---', exitCode: 0 });
+
+  assert.equal(manager.getConversation(conversation.id, device).status, 'running');
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === 'conversation.status_changed' && event.status === 'idle'), false);
+
+  adapter.onEvent({ type: 'assistant.message', text: '我是 Codex。', turnFinal: false });
+  adapter.onEvent({ type: 'conversation.completed' });
+
+  const events = eventStore.list(conversation.id, 0);
+  assert.equal(manager.getConversation(conversation.id, device).status, 'idle');
+  assert.deepEqual(events.filter((event) => event.type === 'assistant.message').map((event) => event.text), ['先读取规则。', '我是 Codex。']);
+  assert.equal(events.some((event) => event.type === 'tool.started' && event.toolUseId === 'item_1'), true);
+  assert.equal(events.some((event) => event.type === 'tool.output' && event.text === '---skill---'), true);
+  assert.equal(events.at(-1).type, 'conversation.status_changed');
+  assert.equal(events.at(-1).status, 'idle');
+});
+
+test('conversation manager publishes user message before slow adapter startup', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  let releaseStart;
+  const adapter = {
+    capabilities: { resume: true },
+    startConversation() {
+      return new Promise((resolve) => {
+        releaseStart = () => resolve({
+          sendUserMessage() {},
+          cancel() {},
+          dispose() {}
+        });
+      });
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-09T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', adapter]]),
+    now: () => new Date('2026-05-09T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+
+  const send = manager.sendMessage(conversation.id, { text: 'hello' }, device);
+  await Promise.resolve();
+
+  const events = eventStore.list(conversation.id, 0);
+  assert.equal(manager.getConversation(conversation.id, device).status, 'running');
+  assert.equal(events.some((event) => event.type === 'user.message' && event.text === 'hello'), true);
+  assert.equal(events.some((event) => event.type === 'conversation.status_changed' && event.status === 'running'), true);
+
+  releaseStart();
+  await send;
 });
 
 test('conversation cancel preserves confirmed CLI session and resumes next message', async () => {
@@ -1968,8 +2061,16 @@ test('Codex conversation adapter resumes captured thread with authorized workspa
 });
 
 test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, and failed events', () => {
-  assert.equal(mapCodexEvent({ type: 'thread.started', thread_id: 'thread_a' }).sessionId, 'thread_a');
-  assert.equal(mapCodexEvent({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'hello' } }).type, 'assistant.message');
+  const threadStarted = mapCodexEvent({ type: 'thread.started', thread_id: 'thread_a' });
+  assert.equal(threadStarted.sessionId, 'thread_a');
+  assert.equal(threadStarted.visible, false);
+  const turnStarted = mapCodexEvent({ type: 'turn.started' });
+  assert.equal(turnStarted.type, 'system.notice');
+  assert.equal(turnStarted.noticeKind, 'codex_turn_started');
+  assert.equal(turnStarted.visible, false);
+  const assistant = mapCodexEvent({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'hello' } });
+  assert.equal(assistant.type, 'assistant.message');
+  assert.equal(assistant.turnFinal, false);
   assert.equal(mapCodexEvent({ type: 'item.started', item: { id: 'cmd_1', type: 'command_execution', command: 'dir', status: 'in_progress' } }).type, 'tool.started');
   const declined = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'write', aggregated_output: 'rejected: blocked by policy', status: 'declined' } });
   assert.equal(declined.type, 'system.notice');
@@ -2027,6 +2128,27 @@ test('Codex conversation treats stderr after JSONL as warning instead of startup
   const error = events.find((event) => event.type === 'run.error');
   assert.equal(error.exitCode, 2);
   assert.equal(error.message, undefined);
+});
+
+test('Codex conversation ignores invalid stdout noise after turn completion', async () => {
+  const child = fakeCodexChild();
+  const events = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: () => child
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_trailing_noise', workspacePath: 'D:\\Repo', onEvent: (event) => events.push(event) });
+  await handle.sendUserMessage('short');
+  child.stdout.emit('data', `${JSON.stringify({ type: 'thread.started', thread_id: 'thread_noise' })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`);
+  child.stdout.emit('data', 'SUCCESS: The process with PID 123 has been terminated.\n');
+  child.stdout.emit('data', 'Reading additional input from stdin...\n');
+  child.emit('exit', 0, null);
+
+  assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
+  assert.equal(events.some((event) => event.text === 'Codex emitted invalid JSONL'), false);
 });
 
 test('Codex conversation persists thread id and preserves it after turn failure', async () => {

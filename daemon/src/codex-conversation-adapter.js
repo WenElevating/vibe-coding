@@ -147,6 +147,7 @@ class CodexConversationHandle {
   }
 
   handleJson(raw) {
+    if (this.turnCompleted && raw?.type === 'error') return;
     this.validJsonStarted = true;
     const event = mapCodexEvent(raw, { maxAggregatedOutputBytes: this.adapter.maxAggregatedOutputBytes });
     if (!event) return;
@@ -242,6 +243,16 @@ function mapCodexEvent(raw, options = {}) {
       text: 'Codex thread started',
       noticeKind: 'codex_thread_started',
       sessionId: raw.thread_id || raw.threadId,
+      visible: false,
+      raw
+    };
+  }
+  if (raw.type === 'turn.started') {
+    return {
+      type: conversationEventTypes.SYSTEM_NOTICE,
+      text: 'Codex turn started',
+      noticeKind: 'codex_turn_started',
+      visible: false,
       raw
     };
   }
@@ -302,6 +313,7 @@ function mapCodexEvent(raw, options = {}) {
     return {
       type: conversationEventTypes.ASSISTANT_MESSAGE,
       text: stripAnsi(item.text || ''),
+      turnFinal: false,
       raw
     };
   }

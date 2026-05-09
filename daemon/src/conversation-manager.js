@@ -108,7 +108,6 @@ class ConversationManager {
     const message = normalizeMessagePayload(payload);
     if (conversation.status === conversationStatuses.WAITING_INPUT) throw conflict('conversation is waiting for input response');
     if (conversation.status === conversationStatuses.WAITING_APPROVAL) throw conflict('conversation is waiting for approval response');
-    await this.ensureStarted(conversation);
     conversation.status = conversationStatuses.RUNNING;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
@@ -116,9 +115,21 @@ class ConversationManager {
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: message.text });
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-    await conversation.handle.sendUserMessage(message.text);
-    this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
-    return publicConversation(conversation);
+    try {
+      await this.ensureStarted(conversation);
+      await conversation.handle.sendUserMessage(message.text);
+      this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
+      return publicConversation(conversation);
+    } catch (error) {
+      conversation.status = conversationStatuses.FAILED;
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+      conversation.handle = null;
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, { message: error.message });
+      this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+      throw error;
+    }
   }
 
   async answerQuestion(conversationId, payload, device) {
@@ -216,7 +227,7 @@ class ConversationManager {
       this.eventStore.append(conversation.id, type, payload);
       return;
     }
-    if (event.type === conversationEventTypes.ASSISTANT_MESSAGE || event.type === conversationEventTypes.CONVERSATION_COMPLETED) {
+    if (eventCompletesTurn(event)) {
       conversation.status = conversationStatuses.IDLE;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = addMs(this.now(), this.idleTtlMs).toISOString();
@@ -239,7 +250,7 @@ class ConversationManager {
     }
     const { type, ...payload } = event;
     this.eventStore.append(conversation.id, type || conversationEventTypes.PROTOCOL_WARNING, payload);
-    if (event.type === conversationEventTypes.ASSISTANT_MESSAGE || event.type === conversationEventTypes.CONVERSATION_COMPLETED) {
+    if (eventCompletesTurn(event)) {
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     }
     if (event.type === conversationEventTypes.RUN_ERROR) {
@@ -351,6 +362,12 @@ class ConversationManager {
     conversation.updatedAt = this.now().toISOString();
     this.persistConversation(conversation);
   }
+}
+
+function eventCompletesTurn(event) {
+  if (event.type === conversationEventTypes.CONVERSATION_COMPLETED) return true;
+  if (event.type !== conversationEventTypes.ASSISTANT_MESSAGE) return false;
+  return event.turnFinal !== false;
 }
 
 function publicConversation(conversation) {
