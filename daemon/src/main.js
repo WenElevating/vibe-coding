@@ -8,6 +8,7 @@ const { AppSqliteStore, defaultAppDbPath } = require('./app-sqlite-store');
 const { AuditLog } = require('./audit');
 const { ClaudeAdapter } = require('./claude-adapter');
 const { ClaudeConversationAdapter } = require('./claude-conversation-adapter');
+const { CodexConversationAdapter } = require('./codex-conversation-adapter');
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
 const { SyntheticAdapter } = require('./synthetic-adapter');
@@ -65,7 +66,7 @@ function createApp({
     workspaces,
     eventStore: conversationEventStore,
     auditLog,
-    adapters: conversationAdapters || createConversationAdapters({ claudeCommand }),
+    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand }),
     persistentStore: conversationSqliteStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
   });
@@ -75,10 +76,10 @@ function createApp({
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version, asrModelAsset };
 }
 
-function createConversationAdapters({ claudeCommand }) {
+function createConversationAdapters({ claudeCommand, codexCommand }) {
   return new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
-    ['codex', notImplementedConversationAdapter('Codex')],
+    ['codex', new CodexConversationAdapter({ command: codexCommand })],
     ['opencode', notImplementedConversationAdapter('OpenCode')]
   ]);
 }

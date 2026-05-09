@@ -10,6 +10,7 @@ const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
@@ -1896,6 +1897,183 @@ test('Claude conversation adapter surfaces permission tool_result as notice', as
   assert.equal(completed.permissionError, true);
 });
 
+test('Codex conversation adapter starts first turn with global approval before exec and workspace cwd', async () => {
+  let spawnCommand = null;
+  let spawnArgs = null;
+  let spawnOptions = null;
+  const child = fakeCodexChild();
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: (cmd, args, options) => {
+      spawnCommand = cmd;
+      spawnArgs = args;
+      spawnOptions = options;
+      return child;
+    }
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_args', workspacePath: 'D:\\AiProject\\vibe-coding', permissionMode: 'auto', onEvent: () => {} });
+  await handle.sendUserMessage('hello');
+
+  assert.equal(spawnCommand, 'codex');
+  assert.deepEqual(spawnArgs.slice(0, 5), ['--ask-for-approval', 'never', 'exec', '--json', '-C']);
+  assert.equal(spawnArgs.includes('--dangerously-bypass-approvals-and-sandbox'), false);
+  assert.equal(spawnArgs[spawnArgs.length - 1], 'hello');
+  assert.equal(spawnOptions.cwd, 'D:\\AiProject\\vibe-coding');
+  child.emit('exit', 0, null);
+});
+
+test('Codex conversation adapter resumes captured thread with authorized workspace cwd', async () => {
+  const spawnCalls = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: (_cmd, args, options) => {
+      const child = fakeCodexChild();
+      spawnCalls.push({ args, options, child });
+      return child;
+    }
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_resume', workspacePath: 'D:\\Authorized\\Repo', permissionMode: 'default', sessionId: 'thread_1', onEvent: () => {} });
+  await handle.sendUserMessage('second');
+
+  assert.deepEqual(spawnCalls[0].args.slice(0, 5), ['--ask-for-approval', 'on-request', 'exec', 'resume', '--json']);
+  assert.equal(spawnCalls[0].args.includes('-C'), false);
+  assert.equal(spawnCalls[0].args.includes('--cd'), false);
+  assert.equal(spawnCalls[0].options.cwd, 'D:\\Authorized\\Repo');
+  assert.equal(spawnCalls[0].args[5], 'thread_1');
+  assert.equal(spawnCalls[0].args[6], 'second');
+  spawnCalls[0].child.emit('exit', 0, null);
+});
+
+test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, and failed events', () => {
+  assert.equal(mapCodexEvent({ type: 'thread.started', thread_id: 'thread_a' }).sessionId, 'thread_a');
+  assert.equal(mapCodexEvent({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'hello' } }).type, 'assistant.message');
+  assert.equal(mapCodexEvent({ type: 'item.started', item: { id: 'cmd_1', type: 'command_execution', command: 'dir', status: 'in_progress' } }).type, 'tool.started');
+  const declined = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'write', aggregated_output: 'rejected: blocked by policy', status: 'declined' } });
+  assert.equal(declined.type, 'system.notice');
+  assert.equal(declined.noticeKind, 'codex_policy_blocked');
+  assert.equal(mapCodexEvent({ type: 'turn.failed', error: { message: 'bad model' } }).type, 'run.error');
+  assert.equal(mapCodexEvent({ type: 'new.future.event', value: 1 }).type, 'system.notice');
+});
+
+test('Codex mapper truncates large aggregated output with marker', () => {
+  const event = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_big', type: 'command_execution', command: 'dump', aggregated_output: 'abcdef', status: 'completed' } }, { maxAggregatedOutputBytes: 3 });
+  assert.equal(event.type, 'tool.output');
+  assert.equal(event.text, 'abc');
+  assert.equal(event.truncated, true);
+});
+
+test('Codex conversation cancel kills process tree and reports cancellation only', async () => {
+  const child = fakeCodexChild();
+  const killed = [];
+  const events = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: () => child,
+    killProcessTreeFn: async (target) => {
+      killed.push(target.pid);
+    }
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_cancel', workspacePath: 'D:\\Repo', onEvent: (event) => events.push(event) });
+  await handle.sendUserMessage('long task');
+  await handle.cancel();
+  child.emit('exit', 1, null);
+
+  assert.deepEqual(killed, [12345]);
+  assert.equal(events.some((event) => event.type === 'conversation.cancelled'), true);
+  assert.equal(events.some((event) => event.type === 'run.error'), false);
+});
+
+test('Codex conversation treats stderr after JSONL as warning instead of startup failure', async () => {
+  const child = fakeCodexChild();
+  const events = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: () => child
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_stderr', workspacePath: 'D:\\Repo', onEvent: (event) => events.push(event) });
+  await handle.sendUserMessage('warn');
+  child.stdout.emit('data', `${JSON.stringify({ type: 'thread.started', thread_id: 'thread_warn' })}\n`);
+  child.stderr.emit('data', 'stderr warning\n');
+  child.emit('exit', 2, null);
+
+  assert.equal(events.some((event) => event.type === 'protocol.warning' && event.text.includes('stderr warning')), true);
+  const error = events.find((event) => event.type === 'run.error');
+  assert.equal(error.exitCode, 2);
+  assert.equal(error.message, undefined);
+});
+
+test('Codex conversation persists thread id and preserves it after turn failure', async () => {
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath(), conversationAdapters: new Map([['codex', fakeCodexConversationAdapter()]]), codexEnabled: true });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId: 'default', adapter: 'codex' }, token);
+    const conversationId = created.body.conversation.id;
+    await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'fail after thread' }, token);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const listed = await request(port, 'GET', '/api/conversations', null, token);
+    const conversation = listed.body.conversations.find((item) => item.id === conversationId);
+    assert.equal(conversation.cliSessionId, 'thread_after_fail');
+    assert.equal(conversation.status, 'failed');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
+test('Codex conversation HTTP API sends message and stores CLI thread id', async () => {
+  const spawned = [];
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
+  const codex = app.conversations.adapters.get('codex');
+  codex.spawnSyncFn = fakeCodexConversationSpawnSync;
+  codex.capability = null;
+  codex.spawnFn = (_cmd, args, options) => {
+    const child = fakeCodexChild();
+    spawned.push({ args, options, child });
+    setImmediate(() => {
+      child.stdout.emit('data', `${JSON.stringify({ type: 'thread.started', thread_id: 'thread_http_1' })}\n`);
+      child.stdout.emit('data', `${JSON.stringify({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'hello from codex' } })}\n`);
+      child.stdout.emit('data', `${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })}\n`);
+      child.emit('exit', 0, null);
+    });
+    return child;
+  };
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId: 'default', adapter: 'codex', permissionMode: 'auto' }, token);
+    const conversationId = created.body.conversation.id;
+    const sent = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'hello' }, token);
+    assert.equal(sent.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const listed = await request(port, 'GET', '/api/conversations', null, token);
+    const conversation = listed.body.conversations.find((item) => item.id === conversationId);
+    assert.equal(conversation.cliSessionId, 'thread_http_1');
+    assert.equal(conversation.status, 'idle');
+    const approvalIndex = spawned[0].args.indexOf('--ask-for-approval');
+    assert.notEqual(approvalIndex, -1);
+    assert.deepEqual(spawned[0].args.slice(approvalIndex, approvalIndex + 5), ['--ask-for-approval', 'never', 'exec', '--json', '-C']);
+    const events = await request(port, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, token);
+    assert.equal(events.body.events.some((event) => event.type === 'assistant.message' && event.text === 'hello from codex'), true);
+    assert.equal(events.body.events.some((event) => event.type === 'conversation.completed'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
 test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 terminal boundary', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
   app.adapterRegistry.get('claude').spawnSyncFn = fakeSpawnSync;
@@ -2149,6 +2327,37 @@ function fakeSpawnSync(_cmd, args) {
 function fakeCodexSpawnSync(_cmd, args) {
   if (args.includes('--version')) return { status: 0, stdout: 'codex-test', stderr: '' };
   return { status: 0, stdout: 'Usage: codex exec --json', stderr: '' };
+}
+
+function fakeCodexConversationSpawnSync(_cmd, args) {
+  if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+  if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]\n--json', stderr: '' };
+  if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec [OPTIONS] [PROMPT]\n--json\n-C, --cd <DIR>\n--sandbox <SANDBOX_MODE>', stderr: '' };
+  return { status: 0, stdout: '', stderr: '' };
+}
+
+function fakeCodexChild() {
+  const child = new EventEmitter();
+  child.pid = 12345;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  return child;
+}
+
+function fakeCodexConversationAdapter() {
+  return {
+    capabilities: { resume: true, partialOutput: true, waitingApproval: false, mobileApprovalCallbacks: false },
+    async startConversation({ onEvent }) {
+      return {
+        async sendUserMessage() {
+          onEvent({ type: 'system.notice', sessionId: 'thread_after_fail', text: 'thread started', noticeKind: 'codex_thread_started' });
+          onEvent({ type: 'run.error', message: 'failed after thread', sessionId: 'thread_after_fail' });
+        },
+        async cancel() {}
+      };
+    }
+  };
 }
 
 function fakeSpawn() {
