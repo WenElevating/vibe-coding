@@ -87,6 +87,7 @@ class ClaudeConversationAdapter {
     child.on('error', (error) => onEvent({ type: conversationEventTypes.RUN_ERROR, error: error.message }));
     child.on('exit', (code, signal) => {
       if (signal) onEvent({ type: conversationEventTypes.CONVERSATION_CANCELLED, signal });
+      else if (code === 0) onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED });
       else if (code !== 0) onEvent({ type: conversationEventTypes.RUN_ERROR, exitCode: code });
     });
     writeJsonLine(child, {

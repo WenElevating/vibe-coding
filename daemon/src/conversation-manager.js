@@ -220,18 +220,21 @@ class ConversationManager {
       conversation.status = conversationStatuses.IDLE;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = addMs(this.now(), this.idleTtlMs).toISOString();
+      if (event.type === conversationEventTypes.CONVERSATION_COMPLETED) conversation.handle = null;
       this.touch(conversation);
     }
     if (event.type === conversationEventTypes.CONVERSATION_CANCELLED) {
       conversation.status = conversationStatuses.CANCELLED;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
+      conversation.handle = null;
       this.touch(conversation);
     }
     if (event.type === conversationEventTypes.RUN_ERROR) {
       conversation.status = conversationStatuses.FAILED;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
+      conversation.handle = null;
       this.touch(conversation);
     }
     const { type, ...payload } = event;

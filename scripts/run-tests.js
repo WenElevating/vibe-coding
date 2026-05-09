@@ -494,6 +494,61 @@ test('conversation cancel preserves confirmed CLI session and resumes next messa
   assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === 'conversation.cancelled' && event.status === 'cancelled'), true);
 });
 
+test('conversation resend after cancel returns idle when resumed process completes without text', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  const handles = [];
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true, partialOutput: true },
+    startCalls: [],
+    async startConversation(input) {
+      adapter.startCalls.push({ sessionId: input.sessionId || null });
+      const handle = {
+        sent: [],
+        cancelled: false,
+        sendUserMessage(text) { this.sent.push(text); },
+        cancel() { this.cancelled = true; },
+        dispose() {}
+      };
+      handles.push(handle);
+      adapter.onEvent = input.onEvent;
+      return handle;
+    }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-08T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-08T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'first' }, device);
+  adapter.onEvent({ type: 'system.notice', sessionId: 'claude-session-1', text: 'started' });
+  await manager.cancelConversation(conversation.id, device);
+  await manager.sendMessage(conversation.id, { text: 'second' }, device);
+  adapter.onEvent({ type: 'assistant.partial', text: 'partial response', sessionId: 'claude-session-1' });
+  adapter.onEvent({ type: 'conversation.completed', sessionId: 'claude-session-1' });
+
+  const summary = manager.getConversation(conversation.id, device);
+  const events = eventStore.list(conversation.id, 0);
+
+  assert.equal(summary.status, 'idle');
+  assert.deepEqual(adapter.startCalls.map((call) => call.sessionId), [null, 'claude-session-1']);
+  assert.equal(handles[0].cancelled, true);
+  assert.equal(events.some((event) => event.type === 'conversation.status_changed' && event.status === 'idle'), true);
+
+  await manager.sendMessage(conversation.id, { text: 'third' }, device);
+
+  assert.deepEqual(adapter.startCalls.map((call) => call.sessionId), [null, 'claude-session-1', 'claude-session-1']);
+  assert.deepEqual(handles.map((handle) => handle.sent), [['first'], ['second'], ['third']]);
+});
+
 test('conversation cancel before session id marks interrupted without clearing history', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -936,6 +991,32 @@ test('Claude conversation adapter waits for initialize response before sending m
   await sendPromise;
 
   assert.equal(writes.some((line) => line.includes('after init')), true);
+});
+
+test('Claude conversation adapter emits completion when long-lived process exits cleanly', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const events = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {}, end() { this.destroyed = true; } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeConversationAdapter({
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: () => child
+  });
+
+  await adapter.startConversation({
+    conversationId: 'conv_exit_complete',
+    workspacePath: '.',
+    onEvent: (event) => events.push(event)
+  });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'assistant', text: 'partial only', session_id: 's1' })}\n`);
+  child.emit('exit', 0, null);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(events.some((event) => event.type === 'assistant.partial' && event.text === 'partial only'), true);
+  assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
 });
 
 test('Claude adapter rejects missing workspace before spawning', () => {
@@ -2412,7 +2493,6 @@ test('V1.3 smoke endpoint is dev-only and release mode hides it', async () => {
   if (process.exitCode) return;
   console.log(`${passed} tests passed`);
 })();
-
 
 
 
