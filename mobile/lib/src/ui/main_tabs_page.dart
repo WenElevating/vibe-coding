@@ -75,6 +75,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void _open(RoutePage route) => setState(() => _route = route);
   void _back() => setState(() => _route = RoutePage.tabs);
   void _selectTab(int index) {
+    final previousTab = _tab;
     setState(() {
       _tab = index;
       _route = RoutePage.tabs;
@@ -83,7 +84,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
         _codingSessionListOpenRequest++;
       }
     });
-    if (index == 2) {
+    if (index == 2 && previousTab == 2) {
       unawaited(_ensureCodingAdaptersLoaded());
     }
   }

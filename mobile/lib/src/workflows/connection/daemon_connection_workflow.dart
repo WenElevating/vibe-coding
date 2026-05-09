@@ -1,0 +1,100 @@
+import '../../data/repositories/daemon_connection_config_repository.dart';
+import '../../domain/models/connected_app_session.dart';
+import '../../domain/models/daemon_initial_data.dart';
+import '../../services/daemon_client.dart';
+import '../../services/daemon_connection_config.dart';
+import '../../shell/app_snapshot.dart';
+
+typedef DaemonClientFactory = DaemonClient Function({
+  required Uri baseUri,
+  required SecureTokenStore tokenStore,
+  required DaemonProxyMode proxyMode,
+  Uri? manualProxy,
+});
+
+typedef DaemonInitialDataLoader = Future<DaemonInitialData> Function(
+    DaemonClient client);
+typedef DaemonHealthProbe = Future<void> Function(DaemonClient client);
+
+class DaemonConnectionWorkflow {
+  DaemonConnectionWorkflow({
+    required DaemonConnectionConfigRepository configRepository,
+    required SecureTokenStore tokenStore,
+    DaemonClientFactory? clientFactory,
+    DaemonInitialDataLoader? initialDataLoader,
+    DaemonHealthProbe? healthProbe,
+  })  : _configRepository = configRepository,
+        _tokenStore = tokenStore,
+        _clientFactory = clientFactory ?? _defaultClientFactory,
+        _initialDataLoader = initialDataLoader ??
+            ((client) => AppSnapshot.loadBootstrap(client)),
+        _healthProbe = healthProbe ?? ((client) async => client.health());
+
+  final DaemonConnectionConfigRepository _configRepository;
+  final SecureTokenStore _tokenStore;
+  final DaemonClientFactory _clientFactory;
+  final DaemonInitialDataLoader _initialDataLoader;
+  final DaemonHealthProbe _healthProbe;
+
+  Future<ConnectedAppSession> connect({
+    required String addressInput,
+    required DaemonProxyMode proxyMode,
+    required String manualProxyInput,
+    bool Function()? shouldContinue,
+    void Function()? onCheckingHealth,
+    void Function()? onLoadingInitialData,
+  }) async {
+    final address = normalizeDaemonAddress(addressInput);
+    final manualProxy = proxyMode == DaemonProxyMode.manual
+        ? normalizeManualProxy(manualProxyInput)
+        : null;
+    final client = _clientFactory(
+      baseUri: address.uri,
+      tokenStore: _tokenStore,
+      proxyMode: proxyMode,
+      manualProxy: manualProxy,
+    );
+
+    onCheckingHealth?.call();
+    await _healthProbe(client);
+    if (shouldContinue != null && !shouldContinue()) {
+      throw const DaemonConnectionCancelled();
+    }
+    onLoadingInitialData?.call();
+    final initialData = await _initialDataLoader(client);
+    if (shouldContinue != null && !shouldContinue()) {
+      throw const DaemonConnectionCancelled();
+    }
+    final connectedConfig = DaemonConnectionConfig(
+      addressInput: addressInput.trim(),
+      proxyMode: proxyMode,
+      manualProxyInput: manualProxyInput.trim(),
+    );
+    await _configRepository.save(connectedConfig);
+    return ConnectedAppSession(
+      client: client,
+      initialData: initialData,
+      connectedConfig: connectedConfig,
+    );
+  }
+
+  static DaemonClient _defaultClientFactory({
+    required Uri baseUri,
+    required SecureTokenStore tokenStore,
+    required DaemonProxyMode proxyMode,
+    Uri? manualProxy,
+  }) =>
+      DaemonClient(
+        baseUri: baseUri,
+        tokenStore: tokenStore,
+        proxyMode: proxyMode,
+        manualProxy: manualProxy,
+      );
+}
+
+class DaemonConnectionCancelled implements Exception {
+  const DaemonConnectionCancelled();
+
+  @override
+  String toString() => 'Connection attempt was cancelled.';
+}
