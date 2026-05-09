@@ -6,6 +6,7 @@ const { resolveCliInvocation } = require('./cli-resolver');
 
 const DEFAULT_MAX_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES = 64 * 1024;
+const CODEX_DETECTION_TIMEOUT_MS = 30000;
 
 class CodexConversationAdapter {
   constructor({
@@ -39,18 +40,18 @@ class CodexConversationAdapter {
   }
 
   detectCapabilities() {
-    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8', timeout: 5000 });
+    const version = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--version'], { encoding: 'utf8', timeout: CODEX_DETECTION_TIMEOUT_MS });
     if (version.error || version.status !== 0) {
       this.capability = unavailableCapability(this.command, `Codex CLI unavailable. Check installation and PATH. ${resultText(version)}`);
       return this.capability;
     }
-    const execHelp = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, 'exec', '--help'], { encoding: 'utf8', timeout: 5000 });
+    const execHelp = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, 'exec', '--help'], { encoding: 'utf8', timeout: CODEX_DETECTION_TIMEOUT_MS });
     if (execHelp.error || execHelp.status !== 0 || !resultText(execHelp).includes('--json')) {
       this.capability = unavailableCapability(this.command, 'Codex CLI missing required exec --json capability');
       this.capability.version = resultText(version).trim() || null;
       return this.capability;
     }
-    const resumeHelp = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, 'exec', 'resume', '--help'], { encoding: 'utf8', timeout: 5000 });
+    const resumeHelp = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, 'exec', 'resume', '--help'], { encoding: 'utf8', timeout: CODEX_DETECTION_TIMEOUT_MS });
     if (resumeHelp.error || resumeHelp.status !== 0 || !/resume/i.test(resultText(resumeHelp)) || !resultText(resumeHelp).includes('--json')) {
       this.capability = unavailableCapability(this.command, 'Codex CLI missing required exec resume --json capability');
       this.capability.version = resultText(version).trim() || null;
@@ -142,6 +143,7 @@ class CodexConversationHandle {
       this.onEvent({ type: conversationEventTypes.RUN_ERROR, message: error.message });
     });
     child.on('exit', (code, signal) => this.handleExit(code, signal));
+    closeChildInput(child);
   }
 
   handleJson(raw) {
@@ -352,7 +354,13 @@ function stripAnsi(value) {
 }
 
 function resultText(result = {}) {
-  return `${result.stdout || ''}${result.stderr || ''}`;
+  return `${result.stdout || ''}${result.stderr || ''}${result.error?.message || ''}`;
+}
+
+function closeChildInput(child) {
+  const stdin = child?.stdin;
+  if (!stdin || stdin.destroyed || stdin.writableEnded || stdin.writableFinished) return;
+  if (typeof stdin.end === 'function') stdin.end();
 }
 
 function unavailableCapability(command, error) {

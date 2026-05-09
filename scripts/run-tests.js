@@ -1901,7 +1901,9 @@ test('Codex conversation adapter starts first turn with global approval before e
   let spawnCommand = null;
   let spawnArgs = null;
   let spawnOptions = null;
+  let stdinEnded = false;
   const child = fakeCodexChild();
+  child.stdin = { destroyed: false, end() { stdinEnded = true; this.destroyed = true; } };
   const adapter = new CodexConversationAdapter({
     cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: fakeCodexConversationSpawnSync,
@@ -1921,7 +1923,24 @@ test('Codex conversation adapter starts first turn with global approval before e
   assert.equal(spawnArgs.includes('--dangerously-bypass-approvals-and-sandbox'), false);
   assert.equal(spawnArgs[spawnArgs.length - 1], 'hello');
   assert.equal(spawnOptions.cwd, 'D:\\AiProject\\vibe-coding');
+  assert.equal(stdinEnded, true);
   child.emit('exit', 0, null);
+});
+
+test('Codex capability detection allows slow Windows npm shim startup', () => {
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args, options = {}) => {
+      if ((options.timeout || 0) < 10000) {
+        return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }) };
+      }
+      return fakeCodexConversationSpawnSync(_cmd, args, options);
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+  assert.equal(capability.available, true);
+  assert.equal(capability.version, 'codex-cli 0.130.0');
 });
 
 test('Codex conversation adapter resumes captured thread with authorized workspace cwd', async () => {
