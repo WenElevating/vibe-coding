@@ -1495,6 +1495,25 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'New coding session'**
   String get workbenchNewSessionTitle;
+
+  String get asrModelDialogTitle;
+  String get asrModelPreparing;
+  String get asrModelChecking;
+  String asrModelDownloading(String version);
+  String get asrModelFallbackName;
+  String get asrModelPaused;
+  String get asrModelVerifying;
+  String get asrModelExtracting;
+  String get asrModelReady;
+  String get asrModelFailed;
+  String get asrModelCancelled;
+  String get asrModelWaitingSize;
+  String asrModelTraceId(String traceId);
+  String get asrModelCopyAction;
+  String get asrModelPauseAction;
+  String get asrModelResumeAction;
+  String get asrModelRetryAction;
+  String get asrModelCancelAction;
 }
 
 class _AppLocalizationsDelegate

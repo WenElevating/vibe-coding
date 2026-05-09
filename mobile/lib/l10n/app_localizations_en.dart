@@ -770,4 +770,58 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workbenchNewSessionTitle => 'New coding session';
+
+  @override
+  String get asrModelDialogTitle => 'Voice model';
+
+  @override
+  String get asrModelPreparing => 'Preparing voice model...';
+
+  @override
+  String get asrModelChecking => 'Checking paired daemon model...';
+
+  @override
+  String asrModelDownloading(String version) => 'Downloading $version';
+
+  @override
+  String get asrModelFallbackName => 'model';
+
+  @override
+  String get asrModelPaused => 'Download paused';
+
+  @override
+  String get asrModelVerifying => 'Verifying downloaded model...';
+
+  @override
+  String get asrModelExtracting => 'Extracting model files...';
+
+  @override
+  String get asrModelReady => 'Voice model ready';
+
+  @override
+  String get asrModelFailed => 'Voice model preparation failed';
+
+  @override
+  String get asrModelCancelled => 'Voice model download cancelled';
+
+  @override
+  String get asrModelWaitingSize => 'Waiting for size';
+
+  @override
+  String asrModelTraceId(String traceId) => 'Trace ID: $traceId';
+
+  @override
+  String get asrModelCopyAction => 'Copy';
+
+  @override
+  String get asrModelPauseAction => 'Pause';
+
+  @override
+  String get asrModelResumeAction => 'Resume';
+
+  @override
+  String get asrModelRetryAction => 'Retry';
+
+  @override
+  String get asrModelCancelAction => 'Cancel';
 }

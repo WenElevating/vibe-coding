@@ -364,5 +364,37 @@
   "workbenchPendingReadingContext": "CLI 会话已启动，正在读取上下文...",
   "workbenchPendingWaitingNextEvent": "正在等待下一个事件...",
   "workbenchThinkingProcessTitle": "思考过程",
-  "workbenchNewSessionTitle": "新的编码会话"
+  "workbenchNewSessionTitle": "新的编码会话",
+  "asrModelDialogTitle": "????",
+  "asrModelPreparing": "????????...",
+  "asrModelChecking": "?????? daemon ??...",
+  "asrModelDownloading": "???? {version}",
+  "@asrModelDownloading": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "asrModelFallbackName": "??",
+  "asrModelPaused": "?????",
+  "asrModelVerifying": "?????????...",
+  "asrModelExtracting": "????????...",
+  "asrModelReady": "???????",
+  "asrModelFailed": "????????",
+  "asrModelCancelled": "?????????",
+  "asrModelWaitingSize": "????????",
+  "asrModelTraceId": "?? ID?{traceId}",
+  "@asrModelTraceId": {
+    "placeholders": {
+      "traceId": {
+        "type": "String"
+      }
+    }
+  },
+  "asrModelCopyAction": "??",
+  "asrModelPauseAction": "??",
+  "asrModelResumeAction": "??",
+  "asrModelRetryAction": "??",
+  "asrModelCancelAction": "??"
 }

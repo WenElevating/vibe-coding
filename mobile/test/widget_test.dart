@@ -1354,6 +1354,18 @@ void main() {
         'Reconnecting... 1/5 (stream disconnected before completion)');
   });
 
+  test('ASR model download dialog strings use active locale', () {
+    final zh = lookupAppLocalizations(theme.zhHansCnLocale);
+    final en = lookupAppLocalizations(const Locale('en', 'US'));
+
+    expect(zh.asrModelDialogTitle, '语音模型');
+    expect(zh.asrModelDownloading('zipformer'), '正在下载 zipformer');
+    expect(zh.asrModelPauseAction, '暂停');
+    expect(zh.asrModelCancelAction, '取消');
+    expect(en.asrModelDialogTitle, 'Voice model');
+    expect(en.asrModelDownloading('zipformer'), 'Downloading zipformer');
+  });
+
   test('duplicate approvals collapse and approval response becomes command',
       () {
     final events = <Map<String, Object?>>[

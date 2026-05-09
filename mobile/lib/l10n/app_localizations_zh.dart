@@ -745,4 +745,58 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get workbenchNewSessionTitle => '新的编码会话';
+
+  @override
+  String get asrModelDialogTitle => '语音模型';
+
+  @override
+  String get asrModelPreparing => '正在准备语音模型...';
+
+  @override
+  String get asrModelChecking => '正在检查配对 daemon 模型...';
+
+  @override
+  String asrModelDownloading(String version) => '正在下载 $version';
+
+  @override
+  String get asrModelFallbackName => '模型';
+
+  @override
+  String get asrModelPaused => '下载已暂停';
+
+  @override
+  String get asrModelVerifying => '正在校验已下载模型...';
+
+  @override
+  String get asrModelExtracting => '正在解压模型文件...';
+
+  @override
+  String get asrModelReady => '语音模型已就绪';
+
+  @override
+  String get asrModelFailed => '语音模型准备失败';
+
+  @override
+  String get asrModelCancelled => '语音模型下载已取消';
+
+  @override
+  String get asrModelWaitingSize => '正在等待文件大小';
+
+  @override
+  String asrModelTraceId(String traceId) => '追踪 ID：$traceId';
+
+  @override
+  String get asrModelCopyAction => '复制';
+
+  @override
+  String get asrModelPauseAction => '暂停';
+
+  @override
+  String get asrModelResumeAction => '继续';
+
+  @override
+  String get asrModelRetryAction => '重试';
+
+  @override
+  String get asrModelCancelAction => '取消';
 }

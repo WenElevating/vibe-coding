@@ -364,5 +364,37 @@
   "workbenchPendingReadingContext": "CLI session started. Reading context...",
   "workbenchPendingWaitingNextEvent": "Waiting for the next event...",
   "workbenchThinkingProcessTitle": "Thinking process",
-  "workbenchNewSessionTitle": "New coding session"
+  "workbenchNewSessionTitle": "New coding session",
+  "asrModelDialogTitle": "Voice model",
+  "asrModelPreparing": "Preparing voice model...",
+  "asrModelChecking": "Checking paired daemon model...",
+  "asrModelDownloading": "Downloading {version}",
+  "@asrModelDownloading": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "asrModelFallbackName": "model",
+  "asrModelPaused": "Download paused",
+  "asrModelVerifying": "Verifying downloaded model...",
+  "asrModelExtracting": "Extracting model files...",
+  "asrModelReady": "Voice model ready",
+  "asrModelFailed": "Voice model preparation failed",
+  "asrModelCancelled": "Voice model download cancelled",
+  "asrModelWaitingSize": "Waiting for size",
+  "asrModelTraceId": "Trace ID: {traceId}",
+  "@asrModelTraceId": {
+    "placeholders": {
+      "traceId": {
+        "type": "String"
+      }
+    }
+  },
+  "asrModelCopyAction": "Copy",
+  "asrModelPauseAction": "Pause",
+  "asrModelResumeAction": "Resume",
+  "asrModelRetryAction": "Retry",
+  "asrModelCancelAction": "Cancel"
 }

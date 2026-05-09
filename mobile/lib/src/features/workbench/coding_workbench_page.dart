@@ -630,7 +630,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _resolvedApprovalIds.clear();
         });
         if (mounted) _goToConversation();
-        final send = widget.client.sendConversationMessage(conversation.id, prompt);
+        final send =
+            widget.client.sendConversationMessage(conversation.id, prompt);
         await _restartConversationPolling();
         final updated = await send;
         if (mounted) setState(() => _activeConversation = updated);
@@ -652,8 +653,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           }
           _events.removeWhere((event) => event.type == 'run.completed');
         });
-        final send =
-            widget.client.sendConversationMessage(existingConversationId, prompt);
+        final send = widget.client
+            .sendConversationMessage(existingConversationId, prompt);
         await _restartConversationPolling();
         final conversation = await send;
         if (mounted) {
@@ -1299,16 +1300,17 @@ class _AsrModelDownloadDialogState extends State<_AsrModelDownloadDialog> {
         final state = widget.manager.state;
         final failed = state.status == AsrModelStatus.failed;
         final paused = state.status == AsrModelStatus.paused;
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
             backgroundColor: const Color(0xFF111214),
-            title: const Text('Voice model',
-                style: TextStyle(color: theme.text, fontSize: 17)),
+            title: Text(l10n.asrModelDialogTitle,
+                style: const TextStyle(color: theme.text, fontSize: 17)),
             content: SizedBox(
                 width: 340,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(_statusLabel(state),
+                      child: Text(_statusLabel(l10n, state),
                           style: const TextStyle(
                               color: theme.muted, fontSize: 13, height: 1.35))),
                   const SizedBox(height: 12),
@@ -1338,13 +1340,14 @@ class _AsrModelDownloadDialogState extends State<_AsrModelDownloadDialog> {
                     const SizedBox(height: 8),
                     Row(children: [
                       Expanded(
-                          child: SelectableText('Trace ID: ${state.traceId}',
+                          child: SelectableText(
+                              l10n.asrModelTraceId(state.traceId!),
                               style: const TextStyle(
                                   color: theme.muted, fontSize: 12))),
                       TextButton(
                           onPressed: () => Clipboard.setData(
                               ClipboardData(text: state.traceId!)),
-                          child: const Text('Copy')),
+                          child: Text(l10n.asrModelCopyAction)),
                     ]),
                   ],
                 ])),
@@ -1352,36 +1355,41 @@ class _AsrModelDownloadDialogState extends State<_AsrModelDownloadDialog> {
               if (state.status == AsrModelStatus.downloading)
                 TextButton(
                     onPressed: widget.manager.pause,
-                    child: const Text('Pause')),
+                    child: Text(l10n.asrModelPauseAction)),
               if (paused)
                 TextButton(
                     onPressed: widget.manager.resume,
-                    child: const Text('Resume')),
+                    child: Text(l10n.asrModelResumeAction)),
               if (failed)
-                TextButton(onPressed: _start, child: const Text('Retry')),
+                TextButton(
+                    onPressed: _start, child: Text(l10n.asrModelRetryAction)),
               TextButton(
                   onPressed: () {
                     widget.manager.cancel();
                     Navigator.of(context).pop();
                   },
-                  child: const Text('Cancel')),
+                  child: Text(l10n.asrModelCancelAction)),
             ]);
       });
 
-  String _statusLabel(AsrModelState state) => switch (state.status) {
-        AsrModelStatus.idle => 'Preparing voice model...',
-        AsrModelStatus.checking => 'Checking paired daemon model...',
-        AsrModelStatus.downloading => 'Downloading ${state.version ?? 'model'}',
-        AsrModelStatus.paused => 'Download paused',
-        AsrModelStatus.verifying => 'Verifying downloaded model...',
-        AsrModelStatus.extracting => 'Extracting model files...',
-        AsrModelStatus.ready => 'Voice model ready',
-        AsrModelStatus.failed => 'Voice model preparation failed',
-        AsrModelStatus.cancelled => 'Voice model download cancelled',
+  String _statusLabel(AppLocalizations l10n, AsrModelState state) =>
+      switch (state.status) {
+        AsrModelStatus.idle => l10n.asrModelPreparing,
+        AsrModelStatus.checking => l10n.asrModelChecking,
+        AsrModelStatus.downloading =>
+          l10n.asrModelDownloading(state.version ?? l10n.asrModelFallbackName),
+        AsrModelStatus.paused => l10n.asrModelPaused,
+        AsrModelStatus.verifying => l10n.asrModelVerifying,
+        AsrModelStatus.extracting => l10n.asrModelExtracting,
+        AsrModelStatus.ready => l10n.asrModelReady,
+        AsrModelStatus.failed => l10n.asrModelFailed,
+        AsrModelStatus.cancelled => l10n.asrModelCancelled,
       };
 
   String _bytesLabel(AsrModelState state) {
-    if (state.totalBytes <= 0) return 'Waiting for size';
+    if (state.totalBytes <= 0) {
+      return AppLocalizations.of(context).asrModelWaitingSize;
+    }
     return '${_formatBytes(state.downloadedBytes)} / ${_formatBytes(state.totalBytes)}';
   }
 
