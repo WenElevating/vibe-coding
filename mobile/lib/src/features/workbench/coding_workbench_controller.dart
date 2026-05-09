@@ -36,17 +36,25 @@ CodingWorkbenchState replaceWorkspacesFromDaemon(
   CodingWorkbenchState state,
   List<WorkspaceSummary> daemonWorkspaces, {
   String? selectedWorkspaceId,
+  Iterable<String> preserveWorkspaceIds = const <String>[],
 }) {
   if (daemonWorkspaces.isEmpty) return state;
-  final selected = daemonWorkspaces.firstWhere(
+  final workspaces = List<WorkspaceSummary>.of(daemonWorkspaces);
+  final preservedIds = preserveWorkspaceIds.toSet();
+  for (final local in state.workspaces) {
+    if (!preservedIds.contains(local.id)) continue;
+    final exists = workspaces.any((workspace) => workspace.id == local.id);
+    if (!exists) workspaces.add(local);
+  }
+  final selected = workspaces.firstWhere(
     (workspace) => workspace.id == selectedWorkspaceId,
-    orElse: () => daemonWorkspaces.firstWhere(
+    orElse: () => workspaces.firstWhere(
       (workspace) => workspace.id == state.selectedWorkspace.id,
-      orElse: () => daemonWorkspaces.first,
+      orElse: () => workspaces.first,
     ),
   );
   return CodingWorkbenchState(
-    workspaces: List<WorkspaceSummary>.of(daemonWorkspaces),
+    workspaces: workspaces,
     selectedWorkspace: selected,
     listMode: state.listMode,
   );

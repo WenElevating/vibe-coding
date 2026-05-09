@@ -81,6 +81,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
   bool _workspaceConfirmedForSession = false;
+  final Set<String> _localWorkspaceIds = <String>{};
   final Set<String> _resolvedApprovalIds = <String>{};
   String _currentRoute = _routeWorkspaces;
   bool? _lastReportedListOpen = true;
@@ -91,11 +92,24 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _syncWorkspacesFromSnapshot(List<WorkspaceSummary> snapshot) {
     if (snapshot.isEmpty) return;
-    _workspaces = List<WorkspaceSummary>.of(snapshot);
+    final snapshotIds = snapshot.map((workspace) => workspace.id).toSet();
+    final selectedBeforeSync = _selectedWorkspace;
+    final next = replaceWorkspacesFromDaemon(
+      CodingWorkbenchState(
+        workspaces: _workspaces,
+        selectedWorkspace: selectedBeforeSync,
+        listMode: CodingWorkbenchListMode.workspaces,
+      ),
+      snapshot,
+      selectedWorkspaceId: selectedBeforeSync.id,
+      preserveWorkspaceIds: _localWorkspaceIds,
+    );
+    _localWorkspaceIds.removeWhere(snapshotIds.contains);
+    _workspaces = next.workspaces;
+    _selectedWorkspace = next.selectedWorkspace;
     final stillExists =
-        _workspaces.any((workspace) => workspace.id == _selectedWorkspace.id);
+        _workspaces.any((workspace) => workspace.id == selectedBeforeSync.id);
     if (stillExists) return;
-    _selectedWorkspace = _workspaces.first;
     _resetConversationState();
     _error = null;
     _workspaceConfirmedForSession = false;
@@ -480,39 +494,65 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         backgroundColor: Colors.transparent,
         builder: (context) => AddWorkspaceSheet(client: widget.client));
     if (workspace == null || !mounted) return;
+    setState(() {
+      final next = upsertAndSelectWorkspace(
+        CodingWorkbenchState(
+          workspaces: _workspaces,
+          selectedWorkspace: _selectedWorkspace,
+          listMode: CodingWorkbenchListMode.sessions,
+        ),
+        workspace,
+      );
+      _workspaces = next.workspaces;
+      _selectedWorkspace = next.selectedWorkspace;
+      _localWorkspaceIds.add(workspace.id);
+      _workspaceConfirmedForSession = true;
+      _resetConversationState();
+      _error = null;
+    });
     try {
       final daemonWorkspaces = await widget.client.listWorkspaces();
       if (!mounted) return;
+      final daemonWorkspaceIds =
+          daemonWorkspaces.map((workspace) => workspace.id).toSet();
       setState(() {
         final next = replaceWorkspacesFromDaemon(
           CodingWorkbenchState(
             workspaces: _workspaces,
             selectedWorkspace: _selectedWorkspace,
-            listMode: CodingWorkbenchListMode.workspaces,
+            listMode: CodingWorkbenchListMode.sessions,
           ),
           daemonWorkspaces,
           selectedWorkspaceId: workspace.id,
+          preserveWorkspaceIds: _localWorkspaceIds,
         );
+        _localWorkspaceIds.removeWhere(daemonWorkspaceIds.contains);
         _workspaces = next.workspaces;
         _selectedWorkspace = next.selectedWorkspace;
         _workspaceConfirmedForSession = true;
         _resetConversationState();
         _error = null;
       });
-      _goToWorkspaces();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Workspace ready: ${workspace.name}'),
-          duration: const Duration(seconds: 2)));
+      _goToSessions(_selectedWorkspace);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error =
             'Workspace was saved, but the list could not be refreshed: $error';
       });
-      _goToWorkspaces();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Workspace saved. Refresh workspaces to see it.'),
-          duration: Duration(seconds: 3)));
+      _goToSessions(workspace);
+      await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+                title: const Text('Workspace saved'),
+                content: const Text(
+                    'The workspace was saved, but the list could not be refreshed yet.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK')),
+                ],
+              ));
     }
   }
 

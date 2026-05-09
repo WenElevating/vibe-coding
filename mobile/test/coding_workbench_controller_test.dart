@@ -59,6 +59,63 @@ void main() {
     expect(next.listMode, CodingWorkbenchListMode.workspaces);
   });
 
+  test(
+      'replaceWorkspacesFromDaemon keeps selected local workspace when daemon is stale',
+      () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
+    );
+    const created = WorkspaceSummary(
+      id: 'workspace_created',
+      name: 'Created Workspace',
+      path: r'D:\created',
+    );
+
+    final next = replaceWorkspacesFromDaemon(
+      const CodingWorkbenchState(
+        workspaces: <WorkspaceSummary>[current, created],
+        selectedWorkspace: created,
+        listMode: CodingWorkbenchListMode.sessions,
+      ),
+      const <WorkspaceSummary>[current],
+      selectedWorkspaceId: created.id,
+      preserveWorkspaceIds: <String>[created.id],
+    );
+
+    expect(next.workspaces.map((workspace) => workspace.id),
+        const <String>['workspace_current', 'workspace_created']);
+    expect(next.selectedWorkspace, created);
+    expect(next.listMode, CodingWorkbenchListMode.sessions);
+  });
+
+  test('replaceWorkspacesFromDaemon drops unpreserved stale workspace', () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
+    );
+    const stale = WorkspaceSummary(
+      id: 'workspace_stale',
+      name: 'Stale Workspace',
+      path: r'D:\stale',
+    );
+
+    final next = replaceWorkspacesFromDaemon(
+      const CodingWorkbenchState(
+        workspaces: <WorkspaceSummary>[current, stale],
+        selectedWorkspace: stale,
+        listMode: CodingWorkbenchListMode.sessions,
+      ),
+      const <WorkspaceSummary>[current],
+      selectedWorkspaceId: stale.id,
+    );
+
+    expect(next.workspaces, const <WorkspaceSummary>[current]);
+    expect(next.selectedWorkspace, current);
+  });
+
   test('reusable conversation statuses can send another message', () {
     expect(canSendInConversationStatus(null), isTrue);
     expect(canSendInConversationStatus('idle'), isTrue);
