@@ -164,6 +164,7 @@ class ConversationViewState {
           break;
         case 'system.notice':
           if (event.raw['visible'] == false) break;
+          if (isTransitionSystemNotice(event)) break;
           nextMessages.add(ConversationMessage(
             role: 'notice',
             text: event.text ?? event.summary ?? '',
@@ -217,6 +218,17 @@ class ConversationViewState {
       pendingPartial: partial,
     );
   }
+}
+
+bool isTransitionSystemNotice(ConversationEvent event) {
+  if (event.type != 'system.notice') return false;
+  final noticeKind = '${event.raw['noticeKind'] ?? ''}'.toLowerCase();
+  if (noticeKind.contains('reconnect')) return true;
+  final text = (event.text ?? event.summary ?? '').toLowerCase();
+  if (text.contains('reconnecting')) return true;
+  if (text.contains('stream disconnected')) return true;
+  if (text.contains('stream closed before response.completed')) return true;
+  return false;
 }
 
 void _upsertCommandMessage(

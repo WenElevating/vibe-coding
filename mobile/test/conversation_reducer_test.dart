@@ -254,6 +254,21 @@ void main() {
     expect(state.messages, isEmpty);
   });
 
+  test('ConversationViewState routes reconnect notices to pending status', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-09T00:00:00.000Z',
+        'text': 'Reconnecting... 1/5 (stream disconnected before completion)'
+      }),
+    ]);
+
+    expect(state.lastSeq, 1);
+    expect(state.messages, isEmpty);
+  });
+
   test('ConversationViewState correlates tool output by toolUseId', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

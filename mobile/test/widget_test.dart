@@ -1338,6 +1338,22 @@ void main() {
         'CLI session started. Reading context...');
   });
 
+  test('conversation pending status text surfaces reconnect notices', () {
+    final event = ConversationEvent.fromJson(const <String, Object?>{
+      'seq': 1,
+      'conversationId': 'conv_1',
+      'type': 'system.notice',
+      'createdAt': '2026-05-09T00:00:00.000Z',
+      'text': 'Reconnecting... 1/5 (stream disconnected before completion)'
+    });
+
+    expect(
+        debugConversationPendingStatusText('running',
+            locale: const Locale('en', 'US'),
+            events: <ConversationEvent>[event]),
+        'Reconnecting... 1/5 (stream disconnected before completion)');
+  });
+
   test('duplicate approvals collapse and approval response becomes command',
       () {
     final events = <Map<String, Object?>>[

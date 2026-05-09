@@ -24,6 +24,10 @@ String conversationPendingStatusText(
   final list = events.toList(growable: false);
   if (list.isEmpty) return l10n.workbenchPendingStarting;
   for (final event in list.reversed) {
+    if (isTransitionSystemNotice(event)) {
+      final text = (event.text ?? event.summary ?? '').trim();
+      if (text.isNotEmpty) return text;
+    }
     if (event.type == 'assistant.partial') {
       return l10n.workbenchPendingGenerating;
     }
