@@ -12,6 +12,7 @@ import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
+import '../../workflows/workspace/create_workspace_workflow.dart';
 import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
@@ -65,14 +66,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
   final List<SessionItem> _localSessions = <SessionItem>[];
-  late List<WorkspaceSummary> _workspaces;
+  late WorkbenchRouteState _routeState;
   Timer? _poller;
   String? _activeRunId;
   String? _activeConversationId;
   ConversationSummary? _activeConversation;
   ConversationViewState _conversationState = const ConversationViewState();
   String? _selectedAdapter;
-  late WorkspaceSummary _selectedWorkspace;
   int _lastSeq = 0;
   bool _sending = false;
   String? _error;
@@ -80,8 +80,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
-  bool _workspaceConfirmedForSession = false;
-  final Set<String> _localWorkspaceIds = <String>{};
   final Set<String> _resolvedApprovalIds = <String>{};
   String _currentRoute = _routeWorkspaces;
   bool? _lastReportedListOpen = true;
@@ -90,30 +88,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   List<SessionItem> get _sessionItems => mergeSessionItems(
       _localSessions, widget.data.conversations, widget.data.runs);
 
+  List<WorkspaceSummary> get _workspaces => _routeState.workspaces;
+
+  WorkspaceSummary? get _routeWorkspace => switch (_routeState) {
+        WorkspaceSessionsRouteState(:final workspace) => workspace,
+        ConversationRouteState(:final workspace) => workspace,
+        _ => null,
+      };
+
   void _syncWorkspacesFromSnapshot(List<WorkspaceSummary> snapshot) {
-    if (snapshot.isEmpty) return;
-    final snapshotIds = snapshot.map((workspace) => workspace.id).toSet();
-    final selectedBeforeSync = _selectedWorkspace;
-    final next = replaceWorkspacesFromDaemon(
-      CodingWorkbenchState(
-        workspaces: _workspaces,
-        selectedWorkspace: selectedBeforeSync,
-        listMode: CodingWorkbenchListMode.workspaces,
-      ),
-      snapshot,
-      selectedWorkspaceId: selectedBeforeSync.id,
-      preserveWorkspaceIds: _localWorkspaceIds,
-    );
-    _localWorkspaceIds.removeWhere(snapshotIds.contains);
-    _workspaces = next.workspaces;
-    _selectedWorkspace = next.selectedWorkspace;
-    final stillExists =
-        _workspaces.any((workspace) => workspace.id == selectedBeforeSync.id);
-    if (stillExists) return;
-    _resetConversationState();
-    _error = null;
-    _workspaceConfirmedForSession = false;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _goToWorkspaces());
+    _routeState = applyWorkspaceSnapshot(_routeState, snapshot);
   }
 
   Future<bool> handleSystemBack() async {
@@ -123,8 +107,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void showSessionListFromShell() {
-    if (_workspaceConfirmedForSession) {
-      _goToSessions(_selectedWorkspace);
+    final workspace = _routeWorkspace;
+    if (workspace != null) {
+      _goToSessions(workspace);
     } else {
       _goToWorkspaces();
     }
@@ -169,14 +154,25 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _goToSessions(WorkspaceSummary workspace) {
     setState(() {
-      _selectedWorkspace = workspace;
-      _workspaceConfirmedForSession = true;
+      _routeState = WorkspaceSessionsRouteState(
+        workspace: workspace,
+        workspaces: _workspaces,
+      );
     });
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeSessions, (route) => route.settings.name == _routeWorkspaces);
   }
 
   void _goToConversation() {
+    final workspace = _routeWorkspace;
+    if (workspace != null && _routeState is! ConversationRouteState) {
+      setState(() {
+        _routeState = ConversationRouteState(
+          workspace: workspace,
+          workspaces: _workspaces,
+        );
+      });
+    }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeConversation, (route) => route.settings.name == _routeSessions);
   }
@@ -214,8 +210,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _activeRunId = item.run.id;
       _activeConversationId = item.conversation?.id;
       _activeConversation = item.conversation;
-      _selectedWorkspace = _workspaceForId(item.run.workspaceId);
-      _workspaceConfirmedForSession = true;
+      _routeState = ConversationRouteState(
+        workspace: _workspaceForId(item.run.workspaceId),
+        workspaces: _workspaces,
+      );
       _error = null;
     });
     if (item.conversation != null) await _pollEvents();
@@ -228,7 +226,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     for (final workspace in _workspaces) {
       if (workspace.id == workspaceId) return workspace;
     }
-    return _selectedWorkspace;
+    return _routeWorkspace ?? widget.data.workspace;
   }
 
   Future<void> _cancelActiveRun() async {
@@ -281,8 +279,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     WidgetsBinding.instance.addObserver(this);
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     _selectedAdapter = _preferredAdapter()?.adapter;
-    _workspaces = List<WorkspaceSummary>.of(widget.data.workspaces);
-    _selectedWorkspace = widget.data.workspace;
+    _routeState = WorkspaceListRouteState(
+      workspaces: List<WorkspaceSummary>.of(widget.data.workspaces),
+    );
     final injectedAsrModelManager = widget.asrModelManager;
     _ownsAsrModelManager = injectedAsrModelManager == null;
     _asrModelManager = injectedAsrModelManager ??
@@ -488,72 +487,88 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void _showWorkspacePicker() => _openWorkspaceList();
 
   Future<void> _showCreateWorkspaceFromWorkspaceList() async {
-    final workspace = await showModalBottomSheet<WorkspaceSummary>(
+    final request = await showModalBottomSheet<WorkspaceCreationRequest>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (context) => AddWorkspaceSheet(client: widget.client));
-    if (workspace == null || !mounted) return;
+    if (request == null || !mounted) return;
+    final previousWorkspaces = List<WorkspaceSummary>.of(_workspaces);
     setState(() {
-      final next = upsertAndSelectWorkspace(
-        CodingWorkbenchState(
-          workspaces: _workspaces,
-          selectedWorkspace: _selectedWorkspace,
-          listMode: CodingWorkbenchListMode.sessions,
-        ),
-        workspace,
+      _routeState = CreatingWorkspaceRouteState(
+        previousWorkspaces: previousWorkspaces,
+        requestLabel: request.name ?? request.path,
       );
-      _workspaces = next.workspaces;
-      _selectedWorkspace = next.selectedWorkspace;
-      _localWorkspaceIds.add(workspace.id);
-      _workspaceConfirmedForSession = true;
       _resetConversationState();
       _error = null;
     });
-    try {
-      final daemonWorkspaces = await widget.client.listWorkspaces();
-      if (!mounted) return;
-      final daemonWorkspaceIds =
-          daemonWorkspaces.map((workspace) => workspace.id).toSet();
-      setState(() {
-        final next = replaceWorkspacesFromDaemon(
-          CodingWorkbenchState(
-            workspaces: _workspaces,
-            selectedWorkspace: _selectedWorkspace,
-            listMode: CodingWorkbenchListMode.sessions,
-          ),
-          daemonWorkspaces,
-          selectedWorkspaceId: workspace.id,
-          preserveWorkspaceIds: _localWorkspaceIds,
+    _navigatorKey.currentState
+        ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
+
+    final outcome = await CreateWorkspaceWorkflow(
+      client: widget.client,
+      timeout: const Duration(seconds: 20),
+    ).create(path: request.path, name: request.name);
+    if (!mounted) return;
+
+    switch (outcome) {
+      case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+        setState(() {
+          _routeState = WorkspaceSessionsRouteState(
+            workspace: workspace,
+            workspaces: workspaces,
+          );
+          _resetConversationState();
+          _error = null;
+        });
+        _goToSessions(workspace);
+      case CreateWorkspaceNotConfirmed(:final workspaces):
+        setState(() {
+          _routeState = WorkspaceListRouteState(workspaces: workspaces);
+          _error = null;
+        });
+        await _showWorkspaceCreationDialog(
+          title: 'Workspace not ready',
+          message:
+              'The workspace was created, but the daemon did not include it in the refreshed list yet.',
         );
-        _localWorkspaceIds.removeWhere(daemonWorkspaceIds.contains);
-        _workspaces = next.workspaces;
-        _selectedWorkspace = next.selectedWorkspace;
-        _workspaceConfirmedForSession = true;
-        _resetConversationState();
-        _error = null;
-      });
-      _goToSessions(_selectedWorkspace);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error =
-            'Workspace was saved, but the list could not be refreshed: $error';
-      });
-      _goToSessions(workspace);
-      await showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-                title: const Text('Workspace saved'),
-                content: const Text(
-                    'The workspace was saved, but the list could not be refreshed yet.'),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('OK')),
-                ],
-              ));
+      case CreateWorkspaceTimeout():
+        setState(() {
+          _routeState = WorkspaceListRouteState(workspaces: previousWorkspaces);
+          _error = null;
+        });
+        await _showWorkspaceCreationDialog(
+          title: 'Workspace creation timed out',
+          message: 'The daemon did not finish creating the workspace in time.',
+        );
+      case CreateWorkspaceFailure(:final error):
+        setState(() {
+          _routeState = WorkspaceListRouteState(workspaces: previousWorkspaces);
+          _error = error.toString();
+        });
+        await _showWorkspaceCreationDialog(
+          title: 'Workspace creation failed',
+          message: error.toString(),
+        );
     }
+  }
+
+  Future<void> _showWorkspaceCreationDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text(title),
+              content: Text(message),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK')),
+              ],
+            ));
   }
 
   String _pendingStatusText(AppLocalizations l10n) =>
@@ -658,7 +673,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                 message?.role == 'question_hidden',
             orElse: () => null);
     final pendingQuestionId = pendingQuestion?.questionId;
-    if (_activeRunId == null && !_hasExplicitWorkspaceSelection) {
+    final routeWorkspace = _routeWorkspace;
+    if (_activeRunId == null && routeWorkspace == null) {
       _goToWorkspaces();
       return;
     }
@@ -673,7 +689,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       final existingConversationId = _activeConversationId;
       if (existingConversationId == null) {
         final conversation = await widget.client.createConversation(
-            workspaceId: _selectedWorkspace.id,
+            workspaceId: routeWorkspace!.id,
             adapter: adapter,
             permissionMode: widget.permissionMode);
         final run = runSummaryFromConversation(conversation);
@@ -1031,19 +1047,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     return completedAt.difference(started.createdAt);
   }
 
-  bool get _hasExplicitWorkspaceSelection {
-    return hasExplicitWorkspaceSelectionState(
-      workspaceConfirmedForSession: _workspaceConfirmedForSession,
-      activeRunId: _activeRunId,
-      hasLocalSessions: _localSessions.isNotEmpty,
-    );
-  }
-
   void _startNewSessionFromList() {
+    final workspace = _routeWorkspace;
+    if (workspace == null) {
+      _goToWorkspaces();
+      return;
+    }
     setState(() {
+      _routeState = ConversationRouteState(
+        workspace: workspace,
+        workspaces: _workspaces,
+      );
       _resetConversationState();
       _error = null;
-      _workspaceConfirmedForSession = true;
       _prompt.clear();
     });
     _goToConversation();
@@ -1126,27 +1142,83 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Widget _buildRoute(String route) {
+    if (_routeState is CreatingWorkspaceRouteState) {
+      return _buildCreatingWorkspaceTransition();
+    }
     if (route == _routeSessions) return _buildSessionList();
     if (route == _routeConversation) return _buildConversationDetail();
     return _buildWorkspaceList();
   }
 
+  Widget _buildCreatingWorkspaceTransition() {
+    final state = _routeState;
+    final label =
+        state is CreatingWorkspaceRouteState ? state.requestLabel : 'workspace';
+    return Center(
+      key: const ValueKey('creating-workspace-transition'),
+      child: Container(
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+        decoration: BoxDecoration(
+          color: const Color(0xEE0A0B0D),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: .08)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: theme.purple,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Creating workspace',
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: theme.muted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildWorkspaceList() => WorkspaceListPage(
       workspaces: _workspaces,
-      selected: _selectedWorkspace,
       onSelected: _openWorkspaceSessions,
       onAddWorkspace: _showCreateWorkspaceFromWorkspaceList);
 
-  Widget _buildSessionList() => CodingSessionListPage(
-      data: widget.data,
-      items: _sessionItems,
-      currentWorkspace: _selectedWorkspace,
-      onNewSession: _startNewSessionFromList,
-      onSelectItem: _openSession,
-      onBackToWorkspaces: _returnToWorkspaceList);
+  Widget _buildSessionList() {
+    final workspace = _routeWorkspace;
+    if (workspace == null) return _buildWorkspaceList();
+    return CodingSessionListPage(
+        data: widget.data,
+        items: _sessionItems,
+        currentWorkspace: workspace,
+        onNewSession: _startNewSessionFromList,
+        onSelectItem: _openSession,
+        onBackToWorkspaces: _returnToWorkspaceList);
+  }
 
   Widget _buildConversationDetail() {
     final l10n = AppLocalizations.of(context);
+    final workspace = _routeWorkspace;
+    if (workspace == null) return _buildWorkspaceList();
     final adapter = _selectedAdapter;
     final canSend = adapter != null &&
         !_sending &&
@@ -1162,7 +1234,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                       BorderSide(color: Colors.white.withValues(alpha: .075)))),
           child: _CodingHeader(
               title: _conversationTitle(l10n),
-              workspace: _selectedWorkspace,
+              workspace: workspace,
               adapter: adapter,
               running: _isRunningCli,
               onBack: () => _navigatorKey.currentState?.popUntil(
@@ -1233,7 +1305,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       CodingComposer(
           controller: _prompt,
           adapter: adapter,
-          workspace: _selectedWorkspace,
+          workspace: workspace,
           running: _isRunningCli,
           canSend: canSend,
           sending: _sending,
@@ -1249,7 +1321,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(
-          workspace: _selectedWorkspace,
+          workspace: workspace,
           running: _isRunningCli,
           onTap: _showWorkspacePicker),
     ]);

@@ -165,7 +165,6 @@ Widget buildNewSessionWorkspacePickerPreview() {
           backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[workspace],
-              selected: workspace,
               onSelected: (_) {},
               onAddWorkspace: () {})));
 }
@@ -307,7 +306,6 @@ Widget buildCodingSessionListPreview() {
           backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current, other],
-              selected: current,
               onSelected: (_) {},
               onAddWorkspace: () {})));
 }
@@ -374,7 +372,6 @@ Widget buildMissingWorkspaceFallbackPreview() {
           backgroundColor: theme.bg,
           body: WorkspaceListPage(
               workspaces: const <WorkspaceSummary>[current],
-              selected: current,
               onSelected: (_) {},
               onAddWorkspace: () {})));
 }

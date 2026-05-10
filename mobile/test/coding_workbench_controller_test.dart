@@ -3,34 +3,44 @@ import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 
 void main() {
-  test('upsertAndSelectWorkspace replaces duplicate workspace id', () {
-    const original = WorkspaceSummary(
-      id: 'workspace_1',
-      name: 'Old Workspace',
-      path: r'D:\old',
+  test('workspace snapshot replaces list route workspaces', () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
     );
     const updated = WorkspaceSummary(
-      id: 'workspace_1',
+      id: 'workspace_updated',
       name: 'Updated Workspace',
       path: r'D:\updated',
     );
 
-    final next = upsertAndSelectWorkspace(
-      const CodingWorkbenchState(
-        workspaces: <WorkspaceSummary>[original],
-        selectedWorkspace: original,
-        listMode: CodingWorkbenchListMode.workspaces,
-      ),
-      updated,
+    final next = applyWorkspaceSnapshot(
+      const WorkspaceListRouteState(workspaces: <WorkspaceSummary>[current]),
+      const <WorkspaceSummary>[updated],
     );
 
-    expect(next.workspaces, hasLength(1));
-    expect(next.workspaces.single, updated);
-    expect(next.selectedWorkspace, updated);
-    expect(next.listMode, CodingWorkbenchListMode.sessions);
+    expect(next, isA<WorkspaceListRouteState>());
+    expect(next.workspaces, const <WorkspaceSummary>[updated]);
   });
 
-  test('replaceWorkspacesFromDaemon selects daemon-confirmed workspace', () {
+  test('workspace snapshot is ignored while creating workspace', () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
+    );
+    const state = CreatingWorkspaceRouteState(
+      previousWorkspaces: <WorkspaceSummary>[current],
+      requestLabel: 'Created Workspace',
+    );
+
+    final next = applyWorkspaceSnapshot(state, const <WorkspaceSummary>[]);
+
+    expect(identical(next, state), isTrue);
+  });
+
+  test('workspace snapshot preserves sessions route workspace context', () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
@@ -42,78 +52,44 @@ void main() {
       path: r'D:\created',
     );
 
-    final next = replaceWorkspacesFromDaemon(
-      const CodingWorkbenchState(
-        workspaces: <WorkspaceSummary>[current],
-        selectedWorkspace: current,
-        listMode: CodingWorkbenchListMode.workspaces,
-      ),
-      const <WorkspaceSummary>[current, created],
-      selectedWorkspaceId: created.id,
-    );
-
-    expect(next.workspaces, hasLength(2));
-    expect(next.workspaces.map((workspace) => workspace.id),
-        const <String>['workspace_current', 'workspace_created']);
-    expect(next.selectedWorkspace, created);
-    expect(next.listMode, CodingWorkbenchListMode.workspaces);
-  });
-
-  test(
-      'replaceWorkspacesFromDaemon keeps selected local workspace when daemon is stale',
-      () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const created = WorkspaceSummary(
-      id: 'workspace_created',
-      name: 'Created Workspace',
-      path: r'D:\created',
-    );
-
-    final next = replaceWorkspacesFromDaemon(
-      const CodingWorkbenchState(
+    final next = applyWorkspaceSnapshot(
+      const WorkspaceSessionsRouteState(
+        workspace: created,
         workspaces: <WorkspaceSummary>[current, created],
-        selectedWorkspace: created,
-        listMode: CodingWorkbenchListMode.sessions,
       ),
       const <WorkspaceSummary>[current],
-      selectedWorkspaceId: created.id,
-      preserveWorkspaceIds: <String>[created.id],
     );
 
-    expect(next.workspaces.map((workspace) => workspace.id),
-        const <String>['workspace_current', 'workspace_created']);
-    expect(next.selectedWorkspace, created);
-    expect(next.listMode, CodingWorkbenchListMode.sessions);
+    expect(next, isA<WorkspaceSessionsRouteState>());
+    final sessions = next as WorkspaceSessionsRouteState;
+    expect(sessions.workspace, created);
+    expect(sessions.workspaces, const <WorkspaceSummary>[current]);
   });
 
-  test('replaceWorkspacesFromDaemon drops unpreserved stale workspace', () {
+  test('workspace snapshot preserves conversation route workspace context', () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
       path: r'D:\current',
     );
-    const stale = WorkspaceSummary(
-      id: 'workspace_stale',
-      name: 'Stale Workspace',
-      path: r'D:\stale',
+    const conversationWorkspace = WorkspaceSummary(
+      id: 'workspace_conversation',
+      name: 'Conversation Workspace',
+      path: r'D:\conversation',
     );
 
-    final next = replaceWorkspacesFromDaemon(
-      const CodingWorkbenchState(
-        workspaces: <WorkspaceSummary>[current, stale],
-        selectedWorkspace: stale,
-        listMode: CodingWorkbenchListMode.sessions,
+    final next = applyWorkspaceSnapshot(
+      const ConversationRouteState(
+        workspace: conversationWorkspace,
+        workspaces: <WorkspaceSummary>[conversationWorkspace],
       ),
       const <WorkspaceSummary>[current],
-      selectedWorkspaceId: stale.id,
     );
 
-    expect(next.workspaces, const <WorkspaceSummary>[current]);
-    expect(next.selectedWorkspace, current);
+    expect(next, isA<ConversationRouteState>());
+    final conversation = next as ConversationRouteState;
+    expect(conversation.workspace, conversationWorkspace);
+    expect(conversation.workspaces, const <WorkspaceSummary>[current]);
   });
 
   test('reusable conversation statuses can send another message', () {

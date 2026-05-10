@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../models/protocol.dart';
+import '../workflows/workspace/create_workspace_workflow.dart';
 import 'asr_model_client.dart';
 import 'daemon_connection_config.dart';
 
@@ -31,7 +32,7 @@ class MemoryTokenStore implements SecureTokenStore {
   }
 }
 
-class DaemonClient {
+class DaemonClient implements WorkspaceCreationClient {
   DaemonClient(
       {required this.baseUri,
       required this.tokenStore,
@@ -201,6 +202,7 @@ class DaemonClient {
     return RunSummary.fromJson(response['run'] as Map<String, Object?>);
   }
 
+  @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
     final response = await _get('/api/workspaces');
     final items = response['workspaces'] as List<Object?>;
@@ -210,6 +212,7 @@ class DaemonClient {
         .toList();
   }
 
+  @override
   Future<WorkspaceSummary> createWorkspace(
       {required String path, String? name}) async {
     final response = await _post('/api/workspaces', <String, Object?>{

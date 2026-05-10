@@ -1,63 +1,78 @@
 import '../../models/protocol.dart';
 
-enum CodingWorkbenchListMode { workspaces, sessions, conversation }
+sealed class WorkbenchRouteState {
+  const WorkbenchRouteState();
 
-class CodingWorkbenchState {
-  const CodingWorkbenchState({
-    required this.workspaces,
-    required this.selectedWorkspace,
-    required this.listMode,
+  List<WorkspaceSummary> get workspaces;
+}
+
+final class WorkspaceListRouteState extends WorkbenchRouteState {
+  const WorkspaceListRouteState({required this.workspaces, this.notice});
+
+  @override
+  final List<WorkspaceSummary> workspaces;
+  final String? notice;
+}
+
+final class CreatingWorkspaceRouteState extends WorkbenchRouteState {
+  const CreatingWorkspaceRouteState({
+    required this.previousWorkspaces,
+    required this.requestLabel,
   });
 
+  final List<WorkspaceSummary> previousWorkspaces;
+  final String requestLabel;
+
+  @override
+  List<WorkspaceSummary> get workspaces => previousWorkspaces;
+}
+
+final class WorkspaceSessionsRouteState extends WorkbenchRouteState {
+  const WorkspaceSessionsRouteState({
+    required this.workspace,
+    required this.workspaces,
+  });
+
+  final WorkspaceSummary workspace;
+
+  @override
   final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary selectedWorkspace;
-  final CodingWorkbenchListMode listMode;
 }
 
-CodingWorkbenchState upsertAndSelectWorkspace(
-  CodingWorkbenchState state,
-  WorkspaceSummary workspace,
+final class ConversationRouteState extends WorkbenchRouteState {
+  const ConversationRouteState({
+    required this.workspace,
+    required this.workspaces,
+  });
+
+  final WorkspaceSummary workspace;
+
+  @override
+  final List<WorkspaceSummary> workspaces;
+}
+
+WorkbenchRouteState applyWorkspaceSnapshot(
+  WorkbenchRouteState state,
+  List<WorkspaceSummary> snapshot,
 ) {
-  final workspaces = List<WorkspaceSummary>.of(state.workspaces);
-  final index = workspaces.indexWhere((item) => item.id == workspace.id);
-  if (index >= 0) {
-    workspaces[index] = workspace;
-  } else {
-    workspaces.add(workspace);
-  }
-  return CodingWorkbenchState(
-    workspaces: workspaces,
-    selectedWorkspace: workspace,
-    listMode: CodingWorkbenchListMode.sessions,
-  );
-}
-
-CodingWorkbenchState replaceWorkspacesFromDaemon(
-  CodingWorkbenchState state,
-  List<WorkspaceSummary> daemonWorkspaces, {
-  String? selectedWorkspaceId,
-  Iterable<String> preserveWorkspaceIds = const <String>[],
-}) {
-  if (daemonWorkspaces.isEmpty) return state;
-  final workspaces = List<WorkspaceSummary>.of(daemonWorkspaces);
-  final preservedIds = preserveWorkspaceIds.toSet();
-  for (final local in state.workspaces) {
-    if (!preservedIds.contains(local.id)) continue;
-    final exists = workspaces.any((workspace) => workspace.id == local.id);
-    if (!exists) workspaces.add(local);
-  }
-  final selected = workspaces.firstWhere(
-    (workspace) => workspace.id == selectedWorkspaceId,
-    orElse: () => workspaces.firstWhere(
-      (workspace) => workspace.id == state.selectedWorkspace.id,
-      orElse: () => workspaces.first,
-    ),
-  );
-  return CodingWorkbenchState(
-    workspaces: workspaces,
-    selectedWorkspace: selected,
-    listMode: state.listMode,
-  );
+  if (snapshot.isEmpty || state is CreatingWorkspaceRouteState) return state;
+  final workspaces = List<WorkspaceSummary>.of(snapshot);
+  return switch (state) {
+    WorkspaceListRouteState(:final notice) => WorkspaceListRouteState(
+        workspaces: workspaces,
+        notice: notice,
+      ),
+    WorkspaceSessionsRouteState(:final workspace) =>
+      WorkspaceSessionsRouteState(
+        workspace: workspace,
+        workspaces: workspaces,
+      ),
+    ConversationRouteState(:final workspace) => ConversationRouteState(
+        workspace: workspace,
+        workspaces: workspaces,
+      ),
+    CreatingWorkspaceRouteState() => state,
+  };
 }
 
 bool canSendInConversationStatus(String? status) {

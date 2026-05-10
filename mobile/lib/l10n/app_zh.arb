@@ -365,10 +365,10 @@
   "workbenchPendingWaitingNextEvent": "正在等待下一个事件...",
   "workbenchThinkingProcessTitle": "思考过程",
   "workbenchNewSessionTitle": "新的编码会话",
-  "asrModelDialogTitle": "????",
-  "asrModelPreparing": "????????...",
-  "asrModelChecking": "?????? daemon ??...",
-  "asrModelDownloading": "???? {version}",
+  "asrModelDialogTitle": "语音模型",
+  "asrModelPreparing": "正在准备语音模型...",
+  "asrModelChecking": "正在检查 daemon 模型状态...",
+  "asrModelDownloading": "正在下载 {version}",
   "@asrModelDownloading": {
     "placeholders": {
       "version": {
@@ -376,15 +376,15 @@
       }
     }
   },
-  "asrModelFallbackName": "??",
-  "asrModelPaused": "?????",
-  "asrModelVerifying": "?????????...",
-  "asrModelExtracting": "????????...",
-  "asrModelReady": "???????",
-  "asrModelFailed": "????????",
-  "asrModelCancelled": "?????????",
-  "asrModelWaitingSize": "????????",
-  "asrModelTraceId": "?? ID?{traceId}",
+  "asrModelFallbackName": "模型",
+  "asrModelPaused": "下载已暂停",
+  "asrModelVerifying": "正在校验模型文件...",
+  "asrModelExtracting": "正在解压语音模型...",
+  "asrModelReady": "语音模型已就绪",
+  "asrModelFailed": "语音模型准备失败",
+  "asrModelCancelled": "语音模型下载已取消",
+  "asrModelWaitingSize": "等待下载大小信息",
+  "asrModelTraceId": "追踪 ID：{traceId}",
   "@asrModelTraceId": {
     "placeholders": {
       "traceId": {
@@ -392,9 +392,9 @@
       }
     }
   },
-  "asrModelCopyAction": "??",
-  "asrModelPauseAction": "??",
-  "asrModelResumeAction": "??",
-  "asrModelRetryAction": "??",
-  "asrModelCancelAction": "??"
+  "asrModelCopyAction": "复制",
+  "asrModelPauseAction": "暂停",
+  "asrModelResumeAction": "继续",
+  "asrModelRetryAction": "重试",
+  "asrModelCancelAction": "取消"
 }

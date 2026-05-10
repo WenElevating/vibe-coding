@@ -7,6 +7,13 @@ import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
 import 'workspace_display.dart';
 
+class WorkspaceCreationRequest {
+  const WorkspaceCreationRequest({required this.path, this.name});
+
+  final String path;
+  final String? name;
+}
+
 class AdapterPickerSheet extends StatelessWidget {
   const AdapterPickerSheet(
       {super.key,
@@ -69,13 +76,11 @@ class WorkspaceListPage extends StatelessWidget {
   const WorkspaceListPage({
     super.key,
     required this.workspaces,
-    required this.selected,
     required this.onSelected,
     required this.onAddWorkspace,
   });
 
   final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary selected;
   final ValueChanged<WorkspaceSummary> onSelected;
   final VoidCallback onAddWorkspace;
 
@@ -105,7 +110,10 @@ class WorkspaceListPage extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                             letterSpacing: -.15)),
                     const SizedBox(height: 3),
-                    Text(compactWorkspacePath(selected.path),
+                    Text(
+                        workspaces.isEmpty
+                            ? AppLocalizations.of(context).workspaceListFootnote
+                            : compactWorkspacePath(workspaces.first.path),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -128,7 +136,7 @@ class WorkspaceListPage extends StatelessWidget {
               for (final workspace in workspaces)
                 _WorkspaceChoiceRow(
                     workspace: workspace,
-                    selected: workspace.id == selected.id,
+                    selected: false,
                     allowSelectedTap: true,
                     onTap: () => onSelected(workspace)),
               Padding(
@@ -350,7 +358,6 @@ class AddWorkspaceSheet extends StatefulWidget {
 class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
   final _path = TextEditingController();
   final _name = TextEditingController();
-  bool _creating = false;
   String? _error;
 
   @override
@@ -373,20 +380,16 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
 
   Future<void> _create() async {
     final path = _path.text.trim();
-    if (path.isEmpty || _creating) return;
-    setState(() {
-      _creating = true;
-      _error = null;
-    });
-    try {
-      final workspace =
-          await widget.client.createWorkspace(path: path, name: _name.text);
-      if (mounted) Navigator.of(context).pop(workspace);
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _creating = false);
+    if (path.isEmpty) {
+      setState(() =>
+          _error = AppLocalizations.of(context).workspacePathRequiredError);
+      return;
     }
+    final name = _name.text.trim();
+    Navigator.of(context).pop(WorkspaceCreationRequest(
+      path: path,
+      name: name.isEmpty ? null : name,
+    ));
   }
 
   @override
@@ -425,12 +428,8 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
               const SizedBox(height: 12),
               SizedBox(
                   width: double.infinity,
-                  child: TinyActionButton(
-                      _creating
-                          ? l10n.workspaceCreatingAction
-                          : l10n.workspaceCreateAndUseAction,
-                      onTap: _creating ? null : _create,
-                      primary: true)),
+                  child: TinyActionButton(l10n.workspaceCreateAndUseAction,
+                      onTap: _create, primary: true)),
             ])));
   }
 }
