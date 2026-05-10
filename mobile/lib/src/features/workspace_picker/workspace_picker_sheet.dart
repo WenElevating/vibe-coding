@@ -5,7 +5,6 @@ import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
-import 'workspace_display.dart';
 
 class WorkspaceCreationRequest {
   const WorkspaceCreationRequest({required this.path, this.name});
@@ -98,29 +97,15 @@ class WorkspaceListPage extends StatelessWidget {
             child: Row(children: [
               const SizedBox(width: 36),
               Expanded(
-                  child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                    Text(AppLocalizations.of(context).workspaceListTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: theme.text,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -.15)),
-                    const SizedBox(height: 3),
-                    Text(
-                        workspaces.isEmpty
-                            ? AppLocalizations.of(context).workspaceListFootnote
-                            : compactWorkspacePath(workspaces.first.path),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: theme.faint,
-                            fontSize: 10.5,
-                            fontFamily: 'Consolas')),
-                  ])),
+                  child: Text(AppLocalizations.of(context).workspaceListTitle,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: theme.text,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -.35))),
               _WorkspaceAddIconButton(onTap: onAddWorkspace),
             ])),
         Expanded(
