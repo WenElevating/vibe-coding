@@ -77,6 +77,8 @@ WorkspaceList
 
 The workbench should not ask “which workspace is selected?” It should ask “which workspace is this route operating in?” Creating a conversation uses the workspace carried by the current sessions or conversation route.
 
+`CreatingWorkspaceTransition` is a blocking transition route. While it is visible, the user cannot interact with the workspace list, start another workspace creation, or open a workspace. The route shows progress and a timeout boundary instead of exposing a cancel action. Workspace creation is a server-side command; once the daemon receives it, client-side cancellation cannot reliably undo it. The safe escape path is timeout/failure handling, followed by an explicit retry refresh or return to the workspace list.
+
 ## 6. Workspace Creation Workflow
 
 `CreateWorkspaceWorkflow` owns the multi-step flow:
@@ -91,20 +93,46 @@ The workbench should not ask “which workspace is selected?” It should ask �
 
 The workflow must not update routes directly. It returns typed outcomes to the ViewModel/controller.
 
+The timeout duration is injected into the workflow constructor, with a product default owned by the mobile composition root. Tests can pass a short timeout, and future environments can tune the value without editing workflow logic.
+
+Retry semantics are split deliberately:
+
+- `Retry refresh` repeats only `listWorkspaces()` and confirmation lookup for the already-created workspace ID.
+- `Create another workspace` is a separate user action that returns to the add-workspace flow.
+- The not-confirmed modal must not silently run the full create flow again, because that can duplicate workspaces.
+
 ## 7. UI State
 
-The workbench UI state should be explicit and small:
+The workbench UI state should be explicit and illegal combinations should be unrepresentable. Prefer a sealed route model rather than parallel enum fields:
 
-```text
-WorkspaceRouteState
-  workspaces: List<WorkspaceSummary>
-  activeRoute: workspaces | creatingWorkspace | sessions | conversation
-  routeWorkspace: WorkspaceSummary?   // only for sessions/conversation
-  createWorkspaceStatus: idle | pending | failed | timedOut | notConfirmed
-  errorMessage: String?
+```dart
+sealed class WorkbenchRouteState {}
+
+final class WorkspaceListRoute extends WorkbenchRouteState {
+  WorkspaceListRoute({required this.workspaces, this.notice});
+  final List<WorkspaceSummary> workspaces;
+  final WorkspaceNotice? notice;
+}
+
+final class CreatingWorkspaceRoute extends WorkbenchRouteState {
+  CreatingWorkspaceRoute({required this.requestLabel});
+  final String requestLabel;
+}
+
+final class WorkspaceSessionsRoute extends WorkbenchRouteState {
+  WorkspaceSessionsRoute({required this.workspace, required this.workspaces});
+  final WorkspaceSummary workspace;
+  final List<WorkspaceSummary> workspaces;
+}
+
+final class ConversationRoute extends WorkbenchRouteState {
+  ConversationRoute({required this.workspace, required this.workspaces});
+  final WorkspaceSummary workspace;
+  final List<WorkspaceSummary> workspaces;
+}
 ```
 
-There is no `selectedWorkspace`. `routeWorkspace` is nullable because only workspace-scoped routes need it. Snapshot refresh can update `workspaces`, but it must not implicitly change `routeWorkspace` or navigate away from a route.
+There is no `selectedWorkspace`. Workspace-scoped routes carry a non-null `WorkspaceSummary`; non-workspace routes do not. Creation errors, timeouts, and not-confirmed states return to `WorkspaceListRoute` with a notice/modal request rather than keeping a separate global creation status.
 
 If a snapshot later omits the workspace of an already-open sessions/conversation route, the UI should keep the route stable and surface a non-destructive warning or refresh action. It should not silently pop back to the workspace list.
 
@@ -120,31 +148,37 @@ If a snapshot later omits the workspace of an already-open sessions/conversation
 ### 8.2 Create Workspace
 
 1. User completes the add-workspace sheet.
-2. ViewModel sets `activeRoute = creatingWorkspace`.
+2. ViewModel sets route to `CreatingWorkspaceRoute`.
 3. View shows the existing transition/loading animation.
 4. ViewModel calls `CreateWorkspaceWorkflow`.
-5. On success, ViewModel replaces `workspaces` with the refreshed daemon list and routes to `sessions(createdWorkspace)`.
-6. On failure, timeout, or not-confirmed outcome, ViewModel returns to the workspace list and asks the View to show a modal dialog.
+5. While the route is `CreatingWorkspaceRoute`, parent daemon snapshots do not update the visible workspace list or route context.
+6. On success, ViewModel replaces `workspaces` with the list returned by the workflow's explicit `listWorkspaces()` call and routes to `WorkspaceSessionsRoute(createdWorkspace)`.
+7. On failure, timeout, or not-confirmed outcome, ViewModel returns to the previous or latest workspace list and asks the View to show a modal dialog.
 
 ### 8.3 Daemon Snapshot Refresh
 
 1. Parent app provides a newer daemon snapshot.
-2. ViewModel updates the visible workspace list.
-3. The update does not mutate route context.
-4. If the current route workspace is missing, expose a warning state but keep the user on the current route unless they choose to leave.
+2. If the current route is `CreatingWorkspaceRoute`, ignore the snapshot for workbench route state. The workflow's explicit refresh is the only list update that can complete creation.
+3. If the current route is `WorkspaceListRoute`, replace the visible list with the snapshot.
+4. If the current route is `WorkspaceSessionsRoute` or `ConversationRoute`, update the auxiliary workspace list for future navigation but do not replace the route workspace.
+5. If the current route workspace is missing from a later snapshot, expose a warning state but keep the user on the current route unless they choose to leave.
 
 ## 9. Error Handling
 
 - Creation failure: show a modal with the daemon error and keep the workspace list unchanged.
-- Creation timeout: show a modal explaining that creation did not finish in time; offer retry.
-- Creation succeeded but refreshed list missing workspace: show a modal explaining that the daemon did not confirm the workspace yet; offer retry refresh.
+- Creation timeout: show a modal explaining that creation did not finish in time; offer return to list and retry create as a new explicit action.
+- Creation succeeded but refreshed list missing workspace: show a modal explaining that the daemon did not confirm the workspace yet; offer retry refresh only.
 - Snapshot missing current route workspace: show a non-destructive warning, not an automatic navigation reset.
 - Empty daemon workspace list: show workspace-list empty state; do not synthesize a selected workspace.
 
 ## 10. Testing
 
 - Unit-test `CreateWorkspaceWorkflow` for success, create failure, timeout, and not-confirmed outcomes.
+- Unit-test not-confirmed retry so it calls only `listWorkspaces()` and never repeats workspace creation.
 - Unit-test the ViewModel/controller so snapshot refresh updates lists without changing route context.
+- Unit-test the ViewModel/controller so snapshots are ignored while `CreatingWorkspaceRoute` is active.
+- Unit-test concurrent create attempts so a second tap cannot start a second workflow while the transition route is active.
+- Unit-test disposal or route exit during an in-flight workflow so completed futures do not mutate disposed state.
 - Widget-test creating a workspace: transition appears, success routes to sessions for the daemon-confirmed workspace.
 - Widget-test stale snapshot during creation: the app does not navigate back to the workspace list after success.
 - Widget-test new session from a workspace route: conversation creation uses that route workspace ID.
