@@ -10,6 +10,7 @@ docs/
 .worktrees/
 
 # Runtime data
+node_modules/
 data/**/*.sqlite
 data/**/*.sqlite-*
 daemon/asset/

@@ -1,13 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
+import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 
 void main() {
   test('bootstrap loads only connection-critical home data', () async {
-    final client = _BootstrapDaemonClient();
+    final deviceStore = MemoryDeviceIdentityStore(deviceId: 'device-123');
+    final client = _BootstrapDaemonClient(deviceStore: deviceStore);
 
-    final snapshot = await AppSnapshot.loadBootstrap(client);
+    final snapshot = await AppSnapshot.loadBootstrap(client,
+        deviceIdentityStore: deviceStore);
 
     expect(snapshot.health.status, 'ok');
     expect(snapshot.workspace.id, 'workspace_1');
@@ -20,8 +23,7 @@ void main() {
     expect(snapshot.fileTree.entries, isEmpty);
     expect(client.calls, <String>[
       'health',
-      'createPairingCode',
-      'pair',
+      'ensurePaired',
       'listWorkspaces',
       'listRuns',
       'listConversations',
@@ -31,13 +33,23 @@ void main() {
 }
 
 class _BootstrapDaemonClient extends DaemonClient {
-  _BootstrapDaemonClient()
+  _BootstrapDaemonClient({required this.deviceStore})
       : super(
           baseUri: Uri.parse('http://127.0.0.1:4317'),
           tokenStore: MemoryTokenStore(),
         );
 
+  final DeviceIdentityStore deviceStore;
   final List<String> calls = <String>[];
+
+  @override
+  Future<void> ensurePaired({
+    required DeviceIdentityStore deviceIdentityStore,
+    String label = 'Android device',
+  }) async {
+    calls.add('ensurePaired');
+    expect(deviceIdentityStore, deviceStore);
+  }
 
   @override
   Future<DaemonHealth> health() async {
@@ -60,16 +72,13 @@ class _BootstrapDaemonClient extends DaemonClient {
   }
 
   @override
-  Future<void> pair({required String code, String label = 'Android device'}) async {
-    calls.add('pair');
-  }
-
-  @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
     calls.add('listWorkspaces');
     return const <WorkspaceSummary>[
       WorkspaceSummary(
-          id: 'workspace_1', name: 'vibe-coding', path: r'D:\AiProject\vibe-coding')
+          id: 'workspace_1',
+          name: 'vibe-coding',
+          path: r'D:\AiProject\vibe-coding')
     ];
   }
 
@@ -80,7 +89,10 @@ class _BootstrapDaemonClient extends DaemonClient {
     expect(workspaceId, 'workspace_1');
     return const <RunSummary>[
       RunSummary(
-          id: 'run_1', tool: 'codex', workspaceId: 'workspace_1', status: 'running')
+          id: 'run_1',
+          tool: 'codex',
+          workspaceId: 'workspace_1',
+          status: 'running')
     ];
   }
 
@@ -93,7 +105,8 @@ class _BootstrapDaemonClient extends DaemonClient {
         workspaceId: 'workspace_1',
         adapter: 'codex',
         status: 'active',
-        capabilities: ConversationCapabilities.fromJson(const <String, Object?>{}),
+        capabilities:
+            ConversationCapabilities.fromJson(const <String, Object?>{}),
         createdAt: '2026-05-07T00:00:00.000Z',
         updatedAt: '2026-05-07T00:00:00.000Z',
       )

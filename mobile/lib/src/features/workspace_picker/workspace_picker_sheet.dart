@@ -84,56 +84,70 @@ class WorkspaceListPage extends StatelessWidget {
   final VoidCallback onAddWorkspace;
 
   @override
-  Widget build(BuildContext context) =>
-      Column(key: const ValueKey('workspace-list'), children: [
-        Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-                color: const Color(0xEE0A0B0D),
-                border: Border(
-                    bottom: BorderSide(
-                        color: Colors.white.withValues(alpha: .07)))),
-            child: Row(children: [
-              const SizedBox(width: 36),
-              Expanded(
-                  child: Text(AppLocalizations.of(context).workspaceListTitle,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: theme.text,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -.2))),
-              _WorkspaceAddIconButton(onTap: onAddWorkspace),
-            ])),
-        Expanded(
-            child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-                children: [
-              const SessionSearchBox(),
-              const SizedBox(height: 14),
-              _WorkspaceSectionHeader(
-                  title: AppLocalizations.of(context).workspaceAvailableSection,
-                  meta: '${workspaces.length}'),
-              const SizedBox(height: 8),
-              for (final workspace in workspaces)
-                _WorkspaceChoiceRow(
-                    workspace: workspace,
-                    selected: false,
-                    allowSelectedTap: true,
-                    onTap: () => onSelected(workspace)),
-              Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
-                  child: Text(
-                      AppLocalizations.of(context).workspaceListFootnote,
-                      style: const TextStyle(
-                          color: Color(0xFF666D77),
-                          fontSize: 11.5,
-                          height: 1.5))),
-            ])),
-      ]);
+  Widget build(BuildContext context) {
+    final visibleWorkspaces = dedupeWorkspacesByPath(workspaces);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return Column(key: const ValueKey('workspace-list'), children: [
+      Container(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+              color: const Color(0xEE0A0B0D),
+              border: Border(
+                  bottom:
+                      BorderSide(color: Colors.white.withValues(alpha: .07)))),
+          child: Row(children: [
+            const SizedBox(width: 36),
+            Expanded(
+                child: Text(AppLocalizations.of(context).workspaceListTitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: theme.text,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -.2))),
+            _WorkspaceAddIconButton(onTap: onAddWorkspace),
+          ])),
+      Expanded(
+          child: ListView(
+              padding: EdgeInsets.fromLTRB(12, 12, 12, 96 + bottomInset),
+              children: [
+            const SessionSearchBox(),
+            const SizedBox(height: 14),
+            _WorkspaceSectionHeader(
+                title: AppLocalizations.of(context).workspaceAvailableSection,
+                meta: '${visibleWorkspaces.length}'),
+            const SizedBox(height: 8),
+            for (final workspace in visibleWorkspaces)
+              _WorkspaceChoiceRow(
+                  workspace: workspace,
+                  selected: false,
+                  allowSelectedTap: true,
+                  onTap: () => onSelected(workspace)),
+            Padding(
+                padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+                child: Text(AppLocalizations.of(context).workspaceListFootnote,
+                    style: const TextStyle(
+                        color: Color(0xFF666D77),
+                        fontSize: 11.5,
+                        height: 1.5))),
+          ])),
+    ]);
+  }
+}
+
+List<WorkspaceSummary> dedupeWorkspacesByPath(
+    Iterable<WorkspaceSummary> workspaces) {
+  final seen = <String>{};
+  final visible = <WorkspaceSummary>[];
+  for (final workspace in workspaces) {
+    final key = workspace.path.replaceAll('\\', '/').toLowerCase();
+    if (!seen.add(key)) continue;
+    visible.add(workspace);
+  }
+  return visible;
 }
 
 class _AdapterChoiceRow extends StatelessWidget {

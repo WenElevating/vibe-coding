@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
+import '../services/device_identity_store.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 import 'features/connection/view_models/daemon_connection_view_model.dart';
 import 'features/connection/views/mobile_connection_gate.dart';
@@ -44,11 +45,13 @@ class _MobileUiState extends State<MobileUi> {
     final store = DaemonConnectionConfigStore();
     final repository = DaemonConnectionConfigRepository(store: store);
     final tokenStore = MemoryTokenStore();
+    final deviceIdentityStore = SharedPreferencesDeviceIdentityStore();
     return DaemonConnectionViewModel(
       configRepository: repository,
       workflow: DaemonConnectionWorkflow(
         configRepository: repository,
         tokenStore: tokenStore,
+        deviceIdentityStore: deviceIdentityStore,
       ),
     );
   }

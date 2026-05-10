@@ -1284,6 +1284,20 @@ void main() {
     expect(find.text('Current Project'), findsOneWidget);
   });
 
+  test('workspace list presentation deduplicates duplicate paths', () {
+    final visible = dedupeWorkspacesByPath(const <WorkspaceSummary>[
+      WorkspaceSummary(
+          id: 'workspace_a', name: 'Agent', path: r'D:\AiProject\Agent'),
+      WorkspaceSummary(
+          id: 'workspace_b', name: 'Agent copy', path: r'D:\AiProject\Agent'),
+      WorkspaceSummary(
+          id: 'workspace_c', name: 'cli-ui', path: r'D:\AiProject\cli-ui'),
+    ]);
+
+    expect(visible.map((workspace) => workspace.id),
+        const <String>['workspace_a', 'workspace_c']);
+  });
+
   testWidgets('workspace search placeholder uses active locale',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildNewSessionWorkspacePickerPreview());

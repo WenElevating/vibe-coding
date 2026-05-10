@@ -19,10 +19,13 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'POST' && url.pathname === '/api/pairing-code') return json(res, 200, auth.createPairingCode());
       if (method === 'POST' && url.pathname === '/api/pair') {
         const body = await readJson(req);
-        const paired = auth.pair(body.code, body.label);
-        const device = auth.devices.get(paired.deviceId);
-        workspaces.authorizeExistingWorkspacesForDevice(device);
+        const paired = auth.pair(body.code, body.label, body.deviceId);
         return json(res, 200, paired);
+      }
+
+      if (method === 'POST' && url.pathname === '/api/token/refresh') {
+        const body = await readJson(req);
+        return json(res, 200, auth.refresh(req.headers.authorization, body.refreshToken, body.deviceId));
       }
 
       const device = auth.authenticate(req.headers.authorization);

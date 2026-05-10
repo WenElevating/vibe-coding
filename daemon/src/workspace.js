@@ -49,17 +49,6 @@ class WorkspaceRegistry {
     device.allowedWorkspaceIds.add(workspaceId);
   }
 
-  authorizeExistingWorkspacesForDevice(device) {
-    if (!device) return;
-    for (const workspace of this.workspaces.values()) {
-      this.authorizeDeviceForWorkspace(device, workspace.id);
-    }
-    if (this.store) {
-      const existing = this.store.listWorkspaces();
-      for (const workspace of existing) this.authorizeDeviceForWorkspace(device, workspace.id);
-    }
-  }
-
   listForDevice(device) {
     if (this.store) return this.store.listWorkspacesForDevice(device.id);
     return Array.from(this.workspaces.values()).filter((workspace) => device.allowedWorkspaceIds.has(workspace.id));
@@ -73,7 +62,7 @@ class WorkspaceRegistry {
     const workspace = this.store
       ? this.store.getWorkspaceForDevice(workspaceId, device.id)
       : this.workspaces.get(workspaceId);
-    if (!workspace || !device.allowedWorkspaceIds.has(workspaceId)) {
+    if (!workspace || (!this.store && !device.allowedWorkspaceIds.has(workspaceId))) {
       const error = new Error('workspace not found or not authorized');
       error.status = 404;
       error.code = 'WORKSPACE_NOT_FOUND';

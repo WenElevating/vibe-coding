@@ -33,7 +33,7 @@ class DiagnosticsService {
       database: this.migrationService.getStatus(),
       counts: {
         workspaces: this.workspaces.workspaces.size,
-        pairedDevices: Array.from(this.auth.devices.values()).filter((device) => !device.revoked).length,
+        pairedDevices: this.auth.activeDeviceCount(),
         activeRuns: runs.filter((run) => run.status === 'running').length,
         queuedRuns: this.runQueue.list().length
       },

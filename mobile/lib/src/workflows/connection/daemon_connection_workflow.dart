@@ -3,6 +3,7 @@ import '../../domain/models/connected_app_session.dart';
 import '../../domain/models/daemon_initial_data.dart';
 import '../../services/daemon_client.dart';
 import '../../services/daemon_connection_config.dart';
+import '../../services/device_identity_store.dart';
 import '../../shell/app_snapshot.dart';
 
 typedef DaemonClientFactory = DaemonClient Function({
@@ -20,20 +21,23 @@ class DaemonConnectionWorkflow {
   DaemonConnectionWorkflow({
     required DaemonConnectionConfigRepository configRepository,
     required SecureTokenStore tokenStore,
+    DeviceIdentityStore? deviceIdentityStore,
     DaemonClientFactory? clientFactory,
     DaemonInitialDataLoader? initialDataLoader,
     DaemonHealthProbe? healthProbe,
   })  : _configRepository = configRepository,
         _tokenStore = tokenStore,
+        _deviceIdentityStore =
+            deviceIdentityStore ?? SharedPreferencesDeviceIdentityStore(),
         _clientFactory = clientFactory ?? _defaultClientFactory,
-        _initialDataLoader = initialDataLoader ??
-            ((client) => AppSnapshot.loadBootstrap(client)),
+        _initialDataLoader = initialDataLoader,
         _healthProbe = healthProbe ?? ((client) async => client.health());
 
   final DaemonConnectionConfigRepository _configRepository;
   final SecureTokenStore _tokenStore;
+  final DeviceIdentityStore _deviceIdentityStore;
   final DaemonClientFactory _clientFactory;
-  final DaemonInitialDataLoader _initialDataLoader;
+  final DaemonInitialDataLoader? _initialDataLoader;
   final DaemonHealthProbe _healthProbe;
 
   Future<ConnectedAppSession> connect({
@@ -61,7 +65,10 @@ class DaemonConnectionWorkflow {
       throw const DaemonConnectionCancelled();
     }
     onLoadingInitialData?.call();
-    final initialData = await _initialDataLoader(client);
+    final initialData = _initialDataLoader == null
+        ? await AppSnapshot.loadBootstrap(client,
+            deviceIdentityStore: _deviceIdentityStore)
+        : await _initialDataLoader(client);
     if (shouldContinue != null && !shouldContinue()) {
       throw const DaemonConnectionCancelled();
     }

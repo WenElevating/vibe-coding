@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
@@ -8,28 +7,67 @@ import '../models/protocol.dart';
 import '../workflows/workspace/create_workspace_workflow.dart';
 import 'asr_model_client.dart';
 import 'daemon_connection_config.dart';
+import 'device_identity_store.dart';
 
 abstract class SecureTokenStore {
-  Future<void> writeDeviceToken(String deviceId, String token);
-  Future<String?> readDeviceToken(String deviceId);
-  Future<void> deleteDeviceToken(String deviceId);
+  Future<void> writeAccessToken(String deviceId, String token);
+  Future<String?> readAccessToken(String deviceId);
+  Future<void> deleteAccessToken(String deviceId);
+  Future<void> writeRefreshToken(String deviceId, String token);
+  Future<String?> readRefreshToken(String deviceId);
+  Future<void> deleteRefreshToken(String deviceId);
+
+  Future<void> writeDeviceToken(String deviceId, String token) =>
+      writeAccessToken(deviceId, token);
+
+  Future<String?> readDeviceToken(String deviceId) => readAccessToken(deviceId);
+
+  Future<void> deleteDeviceToken(String deviceId) =>
+      deleteAccessToken(deviceId);
 }
 
 class MemoryTokenStore implements SecureTokenStore {
-  final Map<String, String> _tokens = <String, String>{};
+  final Map<String, String> _accessTokens = <String, String>{};
+  final Map<String, String> _refreshTokens = <String, String>{};
 
   @override
-  Future<String?> readDeviceToken(String deviceId) async => _tokens[deviceId];
+  Future<String?> readAccessToken(String deviceId) async =>
+      _accessTokens[deviceId];
 
   @override
-  Future<void> writeDeviceToken(String deviceId, String token) async {
-    _tokens[deviceId] = token;
+  Future<void> writeAccessToken(String deviceId, String token) async {
+    _accessTokens[deviceId] = token;
   }
 
   @override
-  Future<void> deleteDeviceToken(String deviceId) async {
-    _tokens.remove(deviceId);
+  Future<void> deleteAccessToken(String deviceId) async {
+    _accessTokens.remove(deviceId);
   }
+
+  @override
+  Future<void> writeRefreshToken(String deviceId, String token) async {
+    _refreshTokens[deviceId] = token;
+  }
+
+  @override
+  Future<String?> readRefreshToken(String deviceId) async =>
+      _refreshTokens[deviceId];
+
+  @override
+  Future<void> deleteRefreshToken(String deviceId) async {
+    _refreshTokens.remove(deviceId);
+  }
+
+  @override
+  Future<void> writeDeviceToken(String deviceId, String token) =>
+      writeAccessToken(deviceId, token);
+
+  @override
+  Future<String?> readDeviceToken(String deviceId) => readAccessToken(deviceId);
+
+  @override
+  Future<void> deleteDeviceToken(String deviceId) =>
+      deleteAccessToken(deviceId);
 }
 
 class DaemonClient implements WorkspaceCreationClient {
@@ -78,13 +116,66 @@ class DaemonClient implements WorkspaceCreationClient {
   }
 
   Future<void> pair(
-      {required String code, String label = 'Android device'}) async {
+      {required String code,
+      String label = 'Android device',
+      String? deviceId}) async {
     final response = await _post(
-        '/api/pair', <String, Object?>{'code': code, 'label': label},
+        '/api/pair',
+        <String, Object?>{
+          'code': code,
+          'label': label,
+          if (deviceId != null) 'deviceId': deviceId,
+        },
         authorize: false);
     _deviceId = response['deviceId'] as String;
     _token = response['token'] as String;
-    await tokenStore.writeDeviceToken(_deviceId!, _token!);
+    await tokenStore.writeAccessToken(_deviceId!, _token!);
+    final refreshToken = response['refreshToken'] as String?;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await tokenStore.writeRefreshToken(_deviceId!, refreshToken);
+    }
+  }
+
+  Future<void> refreshToken() async {
+    final deviceId = _deviceId;
+    if (deviceId == null) {
+      throw const DaemonClientException(401, <String, Object?>{
+        'error': 'missing_device',
+        'message': 'No paired device is available for token refresh.',
+      });
+    }
+    final refreshToken = await tokenStore.readRefreshToken(deviceId);
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw const DaemonClientException(401, <String, Object?>{
+        'error': 'missing_refresh_token',
+        'message': 'No refresh token is available for this device.',
+      });
+    }
+    final response = await _post(
+      '/api/token/refresh',
+      <String, Object?>{'deviceId': deviceId, 'refreshToken': refreshToken},
+    );
+    _deviceId = response['deviceId'] as String;
+    _token = response['token'] as String;
+    await tokenStore.writeAccessToken(_deviceId!, _token!);
+    final nextRefreshToken = response['refreshToken'] as String?;
+    if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) {
+      await tokenStore.writeRefreshToken(_deviceId!, nextRefreshToken);
+    }
+  }
+
+  Future<void> ensurePaired(
+      {required DeviceIdentityStore deviceIdentityStore,
+      String label = 'Android device'}) async {
+    final deviceId = await deviceIdentityStore.readOrCreateDeviceId();
+    final token = await tokenStore.readAccessToken(deviceId);
+    if (token != null && token.isNotEmpty) {
+      _deviceId = deviceId;
+      _token = token;
+      return;
+    }
+    final pairingCode = await createPairingCode();
+    await pair(code: pairingCode, label: label, deviceId: deviceId);
   }
 
   Future<String> createPairingCode() async {
@@ -394,7 +485,8 @@ class DaemonClient implements WorkspaceCreationClient {
     final deviceId = _deviceId;
     if (deviceId == null) return;
     await _post('/api/devices/$deviceId/revoke', const <String, Object?>{});
-    await tokenStore.deleteDeviceToken(deviceId);
+    await tokenStore.deleteAccessToken(deviceId);
+    await tokenStore.deleteRefreshToken(deviceId);
     _deviceId = null;
     _token = null;
   }

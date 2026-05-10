@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { AuthManager, verifyToken } = require('../src/auth');
+const { AuthManager, hashDeviceId, verifyToken } = require('../src/auth');
 const { validateRunCreate, assertNoV1TerminalRequest } = require('../src/protocol');
 const { EventStore } = require('../src/event-store');
 const { WorkspaceRegistry } = require('../src/workspace');
@@ -17,6 +17,58 @@ test('pairing issues a token and stores only token hash', () => {
   assert.equal(device.id, paired.deviceId);
   assert.equal(device.tokenHash.includes(paired.token), false);
   assert.equal(verifyToken(paired.token, device.tokenHash), true);
+});
+
+test('pairing can reuse a fixed device id', () => {
+  const auth = new AuthManager({ now: () => 1000 });
+  const pairing1 = auth.createPairingCode();
+  const first = auth.pair(pairing1.code, 'phone', 'device-123');
+  const firstDevice = auth.authenticate(`Bearer ${first.token}`);
+
+  const pairing2 = auth.createPairingCode();
+  const second = auth.pair(pairing2.code, 'phone', 'device-123');
+  const secondDevice = auth.authenticate(`Bearer ${second.token}`);
+
+  assert.equal(first.deviceId, 'device-123');
+  assert.equal(second.deviceId, 'device-123');
+  assert.equal(firstDevice.id, 'device-123');
+  assert.equal(secondDevice.id, 'device-123');
+  assert.notEqual(first.token, second.token);
+  assert.equal(verifyToken(second.token, secondDevice.tokenHash), true);
+});
+
+test('pairing stores hashed device identity without plaintext credentials', () => {
+  const auth = new AuthManager({ now: () => 1000, deviceIdPepper: 'test-pepper' });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+  const device = auth.authenticate(`Bearer ${paired.token}`);
+
+  assert.equal(device.deviceIdHash, hashDeviceId('device-123', 'test-pepper'));
+  assert.notEqual(device.deviceIdHash, 'device-123');
+  assert.equal(device.deviceIdHash.includes('device-123'), false);
+  assert.equal(device.tokenHash.includes(paired.token), false);
+  assert.equal(device.refreshTokenHash.includes(paired.refreshToken), false);
+});
+
+test('refresh rotates refresh token without changing device id', () => {
+  const auth = new AuthManager({ now: () => 1000 });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+
+  const refreshed = auth.refresh(
+    `Bearer ${paired.token}`,
+    paired.refreshToken,
+    'device-123'
+  );
+
+  assert.equal(refreshed.deviceId, 'device-123');
+  assert.notEqual(refreshed.token, paired.token);
+  assert.notEqual(refreshed.refreshToken, paired.refreshToken);
+  assert.equal(auth.authenticate(`Bearer ${refreshed.token}`).id, 'device-123');
+  assert.throws(
+    () => auth.refresh(`Bearer ${refreshed.token}`, paired.refreshToken, 'device-123'),
+    /invalid refresh token/
+  );
 });
 
 test('expired pairing code fails', () => {

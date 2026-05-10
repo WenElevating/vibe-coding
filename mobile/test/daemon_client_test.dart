@@ -29,7 +29,10 @@ void main() {
       httpClient: MockClient((request) async {
         calls++;
         if (calls == 1) throw http.ClientException('write failed', request.url);
-        return http.Response('{"status":"ok","security":{}}', 200);
+        return http.Response(
+          '{"status":"ok","daemonVersion":"test","mode":"test","lanMode":false,"bindAddress":"127.0.0.1","port":4317,"security":{}}',
+          200,
+        );
       }),
     );
 
@@ -54,6 +57,58 @@ void main() {
     final trace = await client.recordException(message: 'SocketException');
 
     expect(trace.traceId, 'trc_test');
+  });
+
+  test('pair stores access and refresh tokens separately', () async {
+    final tokenStore = MemoryTokenStore();
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/pair');
+        return http.Response(
+          '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1"}',
+          200,
+        );
+      }),
+    );
+
+    await client.pair(code: '123456', deviceId: 'device-1');
+
+    expect(client.currentToken, 'access-1');
+    expect(await tokenStore.readAccessToken('device-1'), 'access-1');
+    expect(await tokenStore.readRefreshToken('device-1'), 'refresh-1');
+  });
+
+  test('refresh rotates tokens without changing device identity', () async {
+    final tokenStore = MemoryTokenStore();
+    var refreshCalls = 0;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/api/pair') {
+          return http.Response(
+            '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1"}',
+            200,
+          );
+        }
+        expect(request.url.path, '/api/token/refresh');
+        refreshCalls++;
+        return http.Response(
+          '{"deviceId":"device-1","token":"access-2","refreshToken":"refresh-2"}',
+          200,
+        );
+      }),
+    );
+
+    await client.pair(code: '123456', deviceId: 'device-1');
+    await client.refreshToken();
+
+    expect(refreshCalls, 1);
+    expect(client.currentToken, 'access-2');
+    expect(await tokenStore.readAccessToken('device-1'), 'access-2');
+    expect(await tokenStore.readRefreshToken('device-1'), 'refresh-2');
   });
 
   test('daemon direct proxy mode always bypasses proxies', () {

@@ -44,6 +44,32 @@ class AppSqliteStore {
         ON conversations(device_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_conversations_workspace_updated
         ON conversations(workspace_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS devices (
+        id TEXT PRIMARY KEY,
+        device_id_hash TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_devices_status_last_seen
+        ON devices(status, last_seen_at DESC);
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        token_type TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_device_tokens_device_type
+        ON device_tokens(device_id, token_type);
+      CREATE INDEX IF NOT EXISTS idx_device_tokens_expires
+        ON device_tokens(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_device_tokens_revoked
+        ON device_tokens(revoked_at);
       CREATE TABLE IF NOT EXISTS conversation_events (
         conversation_id TEXT NOT NULL,
         seq INTEGER NOT NULL,
@@ -221,13 +247,14 @@ class AppSqliteStore {
   }
 
   listWorkspacesForDevice(deviceId) {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT w.id, w.name, w.path
       FROM workspaces w
       INNER JOIN workspace_device_authorizations a ON a.workspace_id = w.id
       WHERE a.device_id = ?
       ORDER BY w.created_at ASC
-    `).all(deviceId).map(deserializeWorkspace);
+    `).all(deviceId);
+    return dedupeWorkspaceRowsByPath(rows).map(deserializeWorkspace);
   }
 
   listWorkspaces() {
@@ -256,6 +283,107 @@ class AppSqliteStore {
   hasAnyWorkspaces() {
     const row = this.db.prepare('SELECT 1 AS exists_workspace FROM workspaces LIMIT 1').get();
     return Boolean(row);
+  }
+
+  getDeviceByHash(deviceIdHash) {
+    const row = this.db.prepare(`
+      SELECT id, device_id_hash, label, status, created_at, last_seen_at
+      FROM devices
+      WHERE device_id_hash = ?
+    `).get(deviceIdHash);
+    return row ? deserializeDevice(row) : null;
+  }
+
+  getDevice(deviceId) {
+    const row = this.db.prepare(`
+      SELECT id, device_id_hash, label, status, created_at, last_seen_at
+      FROM devices
+      WHERE id = ?
+    `).get(deviceId);
+    return row ? deserializeDevice(row) : null;
+  }
+
+  countActiveDevices() {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM devices
+      WHERE status = 'active'
+    `).get();
+    return Number(row?.count || 0);
+  }
+
+  upsertDevice({ id, deviceIdHash, label, status, createdAt, lastSeenAt }) {
+    const now = this.now().toISOString();
+    const deviceId = id || `dev_${crypto.randomUUID()}`;
+    this.db.prepare(`
+      INSERT INTO devices(id, device_id_hash, label, status, created_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(device_id_hash) DO UPDATE SET
+        label = excluded.label,
+        status = excluded.status,
+        last_seen_at = excluded.last_seen_at
+    `).run(deviceId, deviceIdHash, label, status || 'active', createdAt || now, lastSeenAt || now);
+    const row = this.db.prepare(`
+      SELECT id, device_id_hash, label, status, created_at, last_seen_at
+      FROM devices
+      WHERE device_id_hash = ?
+    `).get(deviceIdHash);
+    return deserializeDevice(row);
+  }
+
+  saveDeviceToken({ id, deviceId, tokenType, tokenHash, expiresAt, revokedAt = null, createdAt }) {
+    this.db.prepare(`
+      INSERT INTO device_tokens(id, device_id, token_type, token_hash, expires_at, revoked_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(token_hash) DO UPDATE SET
+        device_id = excluded.device_id,
+        token_type = excluded.token_type,
+        expires_at = excluded.expires_at,
+        revoked_at = excluded.revoked_at
+    `).run(id, deviceId, tokenType, tokenHash, expiresAt, revokedAt, createdAt || this.now().toISOString());
+  }
+
+  getValidRefreshTokenForDevice(deviceId) {
+    const row = this.db.prepare(`
+      SELECT id, device_id, token_type, token_hash, expires_at, revoked_at, created_at
+      FROM device_tokens
+      WHERE device_id = ? AND token_type = 'refresh' AND revoked_at IS NULL AND expires_at > ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(deviceId, this.now().toISOString());
+    return row || null;
+  }
+
+  getDeviceByAccessTokenHash(tokenHash) {
+    const row = this.db.prepare(`
+      SELECT d.id, d.device_id_hash, d.label, d.status, d.created_at, d.last_seen_at
+      FROM devices d
+      INNER JOIN device_tokens t ON t.device_id = d.id
+      WHERE d.status = 'active' AND t.token_type = 'access' AND t.revoked_at IS NULL AND t.expires_at > ? AND t.token_hash = ?
+      LIMIT 1
+    `).get(this.now().toISOString(), tokenHash);
+    return row ? deserializeDevice(row) : null;
+  }
+
+  revokeToken(tokenId, revokedAt) {
+    this.db.prepare(`
+      UPDATE device_tokens
+      SET revoked_at = ?
+      WHERE id = ?
+    `).run(revokedAt || this.now().toISOString(), tokenId);
+  }
+
+  revokeDevice(deviceId, revokedAt) {
+    this.db.prepare(`
+      UPDATE devices
+      SET status = 'revoked', last_seen_at = ?
+      WHERE id = ?
+    `).run(revokedAt || this.now().toISOString(), deviceId);
+    this.db.prepare(`
+      UPDATE device_tokens
+      SET revoked_at = ?
+      WHERE device_id = ? AND revoked_at IS NULL
+    `).run(revokedAt || this.now().toISOString(), deviceId);
   }
 
   recordException(input) {
@@ -377,6 +505,30 @@ function workspaceIdForDevicePath(deviceId, resolvedPath) {
 
 function deserializeWorkspace(row) {
   return { id: row.id, name: row.name, path: row.path };
+}
+
+function dedupeWorkspaceRowsByPath(rows) {
+  const seen = new Set();
+  const deduped = [];
+  for (const row of rows) {
+    const key = String(row.path || '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
+}
+
+function deserializeDevice(row) {
+  return {
+    id: row.id,
+    deviceIdHash: row.device_id_hash,
+    label: row.label,
+    status: row.status,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    allowedWorkspaceIds: new Set()
+  };
 }
 
 function parseJson(value, fallback) {

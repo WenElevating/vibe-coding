@@ -1,5 +1,6 @@
 import '../models/protocol.dart';
 import '../services/daemon_client.dart';
+import '../services/device_identity_store.dart';
 
 class AppSnapshot {
   const AppSnapshot(
@@ -44,10 +45,12 @@ class AppSnapshot {
       runs.where((run) => run.status == 'failed').toList();
 
   static Future<AppSnapshot> load(DaemonClient client,
-      {DaemonHealth? health}) async {
+      {DaemonHealth? health, DeviceIdentityStore? deviceIdentityStore}) async {
     final resolvedHealth = health ?? await client.health();
-    final pairingCode = await client.createPairingCode();
-    await client.pair(code: pairingCode, label: 'Windows preview');
+    await client.ensurePaired(
+        deviceIdentityStore:
+            deviceIdentityStore ?? SharedPreferencesDeviceIdentityStore(),
+        label: 'Windows preview');
     final workspaces = await client.listWorkspaces();
     final workspace = workspaces.first;
     final results = await Future.wait<Object?>([
@@ -84,10 +87,12 @@ class AppSnapshot {
   }
 
   static Future<AppSnapshot> loadBootstrap(DaemonClient client,
-      {DaemonHealth? health}) async {
+      {DaemonHealth? health, DeviceIdentityStore? deviceIdentityStore}) async {
     final resolvedHealth = health ?? await client.health();
-    final pairingCode = await client.createPairingCode();
-    await client.pair(code: pairingCode, label: 'Windows preview');
+    await client.ensurePaired(
+        deviceIdentityStore:
+            deviceIdentityStore ?? SharedPreferencesDeviceIdentityStore(),
+        label: 'Windows preview');
     final workspaces = await client.listWorkspaces();
     final workspace = workspaces.first;
     final results = await Future.wait<Object?>([
@@ -115,7 +120,8 @@ class AppSnapshot {
   }
 }
 
-ProjectOverview _deferredOverview(WorkspaceSummary workspace) => ProjectOverview(
+ProjectOverview _deferredOverview(WorkspaceSummary workspace) =>
+    ProjectOverview(
       workspaceId: workspace.id,
       name: workspace.name,
       path: workspace.path,

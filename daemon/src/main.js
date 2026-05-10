@@ -41,8 +41,8 @@ function createApp({
   appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath(),
   asrModelAsset = new AsrModelAsset()
 } = {}) {
-  const auth = new AuthManager();
   const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
+  const auth = new AuthManager({ store: appSqliteStore });
   const workspaces = new WorkspaceRegistry({ store: appSqliteStore });
   const defaultDevice = { id: 'daemon-default', allowedWorkspaceIds: new Set() };
   workspaces.seedDefault({ id: 'default', name: 'Current Project', workspacePath: process.cwd() }, defaultDevice);

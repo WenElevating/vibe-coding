@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
-const { AuthManager, verifyToken } = require('../daemon/src/auth');
+const { AuthManager, hashDeviceId, verifyToken } = require('../daemon/src/auth');
 const { validateRunCreate, assertNoV1TerminalRequest, eventTypes } = require('../daemon/src/protocol');
 const { EventStore } = require('../daemon/src/event-store');
 const { WorkspaceRegistry } = require('../daemon/src/workspace');
@@ -34,6 +34,19 @@ test('pairing issues a token and stores only token hash', () => {
   assert.equal(device.id, paired.deviceId);
   assert.equal(device.tokenHash.includes(paired.token), false);
   assert.equal(verifyToken(paired.token, device.tokenHash), true);
+});
+
+test('pairing stores hashed device identity without plaintext credentials', () => {
+  const auth = new AuthManager({ now: () => 1000, deviceIdPepper: 'test-pepper' });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+  const device = auth.authenticate(`Bearer ${paired.token}`);
+
+  assert.equal(device.deviceIdHash, hashDeviceId('device-123', 'test-pepper'));
+  assert.notEqual(device.deviceIdHash, 'device-123');
+  assert.equal(device.deviceIdHash.includes('device-123'), false);
+  assert.equal(device.tokenHash.includes(paired.token), false);
+  assert.equal(device.refreshTokenHash.includes(paired.refreshToken), false);
 });
 
 test('expired pairing code fails', () => {
@@ -806,29 +819,26 @@ test('workspace registry persists created workspaces for the same authorized dev
   secondStore.close();
 });
 
-test('workspace registry authorizes persisted workspaces for newly paired device', () => {
+test('workspace registry deduplicates visible workspaces by path for a device', () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
   const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
   const { WorkspaceRegistry } = require('../daemon/src/workspace');
 
-  const appDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-new-device-')), 'app.sqlite');
-  const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-folder-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-dedupe-'));
+  const store = new AppSqliteStore({ dbPath: path.join(dir, 'app.sqlite') });
+  const registry = new WorkspaceRegistry({ store });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set() };
+  const workspacePath = path.join(dir, 'same');
 
-  const firstStore = new AppSqliteStore({ dbPath: appDbPath });
-  const firstRegistry = new WorkspaceRegistry({ store: firstStore });
-  const firstDevice = { id: 'device_1', allowedWorkspaceIds: new Set() };
-  const created = firstRegistry.add({ workspacePath, name: 'Persisted' }, firstDevice);
-  firstStore.close();
+  registry.add({ id: 'workspace_a', workspacePath, name: 'First' }, device);
+  registry.add({ id: 'workspace_b', workspacePath, name: 'Second' }, device);
 
-  const secondStore = new AppSqliteStore({ dbPath: appDbPath });
-  const secondRegistry = new WorkspaceRegistry({ store: secondStore });
-  const nextDevice = { id: 'device_2', allowedWorkspaceIds: new Set() };
-  secondRegistry.authorizeExistingWorkspacesForDevice(nextDevice);
-
-  assert.equal(secondRegistry.listForDevice(nextDevice).some((workspace) => workspace.id === created.id), true);
-  secondStore.close();
+  const listed = registry.listForDevice(device);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].path, path.resolve(workspacePath));
+  store.close();
 });
 
 test('event replay returns ordered events after sequence', () => {
@@ -1248,9 +1258,13 @@ test('HTTP new run ignores sessionId and starts a fresh Claude CLI', async () =>
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, paired.body.token);
     const created = await request(port, 'POST', '/api/runs', {
       tool: 'claude',
-      workspaceId: 'default',
+      workspaceId: (await request(port, 'GET', '/api/workspaces', null, paired.body.token)).body.workspaces[0].id,
       prompt: 'fresh run',
       sessionId: 'must-not-resume-this-session'
     }, paired.body.token);
@@ -1299,7 +1313,12 @@ test('follow-up resumes only the captured Claude session', async () => {
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
-    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'first' }, paired.body.token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, paired.body.token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, paired.body.token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId, prompt: 'first' }, paired.body.token);
     await new Promise((resolve) => setTimeout(resolve, 1700));
     const followed = await request(port, 'POST', `/api/runs/${created.body.id}/input`, { prompt: 'second' }, paired.body.token);
 
@@ -1459,9 +1478,18 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
   let conversationId;
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
-    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'conversation-test' });
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'conversation-test',
+      deviceId: 'fixed-device-1'
+    });
     token = paired.body.token;
-    const created = await request(port, 'POST', '/api/conversations', { workspaceId: 'default', adapter: 'claude' }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
     conversationId = created.body.conversation.id;
     assert.equal(created.status, 201);
     assert.equal(created.body.conversation.status, 'idle');
@@ -1483,8 +1511,17 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
   const restartedPort = restarted.server.address().port;
   try {
     const pairing = await request(restartedPort, 'POST', '/api/pairing-code', {});
-    const paired = await request(restartedPort, 'POST', '/api/pair', { code: pairing.body.code, label: 'conversation-test-restarted' });
+    const paired = await request(restartedPort, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'conversation-test-restarted',
+      deviceId: 'fixed-device-1'
+    });
     const restartedToken = paired.body.token;
+    await request(restartedPort, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, restartedToken);
+    const workspaceId = (await request(restartedPort, 'GET', '/api/workspaces', null, restartedToken)).body.workspaces[0].id;
     const listed = await request(restartedPort, 'GET', '/api/conversations', null, restartedToken);
     assert.equal(listed.body.conversations.some((conversation) => conversation.id === conversationId), true);
     const events = await request(restartedPort, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, restartedToken);
@@ -2184,7 +2221,12 @@ test('Codex conversation persists thread id and preserves it after turn failure'
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
-    const created = await request(port, 'POST', '/api/conversations', { workspaceId: 'default', adapter: 'codex' }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'codex' }, token);
     const conversationId = created.body.conversation.id;
     await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'fail after thread' }, token);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2220,7 +2262,12 @@ test('Codex conversation HTTP API sends message and stores CLI thread id', async
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
-    const created = await request(port, 'POST', '/api/conversations', { workspaceId: 'default', adapter: 'codex', permissionMode: 'auto' }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'codex', permissionMode: 'auto' }, token);
     const conversationId = created.body.conversation.id;
     const sent = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'hello' }, token);
     assert.equal(sent.status, 200);
@@ -2251,9 +2298,16 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     assert.equal(paired.status, 200);
     const token = paired.body.token;
-    const rejected = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'x', command: 'dir' }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const unauthorized = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'x' }, token);
+    assert.equal(unauthorized.status, 404);
+    const rejected = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId, prompt: 'x', command: 'dir' }, token);
     assert.equal(rejected.status, 400);
-    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'hello' }, token);
+    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId, prompt: 'hello' }, token);
     assert.equal(created.status, 201);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const events = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=0`, null, token);
@@ -2296,11 +2350,16 @@ test('V1.1 run filters, shortcuts, and token revocation work', async () => {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
     const shortcuts = await request(port, 'GET', '/api/shortcuts', null, token);
     assert.equal(shortcuts.body.shortcuts.some((shortcut) => shortcut.id === 'test'), true);
-    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', shortcutId: 'test' }, token);
+    const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId, shortcutId: 'test' }, token);
     assert.equal(created.status, 201);
-    const filtered = await request(port, 'GET', '/api/runs?tool=claude&workspaceId=default&status=running', null, token);
+    const filtered = await request(port, 'GET', `/api/runs?tool=claude&workspaceId=${workspaceId}&status=running`, null, token);
     assert.equal(filtered.body.runs.length, 1);
     const revoked = await request(port, 'POST', `/api/devices/${paired.body.deviceId}/revoke`, {}, token);
     assert.equal(revoked.body.revoked, true);
@@ -2321,9 +2380,14 @@ test('Codex adapter can run when explicitly enabled and still rejects arbitrary 
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
-    const rejected = await request(port, 'POST', '/api/runs', { tool: 'codex', workspaceId: 'default', prompt: 'x', args: ['--danger'] }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const rejected = await request(port, 'POST', '/api/runs', { tool: 'codex', workspaceId, prompt: 'x', args: ['--danger'] }, token);
     assert.equal(rejected.status, 400);
-    const created = await request(port, 'POST', '/api/runs', { tool: 'codex', workspaceId: 'default', prompt: 'hello' }, token);
+    const created = await request(port, 'POST', '/api/runs', { tool: 'codex', workspaceId, prompt: 'hello' }, token);
     assert.equal(created.status, 201);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
@@ -2590,8 +2654,13 @@ test('V1.2 queue serializes workspace runs and synthetic adapter completes witho
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
-    const first = await request(port, 'POST', '/api/runs', { tool: 'synthetic-slow', workspaceId: 'default', prompt: 'first' }, token);
-    const second = await request(port, 'POST', '/api/runs', { tool: 'synthetic-jsonl', workspaceId: 'default', prompt: 'second' }, token);
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const first = await request(port, 'POST', '/api/runs', { tool: 'synthetic-slow', workspaceId, prompt: 'first' }, token);
+    const second = await request(port, 'POST', '/api/runs', { tool: 'synthetic-jsonl', workspaceId, prompt: 'second' }, token);
     assert.equal(first.body.status, 'running');
     assert.equal(second.body.status, 'queued');
     const queue = await request(port, 'GET', '/api/queue', null, token);
@@ -2612,11 +2681,16 @@ test('V1.2 command templates invoke adapter runs and reject raw command fields',
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
     const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
     const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
     const templates = await request(port, 'GET', '/api/command-templates', null, token);
     assert.equal(templates.body.templates.some((template) => template.id === 'test'), true);
     const rejected = await request(port, 'POST', '/api/command-templates', { id: 'bad', label: 'bad', prompt: 'bad', command: 'rm -rf' }, token);
     assert.equal(rejected.status, 400);
-    const invoked = await request(port, 'POST', '/api/command-templates/test/invoke', { workspaceId: 'default', tool: 'synthetic-jsonl' }, token);
+    const invoked = await request(port, 'POST', '/api/command-templates/test/invoke', { workspaceId, tool: 'synthetic-jsonl' }, token);
     assert.equal(invoked.status, 201);
     assert.equal(invoked.body.run.tool, 'synthetic-jsonl');
   } finally {
