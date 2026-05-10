@@ -96,10 +96,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _ => null,
       };
 
-  void _syncWorkspacesFromSnapshot(List<WorkspaceSummary> snapshot) {
-    _routeState = applyWorkspaceSnapshot(_routeState, snapshot);
-  }
-
   Future<bool> handleSystemBack() async {
     final navigator = _navigatorKey.currentState;
     if (navigator == null) return false;
@@ -283,7 +279,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         AsrModelManager(client: widget.client.createAsrModelClient());
     _voiceInput = VoiceInputController(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
-    _syncWorkspacesFromSnapshot(widget.data.workspaces);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setCurrentRoute(_routeWorkspaces);
     });
@@ -292,7 +287,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _syncWorkspacesFromSnapshot(widget.data.workspaces);
     _syncSelectedAdapterFromSnapshot();
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;

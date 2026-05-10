@@ -3,28 +3,22 @@ import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 
 void main() {
-  test('workspace snapshot replaces list route workspaces', () {
+  test('workspace list route exposes daemon-confirmed workspaces', () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
       path: r'D:\current',
     );
-    const updated = WorkspaceSummary(
-      id: 'workspace_updated',
-      name: 'Updated Workspace',
-      path: r'D:\updated',
+    const route = WorkspaceListRouteState(
+      workspaces: <WorkspaceSummary>[current],
     );
 
-    final next = applyWorkspaceSnapshot(
-      const WorkspaceListRouteState(workspaces: <WorkspaceSummary>[current]),
-      const <WorkspaceSummary>[updated],
-    );
-
-    expect(next, isA<WorkspaceListRouteState>());
-    expect(next.workspaces, const <WorkspaceSummary>[updated]);
+    expect(route.workspaces, const <WorkspaceSummary>[current]);
   });
 
-  test('workspace snapshot is ignored while creating workspace', () {
+  test(
+      'creating workspace route keeps previous workspaces only as display state',
+      () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
@@ -35,12 +29,11 @@ void main() {
       requestLabel: 'Created Workspace',
     );
 
-    final next = applyWorkspaceSnapshot(state, const <WorkspaceSummary>[]);
-
-    expect(identical(next, state), isTrue);
+    expect(state.workspaces, const <WorkspaceSummary>[current]);
+    expect(state.requestLabel, 'Created Workspace');
   });
 
-  test('workspace snapshot preserves sessions route workspace context', () {
+  test('sessions route carries workspace context and workspace list', () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
@@ -52,45 +45,16 @@ void main() {
       path: r'D:\created',
     );
 
-    final next = applyWorkspaceSnapshot(
-      const WorkspaceSessionsRouteState(
-        workspace: created,
-        workspaces: <WorkspaceSummary>[current, created],
-      ),
-      const <WorkspaceSummary>[current],
+    const route = WorkspaceSessionsRouteState(
+      workspace: created,
+      workspaces: <WorkspaceSummary>[current, created],
     );
 
-    expect(next, isA<WorkspaceSessionsRouteState>());
-    final sessions = next as WorkspaceSessionsRouteState;
-    expect(sessions.workspace, created);
-    expect(sessions.workspaces, const <WorkspaceSummary>[current, created]);
+    expect(route.workspace, created);
+    expect(route.workspaces, const <WorkspaceSummary>[current, created]);
   });
 
-  test('workspace snapshot keeps route workspace in auxiliary list', () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const created = WorkspaceSummary(
-      id: 'workspace_created',
-      name: 'Created Workspace',
-      path: r'D:\created',
-    );
-
-    final next = applyWorkspaceSnapshot(
-      const WorkspaceSessionsRouteState(
-        workspace: created,
-        workspaces: <WorkspaceSummary>[current, created],
-      ),
-      const <WorkspaceSummary>[current],
-    ) as WorkspaceSessionsRouteState;
-
-    expect(next.workspace, created);
-    expect(next.workspaces, const <WorkspaceSummary>[current, created]);
-  });
-
-  test('workspace snapshot preserves conversation route workspace context', () {
+  test('conversation route carries workspace context and workspace list', () {
     const current = WorkspaceSummary(
       id: 'workspace_current',
       name: 'Current Project',
@@ -102,18 +66,13 @@ void main() {
       path: r'D:\conversation',
     );
 
-    final next = applyWorkspaceSnapshot(
-      const ConversationRouteState(
-        workspace: conversationWorkspace,
-        workspaces: <WorkspaceSummary>[conversationWorkspace],
-      ),
-      const <WorkspaceSummary>[current],
+    const route = ConversationRouteState(
+      workspace: conversationWorkspace,
+      workspaces: <WorkspaceSummary>[current, conversationWorkspace],
     );
 
-    expect(next, isA<ConversationRouteState>());
-    final conversation = next as ConversationRouteState;
-    expect(conversation.workspace, conversationWorkspace);
-    expect(conversation.workspaces,
+    expect(route.workspace, conversationWorkspace);
+    expect(route.workspaces,
         const <WorkspaceSummary>[current, conversationWorkspace]);
   });
 

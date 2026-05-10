@@ -51,40 +51,6 @@ final class ConversationRouteState extends WorkbenchRouteState {
   final List<WorkspaceSummary> workspaces;
 }
 
-WorkbenchRouteState applyWorkspaceSnapshot(
-  WorkbenchRouteState state,
-  List<WorkspaceSummary> snapshot,
-) {
-  if (snapshot.isEmpty || state is CreatingWorkspaceRouteState) return state;
-  final workspaces = List<WorkspaceSummary>.of(snapshot);
-  return switch (state) {
-    WorkspaceListRouteState(:final notice) => WorkspaceListRouteState(
-        workspaces: workspaces,
-        notice: notice,
-      ),
-    WorkspaceSessionsRouteState(:final workspace) =>
-      WorkspaceSessionsRouteState(
-        workspace: workspace,
-        workspaces: _withRouteWorkspace(workspaces, workspace),
-      ),
-    ConversationRouteState(:final workspace) => ConversationRouteState(
-        workspace: workspace,
-        workspaces: _withRouteWorkspace(workspaces, workspace),
-      ),
-    CreatingWorkspaceRouteState() => state,
-  };
-}
-
-List<WorkspaceSummary> _withRouteWorkspace(
-  List<WorkspaceSummary> workspaces,
-  WorkspaceSummary routeWorkspace,
-) {
-  if (workspaces.any((workspace) => workspace.id == routeWorkspace.id)) {
-    return workspaces;
-  }
-  return <WorkspaceSummary>[...workspaces, routeWorkspace];
-}
-
 bool canSendInConversationStatus(String? status) {
   return status == null ||
       status == 'idle' ||
