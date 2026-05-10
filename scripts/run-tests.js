@@ -806,6 +806,31 @@ test('workspace registry persists created workspaces for the same authorized dev
   secondStore.close();
 });
 
+test('workspace registry authorizes persisted workspaces for newly paired device', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const { WorkspaceRegistry } = require('../daemon/src/workspace');
+
+  const appDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-new-device-')), 'app.sqlite');
+  const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-folder-'));
+
+  const firstStore = new AppSqliteStore({ dbPath: appDbPath });
+  const firstRegistry = new WorkspaceRegistry({ store: firstStore });
+  const firstDevice = { id: 'device_1', allowedWorkspaceIds: new Set() };
+  const created = firstRegistry.add({ workspacePath, name: 'Persisted' }, firstDevice);
+  firstStore.close();
+
+  const secondStore = new AppSqliteStore({ dbPath: appDbPath });
+  const secondRegistry = new WorkspaceRegistry({ store: secondStore });
+  const nextDevice = { id: 'device_2', allowedWorkspaceIds: new Set() };
+  secondRegistry.authorizeExistingWorkspacesForDevice(nextDevice);
+
+  assert.equal(secondRegistry.listForDevice(nextDevice).some((workspace) => workspace.id === created.id), true);
+  secondStore.close();
+});
+
 test('event replay returns ordered events after sequence', () => {
   const store = new EventStore();
   store.append('run1', 'run.started');

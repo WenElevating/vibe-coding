@@ -230,6 +230,14 @@ class AppSqliteStore {
     `).all(deviceId).map(deserializeWorkspace);
   }
 
+  listWorkspaces() {
+    return this.db.prepare(`
+      SELECT id, name, path
+      FROM workspaces
+      ORDER BY created_at ASC
+    `).all().map(deserializeWorkspace);
+  }
+
   getWorkspaceForDevice(workspaceId, deviceId) {
     const row = this.db.prepare(`
       SELECT w.id, w.name, w.path

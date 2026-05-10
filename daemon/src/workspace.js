@@ -55,7 +55,7 @@ class WorkspaceRegistry {
       this.authorizeDeviceForWorkspace(device, workspace.id);
     }
     if (this.store) {
-      const existing = this.store.listWorkspacesForDevice('daemon-default');
+      const existing = this.store.listWorkspaces();
       for (const workspace of existing) this.authorizeDeviceForWorkspace(device, workspace.id);
     }
   }

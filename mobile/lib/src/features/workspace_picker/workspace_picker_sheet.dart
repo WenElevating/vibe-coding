@@ -103,9 +103,9 @@ class WorkspaceListPage extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           color: theme.text,
-                          fontSize: 22,
+                          fontSize: 18,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: -.35))),
+                          letterSpacing: -.2))),
               _WorkspaceAddIconButton(onTap: onAddWorkspace),
             ])),
         Expanded(
