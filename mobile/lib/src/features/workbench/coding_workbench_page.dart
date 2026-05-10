@@ -107,12 +107,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void showSessionListFromShell() {
-    final workspace = _routeWorkspace;
-    if (workspace != null) {
-      _goToSessions(workspace);
-    } else {
-      _goToWorkspaces();
-    }
+    _goToWorkspaces();
   }
 
   void _setCurrentRoute(String route) {

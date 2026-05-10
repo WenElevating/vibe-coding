@@ -65,14 +65,24 @@ WorkbenchRouteState applyWorkspaceSnapshot(
     WorkspaceSessionsRouteState(:final workspace) =>
       WorkspaceSessionsRouteState(
         workspace: workspace,
-        workspaces: workspaces,
+        workspaces: _withRouteWorkspace(workspaces, workspace),
       ),
     ConversationRouteState(:final workspace) => ConversationRouteState(
         workspace: workspace,
-        workspaces: workspaces,
+        workspaces: _withRouteWorkspace(workspaces, workspace),
       ),
     CreatingWorkspaceRouteState() => state,
   };
+}
+
+List<WorkspaceSummary> _withRouteWorkspace(
+  List<WorkspaceSummary> workspaces,
+  WorkspaceSummary routeWorkspace,
+) {
+  if (workspaces.any((workspace) => workspace.id == routeWorkspace.id)) {
+    return workspaces;
+  }
+  return <WorkspaceSummary>[...workspaces, routeWorkspace];
 }
 
 bool canSendInConversationStatus(String? status) {

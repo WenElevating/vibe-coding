@@ -63,7 +63,31 @@ void main() {
     expect(next, isA<WorkspaceSessionsRouteState>());
     final sessions = next as WorkspaceSessionsRouteState;
     expect(sessions.workspace, created);
-    expect(sessions.workspaces, const <WorkspaceSummary>[current]);
+    expect(sessions.workspaces, const <WorkspaceSummary>[current, created]);
+  });
+
+  test('workspace snapshot keeps route workspace in auxiliary list', () {
+    const current = WorkspaceSummary(
+      id: 'workspace_current',
+      name: 'Current Project',
+      path: r'D:\current',
+    );
+    const created = WorkspaceSummary(
+      id: 'workspace_created',
+      name: 'Created Workspace',
+      path: r'D:\created',
+    );
+
+    final next = applyWorkspaceSnapshot(
+      const WorkspaceSessionsRouteState(
+        workspace: created,
+        workspaces: <WorkspaceSummary>[current, created],
+      ),
+      const <WorkspaceSummary>[current],
+    ) as WorkspaceSessionsRouteState;
+
+    expect(next.workspace, created);
+    expect(next.workspaces, const <WorkspaceSummary>[current, created]);
   });
 
   test('workspace snapshot preserves conversation route workspace context', () {
@@ -89,7 +113,8 @@ void main() {
     expect(next, isA<ConversationRouteState>());
     final conversation = next as ConversationRouteState;
     expect(conversation.workspace, conversationWorkspace);
-    expect(conversation.workspaces, const <WorkspaceSummary>[current]);
+    expect(conversation.workspaces,
+        const <WorkspaceSummary>[current, conversationWorkspace]);
   });
 
   test('reusable conversation statuses can send another message', () {
