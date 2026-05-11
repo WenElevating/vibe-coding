@@ -88,7 +88,8 @@ class AppSqliteStore {
         path TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        UNIQUE(owner_device_id, path)
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at TEXT
       );
       CREATE TABLE IF NOT EXISTS workspace_device_authorizations (
         device_id TEXT NOT NULL,
@@ -97,8 +98,9 @@ class AppSqliteStore {
         PRIMARY KEY (device_id, workspace_id),
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
       );
-      CREATE INDEX IF NOT EXISTS idx_workspaces_owner_path
-        ON workspaces(owner_device_id, path);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
+        ON workspaces(owner_device_id, path)
+        WHERE is_deleted = 0;
       CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
         ON workspace_device_authorizations(device_id);
       CREATE TABLE IF NOT EXISTS exceptions (
@@ -122,8 +124,63 @@ class AppSqliteStore {
     `);
     ensureColumn(this.db, 'conversations', 'session_binding', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
+    this.ensureWorkspaceDeleteSchema();
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
+  }
+
+  ensureWorkspaceDeleteSchema() {
+    const columns = this.db.prepare('PRAGMA table_info(workspaces)').all();
+    const hasDeleted = columns.some((row) => row.name === 'is_deleted');
+    const hasDeletedAt = columns.some((row) => row.name === 'deleted_at');
+    const indexes = this.db.prepare('PRAGMA index_list(workspaces)').all();
+    const hasOldUnique = indexes.some((row) =>
+      row.name && row.name.startsWith('sqlite_autoindex_workspaces_') && row.origin === 'u'
+    );
+    if (hasDeleted && hasDeletedAt && !hasOldUnique) return;
+
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    this.db.exec('BEGIN');
+    try {
+      this.db.exec(`
+        CREATE TABLE workspaces_next (
+          id TEXT PRIMARY KEY,
+          owner_device_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          is_deleted INTEGER NOT NULL DEFAULT 0,
+          deleted_at TEXT
+        );
+      `);
+      const selectDeleted = hasDeleted ? 'is_deleted' : '0';
+      const selectDeletedAt = hasDeletedAt ? 'deleted_at' : 'NULL';
+      this.db.exec(`
+        INSERT INTO workspaces_next(
+          id, owner_device_id, name, path, created_at, updated_at, is_deleted, deleted_at
+        )
+        SELECT id, owner_device_id, name, path, created_at, updated_at, ${selectDeleted}, ${selectDeletedAt}
+        FROM workspaces;
+      `);
+      this.db.exec('DROP TABLE workspaces');
+      this.db.exec('ALTER TABLE workspaces_next RENAME TO workspaces');
+      this.db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
+          ON workspaces(owner_device_id, path)
+          WHERE is_deleted = 0;
+        CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
+          ON workspace_device_authorizations(device_id);
+      `);
+      this.db.exec('COMMIT');
+      this.db.exec('PRAGMA foreign_keys = ON');
+      const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+      if (violations.length > 0) throw new Error('workspace schema migration violated foreign keys');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      this.db.exec('PRAGMA foreign_keys = ON');
+      throw error;
+    }
   }
 
   saveConversation(conversation) {
@@ -222,19 +279,23 @@ class AppSqliteStore {
     if (!workspacePath) throw new Error('workspace path is required');
     const resolved = path.resolve(workspacePath);
     const now = this.now().toISOString();
-    const workspaceId = id || workspaceIdForDevicePath(deviceId, resolved);
     const displayName = name && String(name).trim() ? String(name).trim() : path.basename(resolved) || resolved;
+    const existing = this.db.prepare(`
+      SELECT id, name, path
+      FROM workspaces
+      WHERE owner_device_id = ? AND path = ? AND is_deleted = 0
+    `).get(deviceId, resolved);
+    if (existing) {
+      this.authorizeWorkspaceForDevice(deviceId, existing.id);
+      return deserializeWorkspace(existing);
+    }
+    const workspaceId = id || workspaceIdForDevicePath(deviceId, resolved, now);
     this.db.prepare(`
-      INSERT INTO workspaces(id, owner_device_id, name, path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(owner_device_id, path) DO UPDATE SET
-        name = excluded.name,
-        updated_at = excluded.updated_at
+      INSERT INTO workspaces(id, owner_device_id, name, path, created_at, updated_at, is_deleted, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
     `).run(workspaceId, deviceId, displayName, resolved, now, now);
-    const row = this.db.prepare('SELECT id, name, path FROM workspaces WHERE owner_device_id = ? AND path = ?')
-      .get(deviceId, resolved);
-    this.authorizeWorkspaceForDevice(deviceId, row.id);
-    return deserializeWorkspace(row);
+    this.authorizeWorkspaceForDevice(deviceId, workspaceId);
+    return this.getWorkspaceForDevice(workspaceId, deviceId);
   }
 
   authorizeWorkspaceForDevice(deviceId, workspaceId) {
@@ -251,7 +312,7 @@ class AppSqliteStore {
       SELECT w.id, w.name, w.path
       FROM workspaces w
       INNER JOIN workspace_device_authorizations a ON a.workspace_id = w.id
-      WHERE a.device_id = ?
+      WHERE a.device_id = ? AND w.is_deleted = 0
       ORDER BY w.created_at ASC
     `).all(deviceId);
     return dedupeWorkspaceRowsByPath(rows).map(deserializeWorkspace);
@@ -261,6 +322,7 @@ class AppSqliteStore {
     return this.db.prepare(`
       SELECT id, name, path
       FROM workspaces
+      WHERE is_deleted = 0
       ORDER BY created_at ASC
     `).all().map(deserializeWorkspace);
   }
@@ -270,13 +332,47 @@ class AppSqliteStore {
       SELECT w.id, w.name, w.path
       FROM workspaces w
       INNER JOIN workspace_device_authorizations a ON a.workspace_id = w.id
-      WHERE w.id = ? AND a.device_id = ?
+      WHERE w.id = ? AND a.device_id = ? AND w.is_deleted = 0
     `).get(workspaceId, deviceId);
     return row ? deserializeWorkspace(row) : null;
   }
 
+  renameWorkspaceForDevice({ deviceId, workspaceId, name }) {
+    if (!deviceId) throw new Error('deviceId is required');
+    if (!workspaceId) throw new Error('workspaceId is required');
+    const displayName = name && String(name).trim() ? String(name).trim() : '';
+    if (!displayName) return null;
+    const now = this.now().toISOString();
+    const result = this.db.prepare(`
+      UPDATE workspaces
+      SET name = ?, updated_at = ?
+      WHERE id = ?
+        AND is_deleted = 0
+        AND EXISTS (
+          SELECT 1 FROM workspace_device_authorizations
+          WHERE device_id = ? AND workspace_id = workspaces.id
+        )
+    `).run(displayName, now, workspaceId, deviceId);
+    if (result.changes === 0) return null;
+    return this.getWorkspaceForDevice(workspaceId, deviceId);
+  }
+
+  markWorkspaceDeletedForDevice({ deviceId, workspaceId }) {
+    if (!deviceId) throw new Error('deviceId is required');
+    if (!workspaceId) throw new Error('workspaceId is required');
+    const now = this.now().toISOString();
+    const workspace = this.getWorkspaceForDevice(workspaceId, deviceId);
+    if (!workspace) return null;
+    this.db.prepare(`
+      UPDATE workspaces
+      SET is_deleted = 1, deleted_at = ?, updated_at = ?
+      WHERE id = ? AND is_deleted = 0
+    `).run(now, now, workspaceId);
+    return workspace;
+  }
+
   getWorkspace(workspaceId) {
-    const row = this.db.prepare('SELECT id, name, path FROM workspaces WHERE id = ?').get(workspaceId);
+    const row = this.db.prepare('SELECT id, name, path FROM workspaces WHERE id = ? AND is_deleted = 0').get(workspaceId);
     return row ? deserializeWorkspace(row) : null;
   }
 
@@ -499,8 +595,8 @@ function deserializeEvent(row) {
   };
 }
 
-function workspaceIdForDevicePath(deviceId, resolvedPath) {
-  return `workspace_${crypto.createHash('sha1').update(`${deviceId}:${resolvedPath}`).digest('hex').slice(0, 12)}`;
+function workspaceIdForDevicePath(deviceId, resolvedPath, salt = '') {
+  return `workspace_${crypto.createHash('sha1').update(`${deviceId}:${resolvedPath}:${salt}`).digest('hex').slice(0, 12)}`;
 }
 
 function deserializeWorkspace(row) {

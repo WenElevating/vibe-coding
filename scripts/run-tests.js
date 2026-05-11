@@ -292,7 +292,7 @@ test('app SQLite store persists workspaces and device authorizations', () => {
   second.close();
 });
 
-test('app SQLite store scopes duplicate workspace paths by owner device', () => {
+test('app SQLite store scopes duplicate workspace paths by owner device without create-time rename', () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -308,9 +308,65 @@ test('app SQLite store scopes duplicate workspace paths by owner device', () => 
   assert.equal(first.id, renamed.id);
   assert.notEqual(first.id, second.id);
   assert.equal(store.listWorkspacesForDevice('device_1').length, 1);
-  assert.equal(store.listWorkspacesForDevice('device_1')[0].name, 'Renamed');
+  assert.equal(store.listWorkspacesForDevice('device_1')[0].name, 'One');
   assert.equal(store.listWorkspacesForDevice('device_2').length, 1);
   assert.equal(store.listWorkspacesForDevice('device_2')[0].name, 'Two');
+  store.close();
+});
+
+test('app SQLite store logically deletes workspaces and re-adds same path as new id', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-workspace-delete-'));
+  const store = new AppSqliteStore({
+    dbPath: path.join(dir, 'app.sqlite'),
+    now: (() => {
+      const dates = [
+        new Date('2026-05-11T00:00:00.000Z'),
+        new Date('2026-05-11T00:00:01.000Z'),
+        new Date('2026-05-11T00:00:02.000Z')
+      ];
+      return () => dates.shift() || new Date('2026-05-11T00:00:03.000Z');
+    })()
+  });
+  const workspacePath = path.join(dir, 'project');
+  const first = store.saveWorkspaceForDevice({ deviceId: 'device_1', workspacePath, name: 'First' });
+
+  const deleted = store.markWorkspaceDeletedForDevice({ deviceId: 'device_1', workspaceId: first.id });
+  const afterDelete = store.listWorkspacesForDevice('device_1');
+  const second = store.saveWorkspaceForDevice({ deviceId: 'device_1', workspacePath, name: 'Second' });
+
+  assert.equal(deleted.id, first.id);
+  assert.deepEqual(afterDelete, []);
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.name, 'Second');
+  assert.equal(second.path, path.resolve(workspacePath));
+  assert.deepEqual(store.listWorkspacesForDevice('device_1').map((item) => item.id), [second.id]);
+  assert.equal(store.getWorkspaceForDevice(first.id, 'device_1'), null);
+  store.close();
+});
+
+test('app SQLite store renames active workspaces and rejects deleted workspaces', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-workspace-rename-'));
+  const store = new AppSqliteStore({ dbPath: path.join(dir, 'app.sqlite') });
+  const workspace = store.saveWorkspaceForDevice({ deviceId: 'device_1', workspacePath: path.join(dir, 'project'), name: 'Before' });
+
+  const renamed = store.renameWorkspaceForDevice({ deviceId: 'device_1', workspaceId: workspace.id, name: 'After' });
+  store.markWorkspaceDeletedForDevice({ deviceId: 'device_1', workspaceId: workspace.id });
+
+  assert.equal(renamed.id, workspace.id);
+  assert.equal(renamed.name, 'After');
+  assert.equal(renamed.path, workspace.path);
+  assert.equal(store.renameWorkspaceForDevice({ deviceId: 'device_1', workspaceId: workspace.id, name: 'Hidden' }), null);
+  assert.equal(store.renameWorkspaceForDevice({ deviceId: 'device_1', workspaceId: workspace.id, name: '   ' }), null);
   store.close();
 });
 
