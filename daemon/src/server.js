@@ -50,6 +50,29 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         auth.allowWorkspace(device.id, workspace.id);
         return json(res, 201, workspace);
       }
+      const workspaceMutation = url.pathname.match(/^\/api\/workspaces\/([^/]+)$/);
+      if (workspaceMutation && method === 'PATCH') {
+        return json(res, 200, workspaces.renameForDevice(workspaceMutation[1], await readJson(req), device));
+      }
+      if (workspaceMutation && method === 'DELETE') {
+        const body = await readJson(req);
+        const activeRuns = runs.activeWorkspaceRuns(workspaceMutation[1], device);
+        const activeConversations = conversations.activeWorkspaceConversations(workspaceMutation[1], device);
+        if ((activeRuns.length > 0 || activeConversations.length > 0) && body.closeActive !== true) {
+          const error = new Error('Workspace has active CLI work.');
+          error.status = 409;
+          error.code = 'WORKSPACE_HAS_ACTIVE_CLI';
+          error.recoverable = true;
+          error.userAction = 'Confirm deletion to close active CLI work and remove this workspace from the device.';
+          throw error;
+        }
+        if (body.closeActive === true) {
+          runs.cancelWorkspaceRuns(workspaceMutation[1], device);
+          await conversations.cancelWorkspaceConversations(workspaceMutation[1], device);
+        }
+        const workspace = workspaces.deleteForDevice(workspaceMutation[1], device);
+        return json(res, 200, { workspaceId: workspace.id, workspace, workspaces: workspaces.listForDevice(device) });
+      }
       if (method === 'GET' && url.pathname === '/api/fs/roots') return json(res, 200, { roots: await listRoots() });
       if (method === 'GET' && url.pathname === '/api/fs/children') return json(res, 200, await listDirectory(url.searchParams.get('path') || ''));
 

@@ -2754,6 +2754,109 @@ test('V1.2 command templates invoke adapter runs and reject raw command fields',
   }
 });
 
+test('workspace API renames and logically deletes workspaces', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const appDbPath = tempConversationDbPath('app-db-workspace-api-');
+  const app = createApp({ port: 0, appDbPath, devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-api-project-'));
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/workspaces', { workspacePath, name: 'Before' }, token);
+    const renamed = await request(port, 'PATCH', `/api/workspaces/${created.body.id}`, { name: 'After' }, token);
+    const deleted = await request(port, 'DELETE', `/api/workspaces/${created.body.id}`, {}, token);
+    const listed = await request(port, 'GET', '/api/workspaces', null, token);
+    const recreated = await request(port, 'POST', '/api/workspaces', { workspacePath, name: 'Fresh' }, token);
+
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.name, 'After');
+    assert.equal(renamed.body.path, path.resolve(workspacePath));
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(listed.body.workspaces.map((workspace) => workspace.id), []);
+    assert.notEqual(recreated.body.id, created.body.id);
+    assert.equal(recreated.body.name, 'Fresh');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('workspace API rejects deleted workspace rename and path mutation', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-api-guard-'), devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/workspaces', { workspacePath: fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-api-guard-')), name: 'Before' }, token);
+    const pathUpdate = await request(port, 'PATCH', `/api/workspaces/${created.body.id}`, { name: 'After', workspacePath: 'D:/other' }, token);
+    await request(port, 'DELETE', `/api/workspaces/${created.body.id}`, {}, token);
+    const renameDeleted = await request(port, 'PATCH', `/api/workspaces/${created.body.id}`, { name: 'Hidden' }, token);
+
+    assert.equal(pathUpdate.status, 400);
+    assert.equal(renameDeleted.status, 404);
+    assert.equal(renameDeleted.body.error.code, 'WORKSPACE_NOT_FOUND');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('workspace delete requires confirmation for active conversations and is idempotent after they end', async () => {
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-active-'), devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test', deviceId: 'device_1' });
+    const token = paired.body.token;
+    const device = app.auth.authenticate(`Bearer ${token}`);
+    const workspace = app.workspaces.add({ workspacePath: process.cwd(), name: 'Active' }, device);
+    const fakeHandle = { cancelled: 0, async cancel() { this.cancelled += 1; } };
+    const conversation = {
+      id: 'conv_active',
+      workspaceId: workspace.id,
+      workspacePath: workspace.path,
+      adapter: 'codex',
+      permissionMode: 'default',
+      deviceId: device.id,
+      status: 'running',
+      cliSessionId: 'session_1',
+      sessionBinding: 'confirmed',
+      userMessageCount: 1,
+      blockingItem: null,
+      idleExpiresAt: null,
+      createdAt: '2026-05-11T00:00:00.000Z',
+      updatedAt: '2026-05-11T00:00:00.000Z',
+      capabilities: {},
+      handle: fakeHandle
+    };
+    app.conversations.conversations.set(conversation.id, conversation);
+
+    const rejected = await request(port, 'DELETE', `/api/workspaces/${workspace.id}`, {}, token);
+    conversation.status = 'idle';
+    const confirmed = await request(port, 'DELETE', `/api/workspaces/${workspace.id}`, { closeActive: true }, token);
+
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.body.error.code, 'WORKSPACE_HAS_ACTIVE_CLI');
+    assert.equal(confirmed.status, 200);
+    assert.equal(fakeHandle.cancelled, 0);
+    assert.deepEqual(confirmed.body.workspaces, []);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('V1.2 git service parses status and diff output', () => {
   const { GitService } = require('../daemon/src/git-service');
   const service = new GitService({

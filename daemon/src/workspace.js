@@ -63,13 +63,54 @@ class WorkspaceRegistry {
       ? this.store.getWorkspaceForDevice(workspaceId, device.id)
       : this.workspaces.get(workspaceId);
     if (!workspace || (!this.store && !device.allowedWorkspaceIds.has(workspaceId))) {
-      const error = new Error('workspace not found or not authorized');
-      error.status = 404;
-      error.code = 'WORKSPACE_NOT_FOUND';
-      throw error;
+      throw workspaceNotFound();
     }
     return workspace;
   }
+
+  renameForDevice(workspaceId, payload, device) {
+    if (!payload || typeof payload !== 'object') throw badRequest('payload must be an object');
+    if (Object.prototype.hasOwnProperty.call(payload, 'workspacePath') || Object.prototype.hasOwnProperty.call(payload, 'path')) {
+      throw badRequest('workspace path cannot be updated');
+    }
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!name) throw badRequest('workspace name is required');
+    if (this.store) {
+      const workspace = this.store.renameWorkspaceForDevice({ deviceId: device.id, workspaceId, name });
+      if (!workspace) throw workspaceNotFound();
+      return workspace;
+    }
+    const workspace = this.getAuthorized(workspaceId, device);
+    workspace.name = name;
+    return workspace;
+  }
+
+  deleteForDevice(workspaceId, device) {
+    if (this.store) {
+      const workspace = this.store.markWorkspaceDeletedForDevice({ deviceId: device.id, workspaceId });
+      if (!workspace) throw workspaceNotFound();
+      device.allowedWorkspaceIds.delete(workspaceId);
+      return workspace;
+    }
+    const workspace = this.getAuthorized(workspaceId, device);
+    this.workspaces.delete(workspaceId);
+    device.allowedWorkspaceIds.delete(workspaceId);
+    return workspace;
+  }
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function workspaceNotFound() {
+  const error = new Error('workspace not found or not authorized');
+  error.status = 404;
+  error.code = 'WORKSPACE_NOT_FOUND';
+  return error;
 }
 
 module.exports = { WorkspaceRegistry };

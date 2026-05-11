@@ -103,6 +103,26 @@ class ConversationManager {
     return publicConversation(conversation);
   }
 
+  activeWorkspaceConversations(workspaceId, device) {
+    return Array.from(this.conversations.values())
+      .filter((conversation) => conversation.workspaceId === workspaceId)
+      .filter((conversation) => this.canAccessConversation(conversation, device))
+      .filter((conversation) => [
+        conversationStatuses.RUNNING,
+        conversationStatuses.WAITING_INPUT,
+        conversationStatuses.WAITING_APPROVAL
+      ].includes(conversation.status));
+  }
+
+  async cancelWorkspaceConversations(workspaceId, device) {
+    const active = this.activeWorkspaceConversations(workspaceId, device);
+    const cancelled = [];
+    for (const conversation of active) {
+      cancelled.push(await this.cancelConversation(conversation.id, device));
+    }
+    return cancelled;
+  }
+
   async sendMessage(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const message = normalizeMessagePayload(payload);

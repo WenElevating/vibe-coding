@@ -83,6 +83,19 @@ class RunManager {
     return run;
   }
 
+  activeWorkspaceRuns(workspaceId, device) {
+    return Array.from(this.runs.values())
+      .filter((run) => run.workspaceId === workspaceId)
+      .filter((run) => run.deviceId === device.id)
+      .filter((run) => run.status === 'running' || run.status === 'queued');
+  }
+
+  cancelWorkspaceRuns(workspaceId, device) {
+    const active = this.activeWorkspaceRuns(workspaceId, device);
+    for (const run of active) this.cancelRun(run.id, device);
+    return active.map(publicRun);
+  }
+
   cancelRun(runId, device) {
     const run = this.getRun(runId, device);
     if (run.status === 'queued') {
