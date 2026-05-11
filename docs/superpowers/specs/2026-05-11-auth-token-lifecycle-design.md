@@ -40,6 +40,31 @@ product has not shipped a formal release yet.
 - Do not redesign workspace authorization or device management UI beyond the
   auth-expired transition required here.
 
+## Threat Model
+
+This system is a local LAN control surface for a trusted desktop daemon. The
+primary defended assets are workspace execution authority, pairing trust, and
+stored mobile credentials.
+
+Accepted risk for this phase:
+
+- A stolen access token remains usable until it expires, with a default maximum
+  window of 7 days.
+- This is acceptable for the current local/LAN product stage because token values
+  are stored locally, never logged, and daemon pairing is scoped to trusted
+  devices.
+- Device revocation still invalidates access because every authenticated request
+  resolves the active device before allowing API use.
+
+Future hardening options if the daemon is exposed beyond the current LAN trust
+boundary:
+
+- Lower `ACCESS_TOKEN_TTL_MS`.
+- Add a short grace-period access-token revocation strategy during refresh.
+- Bind device sessions to additional low-risk context such as expected LAN CIDR
+  or observed client address range.
+- Require explicit LAN exposure acknowledgement when binding outside localhost.
+
 ## Token Policy
 
 Default daemon token lifetimes:
@@ -56,6 +81,7 @@ Recommended env names:
 
 - `ACCESS_TOKEN_TTL_MS`
 - `REFRESH_TOKEN_TTL_MS`
+- `REFRESH_SKEW_MS`
 
 The mobile client should treat an access token as needing refresh when:
 
@@ -140,6 +166,8 @@ class StoredAuthSession {
   final String refreshToken;
   final DateTime accessTokenExpiresAt;
   final DateTime refreshTokenExpiresAt;
+  final DateTime issuedAt;
+  final DateTime updatedAt;
 }
 ```
 
@@ -169,11 +197,26 @@ All authorized daemon requests should use one shared request path:
 6. Send the request with `Authorization: Bearer <accessToken>`.
 7. If the response is not `401`, decode normally.
 8. If the response is `401`, refresh once and retry the original request once.
-9. If refresh fails or the retry returns `401`, clear the session and throw
-   `AuthExpiredException`.
+9. If refresh returns `401 AUTH_REQUIRED` or the retry returns `401`, clear the
+   session and throw `AuthExpiredException`.
+10. If refresh fails transiently, keep the session and surface the connection
+    failure so the caller can retry after reconnecting.
 
-Non-authorized requests such as `/api/health`, `/api/version`,
-`/api/pairing-code`, and `/api/pair` must bypass this flow.
+Refresh failure classification:
+
+- Refresh `401 AUTH_REQUIRED` means the trust relationship is broken. Clear the
+  session and throw `AuthExpiredException`.
+- Refresh network errors, timeouts, daemon restart interruptions, and `5xx`
+  responses are transient connection failures. Do not clear the session. Surface
+  the original connection error so the caller can retry after reconnecting.
+- After a transient refresh failure, `_refreshInFlight` is cleared in `finally`.
+  The next authorized request may attempt refresh again.
+
+Route authentication should be explicit at the daemon route definition level,
+not maintained as an ad hoc string whitelist in the mobile request flow. Public
+routes must be marked as `requiresAuth: false`; all other routes default to
+authenticated. Current public routes are `/api/health`, `/api/version`,
+`/api/pairing-code`, and `/api/pair`.
 
 ## Refresh Concurrency
 
@@ -183,7 +226,10 @@ future:
 - If request A starts refresh, request B waits for the same refresh future.
 - Only one `/api/token/refresh` request is sent for a given burst.
 - When refresh completes, all waiting requests use the same updated session.
-- If refresh fails, all waiting requests receive the same auth-expired result.
+- If refresh fails with `401 AUTH_REQUIRED`, all waiting requests receive the
+  same auth-expired result.
+- If refresh fails transiently, all waiting requests receive the same transient
+  failure and the stored session remains intact.
 
 The in-flight refresh state must be cleared in `finally` so a later refresh can
 run.
@@ -203,6 +249,17 @@ When mobile catches `AuthExpiredException`:
 The app must not silently auto-pair. Re-pairing requires the normal daemon
 pairing-code flow.
 
+`AuthExpiredException` propagation rule:
+
+- Business operations such as workspace delete, run creation, conversation send,
+  and polling must not swallow `AuthExpiredException`.
+- Feature-level code may add context, but it must rethrow the auth-expired
+  signal to the app shell.
+- The app shell/root connection controller owns navigation back to the
+  connection/pairing page.
+- Background tasks must report auth expiration through the same root-level
+  signal instead of leaving stale UI visible.
+
 ## Logging And Diagnostics
 
 Daemon logs and diagnostic bundles must continue to redact secrets:
@@ -212,6 +269,8 @@ Daemon logs and diagnostic bundles must continue to redact secrets:
 - Do not include authorization headers in exception records.
 - Log only safe metadata such as method, path, status, code, trace ID, device ID,
   and token type when useful.
+- Log refresh success/failure events with safe metadata: device ID, status,
+  failure class, and trace ID. Never log token values or token hashes.
 
 Expected auth failures such as expired access tokens should not become noisy
 terminal errors. They can still be recorded with trace IDs when they cause API
@@ -229,6 +288,7 @@ Daemon tests:
 - Expired refresh token fails.
 - Revoked device cannot refresh or access APIs.
 - Refresh response never includes token hashes.
+- Refresh success/failure logs contain no token values.
 
 Mobile client tests:
 
@@ -238,8 +298,12 @@ Mobile client tests:
 - Authorized requests refresh proactively inside the skew window.
 - Authorized requests do not refresh when access token is still comfortably valid.
 - A `401` response refreshes and retries the original request once.
-- Refresh failure clears the session and throws `AuthExpiredException`.
+- Refresh `401 AUTH_REQUIRED` clears the session and throws
+  `AuthExpiredException`.
+- Transient refresh failure does not clear the session.
 - Concurrent authorized requests share a single refresh call.
+- Concurrent requests in the refresh skew window do not reuse an already rotated
+  refresh token.
 - Workspace delete succeeds after refresh.
 
 Widget/workflow tests:
@@ -252,6 +316,15 @@ Widget/workflow tests:
 
 Because there is no formal released version, local token-only records do not need
 to be migrated. Existing developer installations can re-pair after this change.
+
+Developer reset guidance:
+
+- Stop the mobile app.
+- Clear the app's stored credentials, or uninstall/reinstall the debug app.
+- If daemon-side pairing state also needs reset, delete the local runtime DB at
+  `data/app/app.sqlite` while the daemon is stopped. This also removes runtime
+  workspaces, conversations, and diagnostics, so it is a development-only reset.
+- Restart the daemon and pair again from the mobile connection flow.
 
 The current patch-level 401 retry can be replaced or folded into the new shared
 request flow. The final implementation should avoid having both old token-string
