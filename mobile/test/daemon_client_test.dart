@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
 
 void main() {
   test('empty daemon response becomes a client exception', () async {
@@ -67,7 +68,7 @@ void main() {
       httpClient: MockClient((request) async {
         expect(request.url.path, '/api/pair');
         return http.Response(
-          '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1"}',
+          '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1","accessTokenExpiresAt":"2026-05-18T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-10T08:00:00.000Z"}',
           200,
         );
       }),
@@ -78,6 +79,10 @@ void main() {
     expect(client.currentToken, 'access-1');
     expect(await tokenStore.readAccessToken('device-1'), 'access-1');
     expect(await tokenStore.readRefreshToken('device-1'), 'refresh-1');
+    expect((await tokenStore.readAccessTokenSession('device-1'))!.expiresAt,
+        DateTime.parse('2026-05-18T08:00:00.000Z'));
+    expect((await tokenStore.readRefreshTokenSession('device-1'))!.expiresAt,
+        DateTime.parse('2026-06-10T08:00:00.000Z'));
   });
 
   test('refresh rotates tokens without changing device identity', () async {
@@ -89,14 +94,15 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.url.path == '/api/pair') {
           return http.Response(
-            '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1"}',
+            '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1","accessTokenExpiresAt":"2026-05-18T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-10T08:00:00.000Z"}',
             200,
           );
         }
         expect(request.url.path, '/api/token/refresh');
+        expect(request.headers.containsKey('authorization'), false);
         refreshCalls++;
         return http.Response(
-          '{"deviceId":"device-1","token":"access-2","refreshToken":"refresh-2"}',
+          '{"deviceId":"device-1","token":"access-2","refreshToken":"refresh-2","accessTokenExpiresAt":"2026-05-19T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-11T08:00:00.000Z"}',
           200,
         );
       }),
@@ -109,6 +115,83 @@ void main() {
     expect(client.currentToken, 'access-2');
     expect(await tokenStore.readAccessToken('device-1'), 'access-2');
     expect(await tokenStore.readRefreshToken('device-1'), 'refresh-2');
+    expect((await tokenStore.readAccessTokenSession('device-1'))!.expiresAt,
+        DateTime.parse('2026-05-19T08:00:00.000Z'));
+  });
+
+  test('ensurePaired refreshes stored access token within refresh skew', () async {
+    final tokenStore = MemoryTokenStore();
+    await tokenStore.writeAccessTokenSession(
+      'device-1',
+      TokenSession(
+          token: 'access-1',
+          expiresAt: DateTime.parse('2026-05-11T08:05:00.000Z')),
+    );
+    await tokenStore.writeRefreshTokenSession(
+      'device-1',
+      TokenSession(
+          token: 'refresh-1',
+          expiresAt: DateTime.parse('2026-06-10T08:00:00.000Z')),
+    );
+    var refreshCalls = 0;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      now: () => DateTime.parse('2026-05-11T08:00:00.000Z'),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/token/refresh');
+        refreshCalls++;
+        return http.Response(
+          '{"deviceId":"device-1","token":"access-2","refreshToken":"refresh-2","accessTokenExpiresAt":"2026-05-18T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-10T08:00:00.000Z"}',
+          200,
+        );
+      }),
+    );
+
+    await client.ensurePaired(
+        deviceIdentityStore: MemoryDeviceIdentityStore(deviceId: 'device-1'));
+
+    expect(refreshCalls, 1);
+    expect(client.currentToken, 'access-2');
+  });
+
+  test('authorized request refreshes and retries once after auth required', () async {
+    final tokenStore = MemoryTokenStore();
+    final requests = <http.Request>[];
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/pair') {
+          return http.Response(
+            '{"deviceId":"device-1","token":"access-1","refreshToken":"refresh-1","accessTokenExpiresAt":"2026-05-18T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-10T08:00:00.000Z"}',
+            200,
+          );
+        }
+        if (request.url.path == '/api/adapters' && requests.where((item) => item.url.path == '/api/adapters').length == 1) {
+          expect(request.headers['authorization'], 'Bearer access-1');
+          return http.Response('{"error":"AUTH_REQUIRED","message":"invalid bearer token"}', 401);
+        }
+        if (request.url.path == '/api/token/refresh') {
+          expect(request.headers.containsKey('authorization'), false);
+          return http.Response(
+            '{"deviceId":"device-1","token":"access-2","refreshToken":"refresh-2","accessTokenExpiresAt":"2026-05-19T08:00:00.000Z","refreshTokenExpiresAt":"2026-06-11T08:00:00.000Z"}',
+            200,
+          );
+        }
+        expect(request.url.path, '/api/adapters');
+        expect(request.headers['authorization'], 'Bearer access-2');
+        return http.Response('{"adapters":[]}', 200);
+      }),
+    );
+
+    await client.pair(code: '123456', deviceId: 'device-1');
+    final adapters = await client.listAdapters();
+
+    expect(adapters, isEmpty);
+    expect(client.currentToken, 'access-2');
+    expect(await tokenStore.readAccessToken('device-1'), 'access-2');
   });
 
   test('daemon direct proxy mode always bypasses proxies', () {

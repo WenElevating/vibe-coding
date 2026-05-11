@@ -39,10 +39,12 @@ function createApp({
   conversationAdapters = null,
   conversationDbPath = process.env.CONVERSATION_DB_PATH,
   appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath(),
+  accessTokenTtlMs = undefined,
+  refreshTokenTtlMs = undefined,
   asrModelAsset = new AsrModelAsset()
 } = {}) {
   const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
-  const auth = new AuthManager({ store: appSqliteStore });
+  const auth = new AuthManager({ store: appSqliteStore, accessTokenTtlMs, refreshTokenTtlMs });
   const workspaces = new WorkspaceRegistry({ store: appSqliteStore });
   const defaultDevice = { id: 'daemon-default', allowedWorkspaceIds: new Set() };
   workspaces.seedDefault({ id: 'default', name: 'Current Project', workspacePath: process.cwd() }, defaultDevice);

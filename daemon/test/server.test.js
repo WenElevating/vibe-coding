@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { createApp } = require('../src/main');
+const { AppSqliteStore } = require('../src/app-sqlite-store');
 const { eventTypes } = require('../src/protocol');
 
 function fakeSpawnSync(_cmd, args) {
@@ -21,6 +22,7 @@ const stdinWrites = [];
 function fakeSpawn(_cmd, args) {
   spawnedArgs.push(args);
   const child = new EventEmitter();
+  const permissionMode = args[args.indexOf('--permission-mode') + 1];
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   child.stdin = { destroyed: false, write: (data) => {
@@ -32,7 +34,7 @@ function fakeSpawn(_cmd, args) {
   } };
   child.kill = () => child.emit('exit', null, 'SIGTERM');
   setImmediate(() => {
-    if (args.includes('--permission-prompt-tool')) {
+    if (permissionMode === 'default') {
       child.stdout.emit('data', Buffer.from('{"type":"control_request","request_id":"approval_1","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"file_path":"README.md"},"tool_use_id":"toolu_1"}}\n'));
       return;
     }
@@ -65,8 +67,54 @@ async function request(port, method, path, body, token) {
   });
 }
 
+function tempAppDbPath(prefix) {
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'app.sqlite');
+}
+
+test('app sqlite migration adds workspace soft-delete columns before partial index', () => {
+  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lan-ai-old-workspaces-')), 'app.sqlite');
+  let oldStore = new AppSqliteStore({ dbPath });
+  oldStore.db.exec('DROP INDEX IF EXISTS idx_workspaces_owner_path_active');
+  oldStore.db.exec('DROP TABLE workspace_device_authorizations');
+  oldStore.db.exec('DROP TABLE workspaces');
+  oldStore.db.exec(`
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY,
+      owner_device_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE workspace_device_authorizations (
+      device_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (device_id, workspace_id),
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+    INSERT INTO workspaces(id, owner_device_id, name, path, created_at, updated_at)
+      VALUES ('workspace-old', 'device-old', 'Old', 'D:/old', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z');
+    INSERT INTO workspace_device_authorizations(device_id, workspace_id, created_at)
+      VALUES ('device-old', 'workspace-old', '2026-05-01T00:00:00.000Z');
+  `);
+  oldStore.close();
+
+  const migrated = new AppSqliteStore({ dbPath });
+  try {
+    const columns = migrated.db.prepare('PRAGMA table_info(workspaces)').all().map((row) => row.name);
+    assert.equal(columns.includes('is_deleted'), true);
+    assert.equal(columns.includes('deleted_at'), true);
+    assert.deepEqual(migrated.listWorkspacesForDevice('device-old').map((workspace) => workspace.id), ['workspace-old']);
+    const indexes = migrated.db.prepare('PRAGMA index_list(workspaces)').all().map((row) => row.name);
+    assert.equal(indexes.includes('idx_workspaces_owner_path_active'), true);
+  } finally {
+    migrated.close();
+  }
+});
+
 test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 terminal boundary', async () => {
-  const app = createApp({ port: 0 });
+  const app = createApp({ port: 0, appDbPath: tempAppDbPath('lan-ai-server-api-') });
   const claude = app.adapterRegistry.get('claude');
   claude.spawnSyncFn = fakeSpawnSync;
   claude.spawnFn = fakeSpawn;
@@ -75,10 +123,11 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
 
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
-    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test', deviceId: 'device-test-api' });
     assert.equal(paired.status, 200);
 
     const token = paired.body.token;
+    app.workspaces.authorizeDeviceForWorkspace({ id: paired.body.deviceId, allowedWorkspaceIds: new Set() }, 'default');
     const rejected = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'x', command: 'dir' }, token);
     assert.equal(rejected.status, 400);
 
@@ -111,6 +160,40 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
   }
 });
 
+test('HTTP token refresh does not require a valid access token', async () => {
+  const app = createApp({
+    port: 0,
+    appDbPath: tempAppDbPath('lan-ai-auth-'),
+    accessTokenTtlMs: 10,
+    refreshTokenTtlMs: 30 * 24 * 60 * 60 * 1000
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test', deviceId: 'device-123' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const denied = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    assert.equal(denied.status, 401);
+    assert.equal(denied.body.error.code, 'AUTH_REQUIRED');
+
+    const refreshed = await request(port, 'POST', '/api/token/refresh', {
+      deviceId: 'device-123',
+      refreshToken: paired.body.refreshToken
+    });
+
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.deviceId, 'device-123');
+    assert.notEqual(refreshed.body.token, paired.body.token);
+    assert.equal(typeof refreshed.body.accessTokenExpiresAt, 'string');
+    assert.equal(typeof refreshed.body.refreshTokenExpiresAt, 'string');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
 
 
 test('Claude adapter filters SDK hook output frames', () => {
@@ -120,7 +203,7 @@ test('Claude adapter filters SDK hook output frames', () => {
 });
 
 test('Claude default permission mode emits approval and writes control response', async () => {
-  const app = createApp({ port: 0 });
+  const app = createApp({ port: 0, appDbPath: tempAppDbPath('lan-ai-approval-') });
   const claude = app.adapterRegistry.get('claude');
   claude.spawnSyncFn = fakeSpawnSync;
   claude.spawnFn = fakeSpawn;
@@ -129,8 +212,9 @@ test('Claude default permission mode emits approval and writes control response'
 
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
-    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test', deviceId: 'device-test-approval' });
     const token = paired.body.token;
+    app.workspaces.authorizeDeviceForWorkspace({ id: paired.body.deviceId, allowedWorkspaceIds: new Set() }, 'default');
     const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'read files', permissionMode: 'default' }, token);
     assert.equal(created.status, 201);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -155,15 +239,15 @@ test('workspace inspector APIs expose overview, tree, content, diagnostics, exte
   fs.writeFileSync(path.join(tempRoot, 'README.md'), '# Fixture\n', 'utf8');
   fs.writeFileSync(path.join(tempRoot, 'lib', 'src', 'auth_service.dart'), 'class AuthService {\n  // TODO: test diagnostic\n  void login() {}\n}\n', 'utf8');
 
-  const app = createApp({ port: 0 });
-  app.workspaces.add({ id: 'fixture', name: 'Fixture', workspacePath: tempRoot });
+  const app = createApp({ port: 0, appDbPath: tempAppDbPath('lan-ai-inspector-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
 
   try {
     const pairing = await request(port, 'POST', '/api/pairing-code', {});
-    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test', deviceId: 'device-test-inspector' });
     const token = paired.body.token;
+    app.workspaces.add({ id: 'fixture', name: 'Fixture', workspacePath: tempRoot }, { id: paired.body.deviceId, allowedWorkspaceIds: new Set() });
 
     const overview = await request(port, 'GET', '/api/workspaces/fixture/overview', null, token);
     assert.equal(overview.status, 200);

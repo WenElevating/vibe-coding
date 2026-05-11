@@ -98,9 +98,6 @@ class AppSqliteStore {
         PRIMARY KEY (device_id, workspace_id),
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
-        ON workspaces(owner_device_id, path)
-        WHERE is_deleted = 0;
       CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
         ON workspace_device_authorizations(device_id);
       CREATE TABLE IF NOT EXISTS exceptions (
@@ -125,8 +122,19 @@ class AppSqliteStore {
     ensureColumn(this.db, 'conversations', 'session_binding', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
     this.ensureWorkspaceDeleteSchema();
+    this.ensureWorkspaceIndexes();
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
+  }
+
+  ensureWorkspaceIndexes() {
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
+        ON workspaces(owner_device_id, path)
+        WHERE is_deleted = 0;
+      CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
+        ON workspace_device_authorizations(device_id);
+    `);
   }
 
   ensureWorkspaceDeleteSchema() {
@@ -165,13 +173,6 @@ class AppSqliteStore {
       `);
       this.db.exec('DROP TABLE workspaces');
       this.db.exec('ALTER TABLE workspaces_next RENAME TO workspaces');
-      this.db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
-          ON workspaces(owner_device_id, path)
-          WHERE is_deleted = 0;
-        CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
-          ON workspace_device_authorizations(device_id);
-      `);
       this.db.exec('COMMIT');
       this.db.exec('PRAGMA foreign_keys = ON');
       const violations = this.db.prepare('PRAGMA foreign_key_check').all();

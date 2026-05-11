@@ -19,6 +19,16 @@ test('pairing issues a token and stores only token hash', () => {
   assert.equal(verifyToken(paired.token, device.tokenHash), true);
 });
 
+test('pairing returns lifecycle expiry timestamps', () => {
+  const auth = new AuthManager({ now: () => Date.parse('2026-05-11T08:00:00.000Z') });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+
+  assert.equal(paired.accessTokenExpiresAt, '2026-05-18T08:00:00.000Z');
+  assert.equal(paired.refreshTokenExpiresAt, '2026-06-10T08:00:00.000Z');
+  assert.equal(Object.hasOwn(paired, 'createdAt'), false);
+});
+
 test('pairing can reuse a fixed device id', () => {
   const auth = new AuthManager({ now: () => 1000 });
   const pairing1 = auth.createPairingCode();
@@ -71,6 +81,30 @@ test('refresh rotates refresh token without changing device id', () => {
   );
 });
 
+test('refresh accepts a valid refresh token after access expiry', () => {
+  let now = Date.parse('2026-05-11T08:00:00.000Z');
+  const auth = new AuthManager({ now: () => now, accessTokenTtlMs: 10, refreshTokenTtlMs: 100000 });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+  now += 20;
+
+  assert.throws(() => auth.authenticate(`Bearer ${paired.token}`), /invalid bearer token/);
+  const refreshed = auth.refresh(null, paired.refreshToken, 'device-123');
+
+  assert.equal(refreshed.deviceId, 'device-123');
+  assert.notEqual(refreshed.token, paired.token);
+  assert.notEqual(refreshed.refreshToken, paired.refreshToken);
+  assert.equal(refreshed.accessTokenExpiresAt, '2026-05-11T08:00:00.030Z');
+});
+
+test('refresh rejects invalid device ids as auth failures', () => {
+  const auth = new AuthManager({ now: () => Date.parse('2026-05-11T08:00:00.000Z') });
+  const pairing = auth.createPairingCode();
+  const paired = auth.pair(pairing.code, 'phone', 'device-123');
+
+  assert.throws(() => auth.refresh(null, paired.refreshToken, '../bad'), /invalid device id/);
+});
+
 test('expired pairing code fails', () => {
   let now = 1000;
   const auth = new AuthManager({ now: () => now });
@@ -80,9 +114,9 @@ test('expired pairing code fails', () => {
 });
 
 test('V1 rejects arbitrary shell and PTY payloads', () => {
-  assert.throws(() => assertNoV1TerminalRequest({ command: 'dir' }), /V1 rejects/);
-  assert.throws(() => assertNoV1TerminalRequest({ cwd: 'C:\\Users' }), /V1 rejects/);
-  assert.throws(() => assertNoV1TerminalRequest({ pty: true }), /V1 rejects/);
+  assert.throws(() => assertNoV1TerminalRequest({ command: 'dir' }), /V1\.2 rejects/);
+  assert.throws(() => assertNoV1TerminalRequest({ cwd: 'C:\\Users' }), /V1\.2 rejects/);
+  assert.throws(() => assertNoV1TerminalRequest({ pty: true }), /V1\.2 rejects/);
   assert.doesNotThrow(() => validateRunCreate({ tool: 'claude', workspaceId: 'w1', prompt: 'hello' }));
 });
 

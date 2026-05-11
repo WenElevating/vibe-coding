@@ -19,8 +19,17 @@ function hashDeviceId(deviceId, pepper) {
   return crypto.createHmac('blake2b512', pepper).update(deviceId).digest('hex');
 }
 
+const DEFAULT_ACCESS_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 class AuthManager {
-  constructor({ store, now = () => Date.now(), deviceIdPepper = process.env.DEVICE_ID_PEPPER || 'development-device-id-pepper', accessTokenTtlMs = 15 * 60 * 1000, refreshTokenTtlMs = 30 * 24 * 60 * 60 * 1000 } = {}) {
+  constructor({
+    store,
+    now = () => Date.now(),
+    deviceIdPepper = process.env.DEVICE_ID_PEPPER || 'development-device-id-pepper',
+    accessTokenTtlMs = readDurationEnv('ACCESS_TOKEN_TTL_MS', DEFAULT_ACCESS_TOKEN_TTL_MS),
+    refreshTokenTtlMs = readDurationEnv('REFRESH_TOKEN_TTL_MS', DEFAULT_REFRESH_TOKEN_TTL_MS)
+  } = {}) {
     this.store = store || null;
     this.now = now;
     this.deviceIdPepper = deviceIdPepper;
@@ -70,34 +79,37 @@ class AuthManager {
         })
       : device;
 
-    const accessToken = generateToken();
-    const refreshToken = generateToken();
+    const session = this.createSessionTokens();
     if (this.store) {
       this.store.saveDeviceToken({
         id: `tok_${crypto.randomUUID()}`,
         deviceId: persisted.id,
         tokenType: 'access',
-        tokenHash: hashToken(accessToken),
-        expiresAt: new Date(this.now() + this.accessTokenTtlMs).toISOString(),
+        tokenHash: hashToken(session.token),
+        expiresAt: session.accessTokenExpiresAt,
         revokedAt: null,
-        createdAt: now
+        createdAt: session.createdAt
       });
       this.store.saveDeviceToken({
         id: `tok_${crypto.randomUUID()}`,
         deviceId: persisted.id,
         tokenType: 'refresh',
-        tokenHash: hashToken(refreshToken),
-        expiresAt: new Date(this.now() + this.refreshTokenTtlMs).toISOString(),
+        tokenHash: hashToken(session.refreshToken),
+        expiresAt: session.refreshTokenExpiresAt,
         revokedAt: null,
-        createdAt: now
+        createdAt: session.createdAt
       });
     } else {
-      persisted.tokenHash = hashToken(accessToken);
-      persisted.refreshTokenHash = hashToken(refreshToken);
-      this.devices.set(deviceId, persisted);
+      this.devices.set(deviceId, {
+        ...persisted,
+        tokenHash: hashToken(session.token),
+        tokenExpiresAt: session.accessTokenExpiresAt,
+        refreshTokenHash: hashToken(session.refreshToken),
+        refreshTokenExpiresAt: session.refreshTokenExpiresAt
+      });
     }
 
-    return { deviceId: persisted.id, token: accessToken, refreshToken };
+    return this.sessionResponse(persisted.id, session);
   }
 
   getDevice(deviceId) {
@@ -111,43 +123,69 @@ class AuthManager {
   }
 
   refresh(authHeader, refreshToken, requestedDeviceId = null) {
-    const device = this.authenticate(authHeader);
-    if (requestedDeviceId) {
-      const requested = normalizeRequestedDeviceId(requestedDeviceId);
-      if (requested !== device.id) throw authError('device mismatch');
-    }
+    const requested = normalizeRequestedDeviceId(requestedDeviceId);
+    const device = requested ? this.getDevice(requested) : this.authenticate(authHeader);
+    if (!device || device.revoked || device.status === 'revoked') throw authError('device not active');
     if (!this.store) {
+      if (device.refreshTokenExpiresAt) {
+        const refreshMs = Date.parse(device.refreshTokenExpiresAt);
+        if (Number.isNaN(refreshMs) || refreshMs <= this.now()) throw authError('invalid refresh token');
+      }
       if (!device.refreshTokenHash || !verifyToken(refreshToken, device.refreshTokenHash)) throw authError('invalid refresh token');
-      const accessToken = generateToken();
-      const nextRefreshToken = generateToken();
-      device.tokenHash = hashToken(accessToken);
-      device.refreshTokenHash = hashToken(nextRefreshToken);
-      return { deviceId: device.id, token: accessToken, refreshToken: nextRefreshToken };
+      const session = this.createSessionTokens();
+      this.devices.set(device.id, {
+        ...device,
+        tokenHash: hashToken(session.token),
+        tokenExpiresAt: session.accessTokenExpiresAt,
+        refreshTokenHash: hashToken(session.refreshToken),
+        refreshTokenExpiresAt: session.refreshTokenExpiresAt
+      });
+      return this.sessionResponse(device.id, session);
     }
     const stored = this.store.getValidRefreshTokenForDevice(device.id);
     if (!stored || !verifyToken(refreshToken, stored.token_hash)) throw authError('invalid refresh token');
-    const accessToken = generateToken();
-    const nextRefreshToken = generateToken();
-    this.store.revokeToken(stored.id, new Date(this.now()).toISOString());
+    const session = this.createSessionTokens();
+    this.store.revokeToken(stored.id, session.createdAt);
     this.store.saveDeviceToken({
       id: `tok_${crypto.randomUUID()}`,
       deviceId: device.id,
       tokenType: 'access',
-      tokenHash: hashToken(accessToken),
-      expiresAt: new Date(this.now() + this.accessTokenTtlMs).toISOString(),
+      tokenHash: hashToken(session.token),
+      expiresAt: session.accessTokenExpiresAt,
       revokedAt: null,
-      createdAt: new Date(this.now()).toISOString()
+      createdAt: session.createdAt
     });
     this.store.saveDeviceToken({
       id: `tok_${crypto.randomUUID()}`,
       deviceId: device.id,
       tokenType: 'refresh',
-      tokenHash: hashToken(nextRefreshToken),
-      expiresAt: new Date(this.now() + this.refreshTokenTtlMs).toISOString(),
+      tokenHash: hashToken(session.refreshToken),
+      expiresAt: session.refreshTokenExpiresAt,
       revokedAt: null,
-      createdAt: new Date(this.now()).toISOString()
+      createdAt: session.createdAt
     });
-    return { deviceId: device.id, token: accessToken, refreshToken: nextRefreshToken };
+    return this.sessionResponse(device.id, session);
+  }
+
+  sessionResponse(deviceId, session) {
+    return {
+      deviceId,
+      token: session.token,
+      refreshToken: session.refreshToken,
+      accessTokenExpiresAt: session.accessTokenExpiresAt,
+      refreshTokenExpiresAt: session.refreshTokenExpiresAt
+    };
+  }
+
+  createSessionTokens() {
+    const now = this.now();
+    return {
+      createdAt: new Date(now).toISOString(),
+      token: generateToken(),
+      refreshToken: generateToken(),
+      accessTokenExpiresAt: new Date(now + this.accessTokenTtlMs).toISOString(),
+      refreshTokenExpiresAt: new Date(now + this.refreshTokenTtlMs).toISOString()
+    };
   }
 
   authenticate(authHeader) {
@@ -159,7 +197,12 @@ class AuthManager {
       throw authError('invalid bearer token');
     }
     for (const device of this.devices.values()) {
-      if (!device.revoked && verifyToken(token, device.tokenHash)) return device;
+      if (device.revoked || device.status === 'revoked') continue;
+      if (device.tokenExpiresAt) {
+        const expiresMs = Date.parse(device.tokenExpiresAt);
+        if (Number.isNaN(expiresMs) || expiresMs <= this.now()) continue;
+      }
+      if (verifyToken(token, device.tokenHash)) return device;
     }
     throw authError('invalid bearer token');
   }
@@ -177,7 +220,7 @@ class AuthManager {
     }
     const device = this.devices.get(deviceId);
     if (!device) throw authError('device not found');
-    device.revoked = true;
+    this.devices.set(deviceId, { ...device, revoked: true, status: 'revoked' });
     return { deviceId, revoked: true };
   }
 
@@ -216,6 +259,13 @@ function authError(message) {
   error.status = 401;
   error.code = 'AUTH_REQUIRED';
   return error;
+}
+
+function readDurationEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 module.exports = { AuthManager, generateToken, hashToken, verifyToken, parseBearer, hashDeviceId };

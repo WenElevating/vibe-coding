@@ -10,6 +10,11 @@ import 'daemon_connection_config.dart';
 import 'device_identity_store.dart';
 
 abstract class SecureTokenStore {
+  Future<void> writeAccessTokenSession(String deviceId, TokenSession session);
+  Future<TokenSession?> readAccessTokenSession(String deviceId);
+  Future<void> writeRefreshTokenSession(String deviceId, TokenSession session);
+  Future<TokenSession?> readRefreshTokenSession(String deviceId);
+
   Future<void> writeAccessToken(String deviceId, String token);
   Future<String?> readAccessToken(String deviceId);
   Future<void> deleteAccessToken(String deviceId);
@@ -26,17 +31,45 @@ abstract class SecureTokenStore {
       deleteAccessToken(deviceId);
 }
 
+class TokenSession {
+  const TokenSession({required this.token, required this.expiresAt});
+
+  final String token;
+  final DateTime expiresAt;
+}
+
 class MemoryTokenStore implements SecureTokenStore {
-  final Map<String, String> _accessTokens = <String, String>{};
-  final Map<String, String> _refreshTokens = <String, String>{};
+  final Map<String, TokenSession> _accessTokens = <String, TokenSession>{};
+  final Map<String, TokenSession> _refreshTokens = <String, TokenSession>{};
 
   @override
-  Future<String?> readAccessToken(String deviceId) async =>
+  Future<void> writeAccessTokenSession(
+      String deviceId, TokenSession session) async {
+    _accessTokens[deviceId] = session;
+  }
+
+  @override
+  Future<TokenSession?> readAccessTokenSession(String deviceId) async =>
       _accessTokens[deviceId];
 
   @override
+  Future<void> writeRefreshTokenSession(
+      String deviceId, TokenSession session) async {
+    _refreshTokens[deviceId] = session;
+  }
+
+  @override
+  Future<TokenSession?> readRefreshTokenSession(String deviceId) async =>
+      _refreshTokens[deviceId];
+
+  @override
+  Future<String?> readAccessToken(String deviceId) async =>
+      _accessTokens[deviceId]?.token;
+
+  @override
   Future<void> writeAccessToken(String deviceId, String token) async {
-    _accessTokens[deviceId] = token;
+    _accessTokens[deviceId] = TokenSession(
+        token: token, expiresAt: DateTime.fromMillisecondsSinceEpoch(0));
   }
 
   @override
@@ -46,12 +79,13 @@ class MemoryTokenStore implements SecureTokenStore {
 
   @override
   Future<void> writeRefreshToken(String deviceId, String token) async {
-    _refreshTokens[deviceId] = token;
+    _refreshTokens[deviceId] = TokenSession(
+        token: token, expiresAt: DateTime.fromMillisecondsSinceEpoch(0));
   }
 
   @override
   Future<String?> readRefreshToken(String deviceId) async =>
-      _refreshTokens[deviceId];
+      _refreshTokens[deviceId]?.token;
 
   @override
   Future<void> deleteRefreshToken(String deviceId) async {
@@ -76,14 +110,19 @@ class DaemonClient implements WorkspaceCreationClient {
       required this.tokenStore,
       http.Client? httpClient,
       DaemonProxyMode proxyMode = DaemonProxyMode.direct,
-      Uri? manualProxy})
+      Uri? manualProxy,
+      DateTime Function()? now,
+      this.refreshSkew = const Duration(minutes: 10)})
       : _httpClient = httpClient ??
             createDaemonHttpClient(
-                proxyMode: proxyMode, manualProxy: manualProxy);
+                proxyMode: proxyMode, manualProxy: manualProxy),
+        _now = now ?? DateTime.now;
 
   final Uri baseUri;
   final SecureTokenStore tokenStore;
   final http.Client _httpClient;
+  final DateTime Function() _now;
+  final Duration refreshSkew;
 
   String? _deviceId;
   String? _token;
@@ -129,10 +168,12 @@ class DaemonClient implements WorkspaceCreationClient {
         authorize: false);
     _deviceId = response['deviceId'] as String;
     _token = response['token'] as String;
-    await tokenStore.writeAccessToken(_deviceId!, _token!);
+    await tokenStore.writeAccessTokenSession(
+        _deviceId!, _sessionFromResponse(response, tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
     final refreshToken = response['refreshToken'] as String?;
     if (refreshToken != null && refreshToken.isNotEmpty) {
-      await tokenStore.writeRefreshToken(_deviceId!, refreshToken);
+      await tokenStore.writeRefreshTokenSession(
+          _deviceId!, _sessionFromResponse(response, tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
     }
   }
 
@@ -144,7 +185,8 @@ class DaemonClient implements WorkspaceCreationClient {
         'message': 'No paired device is available for token refresh.',
       });
     }
-    final refreshToken = await tokenStore.readRefreshToken(deviceId);
+    final refreshSession = await tokenStore.readRefreshTokenSession(deviceId);
+    final refreshToken = refreshSession?.token;
     if (refreshToken == null || refreshToken.isEmpty) {
       throw const DaemonClientException(401, <String, Object?>{
         'error': 'missing_refresh_token',
@@ -154,13 +196,16 @@ class DaemonClient implements WorkspaceCreationClient {
     final response = await _post(
       '/api/token/refresh',
       <String, Object?>{'deviceId': deviceId, 'refreshToken': refreshToken},
+      authorize: false,
     );
     _deviceId = response['deviceId'] as String;
     _token = response['token'] as String;
-    await tokenStore.writeAccessToken(_deviceId!, _token!);
+    await tokenStore.writeAccessTokenSession(
+        _deviceId!, _sessionFromResponse(response, tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
     final nextRefreshToken = response['refreshToken'] as String?;
     if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) {
-      await tokenStore.writeRefreshToken(_deviceId!, nextRefreshToken);
+      await tokenStore.writeRefreshTokenSession(
+          _deviceId!, _sessionFromResponse(response, tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
     }
   }
 
@@ -168,10 +213,13 @@ class DaemonClient implements WorkspaceCreationClient {
       {required DeviceIdentityStore deviceIdentityStore,
       String label = 'Android device'}) async {
     final deviceId = await deviceIdentityStore.readOrCreateDeviceId();
-    final token = await tokenStore.readAccessToken(deviceId);
-    if (token != null && token.isNotEmpty) {
+    final session = await tokenStore.readAccessTokenSession(deviceId);
+    if (session != null && session.token.isNotEmpty) {
       _deviceId = deviceId;
-      _token = token;
+      _token = session.token;
+      if (_needsRefresh(session)) {
+        await _refreshStoredTokenOrClear();
+      }
       return;
     }
     final pairingCode = await createPairingCode();
@@ -494,6 +542,11 @@ class DaemonClient implements WorkspaceCreationClient {
   Future<Map<String, Object?>> _get(String path,
       {bool authorize = true}) async {
     final response = await _getWithRetry(path, authorize: authorize);
+    if (authorize && _isAuthRequired(response)) {
+      await _refreshAfterAuthRequired();
+      final retry = await _getWithRetry(path, authorize: authorize);
+      return _decode(retry);
+    }
     return _decode(response);
   }
 
@@ -520,7 +573,61 @@ class DaemonClient implements WorkspaceCreationClient {
       headers: _headers(authorize: authorize),
       body: jsonEncode(body),
     );
+    if (authorize && _isAuthRequired(response)) {
+      await _refreshAfterAuthRequired();
+      final retry = await _httpClient.post(
+        baseUri.resolve(path),
+        headers: _headers(authorize: authorize),
+        body: jsonEncode(body),
+      );
+      return _decode(retry);
+    }
     return _decode(response);
+  }
+
+  bool _needsRefresh(TokenSession session) =>
+      !_now().isBefore(session.expiresAt.subtract(refreshSkew));
+
+  TokenSession _sessionFromResponse(Map<String, Object?> response,
+      {required String tokenKey, required String expiresAtKey}) {
+    final expiresAt = response[expiresAtKey] as String?;
+    return TokenSession(
+      token: response[tokenKey] as String,
+      expiresAt: expiresAt == null
+          ? DateTime.utc(9999, 12, 31)
+          : DateTime.parse(expiresAt),
+    );
+  }
+
+  bool _isAuthRequired(http.Response response) {
+    if (response.statusCode != 401) return false;
+    try {
+      final decoded = _decodeResponseBody(response);
+      final error = decoded['error'];
+      if (error == 'AUTH_REQUIRED') return true;
+      return error is Map<String, Object?> && error['code'] == 'AUTH_REQUIRED';
+    } on DaemonClientException {
+      return false;
+    }
+  }
+
+  Future<void> _refreshAfterAuthRequired() async {
+    await _refreshStoredTokenOrClear();
+  }
+
+  Future<void> _refreshStoredTokenOrClear() async {
+    try {
+      await refreshToken();
+    } on DaemonClientException catch (error) {
+      final deviceId = _deviceId;
+      if (deviceId != null && error.statusCode == 401) {
+        await tokenStore.deleteAccessToken(deviceId);
+        await tokenStore.deleteRefreshToken(deviceId);
+        _deviceId = null;
+        _token = null;
+      }
+      rethrow;
+    }
   }
 
   Map<String, String> _headers({required bool authorize}) {
