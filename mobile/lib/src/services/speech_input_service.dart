@@ -16,7 +16,8 @@ bool get isVoiceInputPlatformSupported =>
     (Platform.isAndroid ||
         Platform.isIOS ||
         Platform.isMacOS ||
-        Platform.isLinux);
+        Platform.isLinux ||
+        Platform.isWindows);
 
 typedef SherpaOnnxInitializer = void Function();
 

@@ -50,7 +50,7 @@ void main() {
     expect(calls, 2);
   });
 
-  test('voice input is disabled by default on unverified Windows platform', () {
-    expect(isVoiceInputPlatformSupported, isFalse);
+  test('voice input is available on Windows desktop', () {
+    expect(isVoiceInputPlatformSupported, isTrue);
   }, skip: !Platform.isWindows);
 }
