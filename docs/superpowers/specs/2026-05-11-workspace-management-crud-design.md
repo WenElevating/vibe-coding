@@ -1,0 +1,282 @@
+# Workspace Management CRUD Design
+
+Date: 2026-05-11
+Status: Approved for implementation planning
+Scope: Daemon and Flutter mobile workspace management CRUD
+
+## 1. Problem
+
+The workbench workspace list currently supports only adding and selecting workspaces. Its search control looks like an input but is not tappable or editable, and users cannot rename or remove workspace records from the mobile control surface.
+
+The backend also exposes only `GET /api/workspaces` and `POST /api/workspaces`. Workspace persistence behaves like an upsert keyed by device and path, so re-adding an existing path can update an existing record. That is not correct for deletion semantics. If a user removes a workspace from this device and later adds the same folder again, the app must treat it as a new workspace with an empty session list, not as a restored old workspace.
+
+## 2. Goals
+
+- Complete workspace management for the current device: create, read, rename, delete, and search.
+- Keep deletion logical: mark the workspace row as deleted with `is_deleted = 1`.
+- Never delete the user's disk directory from the mobile app.
+- Do not physically delete historical conversations or events.
+- Re-adding the same path after deletion must create a new workspace record and new `workspaceId`.
+- Only allow workspace name updates in this iteration.
+- Put row actions behind a long-press menu, similar to WeChat-style mobile list operations.
+- Keep the workspace list quiet and task-focused without adding visible per-row action buttons.
+
+## 3. Non-Goals
+
+- Do not implement session-list search, session rename, or session deletion.
+- Do not allow workspace path edits.
+- Do not add batch workspace operations.
+- Do not introduce a new routing package, dependency injection package, or broad Flutter architecture migration.
+- Do not change the conversation/session lifecycle model except where active CLI shutdown is required before deleting a workspace.
+- Do not expose deleted workspace records in normal mobile lists.
+
+## 4. Product Behavior
+
+### 4.1 Search
+
+The search field at the top of the workspace list becomes a real `TextField`. It filters the current device's visible workspace list by workspace name and path. Filtering is local to the already loaded list and does not require a daemon request.
+
+If no workspaces match the query, the page shows a compact empty state for the filter result. This is not an error.
+
+### 4.2 Create
+
+The existing add button and add-workspace sheet remain the creation path.
+
+Creation semantics change on the daemon side. A new workspace create request must create a new active workspace identity when no active row already owns that path for the device. A previously deleted row for the same path must not be restored by setting `is_deleted = 0`.
+
+If a user deletes workspace `A` for path `D:\Project\App`, then adds `D:\Project\App` again, the daemon returns workspace `B` with a different `workspaceId`. The mobile session list for `B` is empty because existing conversations still reference `A`.
+
+### 4.3 Rename
+
+Rename changes only the workspace display name. The workspace path and ID remain unchanged.
+
+The rename entry point is a long press on a workspace row. The long-press action menu contains `Rename` and `Delete`. A normal tap still opens the workspace's session list.
+
+Rename uses a focused input surface in the current dark product style. The input starts with the current workspace name. Submitting an empty name is rejected on the client before making a daemon request.
+
+### 4.4 Delete
+
+Delete is available only from the workspace list long-press menu.
+
+Delete performs a logical delete:
+
+- Set `workspaces.is_deleted = 1`.
+- Do not delete the directory on disk.
+- Do not physically delete conversations, events, runs, or audit records.
+- Remove the workspace from normal `GET /api/workspaces` results.
+
+If the workspace has active CLI work, the app asks for confirmation before deleting. The confirmation copy must explicitly say that deleting will close active CLI work in that workspace. After confirmation, the daemon closes active CLI work for that workspace and then marks the workspace deleted.
+
+## 5. Daemon Architecture
+
+Add explicit workspace management methods around the existing `WorkspaceRegistry` and `AppSqliteStore` boundaries.
+
+```text
+HTTP API
+  GET    /api/workspaces
+  POST   /api/workspaces
+  PATCH  /api/workspaces/:id
+  DELETE /api/workspaces/:id
+
+WorkspaceRegistry
+  add(...)
+  renameForDevice(...)
+  deleteForDevice(...)
+  listForDevice(...)
+
+AppSqliteStore
+  createWorkspaceForDevice(...)
+  renameWorkspaceForDevice(...)
+  markWorkspaceDeletedForDevice(...)
+  listWorkspacesForDevice(...)
+  getWorkspaceForDevice(...)
+```
+
+`WorkspaceRegistry` remains the authorization and application-facing boundary. `AppSqliteStore` owns SQL persistence details.
+
+### 5.1 Data Model
+
+Add columns to `workspaces`:
+
+```sql
+is_deleted INTEGER NOT NULL DEFAULT 0
+deleted_at TEXT
+```
+
+Normal reads filter deleted rows:
+
+```sql
+WHERE a.device_id = ?
+  AND w.is_deleted = 0
+```
+
+The current `UNIQUE(owner_device_id, path)` constraint conflicts with the required "delete then re-add same path as a new workspace" behavior. The implementation must remove or replace that uniqueness rule. The desired uniqueness is:
+
+- Active rows for the same owner device and normalized path should not duplicate.
+- Deleted rows must not block creating a new active row for the same path.
+
+SQLite does not support dropping a table constraint in place, so the migration may need to rebuild the `workspaces` table or create a new table shape. A partial unique index on active rows is acceptable:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_owner_path_active
+  ON workspaces(owner_device_id, path)
+  WHERE is_deleted = 0;
+```
+
+### 5.2 Create Semantics
+
+Creating a workspace should:
+
+1. Resolve the submitted path.
+2. If an active row exists for the same owner device and path, return or update that active row's name.
+3. If only deleted rows exist for that path, create a new row with a new `workspaceId`.
+4. Authorize the device for the new or active workspace.
+5. Return the active workspace summary.
+
+The key invariant is that deleted rows are historical records, not dormant records to restore.
+
+### 5.3 Rename Semantics
+
+`PATCH /api/workspaces/:id` accepts only `name`.
+
+Rules:
+
+- The workspace must exist, be authorized for the current device, and not be deleted.
+- The new name must be a non-empty string after trimming.
+- The path must not be accepted or changed by this endpoint.
+- The response returns the updated workspace summary.
+
+### 5.4 Delete Semantics
+
+`DELETE /api/workspaces/:id` operates on an authorized, non-deleted workspace.
+
+If active CLI work exists for that workspace and the request does not include confirmation, return a structured conflict error:
+
+```json
+{
+  "error": {
+    "code": "WORKSPACE_HAS_ACTIVE_CLI",
+    "message": "Workspace has active CLI work.",
+    "recoverable": true,
+    "userAction": "Confirm deletion to close active CLI work and remove this workspace from the device."
+  }
+}
+```
+
+When confirmed, the daemon should cancel or close active CLI work for that workspace, then mark the workspace deleted. The response returns the deleted workspace ID and the refreshed active workspace list for the device.
+
+## 6. Flutter Architecture
+
+Use the existing Flutter structure and add only narrow state where needed.
+
+```text
+Services
+  DaemonClient.renameWorkspace(...)
+  DaemonClient.deleteWorkspace(...)
+
+Workflow / UI logic
+  Workspace list local search state
+  Rename/delete request methods in CodingWorkbenchPage or a small controller
+
+Views
+  WorkspaceListPage
+  Long-press workspace action menu
+  Rename input surface
+  Delete confirmation surface
+```
+
+This follows the intended UI, logic, and data separation without forcing a large MVVM migration during the CRUD task. `DaemonClient` remains the service wrapper. `WorkspaceListPage` remains the presentation surface for the list, while the parent workbench owns daemon calls and route state updates.
+
+### 6.1 WorkspaceListPage
+
+`WorkspaceListPage` becomes stateful or receives a small list controller so it can hold the search query. It still receives the authoritative workspace list from the parent.
+
+Responsibilities:
+
+- Render the real search input.
+- Filter visible workspaces by query.
+- Normal tap opens the workspace.
+- Long press opens a compact action menu.
+- Surface rename and delete intents to the parent.
+
+The row must not gain a visible trailing management button. The list stays clean; operations are secondary and discovered through long press.
+
+### 6.2 Parent Workbench State
+
+`CodingWorkbenchPage` already owns the route state and workspace list. CRUD completion updates that route state's workspace list:
+
+- Rename success replaces the matching workspace summary in every route state's list.
+- Delete success removes the workspace from the workspace list route.
+- If the user is only on the workspace list, there is no selected workspace to repair.
+- Session routes remain outside the delete entry point because delete is only available from the workspace list.
+
+## 7. UI Design
+
+The surface stays dark, restrained, and instrument-like. The workspace list is a task surface, not a management dashboard.
+
+- Search input uses the existing dark input vocabulary: low-contrast fill, clear focus border, readable placeholder.
+- Long-press menu uses a compact dark sheet or contextual popup with two actions: rename and delete.
+- Rename uses the same mini input visual language as the add-workspace sheet.
+- Delete confirmation uses danger color only for the destructive action and warning text, not for the whole surface.
+- No new visible row action button.
+- No bottom snackbar for important CRUD errors. Use inline error in the active sheet or a themed confirmation/error dialog.
+
+Physical scene: a developer is checking execution folders from a phone in a dim work environment while CLI tasks may still be running on the desktop. The UI should make destructive consequences explicit without turning the list into a noisy admin table.
+
+## 8. Error Handling
+
+- Search with no result: show an empty filter state.
+- Rename empty name: block submission locally.
+- Rename daemon failure: keep the old name and show the error in the rename surface.
+- Delete without confirmation when active CLI exists: show confirmation that deleting will close active CLI work.
+- Confirmed delete failure: keep the workspace visible and show the daemon error.
+- Create same path after delete: if the daemon returns the old deleted `workspaceId`, treat it as a bug and cover it with a regression test.
+
+## 9. Testing
+
+### 9.1 Daemon Tests
+
+- `GET /api/workspaces` excludes rows with `is_deleted = 1`.
+- `DELETE /api/workspaces/:id` marks a workspace as deleted and does not remove disk directories.
+- Deleted workspace rows do not block creating a new workspace for the same path.
+- Re-adding a deleted path returns a different `workspaceId`.
+- New workspace ID has no old conversations in session filtering because conversations still point to the deleted workspace ID.
+- `PATCH /api/workspaces/:id` updates only `name`.
+- `PATCH` rejects empty names and unsupported path updates.
+- Delete without confirmation returns `WORKSPACE_HAS_ACTIVE_CLI` when active CLI work exists.
+- Confirmed delete closes active CLI work and marks the workspace deleted.
+
+### 9.2 Flutter Tests
+
+- Workspace search field can receive focus and input.
+- Search filters by workspace name.
+- Search filters by workspace path.
+- No-match search shows the empty filter state.
+- Long pressing a workspace row shows rename and delete actions.
+- Rename success updates the visible workspace name.
+- Empty rename does not call the daemon.
+- Delete action shows a confirmation surface.
+- Active CLI delete conflict shows copy explaining that deletion will close CLI work.
+- Confirmed delete removes the workspace from the visible list.
+
+## 10. Migration Plan
+
+1. Add daemon tests for workspace logical delete, rename, and same-path re-add semantics.
+2. Add SQLite migration for `is_deleted`, `deleted_at`, and active-path uniqueness.
+3. Add `AppSqliteStore` workspace CRUD methods.
+4. Add `WorkspaceRegistry` rename/delete methods.
+5. Add `PATCH` and `DELETE` workspace API routes.
+6. Wire active CLI conflict detection and confirmed shutdown behavior.
+7. Add `DaemonClient.renameWorkspace` and `DaemonClient.deleteWorkspace`.
+8. Convert the workspace search box into a real input and add local filtering.
+9. Add long-press workspace action menu, rename surface, and delete confirmation surface.
+10. Update `CodingWorkbenchPage` route state after rename/delete.
+11. Run daemon regression tests, Flutter widget tests, `npm test`, `npm run lint`, `flutter analyze`, and relevant `flutter test` slices.
+
+## 11. Risks
+
+- Risk: SQLite migration for the existing unique constraint may be more invasive than a column-only migration. Mitigation: write focused store tests first and keep the migration table-scoped.
+- Risk: Active CLI shutdown may differ between run-manager and conversation-manager paths. Mitigation: define a workspace-scoped shutdown helper and test both active run and active conversation cases where current APIs allow it.
+- Risk: Long-press discoverability is lower than a visible button. Mitigation: keep add/select as visible primary actions and reserve long press for secondary management actions as requested.
+- Risk: Deleted historical conversations become unreachable from normal UI. Mitigation: this is intentional for the new workspace empty-session requirement; old data remains in storage for future audit or recovery tooling.
+
