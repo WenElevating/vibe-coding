@@ -50,6 +50,7 @@ class VoiceInputController extends ChangeNotifier {
   String _partialText = '';
   String _baseText = '';
   String? _error;
+  bool _receivedPartial = false;
 
   VoiceInputState get state => _state;
   String get partialText => _partialText;
@@ -78,6 +79,7 @@ class VoiceInputController extends ChangeNotifier {
     }
     _baseText = currentPrompt;
     _partialText = '';
+    _receivedPartial = false;
     _error = null;
     _setState(VoiceInputState.initializing);
     try {
@@ -102,12 +104,13 @@ class VoiceInputController extends ChangeNotifier {
     _setState(VoiceInputState.stopping);
     try {
       final finalText = await _service.stop();
-      final merged = finalText.trim().isEmpty
+      final merged = finalText.trim().isEmpty || !_receivedPartial
           ? currentPrompt
           : mergeVoiceText(
               currentPrompt == previewText() ? _baseText : currentPrompt,
               finalText);
       _partialText = '';
+      _receivedPartial = false;
       _baseText = merged;
       _error = null;
       _setState(VoiceInputState.idle);
@@ -126,6 +129,7 @@ class VoiceInputController extends ChangeNotifier {
       await _service.cancel();
     } finally {
       _partialText = '';
+      _receivedPartial = false;
       _setState(VoiceInputState.idle);
     }
   }
@@ -147,6 +151,7 @@ class VoiceInputController extends ChangeNotifier {
 
   void _setPartialText(String text) {
     _partialText = text;
+    _receivedPartial = true;
     notifyListeners();
   }
 

@@ -83,6 +83,22 @@ void main() {
     expect(merged, 'typed context\nfinal');
   });
 
+  test('second voice session with no new speech does not append previous result',
+      () async {
+    final service = _FakeSpeechInputService();
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: '');
+    service.onPartial?.call('voice result');
+    var merged = await controller.stop(currentPrompt: '');
+    expect(merged, 'voice result');
+
+    await controller.start(currentPrompt: merged);
+    merged = await controller.stop(currentPrompt: merged);
+
+    expect(merged, 'voice result');
+  });
+
   test('cancel discards uncommitted partial text', () async {
     final service = _FakeSpeechInputService();
     final controller = VoiceInputController(service: service);

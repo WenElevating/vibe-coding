@@ -84,12 +84,15 @@ class SherpaSpeechInputService implements SpeechInputService {
   @override
   Future<void> start({required void Function(String text) onPartial}) async {
     if (_started) return;
+    _latestText = '';
     final permission = await Permission.microphone.request();
     if (!permission.isGranted) {
       throw StateError('Microphone permission denied');
     }
     await _ensureRecognizer();
     final recognizer = _recognizer!;
+    _recognizerStream?.free();
+    _recognizerStream = recognizer.createStream();
     final stream = _recognizerStream!;
     _started = true;
     final audioStream = await _recorder.startStream(const RecordConfig(
@@ -122,7 +125,6 @@ class SherpaSpeechInputService implements SpeechInputService {
             const sherpa.FeatureConfig(sampleRate: _sampleRate, featureDim: 80),
         model: model);
     _recognizer = sherpa.OnlineRecognizer(config);
-    _recognizerStream = _recognizer!.createStream();
   }
 
   @override
@@ -131,6 +133,9 @@ class SherpaSpeechInputService implements SpeechInputService {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     await _recorder.stop();
+    _recognizerStream?.inputFinished();
+    _recognizerStream?.free();
+    _recognizerStream = null;
     return _latestText;
   }
 
@@ -141,11 +146,15 @@ class SherpaSpeechInputService implements SpeechInputService {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     await _recorder.stop();
+    _recognizerStream?.free();
+    _recognizerStream = null;
   }
 
   @override
   void dispose() {
     unawaited(_audioSubscription?.cancel());
+    _recognizerStream?.free();
+    _recognizer?.free();
     _recorder.dispose();
   }
 }
