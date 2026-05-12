@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 
 void main() {
   test('workspace list route exposes daemon-confirmed workspaces', () {
@@ -124,4 +126,177 @@ void main() {
     expect(cancelled.userMessageCount, 2);
     expect(cancelled.blockingItem, isNull);
   });
+
+  test('workbench view model coordinates new conversation send flow', () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final result = await viewModel.sendNewConversationPrompt(
+      workspace: _workspace,
+      prompt: 'hello',
+      adapter: 'codex',
+      permissionMode: 'default',
+    );
+    final updated = await result.updatedConversation;
+
+    expect(repository.calls, <String>[
+      'create:workspace_1:codex:default',
+      'send:conv_1:hello',
+    ]);
+    expect(result.conversation.id, 'conv_1');
+    expect(result.runningConversation.status, 'running');
+    expect(result.run.id, 'conv_1');
+    expect(updated.status, 'idle');
+  });
+
+  test('workbench view model sends existing conversation prompt', () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final updated = await viewModel.sendExistingConversationPrompt(
+      conversationId: 'conv_existing',
+      prompt: 'continue',
+    );
+
+    expect(repository.calls, <String>['send:conv_existing:continue']);
+    expect(updated.id, 'conv_existing');
+    expect(updated.status, 'idle');
+  });
 }
+
+const _workspace = WorkspaceSummary(
+  id: 'workspace_1',
+  name: 'Workspace',
+  path: r'D:\workspace',
+);
+
+AppSnapshot _snapshot({required List<WorkspaceSummary> workspaces}) =>
+    AppSnapshot(
+      health: const DaemonHealth(
+        status: 'ok',
+        daemonVersion: '1.0.0',
+        mode: 'lan',
+        lanMode: true,
+        bindAddress: '127.0.0.1',
+        port: 4317,
+        security: <String, Object?>{},
+      ),
+      workspaces: workspaces,
+      workspace: workspaces.first,
+      overview: ProjectOverview(
+        workspaceId: workspaces.first.id,
+        name: 'Workspace',
+        path: workspaces.first.path,
+        fileCount: 0,
+        codeLineCount: 0,
+        symbolCount: 0,
+        analysisScore: 0,
+        recentFiles: const <RecentFileSummary>[],
+      ),
+      adapters: const <AdapterStatus>[],
+      runs: const <RunSummary>[],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      templates: const <CommandTemplate>[],
+      gitStatus: null,
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: FileTreeResponse(
+        workspaceId: workspaces.first.id,
+        root: '',
+        entries: const <FileTreeEntry>[],
+      ),
+      diagnostics: CodeDiagnosticsSummary(
+        workspaceId: workspaces.first.id,
+        available: false,
+        diagnostics: const <CodeDiagnostic>[],
+      ),
+      extensions: const <ExtensionSummary>[],
+    );
+
+class _FakeConversationRepository implements ConversationRepository {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+  }) async {
+    calls.add('create:$workspaceId:$adapter:$permissionMode');
+    return _conversation(
+        id: 'conv_1', workspaceId: workspaceId, status: 'idle');
+  }
+
+  @override
+  Future<ConversationSummary> sendConversationMessage(
+    String conversationId,
+    String text,
+  ) async {
+    calls.add('send:$conversationId:$text');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'idle',
+    );
+  }
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async {
+    calls.add('answer:$conversationId:$questionId:$text');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'idle',
+    );
+  }
+
+  @override
+  Future<ConversationSummary> cancelConversation(String conversationId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) async =>
+      throw UnimplementedError();
+}
+
+ConversationSummary _conversation({
+  required String id,
+  required String workspaceId,
+  required String status,
+}) =>
+    ConversationSummary(
+      id: id,
+      workspaceId: workspaceId,
+      adapter: 'codex',
+      status: status,
+      capabilities:
+          ConversationCapabilities.fromJson(const <String, Object?>{}),
+      createdAt: '2026-05-12T00:00:00.000Z',
+      updatedAt: '2026-05-12T00:00:01.000Z',
+    );

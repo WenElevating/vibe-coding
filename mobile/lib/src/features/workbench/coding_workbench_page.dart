@@ -10,6 +10,7 @@ import '../../services/daemon_client.dart';
 import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
+import '../../data/repositories/daemon_conversation_repository.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
@@ -17,6 +18,7 @@ import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
 import 'coding_workbench_controller.dart';
+import 'view_models/workbench_view_model.dart';
 import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
@@ -67,6 +69,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
   final List<SessionItem> _localSessions = <SessionItem>[];
   late WorkbenchRouteState _routeState;
+  late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
   String? _activeRunId;
   String? _activeConversationId;
@@ -85,8 +88,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool? _lastReportedListOpen = true;
   late int _handledOpenSessionListRequest;
 
-  List<SessionItem> get _sessionItems => mergeSessionItems(
-      _localSessions, widget.data.conversations, widget.data.runs);
+  List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems(
+      widget.data.conversations, widget.data.runs);
 
   List<WorkspaceSummary> get _workspaces => _routeState.workspaces;
 
@@ -178,7 +181,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _localSessions.insert(
         0,
         SessionItem(
-            run: runSummaryFromConversation(conversation),
+            run: WorkbenchViewModel.runSummaryFromConversation(conversation),
             conversation: conversation));
   }
 
@@ -230,7 +233,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       ConversationSummary? conversation;
       if (conversationId != null) {
         conversation = await widget.client.cancelConversation(conversationId);
-        run = runSummaryFromConversation(conversation);
+        run = WorkbenchViewModel.runSummaryFromConversation(conversation);
       } else if (runId != null) {
         run = await widget.client.cancelRun(runId);
       }
@@ -273,6 +276,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _routeState = WorkspaceListRouteState(
       workspaces: List<WorkspaceSummary>.of(widget.data.workspaces),
     );
+    _workbenchViewModel = WorkbenchViewModel(
+      initialData: widget.data,
+      conversationRepository:
+          DaemonConversationRepository(client: widget.client),
+    );
     final injectedAsrModelManager = widget.asrModelManager;
     _ownsAsrModelManager = injectedAsrModelManager == null;
     _asrModelManager = injectedAsrModelManager ??
@@ -312,6 +320,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
     if (_ownsAsrModelManager) _asrModelManager.dispose();
+    _workbenchViewModel.dispose();
     _ownedSpeechInputService = null;
     _scrollController.dispose();
     _prompt.dispose();
@@ -677,31 +686,34 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     try {
       final existingConversationId = _activeConversationId;
       if (existingConversationId == null) {
-        final conversation = await widget.client.createConversation(
-            workspaceId: routeWorkspace!.id,
-            adapter: adapter,
-            permissionMode: widget.permissionMode);
-        final run = runSummaryFromConversation(conversation);
-        final runningConversation =
-            copyConversationStatus(conversation, 'running');
+        final result = await _workbenchViewModel.sendNewConversationPrompt(
+          workspace: routeWorkspace!,
+          prompt: prompt,
+          adapter: adapter,
+          permissionMode: widget.permissionMode,
+        );
         setState(() {
-          _activeConversation = runningConversation;
-          _rememberConversation(runningConversation);
-          _activeRunId = run.id;
-          _activeConversationId = conversation.id;
+          _activeConversation = result.runningConversation;
+          _rememberConversation(result.runningConversation);
+          _activeRunId = result.run.id;
+          _activeConversationId = result.conversation.id;
           _lastSeq = 0;
           _events.clear();
           _resolvedApprovalIds.clear();
         });
         if (mounted) _goToConversation();
-        final send =
-            widget.client.sendConversationMessage(conversation.id, prompt);
         await _restartConversationPolling();
-        final updated = await send;
-        if (mounted) setState(() => _activeConversation = updated);
+        final updated = await result.updatedConversation;
+        if (mounted) {
+          setState(() => _activeConversation = updated);
+        }
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
-        final conversation = await widget.client.answerConversationQuestion(
-            existingConversationId, pendingQuestionId, prompt);
+        final conversation =
+            await _workbenchViewModel.answerConversationQuestion(
+          conversationId: existingConversationId,
+          questionId: pendingQuestionId,
+          text: prompt,
+        );
         setState(() {
           _activeConversation = conversation;
           _rememberConversation(conversation);
@@ -717,10 +729,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           }
           _events.removeWhere((event) => event.type == 'run.completed');
         });
-        final send = widget.client
-            .sendConversationMessage(existingConversationId, prompt);
-        await _restartConversationPolling();
-        final conversation = await send;
+        final conversation =
+            await _workbenchViewModel.sendExistingConversationPrompt(
+          conversationId: existingConversationId,
+          prompt: prompt,
+          restartPolling: _restartConversationPolling,
+        );
         if (mounted) {
           setState(() {
             _activeConversation = conversation;

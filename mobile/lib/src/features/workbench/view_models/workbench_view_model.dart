@@ -1,20 +1,24 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../shell/app_snapshot.dart';
+import '../../../ui/features/workbench/workbench_route_state.dart';
 import '../../sessions/session_item.dart';
-import '../../sessions/session_list_view_model.dart';
-import '../coding_workbench_controller.dart';
 
 class WorkbenchViewModel extends ChangeNotifier {
-  WorkbenchViewModel({required AppSnapshot initialData})
-      : _routeState = WorkspaceListRouteState(
+  WorkbenchViewModel({
+    required AppSnapshot initialData,
+    ConversationRepository? conversationRepository,
+  })  : _conversationRepository = conversationRepository,
+        _routeState = WorkspaceListRouteState(
           workspaces: List.unmodifiable(initialData.workspaces),
         ),
         _selectedAdapter = _computePreferredAdapter(initialData.adapters);
 
   WorkbenchRouteState _routeState;
   final List<SessionItem> _localSessions = <SessionItem>[];
+  final ConversationRepository? _conversationRepository;
   String? _selectedAdapter;
 
   WorkbenchRouteState get routeState => _routeState;
@@ -104,6 +108,60 @@ class WorkbenchViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<WorkbenchNewConversationSendResult> sendNewConversationPrompt({
+    required WorkspaceSummary workspace,
+    required String prompt,
+    required String adapter,
+    required String permissionMode,
+  }) async {
+    final repository = _requireConversationRepository();
+    final conversation = await repository.createConversation(
+      workspaceId: workspace.id,
+      adapter: adapter,
+      permissionMode: permissionMode,
+    );
+    final runningConversation =
+        _copyConversationStatus(conversation, 'running');
+    return WorkbenchNewConversationSendResult(
+      conversation: conversation,
+      runningConversation: runningConversation,
+      run: runSummaryFromConversation(conversation),
+      updatedConversation:
+          repository.sendConversationMessage(conversation.id, prompt),
+    );
+  }
+
+  Future<ConversationSummary> sendExistingConversationPrompt({
+    required String conversationId,
+    required String prompt,
+    Future<void> Function()? restartPolling,
+  }) async {
+    final repository = _requireConversationRepository();
+    final send = repository.sendConversationMessage(conversationId, prompt);
+    await restartPolling?.call();
+    return send;
+  }
+
+  Future<ConversationSummary> answerConversationQuestion({
+    required String conversationId,
+    required String questionId,
+    required String text,
+  }) =>
+      _requireConversationRepository().answerConversationQuestion(
+        conversationId,
+        questionId,
+        text,
+      );
+
+  ConversationRepository _requireConversationRepository() {
+    final repository = _conversationRepository;
+    if (repository == null) {
+      throw StateError(
+          'ConversationRepository is required for workbench sends.');
+    }
+    return repository;
+  }
+
   WorkbenchRouteState _rebuildRouteState(List<WorkspaceSummary> workspaces) =>
       switch (_routeState) {
         WorkspaceListRouteState(:final notice) =>
@@ -150,4 +208,110 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (id.isEmpty || id.startsWith('synthetic-')) return false;
     return const {'claude', 'codex', 'opencode'}.contains(id);
   }
+
+  static ConversationSummary _copyConversationStatus(
+    ConversationSummary conversation,
+    String status,
+  ) =>
+      ConversationSummary(
+        id: conversation.id,
+        workspaceId: conversation.workspaceId,
+        adapter: conversation.adapter,
+        status: status,
+        capabilities: conversation.capabilities,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        userMessageCount: conversation.userMessageCount,
+        blockingItem: conversation.blockingItem,
+        idleExpiresAt: conversation.idleExpiresAt,
+      );
+
+  static RunSummary runSummaryFromConversation(
+    ConversationSummary conversation,
+  ) =>
+      RunSummary(
+        id: conversation.id,
+        tool: conversation.adapter,
+        workspaceId: conversation.workspaceId,
+        status: _runStatusFromConversation(conversation.status),
+        cliSessionId: conversation.cliSessionId,
+      );
+
+  static String _runStatusFromConversation(String status) {
+    if (status == 'idle') return 'completed';
+    if (status == 'cancelled' ||
+        status == 'failed' ||
+        status == 'interrupted') {
+      return status;
+    }
+    return 'running';
+  }
+}
+
+class WorkbenchNewConversationSendResult {
+  const WorkbenchNewConversationSendResult({
+    required this.conversation,
+    required this.runningConversation,
+    required this.run,
+    required this.updatedConversation,
+  });
+
+  final ConversationSummary conversation;
+  final ConversationSummary runningConversation;
+  final RunSummary run;
+  final Future<ConversationSummary> updatedConversation;
+}
+
+List<SessionItem> mergeSessionItems(
+  List<SessionItem> localSessions,
+  List<ConversationSummary> snapshotConversations,
+  List<RunSummary> snapshotRuns,
+) {
+  final items = <SessionItem>[];
+  final seen = <String>{};
+  for (final item in localSessions) {
+    if (seen.add(item.id)) items.add(item);
+  }
+  for (final conversation in snapshotConversations) {
+    if (!shouldShowConversationInSessionList(conversation)) continue;
+    if (seen.add(conversation.id)) {
+      items.add(SessionItem(
+        run: runSummaryFromConversation(conversation),
+        conversation: conversation,
+      ));
+    }
+  }
+  for (final run in snapshotRuns) {
+    if (seen.add(run.id)) items.add(SessionItem(run: run));
+  }
+  return items;
+}
+
+bool shouldShowConversationInSessionList(ConversationSummary conversation) {
+  if (conversation.status == 'idle' &&
+      conversation.cliSessionId == null &&
+      conversation.userMessageCount == 0) {
+    return false;
+  }
+  return true;
+}
+
+RunSummary runSummaryFromConversation(ConversationSummary conversation) {
+  return RunSummary(
+    id: conversation.id,
+    tool: conversation.adapter,
+    workspaceId: conversation.workspaceId,
+    status: runStatusFromConversation(conversation.status),
+    cliSessionId: conversation.cliSessionId,
+  );
+}
+
+String runStatusFromConversation(String status) {
+  if (status == 'idle') return 'completed';
+  if (status == 'cancelled' || status == 'failed' || status == 'interrupted') {
+    return status;
+  }
+  return 'running';
 }
