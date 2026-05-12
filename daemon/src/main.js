@@ -1,5 +1,9 @@
 ﻿'use strict';
 
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { AuthManager } = require('./auth');
 const { WorkspaceRegistry } = require('./workspace');
 const { EventStore } = require('./event-store');
@@ -27,6 +31,22 @@ const { versionInfo } = require('./version');
 const { createServer } = require('./server');
 const { AsrModelAsset } = require('./asr-model-asset');
 
+function loadOrCreateSecrets(dbPath) {
+  const secretsPath = path.join(path.dirname(dbPath), '.daemon-secrets.json');
+  try {
+    const raw = fs.readFileSync(secretsPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed.authTokenSecret && parsed.deviceIdPepper) return parsed;
+  } catch { /* file missing or corrupt — generate fresh */ }
+  const secrets = {
+    authTokenSecret: crypto.randomBytes(32).toString('base64url'),
+    deviceIdPepper: crypto.randomBytes(32).toString('base64url'),
+  };
+  fs.mkdirSync(path.dirname(secretsPath), { recursive: true });
+  fs.writeFileSync(secretsPath, JSON.stringify(secrets, null, 2), { mode: 0o600 });
+  return secrets;
+}
+
 function createApp({
   host = process.env.DAEMON_HOST || '127.0.0.1',
   port = Number(process.env.PORT || 4317),
@@ -43,12 +63,11 @@ function createApp({
   refreshTokenTtlMs = undefined,
   asrModelAsset = new AsrModelAsset()
 } = {}) {
-  if (mode !== 'dev') {
-    if (!process.env.AUTH_TOKEN_SECRET) throw new Error('AUTH_TOKEN_SECRET env var is required in non-dev mode');
-    if (!process.env.DEVICE_ID_PEPPER) throw new Error('DEVICE_ID_PEPPER env var is required in non-dev mode');
-  }
+  const fileSecrets = loadOrCreateSecrets(appDbPath);
+  const authTokenSecret = process.env.AUTH_TOKEN_SECRET || fileSecrets.authTokenSecret;
+  const deviceIdPepper = process.env.DEVICE_ID_PEPPER || fileSecrets.deviceIdPepper;
   const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
-  const auth = new AuthManager({ store: appSqliteStore, accessTokenTtlMs, refreshTokenTtlMs });
+  const auth = new AuthManager({ store: appSqliteStore, authTokenSecret, deviceIdPepper, accessTokenTtlMs, refreshTokenTtlMs });
   const workspaces = new WorkspaceRegistry({ store: appSqliteStore });
   const defaultDevice = { id: 'daemon-default', allowedWorkspaceIds: new Set() };
   workspaces.seedDefault({ id: 'default', name: 'Current Project', workspacePath: process.cwd() }, defaultDevice);
