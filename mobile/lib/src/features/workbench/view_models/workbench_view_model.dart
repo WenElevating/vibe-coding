@@ -1,16 +1,22 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../domain/repositories/conversation_repository.dart';
+import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../shell/app_snapshot.dart';
 import '../../../ui/features/workbench/workbench_route_state.dart';
+import '../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
 
 class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchViewModel({
     required AppSnapshot initialData,
     ConversationRepository? conversationRepository,
+    WorkspaceRepository? workspaceRepository,
+    Duration workspaceCreationTimeout = const Duration(seconds: 20),
   })  : _conversationRepository = conversationRepository,
+        _workspaceRepository = workspaceRepository,
+        _workspaceCreationTimeout = workspaceCreationTimeout,
         _routeState = WorkspaceListRouteState(
           workspaces: List.unmodifiable(initialData.workspaces),
         ),
@@ -19,6 +25,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchRouteState _routeState;
   final List<SessionItem> _localSessions = <SessionItem>[];
   final ConversationRepository? _conversationRepository;
+  final WorkspaceRepository? _workspaceRepository;
+  final Duration _workspaceCreationTimeout;
   String? _selectedAdapter;
 
   WorkbenchRouteState get routeState => _routeState;
@@ -173,11 +181,29 @@ class WorkbenchViewModel extends ChangeNotifier {
         decision,
       );
 
+  Future<CreateWorkspaceOutcome> createWorkspace({
+    required String path,
+    String? name,
+  }) =>
+      CreateWorkspaceWorkflow(
+        client: _requireWorkspaceRepository(),
+        timeout: _workspaceCreationTimeout,
+      ).create(path: path, name: name);
+
   ConversationRepository _requireConversationRepository() {
     final repository = _conversationRepository;
     if (repository == null) {
       throw StateError(
           'ConversationRepository is required for workbench sends.');
+    }
+    return repository;
+  }
+
+  WorkspaceRepository _requireWorkspaceRepository() {
+    final repository = _workspaceRepository;
+    if (repository == null) {
+      throw StateError(
+          'WorkspaceRepository is required for workspace creation.');
     }
     return repository;
   }

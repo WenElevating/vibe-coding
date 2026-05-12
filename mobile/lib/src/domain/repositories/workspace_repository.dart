@@ -1,8 +1,11 @@
 import '../../models/protocol.dart';
+import '../../workflows/workspace/create_workspace_workflow.dart';
 
-abstract class WorkspaceRepository {
+abstract class WorkspaceRepository implements WorkspaceCreationClient {
+  @override
   Future<List<WorkspaceSummary>> listWorkspaces();
 
+  @override
   Future<WorkspaceSummary> createWorkspace({
     required String path,
     String? name,

@@ -11,9 +11,15 @@ import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../data/repositories/daemon_conversation_repository.dart';
+import '../../data/repositories/daemon_workspace_repository.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
-import '../../workflows/workspace/create_workspace_workflow.dart';
+import '../../workflows/workspace/create_workspace_workflow.dart'
+    show
+        CreateWorkspaceFailure,
+        CreateWorkspaceNotConfirmed,
+        CreateWorkspaceSuccess,
+        CreateWorkspaceTimeout;
 import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
@@ -280,6 +286,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       initialData: widget.data,
       conversationRepository:
           DaemonConversationRepository(client: widget.client),
+      workspaceRepository: DaemonWorkspaceRepository(client: widget.client),
     );
     final injectedAsrModelManager = widget.asrModelManager;
     _ownsAsrModelManager = injectedAsrModelManager == null;
@@ -503,10 +510,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _navigatorKey.currentState
         ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
 
-    final outcome = await CreateWorkspaceWorkflow(
-      client: widget.client,
-      timeout: const Duration(seconds: 20),
-    ).create(path: request.path, name: request.name);
+    final outcome = await _workbenchViewModel.createWorkspace(
+      path: request.path,
+      name: request.name,
+    );
     if (!mounted) return;
 
     switch (outcome) {

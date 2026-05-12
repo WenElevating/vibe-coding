@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/workflows/workspace/create_workspace_workflow.dart';
 
 void main() {
   test('workspace list route exposes daemon-confirmed workspaces', () {
@@ -206,6 +208,35 @@ void main() {
     expect(updated.id, 'conv_existing');
     expect(updated.status, 'running');
   });
+
+  test('workbench view model creates workspace through workflow', () async {
+    const created = WorkspaceSummary(
+      id: 'workspace_new',
+      name: 'New Workspace',
+      path: r'D:\new',
+    );
+    final repository = _FakeWorkspaceRepository(
+      createdWorkspace: created,
+      listedWorkspaces: const <WorkspaceSummary>[_workspace, created],
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      workspaceRepository: repository,
+      workspaceCreationTimeout: const Duration(seconds: 1),
+    );
+
+    final outcome = await viewModel.createWorkspace(
+      path: created.path,
+      name: created.name,
+    );
+
+    expect(repository.calls, <String>[
+      r'create:D:\new:New Workspace',
+      'list',
+    ]);
+    expect(outcome, isA<CreateWorkspaceSuccess>());
+    expect((outcome as CreateWorkspaceSuccess).workspace, created);
+  });
 }
 
 const _workspace = WorkspaceSummary(
@@ -337,6 +368,75 @@ class _FakeConversationRepository implements ConversationRepository {
       status: 'running',
     );
   }
+}
+
+class _FakeWorkspaceRepository implements WorkspaceRepository {
+  _FakeWorkspaceRepository({
+    required this.createdWorkspace,
+    required this.listedWorkspaces,
+  });
+
+  final WorkspaceSummary createdWorkspace;
+  final List<WorkspaceSummary> listedWorkspaces;
+  final List<String> calls = <String>[];
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) async {
+    calls.add('create:$path:$name');
+    return createdWorkspace;
+  }
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    calls.add('list');
+    return listedWorkspaces;
+  }
+
+  @override
+  Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileContent> fileContent(String workspaceId, String path) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileTreeResponse> fileTree(
+    String workspaceId, {
+    String path = '',
+    int maxDepth = 8,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DiffSummary>> gitDiff(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<GitCommitSummary>> gitCommits(
+    String workspaceId, {
+    int limit = 20,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<GitStatusSummary> gitStatus(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<DirectoryListing> listDirectory(String path) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ProjectOverview> projectOverview(String workspaceId) async =>
+      throw UnimplementedError();
 }
 
 ConversationSummary _conversation({
