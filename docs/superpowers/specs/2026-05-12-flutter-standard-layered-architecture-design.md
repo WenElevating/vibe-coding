@@ -79,6 +79,9 @@ code should use the target structure.
   daemon client classes.
 - `data` owns external access: HTTP, JSON, token/session storage, local storage,
   platform plugins, and repository implementations.
+- `testing` owns fake implementations, shared fixtures, builders, and debug test
+  helpers used by unit and widget tests. Production code outside test-only entry
+  points must not import it.
 - Top-level public exports must stay narrow. `lan_ai_cli_control.dart` should
   expose the app entrypoint and intentional public/test APIs, not every internal
   implementation detail.
@@ -113,6 +116,10 @@ owns shared use cases. `FeatureDependencies` may group feature-specific
 ViewModel factories when a feature has enough dependencies to justify its own
 subtree.
 
+A feature warrants its own dependency subgroup when it owns three or more
+ViewModels, depends on more than two repositories, or needs feature-local
+factories that would otherwise make `AppDependencies` hard to scan.
+
 This keeps object construction out of widgets such as `MobileUi` and makes test
 replacement simpler.
 
@@ -128,6 +135,15 @@ Planned examples:
 - `WorkspaceApiClient` for workspace endpoints.
 - `RunApiClient` for run/status endpoints.
 - `AsrModelApiClient` for ASR model metadata and downloads.
+
+`data/models` contains API and persistence shapes. These models may include
+`fromJson`, `toJson`, wire-format enum handling, nullable compatibility fields,
+and other serialization concerns.
+
+`domain/models` contains pure business concepts. These models should not contain
+JSON serialization code, Flutter imports, HTTP concepts, or persistence details.
+When the daemon API shape differs from the business concept, repositories map
+from `data/models` to `domain/models`.
 
 ### Repositories
 
@@ -296,6 +312,9 @@ implement their own string-based auth-expiry handling.
 - Extract voice/ASR state into a separate ViewModel or feature-local controller.
 - Split timeline, composer, workspace picker entry, approval cards, and status
   panels into focused widgets.
+- Suggested slice order: sending flow, loading/timeline flow, approval handling,
+  voice/ASR, then workspace picker entry. This starts with flows that have clear
+  existing tests and postpones the most platform-heavy ASR work.
 
 ### Phase 6: Migrate Secondary Features
 
