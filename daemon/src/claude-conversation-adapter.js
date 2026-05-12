@@ -95,7 +95,7 @@ class ClaudeConversationAdapter {
       request_id: initRequestId,
       request: { subtype: 'initialize', hooks: null }
     });
-    const fallback = setTimeout(() => completeInitialize(state, { timedOut: true }), 1500);
+    const fallback = setTimeout(() => completeInitialize(state, { timedOut: true }), 5000);
     state.initFallback = fallback;
     return new ClaudeConversationHandle({ conversationId, state });
   }
@@ -209,7 +209,8 @@ function completeInitialize(state, details = {}) {
   if (details.timedOut) {
     state.onEvent({
       type: conversationEventTypes.PROTOCOL_WARNING,
-      text: 'Claude initialize handshake timed out; continuing with prompt send fallback.'
+      text: 'Claude initialize handshake timed out; continuing with prompt send fallback.',
+      visible: false
     });
   }
   const waiters = state.initWaiters.splice(0);
