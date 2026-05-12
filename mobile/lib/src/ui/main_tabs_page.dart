@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../features/workbench/workbench.dart';
-import '../models/protocol.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config.dart';
 import '../shell/app_route.dart';
@@ -15,15 +14,15 @@ import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
-
-enum _CodingAdapterLoadState { idle, loading, loaded, failed }
+import 'view_models/main_tabs_view_model.dart';
 
 class MainTabsPage extends StatefulWidget {
-  const MainTabsPage(
-      {super.key,
-      required this.data,
-      required this.client,
-      required this.connectionConfig});
+  const MainTabsPage({
+    super.key,
+    required this.data,
+    required this.client,
+    required this.connectionConfig,
+  });
 
   final AppSnapshot data;
   final DaemonClient client;
@@ -34,157 +33,87 @@ class MainTabsPage extends StatefulWidget {
 }
 
 class _MainTabsPageState extends State<MainTabsPage> {
-  int _tab = 0;
-  bool _streamOutput = false;
-  bool _expandThinking = false;
-  String _permissionMode = 'default';
-  bool _codingSessionListOpen = true;
-  int _codingSessionListOpenRequest = 0;
+  late MainTabsViewModel _viewModel;
   final _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
-  _CodingAdapterLoadState _codingAdapterLoadState =
-      _CodingAdapterLoadState.idle;
-  Future<void>? _codingAdapterLoadFuture;
-  Object? _codingAdapterLoadError;
-  late AppSnapshot _data;
-  RoutePage _route = RoutePage.tabs;
 
   @override
   void initState() {
     super.initState();
-    _data = widget.data;
-    unawaited(_ensureCodingAdaptersLoaded());
+    _viewModel = MainTabsViewModel(
+      initialData: widget.data,
+      client: widget.client,
+    );
+    unawaited(_viewModel.ensureCodingAdaptersLoaded());
   }
 
   @override
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
-      _codingAdapterLoadState = _CodingAdapterLoadState.idle;
-      _codingAdapterLoadFuture = null;
-      _codingAdapterLoadError = null;
-      _data = widget.data;
-      unawaited(_ensureCodingAdaptersLoaded());
+      _viewModel.resetForNewClient(
+        client: widget.client,
+        data: widget.data,
+      );
       return;
     }
     if (oldWidget.data != widget.data &&
-        _codingAdapterLoadState != _CodingAdapterLoadState.loaded) {
-      _data = widget.data;
+        _viewModel.adapterLoadState != CodingAdapterLoadState.loaded) {
+      _viewModel.updateData(widget.data);
     }
   }
 
-  void _open(RoutePage route) => setState(() => _route = route);
-  void _back() => setState(() => _route = RoutePage.tabs);
-  void _selectTab(int index) {
-    final previousTab = _tab;
-    setState(() {
-      _tab = index;
-      _route = RoutePage.tabs;
-      if (index == 2) {
-        _codingSessionListOpen = true;
-        _codingSessionListOpenRequest++;
-      }
-    });
-    if (index == 2 && previousTab == 2) {
-      unawaited(_ensureCodingAdaptersLoaded());
-    }
+  @override
+  void dispose() {
+    _viewModel.dispose();
+    super.dispose();
   }
 
   Future<void> _handleSystemBack() async {
-    if (_route != RoutePage.tabs) {
-      _back();
+    if (_viewModel.isOverlayActive) {
+      _viewModel.closeOverlay();
       return;
     }
-    if (_tab == 2) {
+    if (_viewModel.activeTab == 2) {
       final consumed =
           await (_codingWorkbenchKey.currentState?.handleSystemBack() ??
               Future<bool>.value(false));
       if (consumed) return;
-      _selectTab(0);
+      _viewModel.selectTab(0);
       return;
     }
-    if (_tab != 0) {
-      _selectTab(0);
+    if (_viewModel.activeTab != 0) {
+      _viewModel.selectTab(0);
       return;
     }
     await SystemNavigator.pop();
   }
 
-  Future<void> _ensureCodingAdaptersLoaded() async {
-    if (_codingAdapterLoadState == _CodingAdapterLoadState.loaded) return;
-    final existingLoad = _codingAdapterLoadFuture;
-    if (existingLoad != null) return existingLoad;
-    setState(() {
-      _codingAdapterLoadState = _CodingAdapterLoadState.loading;
-      _codingAdapterLoadError = null;
-    });
-    final load = _loadCodingAdapters();
-    _codingAdapterLoadFuture = load;
-    return load;
-  }
-
-  Future<void> _loadCodingAdapters() async {
-    try {
-      final adapters = await widget.client.listAdapters();
-      if (!mounted) return;
-      setState(() {
-        _data = _snapshotWithAdapters(_data, adapters);
-        _codingAdapterLoadState = _CodingAdapterLoadState.loaded;
-        _codingAdapterLoadError = null;
-        _codingAdapterLoadFuture = null;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _codingAdapterLoadState = _CodingAdapterLoadState.failed;
-        _codingAdapterLoadError = error;
-        _codingAdapterLoadFuture = null;
-      });
-    }
-  }
-
-  Widget _buildCodingTab() {
-    if (_codingAdapterLoadState == _CodingAdapterLoadState.loaded) {
-      return CodingPage(
-        data: _data,
-        client: widget.client,
-        workbenchKey: _codingWorkbenchKey,
-        onBack: () => _selectTab(0),
-        onSessionListChanged: (open) =>
-            setState(() => _codingSessionListOpen = open),
-        openSessionListRequest: _codingSessionListOpenRequest,
-        streamOutput: _streamOutput,
-        expandThinking: _expandThinking,
-        permissionMode: _permissionMode,
-      );
-    }
-    return _CodingAdapterGate(
-      failed: _codingAdapterLoadState == _CodingAdapterLoadState.failed,
-      error: _codingAdapterLoadError,
-      onRetry: () => unawaited(_ensureCodingAdaptersLoaded()),
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) => _buildShell(context),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildShell(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final data = _data;
+    final data = _viewModel.data;
     final pages = [
-      HomePage(open: _open, selectTab: _selectTab, data: data),
-      RunsPage(open: _open, data: data),
+      HomePage(open: _viewModel.openOverlay, selectTab: _viewModel.selectTab, data: data),
+      RunsPage(open: _viewModel.openOverlay, data: data),
       _buildCodingTab(),
       QueuePage(data: data),
       SettingsPage(
-        open: _open,
+        open: _viewModel.openOverlay,
         data: data,
         connectionConfig: widget.connectionConfig,
-        streamOutput: _streamOutput,
-        expandThinking: _expandThinking,
-        permissionMode: _permissionMode,
-        onPermissionModeChanged: (value) =>
-            setState(() => _permissionMode = value),
-        onStreamOutputChanged: (value) => setState(() => _streamOutput = value),
-        onExpandThinkingChanged: (value) =>
-            setState(() => _expandThinking = value),
+        streamOutput: _viewModel.streamOutput,
+        expandThinking: _viewModel.expandThinking,
+        permissionMode: _viewModel.permissionMode,
+        onPermissionModeChanged: _viewModel.setPermissionMode,
+        onStreamOutputChanged: _viewModel.setStreamOutput,
+        onExpandThinkingChanged: _viewModel.setExpandThinking,
       ),
     ];
     return PopScope(
@@ -194,24 +123,45 @@ class _MainTabsPageState extends State<MainTabsPage> {
       },
       child: Scaffold(
         body: MobileUiFrame(
-          child: _route == RoutePage.tabs
-              ? IndexedStack(index: _tab, children: pages)
+          child: _viewModel.activeRoute == RoutePage.tabs
+              ? IndexedStack(index: _viewModel.activeTab, children: pages)
               : MainRouteOverlay(
-                  route: _route,
+                  route: _viewModel.activeRoute,
                   data: data,
                   client: widget.client,
-                  onBack: _back,
+                  onBack: _viewModel.closeOverlay,
                 ),
         ),
-        bottomNavigationBar:
-            _route == RoutePage.tabs && (_tab != 2 || _codingSessionListOpen)
-                ? BottomNav(
-                    selected: _tab,
-                    items: mainTabItems(l10n),
-                    onTap: _selectTab)
-                : null,
+        bottomNavigationBar: _viewModel.activeRoute == RoutePage.tabs &&
+                (_viewModel.activeTab != 2 || _viewModel.codingSessionListOpen)
+            ? BottomNav(
+                selected: _viewModel.activeTab,
+                items: mainTabItems(l10n),
+                onTap: _viewModel.selectTab)
+            : null,
         extendBody: true,
       ),
+    );
+  }
+
+  Widget _buildCodingTab() {
+    if (_viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
+      return CodingPage(
+        data: _viewModel.data,
+        client: widget.client,
+        workbenchKey: _codingWorkbenchKey,
+        onBack: () => _viewModel.selectTab(0),
+        onSessionListChanged: _viewModel.reportSessionListOpen,
+        openSessionListRequest: _viewModel.openSessionListRequest,
+        streamOutput: _viewModel.streamOutput,
+        expandThinking: _viewModel.expandThinking,
+        permissionMode: _viewModel.permissionMode,
+      );
+    }
+    return _CodingAdapterGate(
+      failed: _viewModel.adapterLoadState == CodingAdapterLoadState.failed,
+      error: _viewModel.adapterLoadError,
+      onRetry: () => unawaited(_viewModel.ensureCodingAdaptersLoaded()),
     );
   }
 }
@@ -256,23 +206,3 @@ class _CodingAdapterGate extends StatelessWidget {
     );
   }
 }
-
-AppSnapshot _snapshotWithAdapters(
-        AppSnapshot snapshot, List<AdapterStatus> adapters) =>
-    AppSnapshot(
-      health: snapshot.health,
-      workspaces: snapshot.workspaces,
-      workspace: snapshot.workspace,
-      overview: snapshot.overview,
-      adapters: adapters,
-      runs: snapshot.runs,
-      conversations: snapshot.conversations,
-      queue: snapshot.queue,
-      templates: snapshot.templates,
-      gitStatus: snapshot.gitStatus,
-      diffs: snapshot.diffs,
-      commits: snapshot.commits,
-      fileTree: snapshot.fileTree,
-      diagnostics: snapshot.diagnostics,
-      extensions: snapshot.extensions,
-    );

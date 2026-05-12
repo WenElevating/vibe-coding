@@ -32,7 +32,10 @@ class MainRouteOverlay extends StatelessWidget {
           client: client,
         ),
       RoutePage.approval => ApprovalPage(onBack: onBack),
-      RoutePage.adapters => AdaptersPage(onBack: onBack, data: data),
+      RoutePage.adapters => AdaptersPage(
+          onBack: onBack,
+          viewModel: AdaptersViewModel(snapshot: data),
+        ),
       RoutePage.notifications => NotificationsPage(onBack: onBack),
       RoutePage.diagnostics => DiagnosticsPage(
           onBack: onBack,

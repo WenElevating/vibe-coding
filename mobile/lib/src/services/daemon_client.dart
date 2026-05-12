@@ -4,8 +4,11 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
+import '../data/services/auth_service.dart';
+import '../data/services/conversation_service.dart';
+import '../data/services/run_service.dart';
+import '../data/services/workspace_service.dart';
 import '../models/protocol.dart';
-import '../workflows/workspace/create_workspace_workflow.dart';
 import 'asr_model_client.dart';
 import 'daemon_connection_config.dart';
 import 'device_identity_store.dart';
@@ -105,7 +108,8 @@ class MemoryTokenStore implements SecureTokenStore {
       deleteAccessToken(deviceId);
 }
 
-class DaemonClient implements WorkspaceCreationClient {
+class DaemonClient
+    implements AuthService, RunService, WorkspaceService, ConversationService {
   DaemonClient(
       {required this.baseUri,
       required this.tokenStore,
@@ -134,11 +138,13 @@ class DaemonClient implements WorkspaceCreationClient {
   AsrModelClient createAsrModelClient() => AsrModelClient(
       baseUri: baseUri, tokenProvider: () => _token, httpClient: _httpClient);
 
+  @override
   Future<DaemonHealth> health() async {
     final response = await _get('/api/health', authorize: false);
     return DaemonHealth.fromJson(response);
   }
 
+  @override
   Future<DaemonVersionInfo> version() async {
     final response = await _get('/api/version', authorize: false);
     return DaemonVersionInfo.fromJson(response);
@@ -156,6 +162,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return SmokeTestResult.fromJson(response);
   }
 
+  @override
   Future<void> pair(
       {required String code,
       String label = 'Android device',
@@ -179,6 +186,7 @@ class DaemonClient implements WorkspaceCreationClient {
     }
   }
 
+  @override
   Future<void> refreshToken() async {
     if (_refreshCompleter != null) return _refreshCompleter!.future;
     _refreshCompleter = Completer<void>();
@@ -221,6 +229,7 @@ class DaemonClient implements WorkspaceCreationClient {
     }
   }
 
+  @override
   Future<void> ensurePaired(
       {required DeviceIdentityStore deviceIdentityStore,
       String label = 'Android device'}) async {
@@ -238,6 +247,7 @@ class DaemonClient implements WorkspaceCreationClient {
     await pair(code: pairingCode, label: label, deviceId: deviceId);
   }
 
+  @override
   Future<String> createPairingCode() async {
     final response = await _post('/api/pairing-code', const <String, Object?>{},
         authorize: false);
@@ -277,11 +287,13 @@ class DaemonClient implements WorkspaceCreationClient {
     return items.cast<Map<String, Object?>>().map(QueueItem.fromJson).toList();
   }
 
+  @override
   Future<GitStatusSummary> gitStatus(String workspaceId) async {
     final response = await _get('/api/workspaces/$workspaceId/git/status');
     return GitStatusSummary.fromJson(response);
   }
 
+  @override
   Future<List<DiffSummary>> gitDiff(String workspaceId) async {
     final response = await _get('/api/workspaces/$workspaceId/git/diff');
     final items = response['summaries'] as List<Object?>;
@@ -291,11 +303,13 @@ class DaemonClient implements WorkspaceCreationClient {
         .toList();
   }
 
+  @override
   Future<ProjectOverview> projectOverview(String workspaceId) async {
     final response = await _get('/api/workspaces/$workspaceId/overview');
     return ProjectOverview.fromJson(response);
   }
 
+  @override
   Future<FileTreeResponse> fileTree(String workspaceId,
       {String path = '', int maxDepth = 8}) async {
     final requestPath = Uri(
@@ -308,6 +322,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return FileTreeResponse.fromJson(response);
   }
 
+  @override
   Future<FileContent> fileContent(String workspaceId, String path) async {
     final requestPath = Uri(
         path: '/api/workspaces/$workspaceId/files/content',
@@ -316,6 +331,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return FileContent.fromJson(response);
   }
 
+  @override
   Future<List<GitCommitSummary>> gitCommits(String workspaceId,
       {int limit = 20}) async {
     final requestPath = Uri(
@@ -329,6 +345,7 @@ class DaemonClient implements WorkspaceCreationClient {
         .toList();
   }
 
+  @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async {
     final response =
         await _get('/api/workspaces/$workspaceId/diagnostics/code');
@@ -373,6 +390,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return WorkspaceSummary.fromJson(response);
   }
 
+  @override
   Future<List<DirectoryEntrySummary>> listFileSystemRoots() async {
     final response = await _get('/api/fs/roots');
     final items = response['roots'] as List<Object?>;
@@ -382,6 +400,7 @@ class DaemonClient implements WorkspaceCreationClient {
         .toList();
   }
 
+  @override
   Future<DirectoryListing> listDirectory(String path) async {
     final uri = Uri(
         path: '/api/fs/children',
@@ -390,6 +409,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return DirectoryListing.fromJson(response);
   }
 
+  @override
   Future<List<RunSummary>> listRuns(
       {String? tool, String? workspaceId, String? status}) async {
     final query = <String, String>{
@@ -405,6 +425,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return items.cast<Map<String, Object?>>().map(RunSummary.fromJson).toList();
   }
 
+  @override
   Future<RunSummary> createRun(
       {required String tool,
       required String workspaceId,
@@ -421,12 +442,14 @@ class DaemonClient implements WorkspaceCreationClient {
     return RunSummary.fromJson(response);
   }
 
+  @override
   Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async {
     final response = await _get('/api/runs/$runId/events?afterSeq=$afterSeq');
     final items = response['events'] as List<Object?>;
     return items.cast<Map<String, Object?>>().map(AgentEvent.fromJson).toList();
   }
 
+  @override
   Future<RunSummary> sendRunInput(String runId, String prompt,
       {String permissionMode = 'default'}) async {
     final response = await _post('/api/runs/$runId/input', <String, Object?>{
@@ -436,12 +459,14 @@ class DaemonClient implements WorkspaceCreationClient {
     return RunSummary.fromJson(response);
   }
 
+  @override
   Future<RunSummary> cancelRun(String runId) async {
     final response =
         await _post('/api/runs/$runId/cancel', const <String, Object?>{});
     return RunSummary.fromJson(response);
   }
 
+  @override
   Future<void> respondApproval(String approvalId, String decision) async {
     await _post('/api/approvals/$approvalId/respond',
         <String, Object?>{'decision': decision});
@@ -470,6 +495,7 @@ class DaemonClient implements WorkspaceCreationClient {
     return ExceptionTrace.fromJson(response);
   }
 
+  @override
   Future<List<ConversationSummary>> listConversations() async {
     final response = await _get('/api/conversations');
     final items = response['conversations'] as List<Object?>;
@@ -479,6 +505,7 @@ class DaemonClient implements WorkspaceCreationClient {
         .toList();
   }
 
+  @override
   Future<ConversationSummary> createConversation(
       {required String workspaceId,
       String adapter = 'claude',
@@ -492,6 +519,7 @@ class DaemonClient implements WorkspaceCreationClient {
         response['conversation'] as Map<String, Object?>);
   }
 
+  @override
   Future<ConversationSummary> sendConversationMessage(
       String conversationId, String text) async {
     final response = await _post(
@@ -502,6 +530,7 @@ class DaemonClient implements WorkspaceCreationClient {
         response['conversation'] as Map<String, Object?>);
   }
 
+  @override
   Future<List<ConversationEvent>> fetchConversationEvents(String conversationId,
       {int afterSeq = 0}) async {
     final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
@@ -513,6 +542,7 @@ class DaemonClient implements WorkspaceCreationClient {
         .toList();
   }
 
+  @override
   Future<ConversationSummary> answerConversationQuestion(
       String conversationId, String questionId, String text) async {
     final response = await _post(
@@ -525,6 +555,7 @@ class DaemonClient implements WorkspaceCreationClient {
         response['conversation'] as Map<String, Object?>);
   }
 
+  @override
   Future<ConversationSummary> respondConversationApproval(
       String conversationId, String approvalId, String decision) async {
     final response = await _post(
@@ -534,6 +565,7 @@ class DaemonClient implements WorkspaceCreationClient {
         response['conversation'] as Map<String, Object?>);
   }
 
+  @override
   Future<ConversationSummary> cancelConversation(String conversationId) async {
     final response = await _post(
         '/api/conversations/$conversationId/cancel', const <String, Object?>{});
@@ -541,6 +573,7 @@ class DaemonClient implements WorkspaceCreationClient {
         response['conversation'] as Map<String, Object?>);
   }
 
+  @override
   Future<void> revokeCurrentDevice() async {
     final deviceId = _deviceId;
     if (deviceId == null) return;

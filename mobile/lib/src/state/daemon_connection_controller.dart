@@ -40,6 +40,7 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
             initialDataLoader: snapshotLoader,
             healthProbe: healthProbe,
           ),
-          connectionTimeout: connectionTimeout,
+          connectionTimeout:
+              connectionTimeout ?? const Duration(seconds: 30),
         );
 }

@@ -1,48 +1,51 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
+import 'view_models/adapters_view_model.dart';
 
 class AdaptersPage extends StatelessWidget {
-  const AdaptersPage({super.key, required this.onBack, required this.data});
+  const AdaptersPage({super.key, required this.onBack, required this.viewModel});
   final VoidCallback onBack;
-  final AppSnapshot data;
+  final AdaptersViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return PageScroll(children: [
-      TopBar(
-          title: l10n.adaptersTitle,
-          leading: true,
-          action: l10n.adaptersCount(data.adapters.length)),
-      const SizedBox(height: 14),
-      if (data.adapters.isEmpty)
-        GlassCard(
-            child: Text(l10n.adaptersEmpty,
-                style: const TextStyle(color: theme.muted)))
-      else
-        for (final adapter in data.adapters)
-          _AdapterRow(adapter.adapter, adapter.statusText,
-              displayVersion(adapter.version), toolColor(adapter.adapter)),
-      const SizedBox(height: 16),
-      Subhead(l10n.adaptersExtensionsSection),
-      if (data.extensions.isEmpty)
-        GlassCard(
-            child: Text(l10n.adaptersNoExtensions,
-                style: const TextStyle(color: theme.muted)))
-      else
-        for (final extension in data.extensions)
-          _AdapterRow(
-              extension.name,
-              extension.description,
-              extension.installed ? extension.status : l10n.adaptersNotInstalled,
-              theme.purple),
-      const SizedBox(height: 16),
-      PrimaryButton(l10n.commonBack, onTap: onBack),
-    ]);
+    return ListenableBuilder(
+      listenable: viewModel,
+      builder: (context, _) => PageScroll(children: [
+        TopBar(
+            title: l10n.adaptersTitle,
+            leading: true,
+            action: l10n.adaptersCount(viewModel.adapters.length)),
+        const SizedBox(height: 14),
+        if (viewModel.adapters.isEmpty)
+          GlassCard(
+              child: Text(l10n.adaptersEmpty,
+                  style: const TextStyle(color: theme.muted)))
+        else
+          for (final adapter in viewModel.adapters)
+            _AdapterRow(adapter.adapter, adapter.statusText,
+                displayVersion(adapter.version), toolColor(adapter.adapter)),
+        const SizedBox(height: 16),
+        Subhead(l10n.adaptersExtensionsSection),
+        if (viewModel.extensions.isEmpty)
+          GlassCard(
+              child: Text(l10n.adaptersNoExtensions,
+                  style: const TextStyle(color: theme.muted)))
+        else
+          for (final extension in viewModel.extensions)
+            _AdapterRow(
+                extension.name,
+                extension.description,
+                extension.installed ? extension.status : l10n.adaptersNotInstalled,
+                theme.purple),
+        const SizedBox(height: 16),
+        PrimaryButton(l10n.commonBack, onTap: onBack),
+      ]),
+    );
   }
 }
 
