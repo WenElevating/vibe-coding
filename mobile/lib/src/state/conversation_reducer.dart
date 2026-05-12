@@ -210,6 +210,9 @@ class ConversationViewState {
           nextStatus = 'failed';
           partial = '';
           break;
+        case 'conversation.started':
+          // Lifecycle marker — no UI state change needed.
+          break;
         default:
           assert(false, 'Unknown conversation event type: ${event.type}');
       }
