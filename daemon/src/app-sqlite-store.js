@@ -148,40 +148,42 @@ class AppSqliteStore {
     if (hasDeleted && hasDeletedAt && !hasOldUnique) return;
 
     this.db.exec('PRAGMA foreign_keys = OFF');
-    this.db.exec('BEGIN');
     try {
-      this.db.exec(`
-        CREATE TABLE workspaces_next (
-          id TEXT PRIMARY KEY,
-          owner_device_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          path TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          is_deleted INTEGER NOT NULL DEFAULT 0,
-          deleted_at TEXT
-        );
-      `);
-      const selectDeleted = hasDeleted ? 'is_deleted' : '0';
-      const selectDeletedAt = hasDeletedAt ? 'deleted_at' : 'NULL';
-      this.db.exec(`
-        INSERT INTO workspaces_next(
-          id, owner_device_id, name, path, created_at, updated_at, is_deleted, deleted_at
-        )
-        SELECT id, owner_device_id, name, path, created_at, updated_at, ${selectDeleted}, ${selectDeletedAt}
-        FROM workspaces;
-      `);
-      this.db.exec('DROP TABLE workspaces');
-      this.db.exec('ALTER TABLE workspaces_next RENAME TO workspaces');
-      this.db.exec('COMMIT');
+      this.db.exec('BEGIN');
+      try {
+        this.db.exec(`
+          CREATE TABLE workspaces_next (
+            id TEXT PRIMARY KEY,
+            owner_device_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at TEXT
+          );
+        `);
+        const selectDeleted = hasDeleted ? 'is_deleted' : '0';
+        const selectDeletedAt = hasDeletedAt ? 'deleted_at' : 'NULL';
+        this.db.exec(`
+          INSERT INTO workspaces_next(
+            id, owner_device_id, name, path, created_at, updated_at, is_deleted, deleted_at
+          )
+          SELECT id, owner_device_id, name, path, created_at, updated_at, ${selectDeleted}, ${selectDeletedAt}
+          FROM workspaces;
+        `);
+        this.db.exec('DROP TABLE workspaces');
+        this.db.exec('ALTER TABLE workspaces_next RENAME TO workspaces');
+        this.db.exec('COMMIT');
+      } catch (error) {
+        try { this.db.exec('ROLLBACK'); } catch (_) {}
+        throw error;
+      }
+    } finally {
       this.db.exec('PRAGMA foreign_keys = ON');
-      const violations = this.db.prepare('PRAGMA foreign_key_check').all();
-      if (violations.length > 0) throw new Error('workspace schema migration violated foreign keys');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      this.db.exec('PRAGMA foreign_keys = ON');
-      throw error;
     }
+    const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) throw new Error('workspace schema migration violated foreign keys');
   }
 
   saveConversation(conversation) {
@@ -228,18 +230,30 @@ class AppSqliteStore {
   }
 
   loadConversations() {
+    const countsByConversation = new Map();
+    for (const row of this.db.prepare(`
+      SELECT conversation_id, COUNT(*) AS msg_count
+      FROM conversation_events
+      WHERE type = 'user.message'
+      GROUP BY conversation_id
+    `).all()) {
+      countsByConversation.set(row.conversation_id, Number(row.msg_count));
+    }
     return this.db.prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
       .all()
-      .map((row) => this.normalizeLoadedConversation(deserializeConversation(row)));
+      .map((row) => {
+        const conversation = deserializeConversation(row);
+        return this.normalizeLoadedConversation(conversation, countsByConversation.get(conversation.id) || 0);
+      });
   }
 
-  normalizeLoadedConversation(conversation) {
-    const row = this.db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM conversation_events
-      WHERE conversation_id = ? AND type = 'user.message'
-    `).get(conversation.id);
-    const userMessageCount = Number(row && row.count ? row.count : 0);
+  normalizeLoadedConversation(conversation, precomputedMessageCount) {
+    const userMessageCount = precomputedMessageCount !== undefined
+      ? precomputedMessageCount
+      : Number(this.db.prepare(`
+          SELECT COUNT(*) AS count FROM conversation_events
+          WHERE conversation_id = ? AND type = 'user.message'
+        `).get(conversation.id)?.count || 0);
     if (conversation.userMessageCount === 0 && userMessageCount > 0) {
       conversation.userMessageCount = userMessageCount;
     }
@@ -634,6 +648,8 @@ function parseJson(value, fallback) {
 }
 
 function ensureColumn(db, table, column, definition) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) throw new Error(`Invalid table name: ${table}`);
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(column)) throw new Error(`Invalid column name: ${column}`);
   const rows = db.prepare(`PRAGMA table_info(${table})`).all();
   if (rows.some((row) => row.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);

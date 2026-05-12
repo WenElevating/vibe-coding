@@ -119,11 +119,24 @@ class ConversationClient {
       };
 
   Map<String, Object?> _decode(http.Response response) {
-    final decoded = jsonDecode(response.body) as Map<String, Object?>;
-    if (response.statusCode >= 400) {
-      throw DaemonClientException(response.statusCode, decoded);
+    if (response.body.trim().isEmpty) {
+      throw DaemonClientException(
+          response.statusCode, const <String, Object?>{'error': 'empty_response'});
     }
-    return decoded;
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, Object?>) {
+        throw DaemonClientException(response.statusCode,
+            const <String, Object?>{'error': 'invalid_response_format'});
+      }
+      if (response.statusCode >= 400) {
+        throw DaemonClientException(response.statusCode, decoded);
+      }
+      return decoded;
+    } on FormatException catch (e) {
+      throw DaemonClientException(response.statusCode,
+          <String, Object?>{'error': 'malformed_json', 'message': e.message});
+    }
   }
 
   String? get deviceId => _deviceId;

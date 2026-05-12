@@ -1,5 +1,9 @@
 ﻿'use strict';
 
+// Provide test-only secrets so HMAC operations work without production env vars.
+process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'test-only-auth-token-secret';
+process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device-id-pepper';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { AuthManager, hashDeviceId, verifyToken } = require('../src/auth');

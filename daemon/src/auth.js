@@ -6,7 +6,7 @@ function generateToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-function hashToken(token, secret = process.env.AUTH_TOKEN_SECRET || 'development-auth-token-secret') {
+function hashToken(token, secret = process.env.AUTH_TOKEN_SECRET) {
   return crypto.createHmac('blake2b512', secret).update(token).digest('hex');
 }
 
@@ -26,7 +26,7 @@ class AuthManager {
   constructor({
     store,
     now = () => Date.now(),
-    deviceIdPepper = process.env.DEVICE_ID_PEPPER || 'development-device-id-pepper',
+    deviceIdPepper = process.env.DEVICE_ID_PEPPER,
     accessTokenTtlMs = readDurationEnv('ACCESS_TOKEN_TTL_MS', DEFAULT_ACCESS_TOKEN_TTL_MS),
     refreshTokenTtlMs = readDurationEnv('REFRESH_TOKEN_TTL_MS', DEFAULT_REFRESH_TOKEN_TTL_MS)
   } = {}) {
@@ -40,6 +40,13 @@ class AuthManager {
   }
 
   createPairingCode(ttlMs = 5 * 60 * 1000) {
+    if (this._lastPairingCodeAt && this.now() - this._lastPairingCodeAt < 60_000) {
+      const error = new Error('pairing code requested too recently');
+      error.status = 429;
+      error.code = 'TOO_MANY_REQUESTS';
+      throw error;
+    }
+    this._lastPairingCodeAt = this.now();
     const code = String(crypto.randomInt(100000, 999999));
     this.pairing = { code, expiresAt: this.now() + ttlMs, used: false };
     return { code, expiresAt: this.pairing.expiresAt };

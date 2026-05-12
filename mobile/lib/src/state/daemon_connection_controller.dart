@@ -17,14 +17,29 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
     required SecureTokenStore tokenStore,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
-    super.connectionTimeout,
-  }) : super(
+    Duration? connectionTimeout,
+  }) : this._fromRepo(
           configRepository: DaemonConnectionConfigRepository(store: store),
+          tokenStore: tokenStore,
+          snapshotLoader: snapshotLoader,
+          healthProbe: healthProbe,
+          connectionTimeout: connectionTimeout,
+        );
+
+  DaemonConnectionController._fromRepo({
+    required DaemonConnectionConfigRepository configRepository,
+    required SecureTokenStore tokenStore,
+    DaemonSnapshotLoader? snapshotLoader,
+    DaemonHealthProbe? healthProbe,
+    Duration? connectionTimeout,
+  }) : super(
+          configRepository: configRepository,
           workflow: DaemonConnectionWorkflow(
-            configRepository: DaemonConnectionConfigRepository(store: store),
+            configRepository: configRepository,
             tokenStore: tokenStore,
             initialDataLoader: snapshotLoader,
             healthProbe: healthProbe,
           ),
+          connectionTimeout: connectionTimeout,
         );
 }

@@ -1,5 +1,8 @@
 ﻿'use strict';
 
+process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'test-only-auth-token-secret';
+process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device-id-pepper';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');

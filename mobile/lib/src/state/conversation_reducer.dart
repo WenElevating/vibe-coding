@@ -53,12 +53,13 @@ class ConversationViewState {
 
   ConversationViewState apply(Iterable<ConversationEvent> events,
       {bool streamOutput = false}) {
+    final newEvents = events.where((e) => e.seq > lastSeq).toList();
+    if (newEvents.isEmpty) return this;
     final nextMessages = <ConversationMessage>[...messages];
     var nextSeq = lastSeq;
     var nextStatus = status;
     var partial = pendingPartial;
-    for (final event in events.toList()
-      ..sort((a, b) => a.seq.compareTo(b.seq))) {
+    for (final event in newEvents..sort((a, b) => a.seq.compareTo(b.seq))) {
       if (event.seq <= nextSeq) continue;
       nextSeq = event.seq;
       switch (event.type) {
@@ -209,6 +210,8 @@ class ConversationViewState {
           nextStatus = 'failed';
           partial = '';
           break;
+        default:
+          assert(false, 'Unknown conversation event type: ${event.type}');
       }
     }
     return ConversationViewState(

@@ -1,5 +1,8 @@
 ﻿'use strict';
 
+process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'test-only-auth-token-secret';
+process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device-id-pepper';
+
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
@@ -227,12 +230,12 @@ test('createApp prefers APP_DB_PATH over CONVERSATION_DB_PATH compatibility alia
   app.appSqliteStore.close();
 });
 
-test('createApp defaults daemon binding to all interfaces for LAN access', () => {
+test('createApp defaults daemon binding to loopback for local-only access', () => {
   const originalHost = process.env.DAEMON_HOST;
   delete process.env.DAEMON_HOST;
-  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-lan-default-'), devAdapters: false });
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-loopback-default-'), devAdapters: false });
   try {
-    assert.equal(app.config.host, '0.0.0.0');
+    assert.equal(app.config.host, '127.0.0.1');
   } finally {
     app.appSqliteStore.close();
     if (originalHost === undefined) delete process.env.DAEMON_HOST;

@@ -17,12 +17,19 @@ class EventStore {
       ...payload
     };
     if (!this.eventsByRun.has(runId)) this.eventsByRun.set(runId, []);
-    this.eventsByRun.get(runId).push(event);
+    const events = this.eventsByRun.get(runId);
+    events.push(event);
+    if (events.length > 10_000) events.splice(0, events.length - 10_000);
     return event;
   }
 
   list(runId, afterSeq = 0) {
     return (this.eventsByRun.get(runId) || []).filter((event) => event.seq > afterSeq);
+  }
+
+  deleteRun(runId) {
+    this.eventsByRun.delete(runId);
+    this.nextSeqByRun.delete(runId);
   }
 }
 

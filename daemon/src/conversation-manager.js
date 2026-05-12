@@ -128,6 +128,8 @@ class ConversationManager {
     const message = normalizeMessagePayload(payload);
     if (conversation.status === conversationStatuses.WAITING_INPUT) throw conflict('conversation is waiting for input response');
     if (conversation.status === conversationStatuses.WAITING_APPROVAL) throw conflict('conversation is waiting for approval response');
+    if (conversation.sendLock) throw conflict('message already in flight');
+    conversation.sendLock = true;
     conversation.status = conversationStatuses.RUNNING;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
@@ -149,6 +151,8 @@ class ConversationManager {
       this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, { message: error.message });
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       throw error;
+    } finally {
+      conversation.sendLock = false;
     }
   }
 
@@ -192,11 +196,17 @@ class ConversationManager {
 
   async cancelConversation(conversationId, device) {
     const conversation = this.requireConversation(conversationId, device);
-    if (conversation.handle && typeof conversation.handle.cancel === 'function') await conversation.handle.cancel();
-    conversation.handle = null;
-    conversation.status = conversation.cliSessionId ? conversationStatuses.CANCELLED : conversationStatuses.INTERRUPTED;
-    conversation.blockingItem = null;
-    conversation.idleExpiresAt = null;
+    const targetStatus = conversation.cliSessionId ? conversationStatuses.CANCELLED : conversationStatuses.INTERRUPTED;
+    try {
+      if (conversation.handle && typeof conversation.handle.cancel === 'function') await conversation.handle.cancel();
+    } catch (err) {
+      this.auditLog.record('conversation.cancel_error', { conversationId, error: err.message });
+    } finally {
+      conversation.handle = null;
+      conversation.status = targetStatus;
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+    }
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.CONVERSATION_CANCELLED, {
       reason: 'user_cancelled',
@@ -281,7 +291,6 @@ class ConversationManager {
   confirmSessionBinding(conversation, receivedSessionId) {
     if (!receivedSessionId) return true;
     if (!conversation.cliSessionId) {
-      const previousSessionId = conversation.cliSessionId;
       const previousBinding = conversation.sessionBinding;
       conversation.cliSessionId = receivedSessionId;
       conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
@@ -289,7 +298,7 @@ class ConversationManager {
         this.persistConversation(conversation);
         return true;
       } catch (error) {
-        conversation.cliSessionId = previousSessionId || null;
+        conversation.cliSessionId = null;
         conversation.sessionBinding = previousBinding || conversationSessionBindings.UNKNOWN;
         conversation.status = conversationStatuses.FAILED;
         conversation.blockingItem = null;

@@ -29,7 +29,8 @@ class RunManager {
       resumeRequested: false,
       status: 'created',
       createdAt: new Date().toISOString(),
-      child: null
+      child: null,
+      starting: false
     };
     this.runs.set(runId, run);
     const queueResult = this.runQueue.submit(run);
@@ -43,6 +44,8 @@ class RunManager {
   }
 
   startRunProcess(run, workspace) {
+    if (run.starting) return;
+    run.starting = true;
     const adapter = this.adapterRegistry.get(run.tool);
     run.status = 'running';
     this.eventStore.append(run.id, eventTypes.RUN_STARTED, { tool: run.tool, workspaceId: workspace.id });
@@ -54,9 +57,11 @@ class RunManager {
       permissionMode: run.permissionMode || 'default',
       onEvent: (event) => this.recordAdapterEvent(run, event)
     })).then((child) => {
+      run.starting = false;
       run.resumeRequested = false;
       run.child = child;
     }).catch((error) => {
+      run.starting = false;
       run.status = 'failed';
       this.eventStore.append(run.id, eventTypes.ADAPTER_ERROR, normalizeAdapterError(run.tool, error));
       this.eventStore.append(run.id, eventTypes.RUN_FAILED, { error: error.message });

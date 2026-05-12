@@ -74,7 +74,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         return json(res, 200, { workspaceId: workspace.id, workspace, workspaces: workspaces.listForDevice(device) });
       }
       if (method === 'GET' && url.pathname === '/api/fs/roots') return json(res, 200, { roots: await listRoots() });
-      if (method === 'GET' && url.pathname === '/api/fs/children') return json(res, 200, await listDirectory(url.searchParams.get('path') || ''));
+      if (method === 'GET' && url.pathname === '/api/fs/children') return json(res, 200, await listDirectory(url.searchParams.get('path') || '', workspaces.listForDevice(device).map((w) => w.workspacePath)));
 
       const workspaceOverview = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/overview$/);
       if (method === 'GET' && workspaceOverview) return json(res, 200, workspaceInspector.overview(workspaces.getAuthorized(workspaceOverview[1], device)));
@@ -191,20 +191,21 @@ function invokeTemplate(templateId, body, context) {
 async function resolveAll(items) { return Promise.all(items.map((item) => Promise.resolve(item))); }
 async function listRoots() {
   if (process.platform === 'win32') {
-    const roots = [];
-    for (let code = 65; code <= 90; code += 1) {
-      const root = `${String.fromCharCode(code)}:\\`;
-      try {
-        await fs.access(root);
-        roots.push({ name: root, path: root });
-      } catch (_) {}
-    }
-    return roots;
+    const results = await Promise.all(
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(async (l) => {
+        const root = `${l}:\\`;
+        try { await fs.access(root); return { name: root, path: root }; } catch (_) { return null; }
+      })
+    );
+    return results.filter(Boolean);
   }
   return [{ name: '/', path: '/' }, { name: os.homedir(), path: os.homedir() }];
 }
-async function listDirectory(targetPath) {
+async function listDirectory(targetPath, allowedRoots) {
   const resolved = path.resolve(targetPath || process.cwd());
+  if (allowedRoots && !allowedRoots.some((root) => resolved === root || resolved.startsWith(root + path.sep))) {
+    throw Object.assign(new Error('path outside authorized workspace'), { status: 403, code: 'FORBIDDEN' });
+  }
   const entries = await fs.readdir(resolved, { withFileTypes: true });
   const directories = entries
     .filter((entry) => entry.isDirectory())
@@ -213,6 +214,23 @@ async function listDirectory(targetPath) {
   return { path: resolved, parent: path.dirname(resolved) === resolved ? null : path.dirname(resolved), directories };
 }
 function json(res, status, body) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
-async function readJson(req) { const chunks = []; for await (const chunk of req) chunks.push(chunk); if (chunks.length === 0) return {}; return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+async function readJson(req) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > 1_048_576) {
+      req.destroy();
+      throw Object.assign(new Error('request body too large'), { status: 413, code: 'PAYLOAD_TOO_LARGE' });
+    }
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw Object.assign(new Error('request body is not valid JSON'), { status: 400, code: 'BAD_REQUEST' });
+  }
+}
 
 module.exports = { createServer };

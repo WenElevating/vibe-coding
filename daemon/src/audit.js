@@ -8,6 +8,7 @@ class AuditLog {
   record(type, payload) {
     const record = { type, createdAt: new Date().toISOString(), ...redact(payload) };
     this.records.push(record);
+    if (this.records.length > 10_000) this.records.splice(0, this.records.length - 10_000);
     return record;
   }
 

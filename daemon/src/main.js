@@ -28,7 +28,7 @@ const { createServer } = require('./server');
 const { AsrModelAsset } = require('./asr-model-asset');
 
 function createApp({
-  host = process.env.DAEMON_HOST || '0.0.0.0',
+  host = process.env.DAEMON_HOST || '127.0.0.1',
   port = Number(process.env.PORT || 4317),
   mode = process.env.DAEMON_MODE || 'dev',
   claudeCommand = process.env.CLAUDE_COMMAND || 'claude',
@@ -43,6 +43,10 @@ function createApp({
   refreshTokenTtlMs = undefined,
   asrModelAsset = new AsrModelAsset()
 } = {}) {
+  if (mode !== 'dev') {
+    if (!process.env.AUTH_TOKEN_SECRET) throw new Error('AUTH_TOKEN_SECRET env var is required in non-dev mode');
+    if (!process.env.DEVICE_ID_PEPPER) throw new Error('DEVICE_ID_PEPPER env var is required in non-dev mode');
+  }
   const appSqliteStore = new AppSqliteStore({ dbPath: appDbPath });
   const auth = new AuthManager({ store: appSqliteStore, accessTokenTtlMs, refreshTokenTtlMs });
   const workspaces = new WorkspaceRegistry({ store: appSqliteStore });
