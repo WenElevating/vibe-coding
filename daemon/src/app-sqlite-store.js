@@ -429,7 +429,8 @@ class AppSqliteStore {
     this.db.prepare(`
       INSERT INTO devices(id, device_id_hash, label, status, created_at, last_seen_at)
       VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(device_id_hash) DO UPDATE SET
+      ON CONFLICT(id) DO UPDATE SET
+        device_id_hash = excluded.device_id_hash,
         label = excluded.label,
         status = excluded.status,
         last_seen_at = excluded.last_seen_at
@@ -437,8 +438,8 @@ class AppSqliteStore {
     const row = this.db.prepare(`
       SELECT id, device_id_hash, label, status, created_at, last_seen_at
       FROM devices
-      WHERE device_id_hash = ?
-    `).get(deviceIdHash);
+      WHERE id = ?
+    `).get(deviceId);
     return deserializeDevice(row);
   }
 
