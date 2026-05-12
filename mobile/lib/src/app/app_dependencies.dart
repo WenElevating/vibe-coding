@@ -95,7 +95,7 @@ class FeatureDependencies {
       FeatureDependencies(
         createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
           configRepository: data.connectionConfigRepository,
-          workflow: domain.connectionWorkflow,
+          connectToDaemon: domain.connectionWorkflow,
         ),
       );
 

@@ -1,4 +1,5 @@
 import '../data/repositories/daemon_connection_config_repository.dart';
+import '../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../shell/app_snapshot.dart';
@@ -15,32 +16,34 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
   DaemonConnectionController({
     required DaemonConnectionConfigStore store,
     required SecureTokenStore tokenStore,
+    ConnectToDaemonUseCase? connectToDaemon,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,
   }) : this._fromRepo(
           configRepository: DaemonConnectionConfigRepository(store: store),
           tokenStore: tokenStore,
+          connectToDaemon: connectToDaemon,
           snapshotLoader: snapshotLoader,
           healthProbe: healthProbe,
           connectionTimeout: connectionTimeout,
         );
 
   DaemonConnectionController._fromRepo({
-    required DaemonConnectionConfigRepository configRepository,
+    required super.configRepository,
     required SecureTokenStore tokenStore,
+    ConnectToDaemonUseCase? connectToDaemon,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,
   }) : super(
-          configRepository: configRepository,
-          workflow: DaemonConnectionWorkflow(
-            configRepository: configRepository,
-            tokenStore: tokenStore,
-            initialDataLoader: snapshotLoader,
-            healthProbe: healthProbe,
-          ),
-          connectionTimeout:
-              connectionTimeout ?? const Duration(seconds: 30),
+          connectToDaemon: connectToDaemon ??
+              DaemonConnectionWorkflow(
+                configRepository: configRepository,
+                tokenStore: tokenStore,
+                initialDataLoader: snapshotLoader,
+                healthProbe: healthProbe,
+              ),
+          connectionTimeout: connectionTimeout ?? const Duration(seconds: 30),
         );
 }

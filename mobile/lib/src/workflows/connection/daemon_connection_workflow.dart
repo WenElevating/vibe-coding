@@ -1,6 +1,7 @@
 import '../../data/repositories/daemon_connection_config_repository.dart';
 import '../../domain/models/connected_app_session.dart';
 import '../../domain/models/daemon_initial_data.dart';
+import '../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../services/daemon_client.dart';
 import '../../services/daemon_connection_config.dart';
 import '../../services/device_identity_store.dart';
@@ -17,7 +18,7 @@ typedef DaemonInitialDataLoader = Future<DaemonInitialData> Function(
     DaemonClient client);
 typedef DaemonHealthProbe = Future<void> Function(DaemonClient client);
 
-class DaemonConnectionWorkflow {
+class DaemonConnectionWorkflow implements ConnectToDaemonUseCase {
   DaemonConnectionWorkflow({
     required DaemonConnectionConfigRepository configRepository,
     required SecureTokenStore tokenStore,
@@ -40,6 +41,7 @@ class DaemonConnectionWorkflow {
   final DaemonInitialDataLoader? _initialDataLoader;
   final DaemonHealthProbe _healthProbe;
 
+  @override
   Future<ConnectedAppSession> connect({
     required String addressInput,
     required DaemonProxyMode proxyMode,

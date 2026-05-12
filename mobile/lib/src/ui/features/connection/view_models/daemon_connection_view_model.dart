@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/daemon_connection_config_repository.dart';
+import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../../../services/daemon_client.dart';
 import '../../../../services/daemon_connection_config.dart';
 import '../../../../shell/app_snapshot.dart';
-import '../../../../workflows/connection/daemon_connection_workflow.dart';
+import '../../../../workflows/connection/daemon_connection_workflow.dart'
+    show DaemonConnectionCancelled;
 
 enum DaemonConnectionStatus {
   loadingConfig,
@@ -21,14 +23,14 @@ enum DaemonConnectionStatus {
 class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonConnectionViewModel({
     required DaemonConnectionConfigRepository configRepository,
-    required DaemonConnectionWorkflow workflow,
+    required ConnectToDaemonUseCase connectToDaemon,
     Duration connectionTimeout = const Duration(seconds: 30),
   })  : _configRepository = configRepository,
-        _workflow = workflow,
+        _connectToDaemon = connectToDaemon,
         _connectionTimeout = connectionTimeout;
 
   final DaemonConnectionConfigRepository _configRepository;
-  final DaemonConnectionWorkflow _workflow;
+  final ConnectToDaemonUseCase _connectToDaemon;
   final Duration _connectionTimeout;
 
   DaemonConnectionStatus _status = DaemonConnectionStatus.loadingConfig;
@@ -110,7 +112,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final session = await _workflow
+      final session = await _connectToDaemon
           .connect(
         addressInput: _addressInput,
         proxyMode: _proxyMode,
