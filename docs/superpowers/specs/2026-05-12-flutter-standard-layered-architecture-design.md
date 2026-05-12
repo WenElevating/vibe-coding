@@ -33,32 +33,32 @@ running and testable throughout the migration.
 
 ```text
 mobile/lib/src/
-├── app/
-│   ├── app.dart
-│   ├── app_dependencies.dart
-│   ├── language_*.dart
-│   └── app_environment.dart
-├── data/
-│   ├── api/
-│   ├── models/
-│   ├── repositories/
-│   └── services/
-├── domain/
-│   ├── failures/
-│   ├── models/
-│   ├── repositories/
-│   └── use_cases/
-├── testing/
-└── ui/
-    ├── core/
-    │   ├── theme/
-    │   ├── widgets/
-    │   └── layout/
-    └── features/
-        └── [feature]/
-            ├── view_models/
-            ├── views/
-            └── widgets/
++-- app/
+|   +-- app.dart
+|   +-- app_dependencies.dart
+|   +-- language_*.dart
+|   +-- app_environment.dart
++-- data/
+|   +-- api/
+|   +-- models/
+|   +-- repositories/
+|   +-- services/
++-- domain/
+|   +-- failures/
+|   +-- models/
+|   +-- repositories/
+|   +-- use_cases/
++-- testing/
++-- ui/
+    +-- core/
+    |   +-- theme/
+    |   +-- widgets/
+    |   +-- layout/
+    +-- features/
+        +-- [feature]/
+            +-- view_models/
+            +-- views/
+            +-- widgets/
 ```
 
 Temporary compatibility exports may remain during migration, but new production
@@ -72,6 +72,8 @@ code should use the target structure.
   on use cases or repository abstractions, not on concrete HTTP clients.
 - `ui/core` owns shared visual primitives and must not depend on concrete
   features.
+- `ui/core/layout` owns shared responsive scaffolds, page frames, tab shells,
+  safe-area helpers, and other layout templates reused across features.
 - `domain` owns pure models, repository contracts, failures, and use cases. It
   must not import Flutter widgets, SharedPreferences, HTTP clients, or concrete
   daemon client classes.
@@ -85,9 +87,31 @@ code should use the target structure.
 
 ### AppDependencies
 
-`AppDependencies` is the single composition root for the mobile app. It creates
-and owns concrete instances such as HTTP clients, token stores, config stores,
-API clients, repositories, use cases, and root ViewModels.
+`AppDependencies` is the top-level composition root for the mobile app. It
+should aggregate smaller dependency groups instead of owning every object
+directly.
+
+```dart
+class AppDependencies {
+  AppDependencies({
+    required this.network,
+    required this.data,
+    required this.domain,
+    required this.features,
+  });
+
+  final NetworkDependencies network;
+  final DataDependencies data;
+  final DomainDependencies domain;
+  final FeatureDependencies features;
+}
+```
+
+`NetworkDependencies` owns HTTP, auth/session, and token transport concerns.
+`DataDependencies` owns concrete repositories and stores. `DomainDependencies`
+owns shared use cases. `FeatureDependencies` may group feature-specific
+ViewModel factories when a feature has enough dependencies to justify its own
+subtree.
 
 This keeps object construction out of widgets such as `MobileUi` and makes test
 replacement simpler.
@@ -123,8 +147,10 @@ Planned examples:
 ### Use Cases
 
 Use cases contain multi-step or cross-repository workflows. Simple CRUD-like
-operations can remain on repositories until reuse or complexity justifies a use
-case.
+operations remain on repositories until reuse or complexity justifies a use
+case. Create a use case when an operation crosses two or more repositories,
+requires an ordered side-effect sequence, needs transaction-like rollback or
+retry behavior, or is reused by more than one ViewModel.
 
 Planned examples:
 
@@ -215,6 +241,14 @@ implement their own string-based auth-expiry handling.
 - Mark old production roots as migration-only: `src/features`, `src/widgets`,
   `src/theme`, `src/state`, and broad top-level exports.
 - Prefer compatibility exports during migration rather than immediate deletion.
+- Add `mobile/tool/check_architecture_imports.dart` as the first enforcement
+  mechanism. It should parse Dart `import` and `export` statements with simple
+  path rules, fail on forbidden dependencies, and report migration-only import
+  counts. This avoids adding a new analyzer plugin dependency during the first
+  migration pass. If the rules become too complex for the script to maintain,
+  replace it later with an `import_lint` configuration.
+- Record baseline counts for old-path imports. Each phase may reduce the counts
+  but must not increase them.
 
 ### Phase 1: Add the Composition Root
 
@@ -233,8 +267,13 @@ implement their own string-based auth-expiry handling.
 
 ### Phase 3: Standardize the Data Layer
 
-- Split `DaemonClient` into focused API clients and shared request/auth support.
-- Keep public behavior stable through repository interfaces.
+- Add repository contracts and repository facade implementations around the
+  existing `DaemonClient` first.
+- Do not try to fully split `DaemonClient` in this phase. Workbench is its
+  largest consumer, so concrete client extraction should happen alongside
+  Phase 5 workbench migration slices.
+- Keep public behavior stable through repository interfaces while the internal
+  client split proceeds incrementally.
 - Move token/session handling and HTTP error mapping into data-level utilities.
 - Keep existing daemon client tests as regression tests while introducing
   focused API/repository tests.
@@ -272,6 +311,9 @@ Migrate the remaining feature areas to `ui/features/[feature]`:
 - home/runs/queue pages
 
 Each migration should update imports and tests for one feature at a time.
+At the end of each feature migration, run the architecture import check and
+confirm migration-only import counts decreased or stayed flat. New imports from
+the old roots are not allowed.
 
 ### Phase 7: Consolidate Shared UI
 
@@ -287,23 +329,25 @@ Each migration should update imports and tests for one feature at a time.
 - Delete migration-only compatibility exports once all internal imports are
   updated.
 - Add or update architecture boundary checks.
+- Before deleting each compatibility export, run a grep/import check proving
+  there are zero remaining references to the old path.
 
 ## Workbench Target Layout
 
 ```text
 mobile/lib/src/ui/features/workbench/
-├── view_models/
-│   ├── workbench_view_model.dart
-│   └── voice_input_view_model.dart
-├── views/
-│   └── coding_workbench_page.dart
-├── widgets/
-│   ├── approval_card.dart
-│   ├── composer.dart
-│   ├── conversation_timeline.dart
-│   ├── workspace_panel.dart
-│   └── workbench_header.dart
-└── workbench.dart
++-- view_models/
+|   +-- workbench_view_model.dart
+|   +-- voice_input_view_model.dart
++-- views/
+|   +-- coding_workbench_page.dart
++-- widgets/
+|   +-- approval_card.dart
+|   +-- composer.dart
+|   +-- conversation_timeline.dart
+|   +-- workspace_panel.dart
+|   +-- workbench_header.dart
++-- workbench.dart
 ```
 
 Optional use cases can live under `domain/use_cases/workbench` or more generic
@@ -311,8 +355,10 @@ domain folders if they are reused by other features.
 
 ## Testing Strategy
 
-- Add architecture boundary tests or scripts that reject invalid imports, such
-  as `domain` importing Flutter UI or concrete daemon client classes.
+- Use `mobile/tool/check_architecture_imports.dart` as the initial architecture
+  boundary check. It should reject invalid imports such as `domain` importing
+  Flutter UI or concrete daemon client classes, and it should track old-path
+  import counts during migration.
 - Keep protocol and reducer compatibility tests intact during data migration.
 - Add API client tests for paths, auth headers, refresh behavior, JSON parsing,
   and typed error mapping.
@@ -323,6 +369,9 @@ domain folders if they are reused by other features.
   workflow orchestration.
 - Run `flutter analyze` and `flutter test` for migration phases that touch
   Flutter code.
+- For each migration phase, compare old-path import counts against the previous
+  baseline. Counts can decrease or remain unchanged only when the phase did not
+  touch that area; they must never increase.
 
 ## Acceptance Criteria
 
@@ -332,7 +381,8 @@ domain folders if they are reused by other features.
 - `domain` does not depend on Flutter widgets, concrete daemon clients, HTTP, or
   SharedPreferences.
 - The daemon client is no longer a full-feature god client. Shared HTTP/auth
-  behavior and feature-specific APIs are separated.
+  behavior and feature-specific APIs are separated after the workbench migration
+  slices that exercise those APIs.
 - `CodingWorkbenchPage` is primarily a view shell. Business workflows live in
   ViewModels, repositories, or use cases.
 - Connection, workbench, ASR, and secondary feature ViewModels expose structured
@@ -342,11 +392,13 @@ domain folders if they are reused by other features.
 
 ## Recommended First Implementation Plan
 
-1. Add architecture rules and import-boundary checks.
-2. Introduce `AppDependencies` without changing behavior.
+1. Add architecture rules, import-boundary checks, and old-path import counts.
+2. Introduce grouped `AppDependencies` without changing behavior.
 3. Finish the connection feature as the reference implementation.
-4. Split `DaemonClient` behind repositories while keeping compatibility tests.
-5. Migrate workbench in small slices, starting with sending/loading flows.
+4. Put repository facades in front of `DaemonClient` while keeping compatibility
+   tests.
+5. Migrate workbench in small slices, splitting concrete daemon API clients only
+   when each slice needs them.
 6. Migrate secondary features and shared UI roots.
-7. Remove compatibility exports and narrow public API.
-
+7. Remove compatibility exports only after zero-reference checks, then narrow
+   public API.
