@@ -168,6 +168,24 @@ void main() {
     expect(updated.id, 'conv_existing');
     expect(updated.status, 'idle');
   });
+
+  test('workbench view model fetches conversation events after sequence',
+      () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final events = await viewModel.fetchConversationEvents(
+      conversationId: 'conv_existing',
+      afterSeq: 7,
+    );
+
+    expect(repository.calls, <String>['events:conv_existing:7']);
+    expect(events.single.seq, 8);
+    expect(events.single.type, 'assistant.message');
+  });
 }
 
 const _workspace = WorkspaceSummary(
@@ -269,8 +287,18 @@ class _FakeConversationRepository implements ConversationRepository {
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,
-  }) async =>
-      throw UnimplementedError();
+  }) async {
+    calls.add('events:$conversationId:$afterSeq');
+    return <ConversationEvent>[
+      ConversationEvent(
+        seq: afterSeq + 1,
+        conversationId: conversationId,
+        type: 'assistant.message',
+        createdAt: DateTime.parse('2026-05-12T00:00:02.000Z'),
+        text: 'hello',
+      ),
+    ];
+  }
 
   @override
   Future<List<ConversationSummary>> listConversations() async =>

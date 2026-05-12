@@ -153,6 +153,15 @@ class WorkbenchViewModel extends ChangeNotifier {
         text,
       );
 
+  Future<List<ConversationEvent>> fetchConversationEvents({
+    required String conversationId,
+    required int afterSeq,
+  }) =>
+      _requireConversationRepository().fetchConversationEvents(
+        conversationId,
+        afterSeq: afterSeq,
+      );
+
   ConversationRepository _requireConversationRepository() {
     final repository = _conversationRepository;
     if (repository == null) {

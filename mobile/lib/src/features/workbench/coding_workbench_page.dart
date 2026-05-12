@@ -771,8 +771,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     try {
-      final conversationEvents = await widget.client
-          .fetchConversationEvents(conversationId, afterSeq: _lastSeq);
+      final conversationEvents =
+          await _workbenchViewModel.fetchConversationEvents(
+        conversationId: conversationId,
+        afterSeq: _lastSeq,
+      );
       if (conversationEvents.isEmpty || !mounted) return;
       setState(() {
         for (final event in conversationEvents) {
