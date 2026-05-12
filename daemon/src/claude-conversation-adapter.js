@@ -83,7 +83,10 @@ class ClaudeConversationAdapter {
       initWaiters: []
     };
     child.stdout.on('data', createJsonLineParser((raw) => handleRawClaudeEvent(raw, state)));
-    child.stderr.on('data', (chunk) => onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: chunk.toString() }));
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text, visible: false });
+    });
     child.on('error', (error) => onEvent({ type: conversationEventTypes.RUN_ERROR, error: error.message }));
     child.on('exit', (code, signal) => {
       if (signal) onEvent({ type: conversationEventTypes.CONVERSATION_CANCELLED, signal });
@@ -196,7 +199,7 @@ function handleRawClaudeEvent(raw, state) {
     return;
   }
   if (rawType === 'system' && event.subtype === 'api_retry') {
-    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${event.error_status || ''} ${event.error || 'error'}`, sessionId, raw: event });
+    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${event.error_status || ''} ${event.error || 'error'}`, visible: false, sessionId, raw: event });
     return;
   }
   if (sessionId) state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: '', sessionId, raw: event });
@@ -329,7 +332,7 @@ function handleAssistantToolEvents(raw, state, originalRaw = raw) {
   for (const part of content) {
     if (!part || typeof part !== 'object') continue;
     if (part.type === 'tool_use' && part.name !== 'AskUserQuestion') {
-      handleToolUse(part, state, originalRaw);
+      if (!state.pendingTools.has(part.id)) handleToolUse(part, state, originalRaw);
       continue;
     }
     if (part.type === 'tool_result') {
@@ -352,7 +355,7 @@ function handleToolDelta(raw, state, originalRaw = raw) {
   if (!toolUseId) return;
   const text = extractToolText(raw);
   if (!text) return;
-  state.onEvent({ type: 'tool.delta', toolUseId, text, raw: originalRaw });
+  state.onEvent({ type: conversationEventTypes.TOOL_DELTA, toolUseId, text, raw: originalRaw });
 }
 
 function handleToolResult(raw, state, originalRaw = raw) {

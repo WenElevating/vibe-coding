@@ -93,9 +93,11 @@ class ClaudeAdapter {
       }
       onEvent(event);
     };
+    let fallback;
     const sendPrompt = () => {
       if (promptSent) return;
       promptSent = true;
+      clearTimeout(fallback);
       writeJsonLine(child, {
         type: 'user',
         message: { role: 'user', content: prompt },
@@ -125,7 +127,7 @@ class ClaudeAdapter {
       request_id: initRequestId,
       request: { subtype: 'initialize', hooks: null }
     });
-    const fallback = setTimeout(sendPrompt, 1500);
+    fallback = setTimeout(sendPrompt, 5000);
     if (typeof fallback.unref === 'function') fallback.unref();
     return child;
   }

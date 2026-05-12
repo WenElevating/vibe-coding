@@ -1041,6 +1041,16 @@ test('Claude adapter treats result as terminal and suppresses late noise', async
   child.stdin = {
     destroyed: false,
     write(data) {
+      if (data.includes('"initialize"')) {
+        const req = JSON.parse(data.trim());
+        setImmediate(() => {
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+            type: 'control_response',
+            response: { request_id: req.request_id, subtype: 'success', response: {} }
+          })}\n`));
+        });
+        return;
+      }
       if (!data.includes('"late noise smoke"')) return;
       setImmediate(() => {
         child.stdout.emit('data', Buffer.from(`${JSON.stringify({
@@ -1065,7 +1075,7 @@ test('Claude adapter treats result as terminal and suppresses late noise', async
   const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
 
   adapter.startRun({ prompt: 'late noise smoke', workspacePath: '.', permissionMode: 'auto', onEvent: (event) => events.push(event) });
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   assert.equal(events.filter((event) => event.type === eventTypes.RUN_COMPLETED).length, 1);
   assert.equal(events.some((event) => event.text === 'Claude requesting'), false);
@@ -1351,6 +1361,16 @@ test('follow-up resumes only the captured Claude session', async () => {
     child.stdin = {
       destroyed: false,
       write(data) {
+        if (data.includes('"initialize"')) {
+          const req = JSON.parse(data.trim());
+          setImmediate(() => {
+            child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+              type: 'control_response',
+              response: { request_id: req.request_id, subtype: 'success', response: {} }
+            })}\n`));
+          });
+          return;
+        }
         if (!data.includes('"type":"user"')) return;
         setImmediate(() => {
           child.stdout.emit('data', Buffer.from(`${JSON.stringify({
@@ -1378,7 +1398,7 @@ test('follow-up resumes only the captured Claude session', async () => {
     }, paired.body.token);
     const workspaceId = (await request(port, 'GET', '/api/workspaces', null, paired.body.token)).body.workspaces[0].id;
     const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId, prompt: 'first' }, paired.body.token);
-    await new Promise((resolve) => setTimeout(resolve, 1700));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const followed = await request(port, 'POST', `/api/runs/${created.body.id}/input`, { prompt: 'second' }, paired.body.token);
 
     assert.equal(followed.status, 200);
@@ -1403,6 +1423,16 @@ test('Claude adapter turns AskUserQuestion into a user-facing question', async (
     destroyed: false,
     write(data) {
       stdinLines.push(data.trim());
+      if (data.includes('"initialize"')) {
+        const req = JSON.parse(data.trim());
+        setImmediate(() => {
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+            type: 'control_response',
+            response: { request_id: req.request_id, subtype: 'success', response: {} }
+          })}\n`));
+        });
+        return;
+      }
       if (!data.includes('"type":"user"')) return;
       setImmediate(() => {
         child.stdout.emit('data', Buffer.from(`${JSON.stringify({
@@ -1432,7 +1462,7 @@ test('Claude adapter turns AskUserQuestion into a user-facing question', async (
   const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
 
   adapter.startRun({ prompt: '写一个python高级脚本', workspacePath: '.', onEvent: (event) => events.push(event) });
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   assert.equal(events.some((event) => event.type === eventTypes.APPROVAL_REQUIRED), false);
   assert.equal(events.some((event) => event.type === eventTypes.ASSISTANT_QUESTION && event.text === '你希望脚本做什么？'), true);

@@ -50,6 +50,7 @@ const conversationEventTypes = Object.freeze({
   APPROVAL_RESOLVED: 'approval.resolved',
   SYSTEM_NOTICE: 'system.notice',
   TOOL_STARTED: 'tool.started',
+  TOOL_DELTA: 'tool.delta',
   TOOL_OUTPUT: 'tool.output',
   TOOL_COMPLETED: 'tool.completed',
   DIFF_SUMMARY: 'diff.summary',
