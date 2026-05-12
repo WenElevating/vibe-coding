@@ -1,4 +1,14 @@
 import '../data/repositories/daemon_connection_config_repository.dart';
+import '../data/repositories/daemon_adapter_repository.dart';
+import '../data/repositories/daemon_auth_repository.dart';
+import '../data/repositories/daemon_conversation_repository.dart';
+import '../data/repositories/daemon_run_repository.dart';
+import '../data/repositories/daemon_workspace_repository.dart';
+import '../domain/repositories/adapter_repository.dart';
+import '../domain/repositories/auth_repository.dart';
+import '../domain/repositories/conversation_repository.dart';
+import '../domain/repositories/run_repository.dart';
+import '../domain/repositories/workspace_repository.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/device_identity_store.dart';
@@ -65,6 +75,31 @@ class DataDependencies {
   }
 
   final DaemonConnectionConfigRepository connectionConfigRepository;
+
+  ConnectedDataDependencies forDaemonClient(DaemonClient client) =>
+      ConnectedDataDependencies(
+        authRepository: DaemonAuthRepository(client: client),
+        adapterRepository: DaemonAdapterRepository(client: client),
+        conversationRepository: DaemonConversationRepository(client: client),
+        runRepository: DaemonRunRepository(client: client),
+        workspaceRepository: DaemonWorkspaceRepository(client: client),
+      );
+}
+
+class ConnectedDataDependencies {
+  ConnectedDataDependencies({
+    required this.authRepository,
+    required this.adapterRepository,
+    required this.conversationRepository,
+    required this.runRepository,
+    required this.workspaceRepository,
+  });
+
+  final AuthRepository authRepository;
+  final AdapterRepository adapterRepository;
+  final ConversationRepository conversationRepository;
+  final RunRepository runRepository;
+  final WorkspaceRepository workspaceRepository;
 }
 
 class DomainDependencies {
