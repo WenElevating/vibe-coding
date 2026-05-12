@@ -162,6 +162,17 @@ class WorkbenchViewModel extends ChangeNotifier {
         afterSeq: afterSeq,
       );
 
+  Future<ConversationSummary> respondConversationApproval({
+    required String conversationId,
+    required String approvalId,
+    required String decision,
+  }) =>
+      _requireConversationRepository().respondConversationApproval(
+        conversationId,
+        approvalId,
+        decision,
+      );
+
   ConversationRepository _requireConversationRepository() {
     final repository = _conversationRepository;
     if (repository == null) {

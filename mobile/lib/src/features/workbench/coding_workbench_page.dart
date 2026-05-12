@@ -1093,8 +1093,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     try {
       final conversationId = _activeConversationId;
       if (conversationId != null) {
-        final conversation = await widget.client
-            .respondConversationApproval(conversationId, approvalId, decision);
+        final conversation =
+            await _workbenchViewModel.respondConversationApproval(
+          conversationId: conversationId,
+          approvalId: approvalId,
+          decision: decision,
+        );
         _activeConversation = conversation;
         _rememberConversation(conversation);
       } else {

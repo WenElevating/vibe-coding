@@ -186,6 +186,26 @@ void main() {
     expect(events.single.seq, 8);
     expect(events.single.type, 'assistant.message');
   });
+
+  test('workbench view model responds to conversation approval', () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final updated = await viewModel.respondConversationApproval(
+      conversationId: 'conv_existing',
+      approvalId: 'approval_1',
+      decision: 'allow',
+    );
+
+    expect(repository.calls, <String>[
+      'approval:conv_existing:approval_1:allow',
+    ]);
+    expect(updated.id, 'conv_existing');
+    expect(updated.status, 'running');
+  });
 }
 
 const _workspace = WorkspaceSummary(
@@ -309,8 +329,14 @@ class _FakeConversationRepository implements ConversationRepository {
     String conversationId,
     String approvalId,
     String decision,
-  ) async =>
-      throw UnimplementedError();
+  ) async {
+    calls.add('approval:$conversationId:$approvalId:$decision');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'running',
+    );
+  }
 }
 
 ConversationSummary _conversation({
