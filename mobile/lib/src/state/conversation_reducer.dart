@@ -213,6 +213,23 @@ class ConversationViewState {
         case 'conversation.started':
           // Lifecycle marker — no UI state change needed.
           break;
+        case 'protocol.warning':
+          if (event.text != null && event.text!.isNotEmpty) {
+            nextMessages.add(ConversationMessage(
+              role: 'notice',
+              text: event.text!,
+              eventSeq: event.seq,
+            ));
+          }
+          break;
+        case 'turn.completed':
+        case 'conversation.cancel':
+        case 'conversation.cancel_error':
+        case 'conversation.approval':
+        case 'conversation.message':
+        case 'conversation.question_answer':
+          // Internal audit/lifecycle events — no UI state change needed.
+          break;
         default:
           assert(false, 'Unknown conversation event type: ${event.type}');
       }
