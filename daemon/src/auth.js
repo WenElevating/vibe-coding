@@ -42,15 +42,13 @@ class AuthManager {
   }
 
   createPairingCode(ttlMs = 5 * 60 * 1000) {
-    if (this._lastPairingCodeAt && this.now() - this._lastPairingCodeAt < 60_000) {
-      const error = new Error('pairing code requested too recently');
-      error.status = 429;
-      error.code = 'TOO_MANY_REQUESTS';
-      throw error;
+    const now = this.now();
+    if (this.pairing && !this.pairing.used && this.pairing.expiresAt > now) {
+      // Reuse the active code so retries within the TTL window succeed without 429.
+      return { code: this.pairing.code, expiresAt: this.pairing.expiresAt };
     }
-    this._lastPairingCodeAt = this.now();
     const code = String(crypto.randomInt(100000, 999999));
-    this.pairing = { code, expiresAt: this.now() + ttlMs, used: false };
+    this.pairing = { code, expiresAt: now + ttlMs, used: false };
     return { code, expiresAt: this.pairing.expiresAt };
   }
 
