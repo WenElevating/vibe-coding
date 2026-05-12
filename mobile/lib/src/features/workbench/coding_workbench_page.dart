@@ -66,7 +66,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
-  late final VoiceInputController _voiceInput;
+  late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
   late final bool _ownsAsrModelManager;
   SherpaSpeechInputService? _ownedSpeechInputService;
@@ -292,7 +292,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _ownsAsrModelManager = injectedAsrModelManager == null;
     _asrModelManager = injectedAsrModelManager ??
         AsrModelManager(client: widget.client.createAsrModelClient());
-    _voiceInput = VoiceInputController(service: _createSpeechInputService())
+    _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setCurrentRoute(_routeWorkspaces);
@@ -427,17 +427,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _finishVoiceInputForTextEdit() async {
     if (_applyingVoiceText || !_voiceInput.isBusy) return;
-    await _voiceInput.cancel();
+    await _voiceInput.cancelIfBusy();
     if (mounted) setState(() {});
   }
 
   Future<void> _finishVoiceInputForSend() async {
-    if (!_voiceInput.isBusy) return;
-    if (_voiceInput.state == VoiceInputState.listening) {
-      await _stopVoiceInput();
-      return;
+    final merged = await _voiceInput.finishForSend(currentPrompt: _prompt.text);
+    if (merged != null && mounted) {
+      _applyingVoiceText = true;
+      _prompt.value = TextEditingValue(
+          text: merged,
+          selection: TextSelection.collapsed(offset: merged.length));
+      _applyingVoiceText = false;
+      setState(() {});
+    } else if (mounted) {
+      setState(() {});
     }
-    await _cancelVoiceInput();
   }
 
   AdapterStatus? _preferredAdapter() {

@@ -167,6 +167,63 @@ class VoiceInputController extends ChangeNotifier {
   }
 }
 
+class VoiceInputViewModel extends ChangeNotifier {
+  VoiceInputViewModel({
+    required SpeechInputService service,
+    Duration initializeTimeout = const Duration(seconds: 5),
+  }) : _controller = VoiceInputController(
+          service: service,
+          initializeTimeout: initializeTimeout,
+        ) {
+    _controller.addListener(notifyListeners);
+  }
+
+  final VoiceInputController _controller;
+
+  VoiceInputState get state => _controller.state;
+  String? get error => _controller.error;
+  bool get isBusy => _controller.isBusy;
+
+  void updateService(SpeechInputService service) {
+    _controller.updateService(service);
+  }
+
+  Future<void> start({required String currentPrompt}) =>
+      _controller.start(currentPrompt: currentPrompt);
+
+  Future<String> stop({required String currentPrompt}) =>
+      _controller.stop(currentPrompt: currentPrompt);
+
+  Future<void> cancel() => _controller.cancel();
+
+  String previewText() => _controller.previewText();
+
+  Future<void> cancelIfBusy() async {
+    if (!isBusy) return;
+    await cancel();
+  }
+
+  Future<String?> finishForSend({required String currentPrompt}) async {
+    if (!isBusy) return null;
+    if (state == VoiceInputState.listening) {
+      return stop(currentPrompt: currentPrompt);
+    }
+    await cancel();
+    return null;
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(notifyListeners);
+    if (isBusy) {
+      unawaited(_controller.cancel().whenComplete(_controller.dispose));
+    } else {
+      _controller.dispose();
+    }
+    super.dispose();
+  }
+}
+
 @visibleForTesting
 String friendlyVoiceInputError(Object error) {
   if (error is PlatformException) {
