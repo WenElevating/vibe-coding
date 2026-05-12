@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../data/repositories/daemon_connection_config_repository.dart';
-import '../services/daemon_client.dart';
-import '../services/daemon_connection_config_store.dart';
-import '../services/device_identity_store.dart';
-import '../workflows/connection/daemon_connection_workflow.dart';
+import '../app/app_dependencies.dart';
 import 'features/connection/view_models/daemon_connection_view_model.dart';
 import 'features/connection/views/mobile_connection_gate.dart';
 
 class MobileUi extends StatefulWidget {
-  const MobileUi({super.key, this.connectionController});
+  const MobileUi({super.key, this.dependencies, this.connectionController});
 
+  final AppDependencies? dependencies;
   final DaemonConnectionViewModel? connectionController;
 
   @override
@@ -18,14 +15,17 @@ class MobileUi extends StatefulWidget {
 }
 
 class _MobileUiState extends State<MobileUi> {
+  late final AppDependencies _dependencies;
   late final DaemonConnectionViewModel _connectionController;
   late final bool _ownsConnectionController;
 
   @override
   void initState() {
     super.initState();
+    _dependencies = widget.dependencies ?? AppDependencies.createDefault();
     _ownsConnectionController = widget.connectionController == null;
-    _connectionController = widget.connectionController ?? _createViewModel();
+    _connectionController = widget.connectionController ??
+        _dependencies.features.createDaemonConnectionViewModel();
     _connectionController.load();
   }
 
@@ -40,19 +40,4 @@ class _MobileUiState extends State<MobileUi> {
   @override
   Widget build(BuildContext context) =>
       MobileConnectionGate(viewModel: _connectionController);
-
-  DaemonConnectionViewModel _createViewModel() {
-    final store = DaemonConnectionConfigStore();
-    final repository = DaemonConnectionConfigRepository(store: store);
-    final tokenStore = MemoryTokenStore();
-    final deviceIdentityStore = SharedPreferencesDeviceIdentityStore();
-    return DaemonConnectionViewModel(
-      configRepository: repository,
-      workflow: DaemonConnectionWorkflow(
-        configRepository: repository,
-        tokenStore: tokenStore,
-        deviceIdentityStore: deviceIdentityStore,
-      ),
-    );
-  }
 }
