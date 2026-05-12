@@ -6,7 +6,7 @@ function generateToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-function hashToken(token, secret = process.env.AUTH_TOKEN_SECRET) {
+function hashToken(token, secret = process.env.AUTH_TOKEN_SECRET || 'development-auth-token-secret') {
   return crypto.createHmac('blake2b512', secret).update(token).digest('hex');
 }
 
@@ -26,7 +26,7 @@ class AuthManager {
   constructor({
     store,
     now = () => Date.now(),
-    deviceIdPepper = process.env.DEVICE_ID_PEPPER,
+    deviceIdPepper = process.env.DEVICE_ID_PEPPER || 'development-device-id-pepper',
     accessTokenTtlMs = readDurationEnv('ACCESS_TOKEN_TTL_MS', DEFAULT_ACCESS_TOKEN_TTL_MS),
     refreshTokenTtlMs = readDurationEnv('REFRESH_TOKEN_TTL_MS', DEFAULT_REFRESH_TOKEN_TTL_MS)
   } = {}) {
