@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/theme.dart' as theme;
+import '../core/theme/theme.dart' as theme;
 
 Color runStatusColor(String status) {
   final lower = status.toLowerCase();

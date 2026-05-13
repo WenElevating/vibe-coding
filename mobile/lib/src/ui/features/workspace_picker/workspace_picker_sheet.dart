@@ -4,7 +4,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/daemon_client.dart';
-import '../../../theme/theme.dart' as theme;
+import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 
 class WorkspaceCreationRequest {

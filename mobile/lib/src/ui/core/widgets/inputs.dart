@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
-import '../../../theme/theme.dart' as theme;
+import '../theme/theme.dart' as theme;
 
 class AppSearchBar extends StatelessWidget {
   const AppSearchBar({super.key});

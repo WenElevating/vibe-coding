@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../services/daemon_connection_config.dart';
 import 'features/connection/view_models/daemon_connection_view_model.dart';
-import '../theme/theme.dart' as theme;
+import 'core/theme/theme.dart' as theme;
 import 'mobile_ui_frame.dart';
 
 class MobileConnectionPage extends StatefulWidget {

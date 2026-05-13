@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/theme.dart' as theme;
+import '../theme/theme.dart' as theme;
 
 class FloatingPlus extends StatelessWidget {
   const FloatingPlus({super.key, this.onTap});

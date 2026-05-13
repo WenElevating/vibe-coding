@@ -1,4 +1,1 @@
-export 'app_colors.dart';
-export 'app_localization.dart';
-export 'app_theme.dart';
-export 'app_typography.dart';
+export '../ui/core/theme/theme.dart';

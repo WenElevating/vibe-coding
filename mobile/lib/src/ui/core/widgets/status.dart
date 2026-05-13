@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/theme.dart' as theme;
+import '../theme/theme.dart' as theme;
 
 String displayVersion(String? version) =>
     version == null || version.isEmpty ? 'unknown' : version;

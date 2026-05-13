@@ -5,7 +5,7 @@ import '../features/workspace_picker/workspace_display.dart';
 import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
-import '../../theme/theme.dart' as theme;
+import '../core/theme/theme.dart' as theme;
 import '../core/widgets/widgets.dart';
 import 'home_command_deck_model.dart';
 

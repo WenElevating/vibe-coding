@@ -6,7 +6,7 @@ import '../../../app/language_scope.dart';
 import '../../../models/protocol.dart';
 import '../../../services/daemon_connection_config.dart';
 import '../../../shell/shell.dart';
-import '../../../theme/theme.dart' as theme;
+import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_display.dart';
 

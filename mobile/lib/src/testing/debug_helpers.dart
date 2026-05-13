@@ -10,10 +10,10 @@ import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../shell/shell.dart';
 import '../state/conversation_reducer.dart';
-import '../theme/theme.dart' as theme;
 import '../ui/features/sessions/sessions.dart' hide mergeSessionItems;
 import '../ui/features/workbench/workbench.dart';
 import '../ui/features/workspace_picker/workspace_picker.dart';
+import '../ui/core/theme/theme.dart' as theme;
 
 @visibleForTesting
 Widget buildAssistantMarkdownPreview(String markdown) => MaterialApp(

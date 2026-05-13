@@ -4,7 +4,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
 import '../core/widgets/widgets.dart';
-import '../../theme/theme.dart' as theme;
+import '../core/theme/theme.dart' as theme;
 import 'run_status_color.dart';
 
 class RunsPage extends StatelessWidget {

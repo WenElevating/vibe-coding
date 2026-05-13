@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
-import '../../../theme/theme.dart' as theme;
+import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import 'view_models/adapters_view_model.dart';
 

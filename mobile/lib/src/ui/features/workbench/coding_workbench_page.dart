@@ -10,7 +10,7 @@ import '../../../services/daemon_client.dart';
 import '../../../services/speech_input_service.dart';
 import '../../../shell/shell.dart';
 import '../../../state/conversation_reducer.dart';
-import '../../../theme/theme.dart' as theme;
+import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
     show

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../../shell/shell.dart';
-import '../../../theme/theme.dart' as theme;
+import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'session_item.dart';

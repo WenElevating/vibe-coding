@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/theme.dart' as theme;
+import 'core/theme/theme.dart' as theme;
 import 'mobile_ui_frame.dart';
 
 class MobileLoadingPage extends StatelessWidget {

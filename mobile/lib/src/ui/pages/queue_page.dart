@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../shell/app_snapshot.dart';
 import '../core/widgets/widgets.dart';
-import '../../theme/theme.dart' as theme;
+import '../core/theme/theme.dart' as theme;
 
 class QueuePage extends StatelessWidget {
   const QueuePage({super.key, required this.data});

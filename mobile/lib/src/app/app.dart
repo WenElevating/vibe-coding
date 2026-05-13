@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../theme/theme.dart';
 import '../ui/ui.dart';
+import '../ui/core/theme/theme.dart';
 import 'language_controller.dart';
 import 'language_mode.dart';
 import 'language_scope.dart';
