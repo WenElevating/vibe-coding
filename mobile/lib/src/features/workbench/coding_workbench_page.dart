@@ -11,6 +11,7 @@ import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../data/repositories/daemon_conversation_repository.dart';
+import '../../data/repositories/daemon_run_repository.dart';
 import '../../data/repositories/daemon_workspace_repository.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
@@ -235,14 +236,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if ((runId == null && conversationId == null) || _sending) return;
     setState(() => _sending = true);
     try {
-      RunSummary? run;
-      ConversationSummary? conversation;
-      if (conversationId != null) {
-        conversation = await widget.client.cancelConversation(conversationId);
-        run = WorkbenchViewModel.runSummaryFromConversation(conversation);
-      } else if (runId != null) {
-        run = await widget.client.cancelRun(runId);
-      }
+      final result = await _workbenchViewModel.cancelActiveRun(
+        conversationId: conversationId,
+        runId: runId,
+      );
+      final run = result.run;
+      final conversation = result.conversation;
       if (!mounted) return;
       setState(() {
         if (conversation != null) {
@@ -286,6 +285,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       initialData: widget.data,
       conversationRepository:
           DaemonConversationRepository(client: widget.client),
+      runRepository: DaemonRunRepository(client: widget.client),
       workspaceRepository: DaemonWorkspaceRepository(client: widget.client),
     );
     final injectedAsrModelManager = widget.asrModelManager;

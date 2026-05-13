@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -209,6 +210,37 @@ void main() {
     expect(updated.status, 'running');
   });
 
+  test('workbench view model cancels active conversation', () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final result = await viewModel.cancelActiveRun(conversationId: 'conv_1');
+
+    expect(repository.calls, <String>['cancelConversation:conv_1']);
+    expect(result.conversation?.id, 'conv_1');
+    expect(result.conversation?.status, 'cancelled');
+    expect(result.run?.id, 'conv_1');
+    expect(result.run?.status, 'cancelled');
+  });
+
+  test('workbench view model cancels active run', () async {
+    final repository = _FakeRunRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      runRepository: repository,
+    );
+
+    final result = await viewModel.cancelActiveRun(runId: 'run_1');
+
+    expect(repository.calls, <String>['cancelRun:run_1']);
+    expect(result.conversation, isNull);
+    expect(result.run?.id, 'run_1');
+    expect(result.run?.status, 'cancelled');
+  });
+
   test('workbench view model creates workspace through workflow', () async {
     const created = WorkspaceSummary(
       id: 'workspace_new',
@@ -331,8 +363,14 @@ class _FakeConversationRepository implements ConversationRepository {
   }
 
   @override
-  Future<ConversationSummary> cancelConversation(String conversationId) async =>
-      throw UnimplementedError();
+  Future<ConversationSummary> cancelConversation(String conversationId) async {
+    calls.add('cancelConversation:$conversationId');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'cancelled',
+    );
+  }
 
   @override
   Future<List<ConversationEvent>> fetchConversationEvents(
@@ -368,6 +406,67 @@ class _FakeConversationRepository implements ConversationRepository {
       status: 'running',
     );
   }
+}
+
+class _FakeRunRepository implements RunRepository {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<RunSummary> cancelRun(String runId) async {
+    calls.add('cancelRun:$runId');
+    return RunSummary(
+      id: runId,
+      tool: 'codex',
+      workspaceId: _workspace.id,
+      status: 'cancelled',
+    );
+  }
+
+  @override
+  Future<RunSummary> createRun({
+    required String tool,
+    required String workspaceId,
+    String? prompt,
+    String? shortcutId,
+    String permissionMode = 'default',
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<AgentEvent>> fetchEvents(String runId,
+          {int afterSeq = 0}) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<RunSummary> invokeCommandTemplate({
+    required String templateId,
+    required String workspaceId,
+    String tool = 'claude',
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<QueueItem>> listQueue() async => throw UnimplementedError();
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> respondApproval(String approvalId, String decision) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<RunSummary> sendRunInput(
+    String runId,
+    String prompt, {
+    String permissionMode = 'default',
+  }) async =>
+      throw UnimplementedError();
 }
 
 class _FakeWorkspaceRepository implements WorkspaceRepository {

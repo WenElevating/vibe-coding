@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../domain/repositories/conversation_repository.dart';
+import '../../../domain/repositories/run_repository.dart';
 import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../shell/app_snapshot.dart';
@@ -12,9 +13,11 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchViewModel({
     required AppSnapshot initialData,
     ConversationRepository? conversationRepository,
+    RunRepository? runRepository,
     WorkspaceRepository? workspaceRepository,
     Duration workspaceCreationTimeout = const Duration(seconds: 20),
   })  : _conversationRepository = conversationRepository,
+        _runRepository = runRepository,
         _workspaceRepository = workspaceRepository,
         _workspaceCreationTimeout = workspaceCreationTimeout,
         _routeState = WorkspaceListRouteState(
@@ -25,6 +28,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchRouteState _routeState;
   final List<SessionItem> _localSessions = <SessionItem>[];
   final ConversationRepository? _conversationRepository;
+  final RunRepository? _runRepository;
   final WorkspaceRepository? _workspaceRepository;
   final Duration _workspaceCreationTimeout;
   String? _selectedAdapter;
@@ -181,6 +185,25 @@ class WorkbenchViewModel extends ChangeNotifier {
         decision,
       );
 
+  Future<WorkbenchCancelResult> cancelActiveRun({
+    String? conversationId,
+    String? runId,
+  }) async {
+    if (conversationId != null) {
+      final conversation = await _requireConversationRepository()
+          .cancelConversation(conversationId);
+      return WorkbenchCancelResult(
+        conversation: conversation,
+        run: runSummaryFromConversation(conversation),
+      );
+    }
+    if (runId != null) {
+      final run = await _requireRunRepository().cancelRun(runId);
+      return WorkbenchCancelResult(run: run);
+    }
+    throw StateError('A conversationId or runId is required to cancel work.');
+  }
+
   Future<CreateWorkspaceOutcome> createWorkspace({
     required String path,
     String? name,
@@ -204,6 +227,14 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (repository == null) {
       throw StateError(
           'WorkspaceRepository is required for workspace creation.');
+    }
+    return repository;
+  }
+
+  RunRepository _requireRunRepository() {
+    final repository = _runRepository;
+    if (repository == null) {
+      throw StateError('RunRepository is required for run cancellation.');
     }
     return repository;
   }
@@ -308,6 +339,13 @@ class WorkbenchNewConversationSendResult {
   final ConversationSummary runningConversation;
   final RunSummary run;
   final Future<ConversationSummary> updatedConversation;
+}
+
+class WorkbenchCancelResult {
+  const WorkbenchCancelResult({this.conversation, this.run});
+
+  final ConversationSummary? conversation;
+  final RunSummary? run;
 }
 
 List<SessionItem> mergeSessionItems(
