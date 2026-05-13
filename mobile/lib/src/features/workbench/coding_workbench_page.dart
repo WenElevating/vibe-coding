@@ -23,10 +23,10 @@ import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_composer.dart';
 import 'coding_workbench_controller.dart';
-import 'view_models/workbench_view_model.dart';
 import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
+import '../../ui/features/workbench/view_models/workbench_view_model.dart';
 
 class CodingWorkbenchPage extends StatefulWidget {
   const CodingWorkbenchPage({
