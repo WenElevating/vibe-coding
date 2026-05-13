@@ -5,6 +5,7 @@ import '../features/sessions/sessions.dart' hide mergeSessionItems;
 import '../features/workbench/workbench.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../models/protocol.dart';
+import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../shell/shell.dart';
 import '../state/conversation_reducer.dart';
@@ -463,6 +464,9 @@ Widget buildCodingWorkbenchEntryPreview() {
           available: true,
           diagnostics: <CodeDiagnostic>[]),
       extensions: const <ExtensionSummary>[]);
+  final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore());
   return MaterialApp(
       locale: theme.zhHansCnLocale,
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
@@ -476,13 +480,13 @@ Widget buildCodingWorkbenchEntryPreview() {
           backgroundColor: theme.bg,
           body: CodingWorkbenchPage(
               data: data,
-              client: DaemonClient(
-                  baseUri: Uri.parse('http://127.0.0.1:4317'),
-                  tokenStore: MemoryTokenStore()),
+              client: client,
               onBack: () {},
               onSessionListChanged: (_) {},
               openSessionListRequest: 0,
               streamOutput: false,
               expandThinking: false,
-              permissionMode: 'default')));
+              permissionMode: 'default',
+              asrModelManager:
+                  AsrModelManager(client: client.createAsrModelClient()))));
 }

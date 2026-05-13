@@ -32,18 +32,19 @@ import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
 
 class CodingWorkbenchPage extends StatefulWidget {
-  const CodingWorkbenchPage(
-      {super.key,
-      required this.data,
-      required this.client,
-      required this.onBack,
-      required this.onSessionListChanged,
-      required this.openSessionListRequest,
-      required this.streamOutput,
-      required this.expandThinking,
-      required this.permissionMode,
-      this.speechInputService,
-      this.asrModelManager});
+  const CodingWorkbenchPage({
+    super.key,
+    required this.data,
+    required this.client,
+    required this.onBack,
+    required this.onSessionListChanged,
+    required this.openSessionListRequest,
+    required this.streamOutput,
+    required this.expandThinking,
+    required this.permissionMode,
+    required this.asrModelManager,
+    this.speechInputService,
+  });
   final AppSnapshot data;
   final DaemonClient client;
   final VoidCallback onBack;
@@ -53,7 +54,7 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool expandThinking;
   final String permissionMode;
   final SpeechInputService? speechInputService;
-  final AsrModelManager? asrModelManager;
+  final AsrModelManager asrModelManager;
 
   @override
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
@@ -70,7 +71,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _scrollController = ScrollController();
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
-  late final bool _ownsAsrModelManager;
   late final DaemonWorkspaceRepository _workspaceRepository;
   SherpaSpeechInputService? _ownedSpeechInputService;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
@@ -292,10 +292,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       runRepository: DaemonRunRepository(client: widget.client),
       workspaceRepository: _workspaceRepository,
     );
-    final injectedAsrModelManager = widget.asrModelManager;
-    _ownsAsrModelManager = injectedAsrModelManager == null;
-    _asrModelManager = injectedAsrModelManager ??
-        AsrModelManager(client: widget.client.createAsrModelClient());
+    _asrModelManager = widget.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -330,7 +327,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
-    if (_ownsAsrModelManager) _asrModelManager.dispose();
     _workbenchViewModel.dispose();
     _ownedSpeechInputService = null;
     _scrollController.dispose();
