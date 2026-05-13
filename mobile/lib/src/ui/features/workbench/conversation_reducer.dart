@@ -214,7 +214,7 @@ class ConversationViewState {
           // Lifecycle marker — no UI state change needed.
           break;
         case 'protocol.warning':
-          if (event.raw['visible'] == false) break;
+          if (event.raw['visible'] != true) break;
           if (event.text != null && event.text!.isNotEmpty) {
             nextMessages.add(ConversationMessage(
               role: 'notice',

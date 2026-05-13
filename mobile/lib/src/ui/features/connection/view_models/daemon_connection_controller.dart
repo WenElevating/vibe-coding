@@ -16,7 +16,7 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
   DaemonConnectionController({
     required DaemonConnectionConfigStore store,
     required SecureTokenStore tokenStore,
-    ConnectToDaemonUseCase? connectToDaemon,
+    ConnectToDaemonUseCase<DaemonClient>? connectToDaemon,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,
@@ -32,7 +32,7 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
   DaemonConnectionController._fromRepo({
     required super.configRepository,
     required SecureTokenStore tokenStore,
-    ConnectToDaemonUseCase? connectToDaemon,
+    ConnectToDaemonUseCase<DaemonClient>? connectToDaemon,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,

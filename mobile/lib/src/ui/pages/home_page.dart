@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../features/workspace_picker/workspace_display.dart';
 import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
 import '../core/theme/theme.dart' as theme;
 import '../core/widgets/widgets.dart';
+import '../features/workspace_picker/workspace_display.dart';
 import 'home_command_deck_model.dart';
 
 class HomePage extends StatelessWidget {

@@ -178,11 +178,15 @@ class DaemonClient
     _deviceId = response['deviceId'] as String;
     _token = response['token'] as String;
     await tokenStore.writeAccessTokenSession(
-        _deviceId!, _sessionFromResponse(response, tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
+        _deviceId!,
+        _sessionFromResponse(response,
+            tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
     final refreshToken = response['refreshToken'] as String?;
     if (refreshToken != null && refreshToken.isNotEmpty) {
       await tokenStore.writeRefreshTokenSession(
-          _deviceId!, _sessionFromResponse(response, tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
+          _deviceId!,
+          _sessionFromResponse(response,
+              tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
     }
   }
 
@@ -214,11 +218,16 @@ class DaemonClient
       _deviceId = response['deviceId'] as String;
       _token = response['token'] as String;
       await tokenStore.writeAccessTokenSession(
-          _deviceId!, _sessionFromResponse(response, tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
+          _deviceId!,
+          _sessionFromResponse(response,
+              tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
       final nextRefreshToken = response['refreshToken'] as String?;
       if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) {
         await tokenStore.writeRefreshTokenSession(
-            _deviceId!, _sessionFromResponse(response, tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
+            _deviceId!,
+            _sessionFromResponse(response,
+                tokenKey: 'refreshToken',
+                expiresAtKey: 'refreshTokenExpiresAt'));
       }
       _refreshCompleter!.complete();
     } catch (e, st) {
@@ -601,6 +610,10 @@ class DaemonClient
       return await _httpClient.get(baseUri.resolve(path),
           headers: _headers(authorize: authorize));
     } on SocketException {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize));
+    } on http.ClientException {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       return _httpClient.get(baseUri.resolve(path),
           headers: _headers(authorize: authorize));

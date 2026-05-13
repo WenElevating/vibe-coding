@@ -9,18 +9,7 @@ const migrationOnlyRoots = <String>[
 
 const productionTestingRoot = 'src/testing/';
 
-const allowedMigrationDebt = <_AllowedDebt>[
-  _AllowedDebt(
-    relativeFile: 'lib/lan_ai_cli_control.dart',
-    uri: 'src/testing/testing.dart',
-    rule: 'production code must not import src/testing',
-  ),
-  _AllowedDebt(
-    relativeFile: 'lib/src/domain/models/connected_app_session.dart',
-    uri: '../../services/daemon_client.dart',
-    rule: 'domain must not import concrete daemon client',
-  ),
-];
+const allowedMigrationDebt = <_AllowedDebt>[];
 
 final importOrExportPattern = RegExp(
   r'''^\s*(import|export)\s+['"]([^'"]+)['"]''',

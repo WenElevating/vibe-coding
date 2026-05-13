@@ -23,14 +23,14 @@ enum DaemonConnectionStatus {
 class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonConnectionViewModel({
     required DaemonConnectionConfigRepository configRepository,
-    required ConnectToDaemonUseCase connectToDaemon,
+    required ConnectToDaemonUseCase<DaemonClient> connectToDaemon,
     Duration connectionTimeout = const Duration(seconds: 30),
   })  : _configRepository = configRepository,
         _connectToDaemon = connectToDaemon,
         _connectionTimeout = connectionTimeout;
 
   final DaemonConnectionConfigRepository _configRepository;
-  final ConnectToDaemonUseCase _connectToDaemon;
+  final ConnectToDaemonUseCase<DaemonClient> _connectToDaemon;
   final Duration _connectionTimeout;
 
   DaemonConnectionStatus _status = DaemonConnectionStatus.loadingConfig;

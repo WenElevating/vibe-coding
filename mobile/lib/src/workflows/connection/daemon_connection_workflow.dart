@@ -18,7 +18,7 @@ typedef DaemonInitialDataLoader = Future<DaemonInitialData> Function(
     DaemonClient client);
 typedef DaemonHealthProbe = Future<void> Function(DaemonClient client);
 
-class DaemonConnectionWorkflow implements ConnectToDaemonUseCase {
+class DaemonConnectionWorkflow implements ConnectToDaemonUseCase<DaemonClient> {
   DaemonConnectionWorkflow({
     required DaemonConnectionConfigRepository configRepository,
     required SecureTokenStore tokenStore,
@@ -42,7 +42,7 @@ class DaemonConnectionWorkflow implements ConnectToDaemonUseCase {
   final DaemonHealthProbe _healthProbe;
 
   @override
-  Future<ConnectedAppSession> connect({
+  Future<ConnectedAppSession<DaemonClient>> connect({
     required String addressInput,
     required DaemonProxyMode proxyMode,
     required String manualProxyInput,
