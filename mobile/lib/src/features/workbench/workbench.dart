@@ -1,9 +1,1 @@
-export 'approval_page.dart';
-export 'coding_composer.dart';
-export 'coding_workbench_page.dart';
-export '../../ui/features/workbench/workbench_dependencies.dart';
-export 'workbench_event_cards.dart';
-export 'workbench_messages.dart';
-export 'voice_input.dart';
-export '../../ui/features/workbench/coding_workbench_controller.dart';
-export '../../ui/features/workbench/view_models/workbench_view_model.dart';
+export '../../ui/features/workbench/workbench.dart';

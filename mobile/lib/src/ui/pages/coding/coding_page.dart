@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_dependencies.dart';
-import '../../../features/workbench/workbench.dart';
 import '../../../services/daemon_client.dart';
 import '../../../shell/app_snapshot.dart';
+import '../../features/workbench/workbench.dart';
 
 class CodingPage extends StatefulWidget {
   const CodingPage({

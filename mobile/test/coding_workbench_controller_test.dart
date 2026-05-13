@@ -3,7 +3,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/conversation_reposito
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
-import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/workflows/workspace/create_workspace_workflow.dart';

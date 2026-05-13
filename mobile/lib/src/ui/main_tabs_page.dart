@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
-import '../features/workbench/workbench.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import '../widgets/widgets.dart';
+import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';

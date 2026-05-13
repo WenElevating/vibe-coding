@@ -4,10 +4,10 @@ import '../features/adapters/adapters.dart';
 import '../features/diagnostics/diagnostics.dart';
 import '../features/notifications/notifications.dart';
 import '../features/run_detail/run_detail.dart';
-import '../features/workbench/workbench.dart';
 import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
+import 'features/workbench/workbench.dart';
 
 class MainRouteOverlay extends StatelessWidget {
   const MainRouteOverlay({
