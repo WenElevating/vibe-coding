@@ -29,7 +29,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _selectedAdapter = _computePreferredAdapter(initialData.adapters);
 
   WorkbenchRouteState _routeState;
-  final List<SessionItem> _localSessions = <SessionItem>[];
+  final Map<String, SessionItem> _optimisticSessions = <String, SessionItem>{};
   final ConversationRepository? _conversationRepository;
   final DiagnosticsRepository? _diagnosticsRepository;
   final RunRepository? _runRepository;
@@ -38,7 +38,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? _selectedAdapter;
 
   WorkbenchRouteState get routeState => _routeState;
-  List<SessionItem> get localSessions => List.unmodifiable(_localSessions);
+  List<SessionItem> get optimisticSessions =>
+      List.unmodifiable(_optimisticSessions.values);
   String? get selectedAdapter => _selectedAdapter;
   List<WorkspaceSummary> get workspaces => _routeState.workspaces;
 
@@ -46,7 +47,8 @@ class WorkbenchViewModel extends ChangeNotifier {
     List<ConversationSummary> snapshotConversations,
     List<RunSummary> snapshotRuns,
   ) =>
-      mergeSessionItems(_localSessions, snapshotConversations, snapshotRuns);
+      mergeSessionItems(
+          _optimisticSessions, snapshotConversations, snapshotRuns);
 
   void showWorkspaceList({String? notice}) {
     _routeState = WorkspaceListRouteState(
@@ -98,12 +100,6 @@ class WorkbenchViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void rememberSession(SessionItem item) {
-    _localSessions.removeWhere((s) => s.id == item.id);
-    _localSessions.insert(0, item);
-    notifyListeners();
-  }
-
   void setSelectedAdapter(String? adapter) {
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
@@ -111,6 +107,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void updateFromSnapshot(AppSnapshot snapshot) {
+    reconcile(snapshot, notify: false);
     final workspaces = List<WorkspaceSummary>.unmodifiable(snapshot.workspaces);
     _routeState = _rebuildRouteState(workspaces);
     final stillAvailable = _selectedAdapter != null &&
@@ -124,7 +121,19 @@ class WorkbenchViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<WorkbenchNewConversationSendResult> sendNewConversationPrompt({
+  void reconcile(AppSnapshot snapshot, {bool notify = true}) {
+    var changed = false;
+    for (final conversation in snapshot.conversations) {
+      if (!_optimisticSessions.containsKey(conversation.id)) continue;
+      if (!_isPendingSnapshotConversation(conversation)) {
+        _optimisticSessions.remove(conversation.id);
+        changed = true;
+      }
+    }
+    if (changed && notify) notifyListeners();
+  }
+
+  Future<WorkbenchNewConversationSendResult> createAndSend({
     required WorkspaceSummary workspace,
     required String prompt,
     required String adapter,
@@ -137,7 +146,12 @@ class WorkbenchViewModel extends ChangeNotifier {
       permissionMode: permissionMode,
     );
     final runningConversation =
-        _copyConversationStatus(conversation, 'running');
+        _copyConversationStatus(conversation, 'sending');
+    _optimisticSessions[conversation.id] = SessionItem(
+      run: runSummaryFromConversation(runningConversation),
+      conversation: runningConversation,
+    );
+    notifyListeners();
     return WorkbenchNewConversationSendResult(
       conversation: conversation,
       runningConversation: runningConversation,
@@ -386,23 +400,33 @@ class WorkbenchCancelResult {
 }
 
 List<SessionItem> mergeSessionItems(
-  List<SessionItem> localSessions,
+  Map<String, SessionItem> optimisticSessions,
   List<ConversationSummary> snapshotConversations,
   List<RunSummary> snapshotRuns,
 ) {
   final items = <SessionItem>[];
   final seen = <String>{};
-  for (final item in localSessions) {
-    if (seen.add(item.id)) items.add(item);
-  }
   for (final conversation in snapshotConversations) {
-    if (!shouldShowConversationInSessionList(conversation)) continue;
-    if (seen.add(conversation.id)) {
-      items.add(SessionItem(
-        run: runSummaryFromConversation(conversation),
-        conversation: conversation,
-      ));
+    final optimistic = optimisticSessions[conversation.id];
+    if (optimistic != null && _isPendingSnapshotConversation(conversation)) {
+      if (seen.add(optimistic.id)) items.add(optimistic);
+      continue;
     }
+    if (!shouldShowConversationInSessionList(conversation,
+        isOptimistic: optimistic != null)) {
+      continue;
+    }
+    if (seen.add(conversation.id)) {
+      items.add(
+        SessionItem(
+          run: runSummaryFromConversation(conversation),
+          conversation: conversation,
+        ),
+      );
+    }
+  }
+  for (final item in optimisticSessions.values) {
+    if (seen.add(item.id)) items.add(item);
   }
   for (final run in snapshotRuns) {
     if (seen.add(run.id)) items.add(SessionItem(run: run));
@@ -410,7 +434,11 @@ List<SessionItem> mergeSessionItems(
   return items;
 }
 
-bool shouldShowConversationInSessionList(ConversationSummary conversation) {
+bool shouldShowConversationInSessionList(
+  ConversationSummary conversation, {
+  bool isOptimistic = false,
+}) {
+  if (isOptimistic) return true;
   if (conversation.status == 'idle' &&
       conversation.cliSessionId == null &&
       conversation.userMessageCount == 0) {
@@ -418,6 +446,9 @@ bool shouldShowConversationInSessionList(ConversationSummary conversation) {
   }
   return true;
 }
+
+bool _isPendingSnapshotConversation(ConversationSummary conversation) =>
+    conversation.status == 'idle' && conversation.userMessageCount == 0;
 
 RunSummary runSummaryFromConversation(ConversationSummary conversation) {
   return RunSummary(

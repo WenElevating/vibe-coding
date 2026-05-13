@@ -1193,7 +1193,7 @@ void main() {
     ];
 
     final items = mergeSessionItems(
-      const <SessionItem>[],
+      const <String, SessionItem>{},
       conversations,
       const <RunSummary>[],
     );
@@ -1209,7 +1209,7 @@ void main() {
   test('idle empty draft without messages remains hidden from session list',
       () {
     final items = mergeSessionItems(
-      const <SessionItem>[],
+      const <String, SessionItem>{},
       <ConversationSummary>[
         _conversationSummary(
           id: 'conv_empty',

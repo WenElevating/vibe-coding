@@ -53,13 +53,20 @@ List<String> debugMergeSessionRunIds(
 
 @visibleForTesting
 List<String> debugMergeSessionIds(
-        List<RunSummary> localRuns,
-        List<ConversationSummary> snapshotConversations,
-        List<RunSummary> snapshotRuns) =>
-    mergeSessionItems(localRuns.map((run) => SessionItem(run: run)).toList(),
-            snapshotConversations, snapshotRuns)
-        .map((item) => item.id)
-        .toList(growable: false);
+    List<RunSummary> localRuns,
+    List<ConversationSummary> snapshotConversations,
+    List<RunSummary> snapshotRuns) {
+  final ids = <String>[];
+  final seen = <String>{};
+  for (final run in localRuns) {
+    if (seen.add(run.id)) ids.add(run.id);
+  }
+  for (final item in mergeSessionItems(
+      const <String, SessionItem>{}, snapshotConversations, snapshotRuns)) {
+    if (seen.add(item.id)) ids.add(item.id);
+  }
+  return ids;
+}
 
 @visibleForTesting
 String debugConversationPendingStatusText(String status,
@@ -351,7 +358,7 @@ Widget buildWorkspaceScopedSessionPreview() {
           body: CodingSessionListPage(
               data: data,
               items: mergeSessionItems(
-                  const <SessionItem>[], data.conversations, data.runs),
+                  const <String, SessionItem>{}, data.conversations, data.runs),
               currentWorkspace: current,
               onNewSession: () {},
               onSelectItem: (_) {},

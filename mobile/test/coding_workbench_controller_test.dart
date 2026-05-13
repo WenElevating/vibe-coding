@@ -138,7 +138,7 @@ void main() {
       conversationRepository: repository,
     );
 
-    final result = await viewModel.sendNewConversationPrompt(
+    final result = await viewModel.createAndSend(
       workspace: _workspace,
       prompt: 'hello',
       adapter: 'codex',
@@ -151,9 +151,81 @@ void main() {
       'send:conv_1:hello',
     ]);
     expect(result.conversation.id, 'conv_1');
-    expect(result.runningConversation.status, 'running');
+    expect(result.runningConversation.status, 'sending');
     expect(result.run.id, 'conv_1');
     expect(updated.status, 'idle');
+  });
+
+  test('workbench view model keeps optimistic session until snapshot is active',
+      () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final result = await viewModel.createAndSend(
+      workspace: _workspace,
+      prompt: 'hello',
+      adapter: 'codex',
+      permissionMode: 'default',
+    );
+    final optimisticItems = viewModel.sessionItems(
+      const <ConversationSummary>[],
+      const <RunSummary>[],
+    );
+
+    expect(optimisticItems, hasLength(1));
+    expect(optimisticItems.single.id, 'conv_1');
+    expect(optimisticItems.single.conversation?.status, 'sending');
+
+    viewModel.reconcile(
+      _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        conversations: <ConversationSummary>[
+          _conversation(
+              id: 'conv_1', workspaceId: _workspace.id, status: 'idle'),
+        ],
+      ),
+    );
+    final idleSnapshotItems = viewModel.sessionItems(
+      <ConversationSummary>[
+        _conversation(id: 'conv_1', workspaceId: _workspace.id, status: 'idle'),
+      ],
+      const <RunSummary>[],
+    );
+
+    expect(idleSnapshotItems, hasLength(1));
+    expect(idleSnapshotItems.single.conversation?.status, 'sending');
+
+    viewModel.reconcile(
+      _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        conversations: <ConversationSummary>[
+          _conversation(
+            id: 'conv_1',
+            workspaceId: _workspace.id,
+            status: 'running',
+            userMessageCount: 1,
+          ),
+        ],
+      ),
+    );
+    final activeSnapshotItems = viewModel.sessionItems(
+      <ConversationSummary>[
+        _conversation(
+          id: 'conv_1',
+          workspaceId: _workspace.id,
+          status: 'running',
+          userMessageCount: 1,
+        ),
+      ],
+      const <RunSummary>[],
+    );
+
+    expect(activeSnapshotItems, hasLength(1));
+    expect(activeSnapshotItems.single.conversation?.status, 'running');
+    expect(await result.updatedConversation, isA<ConversationSummary>());
   });
 
   test('workbench view model sends existing conversation prompt', () async {
@@ -316,7 +388,10 @@ const _workspace = WorkspaceSummary(
   path: r'D:\workspace',
 );
 
-AppSnapshot _snapshot({required List<WorkspaceSummary> workspaces}) =>
+AppSnapshot _snapshot({
+  required List<WorkspaceSummary> workspaces,
+  List<ConversationSummary> conversations = const <ConversationSummary>[],
+}) =>
     AppSnapshot(
       health: const DaemonHealth(
         status: 'ok',
@@ -341,7 +416,7 @@ AppSnapshot _snapshot({required List<WorkspaceSummary> workspaces}) =>
       ),
       adapters: const <AdapterStatus>[],
       runs: const <RunSummary>[],
-      conversations: const <ConversationSummary>[],
+      conversations: conversations,
       queue: const <QueueItem>[],
       templates: const <CommandTemplate>[],
       gitStatus: null,
@@ -608,12 +683,14 @@ ConversationSummary _conversation({
   required String id,
   required String workspaceId,
   required String status,
+  int userMessageCount = 0,
 }) =>
     ConversationSummary(
       id: id,
       workspaceId: workspaceId,
       adapter: 'codex',
       status: status,
+      userMessageCount: userMessageCount,
       capabilities:
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-12T00:00:00.000Z',

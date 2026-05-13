@@ -72,7 +72,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
-  final List<SessionItem> _localSessions = <SessionItem>[];
   late WorkbenchRouteState _routeState;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
@@ -176,20 +175,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _routeConversation, (route) => route.settings.name == _routeSessions);
   }
 
-  void _rememberRun(RunSummary run) {
-    _localSessions.removeWhere((item) => item.id == run.id);
-    _localSessions.insert(0, SessionItem(run: run));
-  }
-
-  void _rememberConversation(ConversationSummary conversation) {
-    _localSessions.removeWhere((item) => item.id == conversation.id);
-    _localSessions.insert(
-        0,
-        SessionItem(
-            run: WorkbenchViewModel.runSummaryFromConversation(conversation),
-            conversation: conversation));
-  }
-
   void _resetConversationState() {
     _messages.clear();
     _events.clear();
@@ -247,14 +232,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _activeConversation = cancelled;
           _activeConversationId = cancelled.id;
           _activeRunId = run?.id ?? cancelled.id;
-          _rememberConversation(cancelled);
           _conversationState = ConversationViewState(
               messages: _conversationState.messages,
               lastSeq: _conversationState.lastSeq,
               status: cancelled.status,
               pendingPartial: _conversationState.pendingPartial);
         } else {
-          if (run != null) _rememberRun(run);
           _conversationState = const ConversationViewState(status: 'cancelled');
           _activeRunId = null;
           _activeConversationId = null;
@@ -298,6 +281,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncSelectedAdapterFromSnapshot();
+    _workbenchViewModel.reconcile(widget.data);
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -694,7 +678,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     try {
       final existingConversationId = _activeConversationId;
       if (existingConversationId == null) {
-        final result = await _workbenchViewModel.sendNewConversationPrompt(
+        final result = await _workbenchViewModel.createAndSend(
           workspace: routeWorkspace!,
           prompt: prompt,
           adapter: adapter,
@@ -702,7 +686,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         );
         setState(() {
           _activeConversation = result.runningConversation;
-          _rememberConversation(result.runningConversation);
           _activeRunId = result.run.id;
           _activeConversationId = result.conversation.id;
           _lastSeq = 0;
@@ -724,7 +707,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         );
         setState(() {
           _activeConversation = conversation;
-          _rememberConversation(conversation);
           _messages.removeWhere((message) => message.role == 'question');
         });
       } else {
@@ -733,7 +715,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           if (_activeConversation != null) {
             _activeConversation =
                 copyConversationStatus(_activeConversation!, 'running');
-            _rememberConversation(_activeConversation!);
           }
           _events.removeWhere((event) => event.type == 'run.completed');
         });
@@ -746,7 +727,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         if (mounted) {
           setState(() {
             _activeConversation = conversation;
-            _rememberConversation(conversation);
           });
         }
       }
@@ -1107,7 +1087,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           decision: decision,
         );
         _activeConversation = conversation;
-        _rememberConversation(conversation);
       } else {
         await _workbenchViewModel.respondRunApproval(
           approvalId: approvalId,
