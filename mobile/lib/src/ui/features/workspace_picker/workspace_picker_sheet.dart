@@ -5,7 +5,7 @@ import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/daemon_client.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 
 class WorkspaceCreationRequest {
   const WorkspaceCreationRequest({required this.path, this.name});

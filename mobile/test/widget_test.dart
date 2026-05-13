@@ -20,7 +20,7 @@ import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.d
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/state/daemon_connection_controller.dart';
 import 'package:lan_ai_cli_control/src/theme/theme.dart' as theme;
-import 'package:lan_ai_cli_control/src/widgets/widgets.dart';
+import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {

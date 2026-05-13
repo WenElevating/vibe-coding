@@ -100,18 +100,16 @@ HomeCommandDeckData buildHomeCommandDeckData({
             _runSignal(run, _workspaceName(workspaceNames, run.workspaceId)))
         .whereType<HomeSignalItem>(),
     ...queue
-        .map((item) =>
-            _queueSignal(item, _workspaceName(workspaceNames, item.workspaceId)))
+        .map((item) => _queueSignal(
+            item, _workspaceName(workspaceNames, item.workspaceId)))
         .whereType<HomeSignalItem>(),
-  ]
-    ..sort(_compareSignals);
+  ]..sort(_compareSignals);
 
   final currentSignals = allSignals
       .where((item) => item.workspaceId == currentWorkspaceId)
       .toList();
-  final actionableCurrentSignals = currentSignals
-      .where((item) => item.kind != HomeSignalKind.idle)
-      .toList();
+  final actionableCurrentSignals =
+      currentSignals.where((item) => item.kind != HomeSignalKind.idle).toList();
   final now = actionableCurrentSignals.isNotEmpty
       ? actionableCurrentSignals.first
       : HomeSignalItem(
@@ -144,7 +142,8 @@ HomeCommandDeckData buildHomeCommandDeckData({
                 id: 'workspace-run:${summary.workspaceId}',
                 kind: HomeSignalKind.running,
                 workspaceId: summary.workspaceId,
-                workspaceName: _workspaceName(workspaceNames, summary.workspaceId),
+                workspaceName:
+                    _workspaceName(workspaceNames, summary.workspaceId),
                 title: summary.latestStatus,
                 detail: summary.latestRunId,
                 tool: summary.latestTool,
@@ -251,7 +250,8 @@ HomeSignalItem? _runSignal(RunSummary run, String workspaceName) {
   if (_isRunning(run.status) || run.status == 'completed') {
     return HomeSignalItem(
       id: 'run:${run.id}',
-      kind: _isRunning(run.status) ? HomeSignalKind.running : HomeSignalKind.idle,
+      kind:
+          _isRunning(run.status) ? HomeSignalKind.running : HomeSignalKind.idle,
       workspaceId: run.workspaceId,
       workspaceName: workspaceName,
       title: run.status,
@@ -299,5 +299,7 @@ bool _isRunning(String status) {
 
 bool _isFailed(String status) {
   final lower = status.toLowerCase();
-  return lower == 'failed' || lower.contains('error') || lower.contains('cancel');
+  return lower == 'failed' ||
+      lower.contains('error') ||
+      lower.contains('cancel');
 }

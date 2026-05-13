@@ -7,7 +7,7 @@ import '../../../models/protocol.dart';
 import '../../../services/daemon_connection_config.dart';
 import '../../../shell/shell.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_display.dart';
 
 class SettingsPage extends StatelessWidget {

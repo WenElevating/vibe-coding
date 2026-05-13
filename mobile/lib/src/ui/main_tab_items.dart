@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../widgets/widgets.dart';
+import 'core/widgets/widgets.dart';
 
 List<NavSpec> mainTabItems(AppLocalizations l10n) => [
       NavSpec(Icons.home_rounded, l10n.navHome),

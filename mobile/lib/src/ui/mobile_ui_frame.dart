@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/theme.dart' as theme;
-import '../widgets/widgets.dart';
+import 'core/widgets/widgets.dart';
 
 class MobileUiFrame extends StatelessWidget {
   const MobileUiFrame({super.key, required this.child});

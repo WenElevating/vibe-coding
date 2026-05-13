@@ -4,7 +4,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../../shell/shell.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'session_item.dart';
 

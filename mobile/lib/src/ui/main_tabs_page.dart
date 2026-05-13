@@ -9,7 +9,7 @@ import '../services/daemon_client.dart';
 import '../services/daemon_connection_config.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
-import '../widgets/widgets.dart';
+import 'core/widgets/widgets.dart';
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';

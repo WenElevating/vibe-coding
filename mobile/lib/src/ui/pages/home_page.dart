@@ -6,7 +6,7 @@ import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
 import '../../theme/theme.dart' as theme;
-import '../../widgets/widgets.dart';
+import '../core/widgets/widgets.dart';
 import 'home_command_deck_model.dart';
 
 class HomePage extends StatelessWidget {

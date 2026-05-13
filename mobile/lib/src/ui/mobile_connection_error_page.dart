@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/theme.dart' as theme;
-import '../widgets/widgets.dart';
+import 'core/widgets/widgets.dart';
 import 'mobile_ui_frame.dart';
 
 class MobileConnectionErrorPage extends StatelessWidget {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 
 class ApprovalPage extends StatelessWidget {
   const ApprovalPage({super.key, required this.onBack});

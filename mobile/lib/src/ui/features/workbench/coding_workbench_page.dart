@@ -11,7 +11,7 @@ import '../../../services/speech_input_service.dart';
 import '../../../shell/shell.dart';
 import '../../../state/conversation_reducer.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
     show
         CreateWorkspaceFailure,

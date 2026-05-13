@@ -4,7 +4,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../services/daemon_client.dart';
 import '../../../shell/shell.dart';
 import '../../../theme/theme.dart' as theme;
-import '../../../widgets/widgets.dart';
+import '../../core/widgets/widgets.dart';
 
 class RunDetailPage extends StatelessWidget {
   const RunDetailPage(
