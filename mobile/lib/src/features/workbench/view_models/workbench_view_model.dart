@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../domain/repositories/conversation_repository.dart';
+import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../domain/repositories/run_repository.dart';
 import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
@@ -13,10 +14,12 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchViewModel({
     required AppSnapshot initialData,
     ConversationRepository? conversationRepository,
+    DiagnosticsRepository? diagnosticsRepository,
     RunRepository? runRepository,
     WorkspaceRepository? workspaceRepository,
     Duration workspaceCreationTimeout = const Duration(seconds: 20),
   })  : _conversationRepository = conversationRepository,
+        _diagnosticsRepository = diagnosticsRepository,
         _runRepository = runRepository,
         _workspaceRepository = workspaceRepository,
         _workspaceCreationTimeout = workspaceCreationTimeout,
@@ -28,6 +31,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchRouteState _routeState;
   final List<SessionItem> _localSessions = <SessionItem>[];
   final ConversationRepository? _conversationRepository;
+  final DiagnosticsRepository? _diagnosticsRepository;
   final RunRepository? _runRepository;
   final WorkspaceRepository? _workspaceRepository;
   final Duration _workspaceCreationTimeout;
@@ -204,6 +208,24 @@ class WorkbenchViewModel extends ChangeNotifier {
     throw StateError('A conversationId or runId is required to cancel work.');
   }
 
+  Future<String> recordException({
+    required String message,
+    required String stack,
+    String? path,
+    String? conversationId,
+    String? runId,
+    required String operation,
+  }) =>
+      _requireDiagnosticsRepository().recordException(
+        message: message,
+        stack: stack,
+        path: path,
+        method: path == null ? null : 'GET',
+        conversationId: conversationId,
+        runId: runId,
+        metadata: <String, Object?>{'operation': operation},
+      );
+
   Future<CreateWorkspaceOutcome> createWorkspace({
     required String path,
     String? name,
@@ -218,6 +240,15 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (repository == null) {
       throw StateError(
           'ConversationRepository is required for workbench sends.');
+    }
+    return repository;
+  }
+
+  DiagnosticsRepository _requireDiagnosticsRepository() {
+    final repository = _diagnosticsRepository;
+    if (repository == null) {
+      throw StateError(
+          'DiagnosticsRepository is required for exception tracing.');
     }
     return repository;
   }

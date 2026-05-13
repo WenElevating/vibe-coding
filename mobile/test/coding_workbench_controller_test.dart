@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/features/workbench/workbench.dart';
@@ -241,6 +242,29 @@ void main() {
     expect(result.run?.status, 'cancelled');
   });
 
+  test('workbench view model records exceptions with operation metadata',
+      () async {
+    final repository = _FakeDiagnosticsRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      diagnosticsRepository: repository,
+    );
+
+    final traceId = await viewModel.recordException(
+      message: 'boom',
+      stack: 'stack',
+      path: '/api/conversations',
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      operation: 'poll_events',
+    );
+
+    expect(traceId, 'trace_1');
+    expect(repository.calls, <String>[
+      'boom|stack|/api/conversations|GET|conv_1|run_1|poll_events',
+    ]);
+  });
+
   test('workbench view model creates workspace through workflow', () async {
     const created = WorkspaceSummary(
       id: 'workspace_new',
@@ -405,6 +429,32 @@ class _FakeConversationRepository implements ConversationRepository {
       workspaceId: _workspace.id,
       status: 'running',
     );
+  }
+}
+
+class _FakeDiagnosticsRepository implements DiagnosticsRepository {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<String> recordException({
+    required String message,
+    String? stack,
+    String? path,
+    String? method,
+    String? conversationId,
+    String? runId,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) async {
+    calls.add([
+      message,
+      stack,
+      path,
+      method,
+      conversationId,
+      runId,
+      metadata['operation'],
+    ].join('|'));
+    return 'trace_1';
   }
 }
 

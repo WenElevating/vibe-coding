@@ -11,6 +11,7 @@ import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../data/repositories/daemon_conversation_repository.dart';
+import '../../data/repositories/daemon_diagnostics_repository.dart';
 import '../../data/repositories/daemon_run_repository.dart';
 import '../../data/repositories/daemon_workspace_repository.dart';
 import '../../theme/theme.dart' as theme;
@@ -285,6 +286,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       initialData: widget.data,
       conversationRepository:
           DaemonConversationRepository(client: widget.client),
+      diagnosticsRepository: DaemonDiagnosticsRepository(client: widget.client),
       runRepository: DaemonRunRepository(client: widget.client),
       workspaceRepository: DaemonWorkspaceRepository(client: widget.client),
     );
@@ -836,16 +838,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }) async {
     final message = error.toString();
     try {
-      final trace = await widget.client.recordException(
+      final traceId = await _workbenchViewModel.recordException(
         message: message,
         stack: stack.toString(),
         path: path,
-        method: path == null ? null : 'GET',
         conversationId: _activeConversationId,
         runId: _activeRunId,
-        metadata: <String, Object?>{'operation': operation},
+        operation: operation,
       );
-      return _WorkbenchTraceError(message, trace.traceId);
+      return _WorkbenchTraceError(message, traceId);
     } catch (_) {
       return _WorkbenchTraceError(message, null);
     }
