@@ -211,6 +211,21 @@ void main() {
     expect(updated.status, 'running');
   });
 
+  test('workbench view model responds to run approval fallback', () async {
+    final repository = _FakeRunRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      runRepository: repository,
+    );
+
+    await viewModel.respondRunApproval(
+      approvalId: 'approval_1',
+      decision: 'allow',
+    );
+
+    expect(repository.calls, <String>['approval:approval_1:allow']);
+  });
+
   test('workbench view model cancels active conversation', () async {
     final repository = _FakeConversationRepository();
     final viewModel = WorkbenchViewModel(
@@ -507,8 +522,9 @@ class _FakeRunRepository implements RunRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> respondApproval(String approvalId, String decision) async =>
-      throw UnimplementedError();
+  Future<void> respondApproval(String approvalId, String decision) async {
+    calls.add('approval:$approvalId:$decision');
+  }
 
   @override
   Future<RunSummary> sendRunInput(

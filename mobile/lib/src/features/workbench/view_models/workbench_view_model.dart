@@ -189,6 +189,12 @@ class WorkbenchViewModel extends ChangeNotifier {
         decision,
       );
 
+  Future<void> respondRunApproval({
+    required String approvalId,
+    required String decision,
+  }) =>
+      _requireRunRepository().respondApproval(approvalId, decision);
+
   Future<WorkbenchCancelResult> cancelActiveRun({
     String? conversationId,
     String? runId,

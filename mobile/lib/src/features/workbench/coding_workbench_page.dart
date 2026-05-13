@@ -1115,7 +1115,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _activeConversation = conversation;
         _rememberConversation(conversation);
       } else {
-        await widget.client.respondApproval(approvalId, decision);
+        await _workbenchViewModel.respondRunApproval(
+          approvalId: approvalId,
+          decision: decision,
+        );
       }
       setState(() {
         _resolvedApprovalIds.add(approvalId);
