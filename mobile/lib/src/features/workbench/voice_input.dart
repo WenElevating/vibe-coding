@@ -1,1 +1,1 @@
-export 'voice_input_controller.dart';
+export '../../ui/features/workbench/voice_input.dart';

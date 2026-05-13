@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lan_ai_cli_control/src/features/workbench/voice_input.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/voice_input.dart';
 
 class _FakeSpeechInputService implements SpeechInputService {
   int startCalls = 0;
@@ -83,7 +83,8 @@ void main() {
     expect(merged, 'typed context\nfinal');
   });
 
-  test('second voice session with no new speech does not append previous result',
+  test(
+      'second voice session with no new speech does not append previous result',
       () async {
     final service = _FakeSpeechInputService();
     final controller = VoiceInputController(service: service);

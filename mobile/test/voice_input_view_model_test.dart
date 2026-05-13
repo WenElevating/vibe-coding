@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lan_ai_cli_control/src/features/workbench/voice_input.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/voice_input.dart';
 
 class _FakeSpeechInputService implements SpeechInputService {
   int startCalls = 0;
