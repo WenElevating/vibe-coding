@@ -6,7 +6,7 @@ import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
-import 'package:lan_ai_cli_control/src/state/daemon_connection_controller.dart';
+import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -84,7 +84,8 @@ void main() {
     expect(saved.manualProxyInput, 'http://proxy.local:8080');
   });
 
-  test('default connection timeout is thirty seconds for bootstrap loading', () {
+  test('default connection timeout is thirty seconds for bootstrap loading',
+      () {
     final controller = DaemonConnectionController(
       store: DaemonConnectionConfigStore(),
       tokenStore: MemoryTokenStore(),

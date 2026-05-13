@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/state/conversation_reducer.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/conversation_reducer.dart';
 
 void main() {
   test('ConversationViewState keeps complete final assistant message', () {
@@ -54,7 +54,8 @@ void main() {
     expect(state.messages.single.role, 'assistant');
   });
 
-  test('ConversationViewState keeps non-terminal Codex assistant message running',
+  test(
+      'ConversationViewState keeps non-terminal Codex assistant message running',
       () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{
@@ -228,7 +229,8 @@ void main() {
     expect(state.messages.single.text, 'Claude retry 1/3');
   });
 
-  test('ConversationViewState records but hides non-visible system notices', () {
+  test('ConversationViewState records but hides non-visible system notices',
+      () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{
         'seq': 1,

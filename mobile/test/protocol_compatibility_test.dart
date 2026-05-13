@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/state/run_detail_state.dart';
+import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail_state.dart';
 
 void main() {
   test('Conversation models parse daemon conversation payloads', () {

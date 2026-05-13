@@ -9,7 +9,6 @@ import '../../../services/asr_model_manager.dart';
 import '../../../services/daemon_client.dart';
 import '../../../services/speech_input_service.dart';
 import '../../../shell/shell.dart';
-import '../../../state/conversation_reducer.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
@@ -25,6 +24,7 @@ import 'workbench_messages.dart';
 import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_workbench_controller.dart';
+import 'conversation_reducer.dart';
 import 'view_models/workbench_view_model.dart';
 import 'workbench_dependencies.dart';
 

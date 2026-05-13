@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
-import '../../../state/conversation_reducer.dart';
 import '../../core/theme/theme.dart' as theme;
+import 'conversation_reducer.dart';
 import 'workbench_messages.dart';
 
 class WorkbenchInlineStatus extends StatelessWidget {

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
-import '../../../state/conversation_reducer.dart';
+import 'conversation_reducer.dart';
 
 bool shouldPollAfterApproval(ConversationSummary conversation) =>
     conversation.status == 'running' || conversation.status == 'waiting_input';

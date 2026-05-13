@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../../models/protocol.dart';
-import '../../../../state/run_detail_state.dart';
+import '../run_detail_state.dart';
 
 class RunDetailViewModel extends ChangeNotifier {
   RunDetailViewModel() : _state = const RunDetailState();
