@@ -1,2 +1,1 @@
-export 'workspace_display.dart';
-export 'workspace_picker_sheet.dart';
+export '../../ui/features/workspace_picker/workspace_picker.dart';

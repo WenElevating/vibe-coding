@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../theme/theme.dart' as theme;
-import '../workspace_picker/workspace_picker.dart';
+import '../../ui/features/workspace_picker/workspace_picker.dart';
 import 'voice_input.dart';
 
 class CodingComposer extends StatelessWidget {

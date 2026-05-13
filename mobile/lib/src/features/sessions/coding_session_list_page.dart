@@ -5,7 +5,7 @@ import '../../models/protocol.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
-import '../workspace_picker/workspace_picker.dart';
+import '../../ui/features/workspace_picker/workspace_picker.dart';
 import 'session_item.dart';
 
 class CodingSessionListPage extends StatelessWidget {
@@ -79,7 +79,8 @@ class CodingSessionListPage extends StatelessWidget {
             const _SessionSearchBox(),
             const SizedBox(height: 14),
             _SessionGroupHeader(
-                title: l10n.sessionsCurrentProject, meta: workspaceDisplayName(currentWorkspace)),
+                title: l10n.sessionsCurrentProject,
+                meta: workspaceDisplayName(currentWorkspace)),
             const SizedBox(height: 6),
             if (currentItems.isEmpty)
               _EmptySessionStack(onNewSession: onNewSession)
@@ -92,8 +93,7 @@ class CodingSessionListPage extends StatelessWidget {
             const SizedBox(height: 16),
             Padding(
                 padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
-                child: Text(
-                    l10n.sessionsFootnote,
+                child: Text(l10n.sessionsFootnote,
                     style: const TextStyle(
                         color: Color(0xFF666D77),
                         fontSize: 11.5,
@@ -279,18 +279,30 @@ _SessionRunVisualState _sessionRunState(String status, AppLocalizations l10n) {
   final lower = status.toLowerCase();
   if (lower.contains('approval') || lower.contains('pending')) {
     return _SessionRunVisualState(
-        icon: '!', label: l10n.sessionsWaitingApproval, badge: l10n.sessionsPendingBadge, color: theme.amber);
+        icon: '!',
+        label: l10n.sessionsWaitingApproval,
+        badge: l10n.sessionsPendingBadge,
+        color: theme.amber);
   }
   if (lower.contains('running') || lower.contains('start')) {
     return _SessionRunVisualState(
-        icon: '?', label: l10n.sessionsRunning, badge: 'live', color: theme.green);
+        icon: '?',
+        label: l10n.sessionsRunning,
+        badge: 'live',
+        color: theme.green);
   }
   if (lower.contains('fail') || lower.contains('error')) {
     return _SessionRunVisualState(
-        icon: '?', label: l10n.sessionsFailed, badge: l10n.sessionsFailed, color: theme.red);
+        icon: '?',
+        label: l10n.sessionsFailed,
+        badge: l10n.sessionsFailed,
+        color: theme.red);
   }
   return _SessionRunVisualState(
-      icon: '?', label: l10n.sessionsDone, badge: l10n.sessionsDone, color: const Color(0xFFA0A0A0));
+      icon: '?',
+      label: l10n.sessionsDone,
+      badge: l10n.sessionsDone,
+      color: const Color(0xFFA0A0A0));
 }
 
 String _sessionRunTitle(RunSummary run, AppLocalizations l10n) {

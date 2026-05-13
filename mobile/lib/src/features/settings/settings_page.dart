@@ -7,8 +7,8 @@ import '../../models/protocol.dart';
 import '../../services/daemon_connection_config.dart';
 import '../../shell/shell.dart';
 import '../../theme/theme.dart' as theme;
+import '../../ui/features/workspace_picker/workspace_display.dart';
 import '../../widgets/widgets.dart';
-import '../workspace_picker/workspace_display.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage(
@@ -115,8 +115,7 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-String _languageModeLabel(
-        AppLocalizations l10n, LanguageModePreference mode) =>
+String _languageModeLabel(AppLocalizations l10n, LanguageModePreference mode) =>
     switch (mode) {
       LanguageModePreference.system => l10n.settingsLanguageSystem,
       LanguageModePreference.zhHansCn => '简体中文',

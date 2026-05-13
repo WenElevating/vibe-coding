@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../features/workspace_picker/workspace_display.dart';
+import '../features/workspace_picker/workspace_display.dart';
 import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
@@ -29,8 +29,9 @@ class HomePage extends StatelessWidget {
       conversations: data.conversations,
       queue: data.queue,
       changedFiles: data.gitStatus?.files.length,
-      diagnostics:
-          data.diagnostics.available ? data.diagnostics.diagnostics.length : null,
+      diagnostics: data.diagnostics.available
+          ? data.diagnostics.diagnostics.length
+          : null,
       recentFiles:
           data.diagnostics.available ? data.overview.recentFiles.length : null,
     );
@@ -208,8 +209,7 @@ class _HomeExecutionStream extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Text(l10n.homeNoRecentActivity,
-                    style:
-                        const TextStyle(color: theme.muted, fontSize: 13)),
+                    style: const TextStyle(color: theme.muted, fontSize: 13)),
               ),
             )
           else
@@ -350,8 +350,8 @@ class _SignalRow extends StatelessWidget {
                     Text('${item.workspaceName} · ${item.detail}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: theme.muted, fontSize: 12)),
+                        style:
+                            const TextStyle(color: theme.muted, fontSize: 12)),
                   ],
                 ),
               ),
@@ -378,8 +378,8 @@ class _SignalChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(value,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w900, fontSize: 14)),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
             const SizedBox(width: 6),
             Text(label,
                 style: const TextStyle(color: theme.muted, fontSize: 12)),

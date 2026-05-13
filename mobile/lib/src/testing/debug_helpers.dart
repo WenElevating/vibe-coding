@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../features/sessions/sessions.dart' hide mergeSessionItems;
 import '../features/workbench/workbench.dart';
-import '../features/workspace_picker/workspace_picker.dart';
 import '../models/protocol.dart';
 import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
@@ -14,6 +13,7 @@ import '../services/daemon_client.dart';
 import '../shell/shell.dart';
 import '../state/conversation_reducer.dart';
 import '../theme/theme.dart' as theme;
+import '../ui/features/workspace_picker/workspace_picker.dart';
 
 @visibleForTesting
 Widget buildAssistantMarkdownPreview(String markdown) => MaterialApp(
