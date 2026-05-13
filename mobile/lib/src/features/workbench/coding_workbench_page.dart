@@ -4,10 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../domain/repositories/conversation_repository.dart';
-import '../../domain/repositories/diagnostics_repository.dart';
-import '../../domain/repositories/run_repository.dart';
-import '../../domain/repositories/workspace_repository.dart';
 import '../../models/protocol.dart';
 import '../../services/asr_model_manager.dart';
 import '../../services/daemon_client.dart';
@@ -15,6 +11,7 @@ import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
 import '../../theme/theme.dart' as theme;
+import '../../ui/features/workbench/workbench_dependencies.dart';
 import '../../widgets/widgets.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart'
     show
@@ -30,22 +27,6 @@ import 'view_models/workbench_view_model.dart';
 import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
-
-class WorkbenchDependencies {
-  const WorkbenchDependencies({
-    required this.asrModelManager,
-    required this.conversationRepository,
-    required this.diagnosticsRepository,
-    required this.runRepository,
-    required this.workspaceRepository,
-  });
-
-  final AsrModelManager asrModelManager;
-  final ConversationRepository conversationRepository;
-  final DiagnosticsRepository diagnosticsRepository;
-  final RunRepository runRepository;
-  final WorkspaceRepository workspaceRepository;
-}
 
 class CodingWorkbenchPage extends StatefulWidget {
   const CodingWorkbenchPage({

@@ -38,6 +38,8 @@ class _MobileUiState extends State<MobileUi> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      MobileConnectionGate(viewModel: _connectionController);
+  Widget build(BuildContext context) => MobileConnectionGate(
+        viewModel: _connectionController,
+        dependencies: _dependencies,
+      );
 }

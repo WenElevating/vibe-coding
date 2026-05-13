@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../data/repositories/daemon_conversation_repository.dart';
-import '../../../data/repositories/daemon_diagnostics_repository.dart';
-import '../../../data/repositories/daemon_run_repository.dart';
-import '../../../data/repositories/daemon_workspace_repository.dart';
+import '../../../app/app_dependencies.dart';
 import '../../../features/workbench/workbench.dart';
-import '../../../services/asr_model_manager.dart';
 import '../../../services/daemon_client.dart';
 import '../../../shell/app_snapshot.dart';
 
@@ -17,6 +13,7 @@ class CodingPage extends StatefulWidget {
     required this.onBack,
     required this.onSessionListChanged,
     required this.openSessionListRequest,
+    required this.dependencies,
     required this.workbenchKey,
     required this.streamOutput,
     required this.expandThinking,
@@ -28,6 +25,7 @@ class CodingPage extends StatefulWidget {
   final VoidCallback onBack;
   final ValueChanged<bool> onSessionListChanged;
   final int openSessionListRequest;
+  final AppDependencies dependencies;
   final GlobalKey<CodingWorkbenchPageState> workbenchKey;
   final bool streamOutput;
   final bool expandThinking;
@@ -61,16 +59,8 @@ class _CodingPageState extends State<CodingPage> {
   }
 
   WorkbenchDependencies _createWorkbenchDependencies() {
-    final workspaceRepository =
-        DaemonWorkspaceRepository(client: widget.client);
-    return WorkbenchDependencies(
-      asrModelManager:
-          AsrModelManager(client: widget.client.createAsrModelClient()),
-      conversationRepository:
-          DaemonConversationRepository(client: widget.client),
-      diagnosticsRepository: DaemonDiagnosticsRepository(client: widget.client),
-      runRepository: DaemonRunRepository(client: widget.client),
-      workspaceRepository: workspaceRepository,
+    return widget.dependencies.features.createWorkbenchDependencies(
+      widget.client,
     );
   }
 

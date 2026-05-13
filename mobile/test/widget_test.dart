@@ -8,6 +8,7 @@ import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
+import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/features/sessions/sessions.dart'
     hide mergeSessionItems;
@@ -196,7 +197,8 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                   connectionConfig: const DaemonConnectionConfig(
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
-                      manualProxyInput: '')))));
+                      manualProxyInput: ''),
+                  dependencies: AppDependencies.createDefault()))));
 }
 
 class _AdapterRefreshClient extends DaemonClient {

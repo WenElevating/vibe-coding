@@ -2,17 +2,21 @@ import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_auth_repository.dart';
 import '../data/repositories/daemon_conversation_repository.dart';
+import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/conversation_repository.dart';
+import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
+import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/device_identity_store.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
+import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
 class AppDependencies {
@@ -81,6 +85,7 @@ class DataDependencies {
         authRepository: DaemonAuthRepository(client: client),
         adapterRepository: DaemonAdapterRepository(client: client),
         conversationRepository: DaemonConversationRepository(client: client),
+        diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
         runRepository: DaemonRunRepository(client: client),
         workspaceRepository: DaemonWorkspaceRepository(client: client),
       );
@@ -91,6 +96,7 @@ class ConnectedDataDependencies {
     required this.authRepository,
     required this.adapterRepository,
     required this.conversationRepository,
+    required this.diagnosticsRepository,
     required this.runRepository,
     required this.workspaceRepository,
   });
@@ -98,6 +104,7 @@ class ConnectedDataDependencies {
   final AuthRepository authRepository;
   final AdapterRepository adapterRepository;
   final ConversationRepository conversationRepository;
+  final DiagnosticsRepository diagnosticsRepository;
   final RunRepository runRepository;
   final WorkspaceRepository workspaceRepository;
 }
@@ -121,7 +128,10 @@ class DomainDependencies {
 }
 
 class FeatureDependencies {
-  FeatureDependencies({required this.createDaemonConnectionViewModel});
+  FeatureDependencies({
+    required this.createDaemonConnectionViewModel,
+    required this.createWorkbenchDependencies,
+  });
 
   factory FeatureDependencies.createDefault({
     required DataDependencies data,
@@ -132,7 +142,20 @@ class FeatureDependencies {
           configRepository: data.connectionConfigRepository,
           connectToDaemon: domain.connectionWorkflow,
         ),
+        createWorkbenchDependencies: (client) {
+          final connectedData = data.forDaemonClient(client);
+          return WorkbenchDependencies(
+            asrModelManager:
+                AsrModelManager(client: client.createAsrModelClient()),
+            conversationRepository: connectedData.conversationRepository,
+            diagnosticsRepository: connectedData.diagnosticsRepository,
+            runRepository: connectedData.runRepository,
+            workspaceRepository: connectedData.workspaceRepository,
+          );
+        },
       );
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
+  final WorkbenchDependencies Function(DaemonClient client)
+      createWorkbenchDependencies;
 }

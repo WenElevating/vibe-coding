@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../app/app_dependencies.dart';
 import '../features/workbench/workbench.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config.dart';
@@ -22,11 +23,13 @@ class MainTabsPage extends StatefulWidget {
     required this.data,
     required this.client,
     required this.connectionConfig,
+    required this.dependencies,
   });
 
   final AppSnapshot data;
   final DaemonClient client;
   final DaemonConnectionConfig connectionConfig;
+  final AppDependencies dependencies;
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
@@ -100,7 +103,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
     final l10n = AppLocalizations.of(context);
     final data = _viewModel.data;
     final pages = [
-      HomePage(open: _viewModel.openOverlay, selectTab: _viewModel.selectTab, data: data),
+      HomePage(
+          open: _viewModel.openOverlay,
+          selectTab: _viewModel.selectTab,
+          data: data),
       RunsPage(open: _viewModel.openOverlay, data: data),
       _buildCodingTab(),
       QueuePage(data: data),
@@ -149,6 +155,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
       return CodingPage(
         data: _viewModel.data,
         client: widget.client,
+        dependencies: widget.dependencies,
         workbenchKey: _codingWorkbenchKey,
         onBack: () => _viewModel.selectTab(0),
         onSessionListChanged: _viewModel.reportSessionListOpen,

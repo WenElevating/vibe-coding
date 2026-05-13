@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../../../../app/app_dependencies.dart';
 import '../../../main_tabs_page.dart';
 import '../../../mobile_connection_page.dart';
 import '../../../mobile_loading_page.dart';
 import '../view_models/daemon_connection_view_model.dart';
 
 class MobileConnectionGate extends StatelessWidget {
-  const MobileConnectionGate({super.key, required this.viewModel});
+  const MobileConnectionGate({
+    super.key,
+    required this.viewModel,
+    required this.dependencies,
+  });
 
   final DaemonConnectionViewModel viewModel;
+  final AppDependencies dependencies;
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +31,7 @@ class MobileConnectionGate extends StatelessWidget {
             data: viewModel.snapshot!,
             client: viewModel.client!,
             connectionConfig: viewModel.connectedConfig!,
+            dependencies: dependencies,
           );
         }
         return MobileConnectionPage(controller: viewModel);
