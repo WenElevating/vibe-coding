@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../features/settings/settings.dart' as settings_feature;
 import '../../services/daemon_connection_config.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
+import '../features/settings/settings.dart' as settings_feature;
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
