@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../domain/repositories/workspace_repository.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../../theme/theme.dart' as theme;
@@ -347,8 +348,9 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
 }
 
 class AddWorkspaceSheet extends StatefulWidget {
-  const AddWorkspaceSheet({super.key, required this.client});
-  final DaemonClient client;
+  const AddWorkspaceSheet({super.key, required this.workspaceRepository});
+
+  final WorkspaceRepository workspaceRepository;
 
   @override
   State<AddWorkspaceSheet> createState() => _AddWorkspaceSheetState();
@@ -371,7 +373,9 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => DirectoryBrowserSheet(client: widget.client));
+        builder: (context) => DirectoryBrowserSheet.forWorkspaceRepository(
+              repository: widget.workspaceRepository,
+            ));
     if (selectedPath != null && selectedPath.isNotEmpty) {
       setState(() => _path.text = selectedPath);
     }
@@ -591,8 +595,18 @@ class _WorkspaceAddIconButton extends StatelessWidget {
 }
 
 class DirectoryBrowserSheet extends StatefulWidget {
-  const DirectoryBrowserSheet({super.key, required this.client});
-  final DaemonClient client;
+  DirectoryBrowserSheet({super.key, required DaemonClient client})
+      : _listFileSystemRoots = client.listFileSystemRoots,
+        _listDirectory = client.listDirectory;
+
+  DirectoryBrowserSheet.forWorkspaceRepository({
+    super.key,
+    required WorkspaceRepository repository,
+  })  : _listFileSystemRoots = repository.listFileSystemRoots,
+        _listDirectory = repository.listDirectory;
+
+  final Future<List<DirectoryEntrySummary>> Function() _listFileSystemRoots;
+  final Future<DirectoryListing> Function(String path) _listDirectory;
 
   @override
   State<DirectoryBrowserSheet> createState() => _DirectoryBrowserSheetState();
@@ -605,12 +619,12 @@ class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
   @override
   void initState() {
     super.initState();
-    _future = widget.client.listFileSystemRoots();
+    _future = widget._listFileSystemRoots();
   }
 
   void _open(String path) => setState(() {
         _currentPath = path;
-        _future = widget.client.listDirectory(path);
+        _future = widget._listDirectory(path);
       });
 
   @override

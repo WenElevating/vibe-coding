@@ -71,6 +71,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
   late final bool _ownsAsrModelManager;
+  late final DaemonWorkspaceRepository _workspaceRepository;
   SherpaSpeechInputService? _ownedSpeechInputService;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
@@ -282,13 +283,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _routeState = WorkspaceListRouteState(
       workspaces: List<WorkspaceSummary>.of(widget.data.workspaces),
     );
+    _workspaceRepository = DaemonWorkspaceRepository(client: widget.client);
     _workbenchViewModel = WorkbenchViewModel(
       initialData: widget.data,
       conversationRepository:
           DaemonConversationRepository(client: widget.client),
       diagnosticsRepository: DaemonDiagnosticsRepository(client: widget.client),
       runRepository: DaemonRunRepository(client: widget.client),
-      workspaceRepository: DaemonWorkspaceRepository(client: widget.client),
+      workspaceRepository: _workspaceRepository,
     );
     final injectedAsrModelManager = widget.asrModelManager;
     _ownsAsrModelManager = injectedAsrModelManager == null;
@@ -503,7 +505,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => AddWorkspaceSheet(client: widget.client));
+        builder: (context) =>
+            AddWorkspaceSheet(workspaceRepository: _workspaceRepository));
     if (request == null || !mounted) return;
     final previousWorkspaces = List<WorkspaceSummary>.of(_workspaces);
     setState(() {

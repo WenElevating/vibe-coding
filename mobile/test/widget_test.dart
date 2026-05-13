@@ -8,7 +8,9 @@ import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
-import 'package:lan_ai_cli_control/src/features/sessions/sessions.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/features/sessions/sessions.dart'
+    hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/features/workspace_picker/workspace_picker_sheet.dart';
@@ -253,6 +255,62 @@ class _PendingAdapterClient extends DaemonClient {
   void resetCompleter() {
     adaptersCompleter = Completer<List<AdapterStatus>>();
   }
+}
+
+class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
+  @override
+  Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileContent> fileContent(String workspaceId, String path) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileTreeResponse> fileTree(
+    String workspaceId, {
+    String path = '',
+    int maxDepth = 8,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DiffSummary>> gitDiff(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<GitCommitSummary>> gitCommits(
+    String workspaceId, {
+    int limit = 20,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<GitStatusSummary> gitStatus(String workspaceId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<DirectoryListing> listDirectory(String path) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async =>
+      <DirectoryEntrySummary>[];
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async =>
+      const <WorkspaceSummary>[];
+
+  @override
+  Future<ProjectOverview> projectOverview(String workspaceId) async =>
+      throw UnimplementedError();
 }
 
 AppSnapshot _testSnapshot({
@@ -1318,9 +1376,7 @@ void main() {
         theme: theme.buildAppTheme(),
         home: Scaffold(
             body: AddWorkspaceSheet(
-                client: DaemonClient(
-                    baseUri: Uri.parse('http://127.0.0.1:4317'),
-                    tokenStore: MemoryTokenStore())))));
+                workspaceRepository: _WidgetTestWorkspaceRepository()))));
 
     expect(find.text('添加工作区'), findsOneWidget);
     expect(find.text('浏览'), findsOneWidget);

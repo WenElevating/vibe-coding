@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../features/sessions/sessions.dart';
+import '../features/sessions/sessions.dart' hide mergeSessionItems;
 import '../features/workbench/workbench.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../models/protocol.dart';
