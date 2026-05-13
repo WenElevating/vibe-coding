@@ -1,1 +1,1 @@
-export 'notifications_page.dart';
+export '../../ui/features/notifications/notifications.dart';

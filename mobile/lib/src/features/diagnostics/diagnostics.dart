@@ -1,1 +1,1 @@
-export 'diagnostics_page.dart';
+export '../../ui/features/diagnostics/diagnostics.dart';

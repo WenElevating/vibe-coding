@@ -12,7 +12,7 @@ import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
-import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
+import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';

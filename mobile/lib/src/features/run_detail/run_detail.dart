@@ -1,2 +1,1 @@
-export 'run_detail_page.dart';
-export 'view_models/run_detail_view_model.dart';
+export '../../ui/features/run_detail/run_detail.dart';
