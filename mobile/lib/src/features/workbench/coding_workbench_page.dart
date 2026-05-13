@@ -19,11 +19,11 @@ import '../../workflows/workspace/create_workspace_workflow.dart'
         CreateWorkspaceNotConfirmed,
         CreateWorkspaceSuccess,
         CreateWorkspaceTimeout;
-import '../sessions/sessions.dart';
 import 'coding_composer.dart';
 import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
+import '../../ui/features/sessions/sessions.dart';
 import '../../ui/features/workbench/coding_workbench_controller.dart';
 import '../../ui/features/workbench/view_models/workbench_view_model.dart';
 import '../../ui/features/workspace_picker/workspace_picker.dart';

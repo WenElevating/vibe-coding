@@ -4,10 +4,10 @@ import '../../../../domain/repositories/conversation_repository.dart';
 import '../../../../domain/repositories/diagnostics_repository.dart';
 import '../../../../domain/repositories/run_repository.dart';
 import '../../../../domain/repositories/workspace_repository.dart';
-import '../../../../features/sessions/session_item.dart';
 import '../../../../models/protocol.dart';
 import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
+import '../../sessions/session_item.dart';
 import '../workbench_route_state.dart';
 
 class WorkbenchViewModel extends ChangeNotifier {

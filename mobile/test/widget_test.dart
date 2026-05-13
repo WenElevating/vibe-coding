@@ -10,7 +10,7 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
-import 'package:lan_ai_cli_control/src/features/sessions/sessions.dart'
+import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/features/settings/settings_page.dart'
     as settings_feature;
