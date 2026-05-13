@@ -4,16 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../domain/repositories/conversation_repository.dart';
+import '../../domain/repositories/diagnostics_repository.dart';
+import '../../domain/repositories/run_repository.dart';
+import '../../domain/repositories/workspace_repository.dart';
 import '../../models/protocol.dart';
 import '../../services/asr_model_manager.dart';
 import '../../services/daemon_client.dart';
 import '../../services/speech_input_service.dart';
 import '../../shell/shell.dart';
 import '../../state/conversation_reducer.dart';
-import '../../data/repositories/daemon_conversation_repository.dart';
-import '../../data/repositories/daemon_diagnostics_repository.dart';
-import '../../data/repositories/daemon_run_repository.dart';
-import '../../data/repositories/daemon_workspace_repository.dart';
 import '../../theme/theme.dart' as theme;
 import '../../widgets/widgets.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart'
@@ -31,6 +31,22 @@ import 'voice_input.dart';
 import 'workbench_event_cards.dart';
 import 'workbench_messages.dart';
 
+class WorkbenchDependencies {
+  const WorkbenchDependencies({
+    required this.asrModelManager,
+    required this.conversationRepository,
+    required this.diagnosticsRepository,
+    required this.runRepository,
+    required this.workspaceRepository,
+  });
+
+  final AsrModelManager asrModelManager;
+  final ConversationRepository conversationRepository;
+  final DiagnosticsRepository diagnosticsRepository;
+  final RunRepository runRepository;
+  final WorkspaceRepository workspaceRepository;
+}
+
 class CodingWorkbenchPage extends StatefulWidget {
   const CodingWorkbenchPage({
     super.key,
@@ -42,7 +58,7 @@ class CodingWorkbenchPage extends StatefulWidget {
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
-    required this.asrModelManager,
+    required this.dependencies,
     this.speechInputService,
   });
   final AppSnapshot data;
@@ -54,7 +70,7 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool expandThinking;
   final String permissionMode;
   final SpeechInputService? speechInputService;
-  final AsrModelManager asrModelManager;
+  final WorkbenchDependencies dependencies;
 
   @override
   State<CodingWorkbenchPage> createState() => CodingWorkbenchPageState();
@@ -71,7 +87,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _scrollController = ScrollController();
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
-  late final DaemonWorkspaceRepository _workspaceRepository;
   SherpaSpeechInputService? _ownedSpeechInputService;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<AgentEvent> _events = <AgentEvent>[];
@@ -283,16 +298,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _routeState = WorkspaceListRouteState(
       workspaces: List<WorkspaceSummary>.of(widget.data.workspaces),
     );
-    _workspaceRepository = DaemonWorkspaceRepository(client: widget.client);
     _workbenchViewModel = WorkbenchViewModel(
       initialData: widget.data,
-      conversationRepository:
-          DaemonConversationRepository(client: widget.client),
-      diagnosticsRepository: DaemonDiagnosticsRepository(client: widget.client),
-      runRepository: DaemonRunRepository(client: widget.client),
-      workspaceRepository: _workspaceRepository,
+      conversationRepository: widget.dependencies.conversationRepository,
+      diagnosticsRepository: widget.dependencies.diagnosticsRepository,
+      runRepository: widget.dependencies.runRepository,
+      workspaceRepository: widget.dependencies.workspaceRepository,
     );
-    _asrModelManager = widget.asrModelManager;
+    _asrModelManager = widget.dependencies.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -501,8 +514,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) =>
-            AddWorkspaceSheet(workspaceRepository: _workspaceRepository));
+        builder: (context) => AddWorkspaceSheet(
+              workspaceRepository: widget.dependencies.workspaceRepository,
+            ));
     if (request == null || !mounted) return;
     final previousWorkspaces = List<WorkspaceSummary>.of(_workspaces);
     setState(() {

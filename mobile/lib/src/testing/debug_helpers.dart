@@ -5,6 +5,10 @@ import '../features/sessions/sessions.dart' hide mergeSessionItems;
 import '../features/workbench/workbench.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../models/protocol.dart';
+import '../data/repositories/daemon_conversation_repository.dart';
+import '../data/repositories/daemon_diagnostics_repository.dart';
+import '../data/repositories/daemon_run_repository.dart';
+import '../data/repositories/daemon_workspace_repository.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../shell/shell.dart';
@@ -487,6 +491,14 @@ Widget buildCodingWorkbenchEntryPreview() {
               streamOutput: false,
               expandThinking: false,
               permissionMode: 'default',
-              asrModelManager:
-                  AsrModelManager(client: client.createAsrModelClient()))));
+              dependencies: WorkbenchDependencies(
+                asrModelManager:
+                    AsrModelManager(client: client.createAsrModelClient()),
+                conversationRepository:
+                    DaemonConversationRepository(client: client),
+                diagnosticsRepository:
+                    DaemonDiagnosticsRepository(client: client),
+                runRepository: DaemonRunRepository(client: client),
+                workspaceRepository: DaemonWorkspaceRepository(client: client),
+              ))));
 }

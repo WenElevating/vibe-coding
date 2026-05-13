@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../data/repositories/daemon_conversation_repository.dart';
+import '../../../data/repositories/daemon_diagnostics_repository.dart';
+import '../../../data/repositories/daemon_run_repository.dart';
+import '../../../data/repositories/daemon_workspace_repository.dart';
 import '../../../features/workbench/workbench.dart';
 import '../../../services/asr_model_manager.dart';
 import '../../../services/daemon_client.dart';
@@ -34,30 +38,41 @@ class CodingPage extends StatefulWidget {
 }
 
 class _CodingPageState extends State<CodingPage> {
-  late AsrModelManager _asrModelManager;
+  late WorkbenchDependencies _workbenchDependencies;
 
   @override
   void initState() {
     super.initState();
-    _asrModelManager = _createAsrModelManager();
+    _workbenchDependencies = _createWorkbenchDependencies();
   }
 
   @override
   void didUpdateWidget(covariant CodingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client == widget.client) return;
-    _asrModelManager.dispose();
-    _asrModelManager = _createAsrModelManager();
+    _workbenchDependencies.asrModelManager.dispose();
+    _workbenchDependencies = _createWorkbenchDependencies();
   }
 
   @override
   void dispose() {
-    _asrModelManager.dispose();
+    _workbenchDependencies.asrModelManager.dispose();
     super.dispose();
   }
 
-  AsrModelManager _createAsrModelManager() =>
-      AsrModelManager(client: widget.client.createAsrModelClient());
+  WorkbenchDependencies _createWorkbenchDependencies() {
+    final workspaceRepository =
+        DaemonWorkspaceRepository(client: widget.client);
+    return WorkbenchDependencies(
+      asrModelManager:
+          AsrModelManager(client: widget.client.createAsrModelClient()),
+      conversationRepository:
+          DaemonConversationRepository(client: widget.client),
+      diagnosticsRepository: DaemonDiagnosticsRepository(client: widget.client),
+      runRepository: DaemonRunRepository(client: widget.client),
+      workspaceRepository: workspaceRepository,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +86,7 @@ class _CodingPageState extends State<CodingPage> {
       streamOutput: widget.streamOutput,
       expandThinking: widget.expandThinking,
       permissionMode: widget.permissionMode,
-      asrModelManager: _asrModelManager,
+      dependencies: _workbenchDependencies,
     );
   }
 }
