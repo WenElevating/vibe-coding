@@ -150,6 +150,36 @@ Feature pages and smaller widgets may remain in the feature root. Existing
 `views/` directories may remain, but this pass does not require every feature
 to adopt a `views/` folder.
 
+## Dependency Builder Ownership
+
+`FeatureDependencies` is an existing app-layer dependency builder type in:
+
+```text
+mobile/lib/src/app/app_dependencies.dart
+```
+
+It belongs to `src/app/`, not `src/ui/`. This pass may add methods to that
+existing class, but it must not create a new UI-owned dependency registry or
+service locator.
+
+The intended ownership is:
+
+```text
+src/app/FeatureDependencies
+  creates feature ViewModels and feature dependency groups
+  accepts app/data/domain dependency groups as inputs
+  may know concrete app composition details
+
+src/ui/features/
+  receives ViewModels, repositories, or feature dependency objects
+  must not construct daemon repositories from DaemonClient
+```
+
+Builders introduced by this design should therefore be added to
+`FeatureDependencies` in `app_dependencies.dart`, or to another app-layer
+composition object if implementation shows a clearer local name. They should
+not live under `src/ui/`.
+
 ## Sessions Naming
 
 Current state:
@@ -346,6 +376,22 @@ lib/src/ui/features/connection/view_models/daemon_connection_view_model.dart
 lib/src/ui/features/connection/view_models/daemon_connection_controller.dart
 ```
 
+This is an explicit temporary boundary, not the final desired shape. A later
+cleanup should move connected dependency assembly fully into `src/app/`, for
+example by introducing an app-layer `ConnectedAppDependencies` or
+`ConnectedShellDependencies` object. At that point `MainTabsPage` should receive
+already-built connected dependencies and the checker allowlist should remove
+`lib/src/ui/main_tabs_page.dart`.
+
+The exit condition for `MainTabsPage` is:
+
+- diagnostics, run detail, workbench, and other connected feature pages no
+  longer need the raw client;
+- connection state can hand the root UI a connected dependency object instead
+  of a raw client plus app dependencies;
+- `MainTabsPage` can render shell UI without calling
+  `AppDependencies.data.forDaemonClient(client)`.
+
 ## Architecture Checker
 
 Update `mobile/tool/check_architecture_imports.dart` so UI direct
@@ -458,11 +504,12 @@ existing shell/widget smoke coverage.
 - Harden the checker with the explicit UI daemon-client allowlist.
 - Verify no ordinary UI direct daemon-client imports remain.
 
-### Slice 5: Final Regression Fixes
+### Verification Fallout Handling
 
-- Use only if verification exposes small fallout.
-- Do not add new architecture scope.
-- Do not create an empty commit if there are no fixes.
+If verification exposes small fallout, fix it inside the slice that introduced
+the issue. Do not reserve a standalone implementation slice for generic final
+fixes, do not add new architecture scope during cleanup, and do not create an
+empty commit when verification passes.
 
 ## Success Criteria
 
@@ -475,10 +522,11 @@ existing shell/widget smoke coverage.
 - `MainRouteOverlay` does not import `DaemonClient`.
 - `MainTabsPage` does not pass `DaemonClient` to overlay or ordinary feature
   pages.
+- The design records a future exit path for removing `MainTabsPage` from the UI
+  daemon-client allowlist.
 - The checker fails on ordinary UI direct `DaemonClient` imports.
 - Allowed UI daemon-client imports are limited to the connection boundary and
   main tabs shell.
 - `dart analyze` passes.
 - `dart run tool/check_architecture_imports.dart` passes.
 - Focused ViewModel and affected widget tests pass.
-
