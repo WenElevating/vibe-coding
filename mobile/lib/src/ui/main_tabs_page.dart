@@ -39,7 +39,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
   late MainTabsViewModel _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
-  final _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
+  var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
 
   @override
   void initState() {
@@ -58,14 +58,16 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
-      _workbenchDependencies.asrModelManager.dispose();
+      final oldWorkbenchDependencies = _workbenchDependencies;
       _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
       _workbenchDependencies = widget.dependencies.features
           .createWorkbenchDependencies(widget.client);
+      _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       _viewModel.resetForNewClient(
         adapterRepository: _connectedData.adapterRepository,
         data: widget.data,
       );
+      _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
       return;
     }
     if (oldWidget.data != widget.data &&
@@ -76,9 +78,21 @@ class _MainTabsPageState extends State<MainTabsPage> {
 
   @override
   void dispose() {
-    _workbenchDependencies.asrModelManager.dispose();
+    _disposeWorkbenchDependencies(_workbenchDependencies);
     _viewModel.dispose();
     super.dispose();
+  }
+
+  void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {
+    dependencies.asrModelManager.dispose();
+  }
+
+  void _disposeWorkbenchDependenciesAfterBuild(
+    WorkbenchDependencies dependencies,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _disposeWorkbenchDependencies(dependencies);
+    });
   }
 
   Future<void> _handleSystemBack() async {
