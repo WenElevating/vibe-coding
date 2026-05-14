@@ -40,6 +40,8 @@ guidelines require. In particular:
 - `WorkspacePickerSheet` still has a direct `DaemonClient` path even though the
   repository-based `AddWorkspaceSheet` and `DirectoryBrowserSheet` path already
   exists.
+- The checker does not currently report UI-layer `DaemonClient` imports, so new
+  feature code can reintroduce direct daemon access without a visible guardrail.
 
 These issues are not user-facing bugs by themselves, but they make the app
 harder to evolve safely. A future feature can accidentally bypass repositories,
@@ -57,6 +59,10 @@ does not fail.
   UI surfaces.
 - Strengthen `tool/check_architecture_imports.dart` so this cleanup cannot
   regress silently.
+- Add checker coverage for UI direct `DaemonClient` imports. In this pass, the
+  checker should at least report these imports as explicit migration warnings;
+  once shell/connection/static-page exceptions are removed, the rule should
+  become a hard failure.
 - Keep changes small enough to validate with targeted tests and the existing
   architecture checker.
 
@@ -107,12 +113,18 @@ src/app/
 src/ui/
   may depend on domain repositories, workflows, feature dependencies,
   ViewModels, and UI primitives.
-  should not depend on DaemonClient for feature behavior.
+  must not depend on DaemonClient for feature behavior. Existing shell,
+  connection, diagnostics, and run-detail direct-client imports are migration
+  debt and should be reported explicitly until they can be removed or moved to
+  app/composition code.
 
 src/workflows/
   may coordinate repositories, services, validation, persistence, and daemon
   side effects.
-  should expose a small operation-oriented API to ViewModels or app setup.
+  should expose direct operation methods with typed inputs and typed results to
+  ViewModels or app setup. A workflow may accept narrow progress/cancellation
+  callbacks for one operation, but it should not push UI state through widgets,
+  streams, or global singletons.
 
 src/domain/
   may depend on domain models and repository/use-case contracts.
@@ -155,14 +167,40 @@ Then update:
 SharedPreferences persistence. `DaemonConnectionConfigRepository` stays in
 `src/data/` because it adapts the store to app/data usage.
 
-Compatibility barrels should be avoided unless a large test surface makes a
-temporary alias cheaper. If a temporary alias is used, it must live outside
-domain and be removed in the same implementation plan.
+Compatibility barrels and alias files should not be committed for this move.
+The config migration should update imports directly. If a temporary alias is
+used locally during implementation, it must be deleted before the step 1 PR or
+commit set is considered complete; step 7 verification must include a scan that
+no alias remains.
 
 ### Architecture Checker
 
 Extend `mobile/tool/check_architecture_imports.dart` so domain imports fail when
 they target any `src/services/` file, not only `daemon_client.dart`.
+
+Also add a UI direct-daemon-client report. During this pass it should behave as
+an explicit warning or migration-debt section rather than a hard failure because
+there are known non-target imports in shell/connection/static pages. The report
+must still list file, line, and URI so a future cleanup can turn the rule into a
+hard failure without rediscovering the debt.
+
+The initial warning allowlist should be narrow and named, for example:
+
+```text
+main shell passes the active connected client
+connection view model owns the current paired client until session storage is
+  split further
+diagnostics/run-detail pages are static placeholder surfaces
+```
+
+The files changed by this spec should not remain in the warning list:
+
+```text
+ui/view_models/main_tabs_view_model.dart
+ui/pages/coding/coding_page.dart, if its client parameter becomes unused
+ui/features/workbench/coding_workbench_page.dart
+ui/features/workspace_picker/workspace_picker_sheet.dart
+```
 
 The checker should keep the existing targeted rules:
 
@@ -231,7 +269,7 @@ runRepository
 workspaceRepository
 ```
 
-to include a voice service factory or workflow described below. It should not
+to include a voice service builder or workflow described below. It should not
 become a flat app-wide service locator; it remains feature-scoped.
 
 ### Voice Input Preparation
@@ -248,25 +286,16 @@ the concrete speech service construction behind a small feature dependency.
 Preferred shape:
 
 ```dart
-abstract class SpeechInputServiceFactory {
-  SpeechInputService createForModelDirectory(String modelDirectory);
-}
-
-final class SherpaSpeechInputServiceFactory
-    implements SpeechInputServiceFactory {
-  const SherpaSpeechInputServiceFactory();
-
-  @override
-  SpeechInputService createForModelDirectory(String modelDirectory) =>
-      SherpaSpeechInputService(modelDirectory: modelDirectory);
-}
+typedef SpeechInputServiceBuilder = SpeechInputService Function(
+  String modelDirectory,
+);
 ```
 
 `CodingWorkbenchPage` can then do:
 
 ```text
 ask AsrModelManager for a ready model directory
-ask SpeechInputServiceFactory for a SpeechInputService
+ask SpeechInputServiceBuilder for a SpeechInputService
 update VoiceInputViewModel
 start voice input
 ```
@@ -274,9 +303,15 @@ start voice input
 This still leaves the modal in the page, which is acceptable because the dialog
 is UI. The concrete Sherpa class moves out of the page import list.
 
+Use a closure/typedef instead of a one-method interface because the current app
+has only one production ASR implementation. This keeps the seam testable without
+adding a nominal abstraction that has no second implementation. If a second ASR
+backend or runtime selection appears later, the closure can be promoted to an
+explicit interface in that feature slice.
+
 A larger `VoiceInputPreparationWorkflow` is not necessary unless the
 implementation exposes repeated orchestration across more than one ViewModel.
-The current behavior only needs a factory plus the existing `AsrModelManager`.
+The current behavior only needs the builder plus the existing `AsrModelManager`.
 
 ### Workspace Picker
 
@@ -346,12 +381,49 @@ calls are made.
 ```text
 CodingWorkbenchPage
   -> AsrModelManager.ensureReady()
-  -> SpeechInputServiceFactory.createForModelDirectory(...)
+  -> SpeechInputServiceBuilder(modelDirectory)
   -> VoiceInputViewModel.updateService(...)
 ```
 
 The page still decides when to show the modal and how to merge recognized text
 into the composer. It no longer imports the concrete Sherpa implementation.
+
+## Coordination Strategy
+
+Step 1 moves a commonly imported connection config file, so it should be kept
+short-lived and coordinated before implementation starts. The implementer should
+notify the team before moving the file and land the domain model move plus all
+import updates in one PR or commit set. Avoid leaving a branch open with a
+temporary barrel or alias because it will create avoidable merge conflicts for
+connection-related work.
+
+If another branch is actively editing connection code, merge or rebase it before
+enabling the stricter checker rule. The checker change should land only after
+the import migration compiles locally, otherwise it will block unrelated work
+with failures that the branch itself created.
+
+## Rollback Strategy
+
+The cleanup is incremental, but some steps are coupled:
+
+- Step 1 and the domain part of step 2 are coupled. If the config move causes a
+  production issue, roll back both the moved file/import changes and the hard
+  domain-services checker rule together.
+- The UI direct-client warning from step 2 can remain in place during rollback
+  because it is informational in this pass.
+- Step 3 is independently revertible if adapter loading regresses; reverting it
+  should restore `MainTabsViewModel` to the previous direct-client dependency
+  without affecting the domain config move.
+- Step 4 is independently revertible if a shell/workbench constructor path still
+  needs the client.
+- Step 5 is independently revertible by restoring direct
+  `SherpaSpeechInputService` construction in the page.
+- Step 6 is independently revertible if an older workspace picker path is found
+  to be active.
+
+Any rollback must leave `check_architecture_imports.dart` aligned with the
+current code. Do not leave a hard checker rule in place if the rollback restores
+imports that violate it.
 
 ## Error Handling
 
@@ -360,7 +432,7 @@ into the composer. It no longer imports the concrete Sherpa implementation.
 - Adapter loading failures stay surfaced through `CodingAdapterLoadState.failed`
   and `adapterLoadError`.
 - Voice preparation failures continue through the existing ASR dialog and
-  page-level voice error modal. The factory should not swallow errors.
+  page-level voice error modal. The builder should not swallow errors.
 - Workspace browse/create failures remain visible in the same UI surfaces as
   today. The only intended change is that calls route through
   `WorkspaceRepository`.
@@ -389,15 +461,33 @@ If implementation touches existing tests that fake `DaemonClient`, update only
 the relevant fakes to repository interfaces. Do not broaden the test surface
 unless a changed boundary demands it.
 
+Expected test changes:
+
+- Connection config tests should move imports to the domain model path while
+  preserving the current validation and persistence expectations.
+- Main tabs tests should replace fake `DaemonClient` adapter loading with a fake
+  `AdapterRepository`. The test scope should stay focused on load state,
+  snapshot updates, failure state, and reset behavior.
+- The `SpeechInputServiceBuilder` closure does not need its own unit test. It is
+  a dependency seam, not behavior. Existing voice/workbench tests should verify
+  that a ready model directory results in a service update and voice start.
+- Workspace picker tests should exercise repository-backed directory browsing
+  or confirm the unused direct-client picker path was deleted.
+- Checker changes should be validated by running the checker and, if practical,
+  by adding or using a small fixture-style negative case for `domain ->
+  services` and UI direct `DaemonClient` reporting.
+
 ## Acceptance Criteria
 
 - `src/domain/` has no imports from `src/services/`.
 - `check_architecture_imports.dart` rejects domain imports from `src/services/`.
+- `check_architecture_imports.dart` reports UI direct `DaemonClient` imports,
+  with the files cleaned by this spec absent from that report.
 - `MainTabsViewModel` uses `AdapterRepository`, not `DaemonClient`.
 - `CodingWorkbenchPage` no longer accepts a direct `DaemonClient` parameter if
   it is unused.
-- Workbench speech service creation is behind a narrow factory or equivalent
-  feature dependency.
+- Workbench speech service creation is behind a narrow
+  `SpeechInputServiceBuilder` or equivalent feature dependency.
 - Workspace picker/directory browser creation flows use `WorkspaceRepository`
   instead of direct `DaemonClient` paths.
 - The app composition root remains grouped into network, data, domain, and
@@ -409,10 +499,11 @@ unless a changed boundary demands it.
 ## Implementation Order
 
 1. Move the pure connection config model to domain and fix imports.
-2. Strengthen the architecture checker and prove it catches the old boundary.
+2. Strengthen the architecture checker and prove it catches the old domain
+   boundary and reports UI direct `DaemonClient` imports.
 3. Convert `MainTabsViewModel` and its callers/tests to `AdapterRepository`.
 4. Remove the redundant workbench `DaemonClient` parameter.
-5. Add a speech input service factory to `WorkbenchDependencies` and remove the
+5. Add a speech input service builder to `WorkbenchDependencies` and remove the
    concrete Sherpa import from the page.
 6. Remove or repository-convert the legacy workspace picker client path.
 7. Run architecture, analyze, and targeted Flutter tests.
@@ -428,7 +519,7 @@ After this pass, the next architecture candidates are:
   `src/ui/features/` or kept as shell/page composition.
 - Replace static diagnostics and run-detail placeholder pages with
   repository-backed ViewModels if they become active product surfaces.
-- Consider checker rules for UI direct `DaemonClient` imports once the current
-  known exceptions are removed.
+- Upgrade the UI direct `DaemonClient` checker report to a hard failure once the
+  current known exceptions are removed.
 
 These are intentionally outside the current implementation scope.
