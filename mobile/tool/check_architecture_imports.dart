@@ -64,6 +64,14 @@ void main(List<String> args) {
         violations: violations,
         migrationDebt: migrationDebt,
       );
+      _checkServicesRule(
+        relativeFile: relativeFile,
+        uri: uri,
+        normalizedTarget: normalizedTarget,
+        lineNumber: lineNumber,
+        violations: violations,
+        migrationDebt: migrationDebt,
+      );
       _checkTestingRule(
         relativeFile: relativeFile,
         uri: uri,
@@ -210,6 +218,26 @@ void _checkUiCoreRule({
     uri: uri,
     lineNumber: lineNumber,
     rule: 'ui/core must not import feature code',
+    violations: violations,
+    migrationDebt: migrationDebt,
+  );
+}
+
+void _checkServicesRule({
+  required String relativeFile,
+  required String uri,
+  required String normalizedTarget,
+  required int lineNumber,
+  required List<String> violations,
+  required List<String> migrationDebt,
+}) {
+  if (!relativeFile.startsWith('lib/src/services/')) return;
+  if (!_targetsRoot(normalizedTarget, 'src/ui/')) return;
+  _recordFinding(
+    relativeFile: relativeFile,
+    uri: uri,
+    lineNumber: lineNumber,
+    rule: 'services must not import UI',
     violations: violations,
     migrationDebt: migrationDebt,
   );

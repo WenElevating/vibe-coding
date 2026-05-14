@@ -7,7 +7,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
-import '../ui/features/workbench/voice_input.dart';
+import 'speech_input_contract.dart';
+
+export 'speech_input_contract.dart';
 
 const _sampleRate = 16000;
 
