@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../domain/repositories/workspace_repository.dart';
 import '../../../models/protocol.dart';
-import '../../../services/daemon_client.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 
@@ -192,159 +191,6 @@ class _AdapterChoiceRow extends StatelessWidget {
               const Icon(Icons.check_circle_rounded,
                   color: theme.purple, size: 19)
           ])));
-}
-
-class WorkspacePickerSheet extends StatefulWidget {
-  const WorkspacePickerSheet(
-      {super.key,
-      required this.workspaces,
-      required this.selected,
-      required this.client,
-      required this.onSelected,
-      required this.onCreated});
-  final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary selected;
-  final DaemonClient client;
-  final ValueChanged<WorkspaceSummary> onSelected;
-  final ValueChanged<WorkspaceSummary> onCreated;
-
-  @override
-  State<WorkspacePickerSheet> createState() => _WorkspacePickerSheetState();
-}
-
-class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
-  final _path = TextEditingController();
-  final _name = TextEditingController();
-  bool _creating = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _path.dispose();
-    _name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _browse() async {
-    final selectedPath = await showModalBottomSheet<String>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => DirectoryBrowserSheet(client: widget.client));
-    if (selectedPath != null && selectedPath.isNotEmpty) {
-      setState(() => _path.text = selectedPath);
-    }
-  }
-
-  Future<void> _create() async {
-    final path = _path.text.trim();
-    if (_creating) return;
-    if (path.isEmpty) {
-      setState(() =>
-          _error = AppLocalizations.of(context).workspacePathRequiredError);
-      return;
-    }
-    setState(() {
-      _creating = true;
-      _error = null;
-    });
-    try {
-      final workspace =
-          await widget.client.createWorkspace(path: path, name: _name.text);
-      widget.onCreated(workspace);
-      if (mounted) Navigator.of(context).pop();
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _creating = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return SafeArea(
-        top: false,
-        child: Container(
-            margin: const EdgeInsets.all(12),
-            constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * .78),
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            decoration: BoxDecoration(
-                color: const Color(0xF608090B),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: Colors.white.withValues(alpha: .075)),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: .56),
-                      blurRadius: 34,
-                      offset: const Offset(0, 20))
-                ]),
-            child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _WorkspaceSheetHeader(
-                      title: l10n.workspaceSheetTitle,
-                      subtitle: l10n.workspaceSheetSubtitle),
-                  const SizedBox(height: 12),
-                  Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFF101113),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: .075))),
-                      child: Column(children: [
-                        Row(children: [
-                          Expanded(
-                              child: _MiniInput(
-                                  controller: _path,
-                                  hint: l10n.workspacePathHint)),
-                          const SizedBox(width: 8),
-                          TinyActionButton(l10n.workspaceBrowseAction,
-                              onTap: _browse),
-                        ]),
-                        const SizedBox(height: 8),
-                        Row(children: [
-                          Expanded(
-                              child: _MiniInput(
-                                  controller: _name,
-                                  hint: l10n.workspaceNameHint)),
-                          const SizedBox(width: 8),
-                          TinyActionButton(
-                              _creating
-                                  ? l10n.workspaceCreatingAction
-                                  : l10n.workspaceCreateAction,
-                              onTap: _creating ? null : _create,
-                              primary: true),
-                        ]),
-                      ])),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_error!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: theme.red, fontSize: 11)),
-                  ],
-                  const SizedBox(height: 14),
-                  _WorkspaceSectionHeader(
-                      title: l10n.workspaceExistingSection,
-                      meta: l10n.workspaceSafeDirectoryMeta),
-                  const SizedBox(height: 6),
-                  Flexible(
-                      child: ListView(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.zero,
-                          children: [
-                        for (final workspace in widget.workspaces)
-                          _WorkspaceChoiceRow(
-                              workspace: workspace,
-                              selected: workspace.id == widget.selected.id,
-                              onTap: () => widget.onSelected(workspace)),
-                      ])),
-                ])));
-  }
 }
 
 class AddWorkspaceSheet extends StatefulWidget {
@@ -595,10 +441,6 @@ class _WorkspaceAddIconButton extends StatelessWidget {
 }
 
 class DirectoryBrowserSheet extends StatefulWidget {
-  DirectoryBrowserSheet({super.key, required DaemonClient client})
-      : _listFileSystemRoots = client.listFileSystemRoots,
-        _listDirectory = client.listDirectory;
-
   DirectoryBrowserSheet.forWorkspaceRepository({
     super.key,
     required WorkspaceRepository repository,
