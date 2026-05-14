@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../domain/repositories/adapter_repository.dart';
 import '../../models/protocol.dart';
-import '../../services/daemon_client.dart';
 import '../../shell/app_route.dart';
 import '../../shell/app_snapshot.dart';
 
@@ -12,11 +12,11 @@ enum CodingAdapterLoadState { idle, loading, loaded, failed }
 class MainTabsViewModel extends ChangeNotifier {
   MainTabsViewModel({
     required AppSnapshot initialData,
-    required DaemonClient client,
+    required AdapterRepository adapterRepository,
   })  : _data = initialData,
-        _client = client;
+        _adapterRepository = adapterRepository;
 
-  DaemonClient _client;
+  AdapterRepository _adapterRepository;
   AppSnapshot _data;
 
   int _activeTab = 0;
@@ -97,10 +97,10 @@ class MainTabsViewModel extends ChangeNotifier {
   }
 
   void resetForNewClient({
-    required DaemonClient client,
+    required AdapterRepository adapterRepository,
     required AppSnapshot data,
   }) {
-    _client = client;
+    _adapterRepository = adapterRepository;
     _data = data;
     _adapterLoadState = CodingAdapterLoadState.idle;
     _adapterLoadFuture = null;
@@ -123,7 +123,7 @@ class MainTabsViewModel extends ChangeNotifier {
 
   Future<void> _loadCodingAdapters() async {
     try {
-      final adapters = await _client.listAdapters();
+      final adapters = await _adapterRepository.listAdapters();
       if (_disposed) return;
       _data = _snapshotWithAdapters(_data, adapters);
       _adapterLoadState = CodingAdapterLoadState.loaded;

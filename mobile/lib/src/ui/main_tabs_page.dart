@@ -37,14 +37,16 @@ class MainTabsPage extends StatefulWidget {
 
 class _MainTabsPageState extends State<MainTabsPage> {
   late MainTabsViewModel _viewModel;
+  late ConnectedDataDependencies _connectedData;
   final _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
 
   @override
   void initState() {
     super.initState();
+    _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
     _viewModel = MainTabsViewModel(
       initialData: widget.data,
-      client: widget.client,
+      adapterRepository: _connectedData.adapterRepository,
     );
     unawaited(_viewModel.ensureCodingAdaptersLoaded());
   }
@@ -53,8 +55,9 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
+      _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
       _viewModel.resetForNewClient(
-        client: widget.client,
+        adapterRepository: _connectedData.adapterRepository,
         data: widget.data,
       );
       return;
