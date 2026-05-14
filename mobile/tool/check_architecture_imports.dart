@@ -27,6 +27,7 @@ void main(List<String> args) {
 
   final violations = <String>[];
   final migrationDebt = <String>[];
+  final uiDaemonClientDebt = <String>[];
   final oldPathCounts = <String, int>{
     for (final root in migrationOnlyRoots) root: 0,
   };
@@ -72,6 +73,13 @@ void main(List<String> args) {
         violations: violations,
         migrationDebt: migrationDebt,
       );
+      _checkUiDaemonClientRule(
+        relativeFile: relativeFile,
+        uri: uri,
+        normalizedTarget: normalizedTarget,
+        lineNumber: lineNumber,
+        uiDaemonClientDebt: uiDaemonClientDebt,
+      );
       _checkTestingRule(
         relativeFile: relativeFile,
         uri: uri,
@@ -91,6 +99,14 @@ void main(List<String> args) {
   if (migrationDebt.isNotEmpty) {
     stdout.writeln('Allowed migration debt:');
     for (final debt in migrationDebt) {
+      stdout.writeln('  $debt');
+    }
+  }
+  stdout.writeln('UI direct DaemonClient imports:');
+  if (uiDaemonClientDebt.isEmpty) {
+    stdout.writeln('  none');
+  } else {
+    for (final debt in uiDaemonClientDebt) {
       stdout.writeln('  $debt');
     }
   }
@@ -243,6 +259,22 @@ void _checkServicesRule({
   );
 }
 
+void _checkUiDaemonClientRule({
+  required String relativeFile,
+  required String uri,
+  required String normalizedTarget,
+  required int lineNumber,
+  required List<String> uiDaemonClientDebt,
+}) {
+  if (!relativeFile.startsWith('lib/src/ui/')) return;
+  if (!_targetsRoot(normalizedTarget, 'src/services/daemon_client.dart')) {
+    return;
+  }
+  uiDaemonClientDebt.add(
+    '$relativeFile:$lineNumber UI imports concrete DaemonClient ($uri)',
+  );
+}
+
 void _checkTestingRule({
   required String relativeFile,
   required String uri,
@@ -274,8 +306,8 @@ String? _domainRule(String uri, String normalizedTarget) {
   if (_targetsRoot(normalizedTarget, 'src/ui/')) {
     return 'domain must not import UI';
   }
-  if (_targetsRoot(normalizedTarget, 'src/services/daemon_client.dart')) {
-    return 'domain must not import concrete daemon client';
+  if (_targetsRoot(normalizedTarget, 'src/services/')) {
+    return 'domain must not import services';
   }
   return null;
 }
