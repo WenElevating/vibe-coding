@@ -74,7 +74,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         return json(res, 200, { workspaceId: workspace.id, workspace, workspaces: workspaces.listForDevice(device) });
       }
       if (method === 'GET' && url.pathname === '/api/fs/roots') return json(res, 200, { roots: await listRoots() });
-      if (method === 'GET' && url.pathname === '/api/fs/children') return json(res, 200, await listDirectory(url.searchParams.get('path') || '', workspaces.listForDevice(device).map((w) => w.workspacePath)));
+      if (method === 'GET' && url.pathname === '/api/fs/children') return json(res, 200, await listDirectory(url.searchParams.get('path') || ''));
 
       const workspaceOverview = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/overview$/);
       if (method === 'GET' && workspaceOverview) return json(res, 200, workspaceInspector.overview(workspaces.getAuthorized(workspaceOverview[1], device)));

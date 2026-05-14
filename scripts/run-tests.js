@@ -2844,6 +2844,73 @@ test('workspace API rejects deleted workspace rename and path mutation', async (
   }
 });
 
+test('filesystem children permits authorized workspace paths', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-fs-authorized-'));
+  fs.mkdirSync(path.join(workspacePath, 'src'));
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-fs-'), devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/workspaces', { workspacePath, name: 'Browse Me' }, token);
+    const listed = await request(port, 'GET', `/api/fs/children?path=${encodeURIComponent(created.body.path)}`, null, token);
+
+    assert.equal(created.status, 201);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.path, path.resolve(workspacePath));
+    assert.equal(listed.body.directories.some((entry) => entry.name === 'src'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('filesystem children permits paired workspace picker browsing before creation', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-picker-root-'));
+  fs.mkdirSync(path.join(rootPath, 'candidate'));
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-picker-fs-'), devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const listed = await request(port, 'GET', `/api/fs/children?path=${encodeURIComponent(rootPath)}`, null, paired.body.token);
+
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.path, path.resolve(rootPath));
+    assert.equal(listed.body.directories.some((entry) => entry.name === 'candidate'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('filesystem children still requires a paired device token', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-picker-auth-'));
+  const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-picker-auth-'), devAdapters: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  try {
+    const listed = await request(app.server.address().port, 'GET', `/api/fs/children?path=${encodeURIComponent(rootPath)}`);
+
+    assert.equal(listed.status, 401);
+    assert.equal(listed.body.error.code, 'AUTH_REQUIRED');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('workspace delete requires confirmation for active conversations and is idempotent after they end', async () => {
   const app = createApp({ port: 0, appDbPath: tempConversationDbPath('app-db-workspace-active-'), devAdapters: false });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
