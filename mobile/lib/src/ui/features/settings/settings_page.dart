@@ -4,7 +4,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../app/language_mode.dart';
 import '../../../app/language_scope.dart';
 import '../../../models/protocol.dart';
-import '../../../services/daemon_connection_config.dart';
+import '../../../domain/models/daemon_connection_config.dart';
 import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';

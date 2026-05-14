@@ -1,5 +1,5 @@
-import '../../services/daemon_connection_config.dart';
 import '../models/connected_app_session.dart';
+import '../models/daemon_connection_config.dart';
 
 abstract class ConnectToDaemonUseCase<TClient extends Object> {
   Future<ConnectedAppSession<TClient>> connect({

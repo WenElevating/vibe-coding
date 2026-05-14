@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
-import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
 
 void main() {
@@ -119,7 +119,8 @@ void main() {
         DateTime.parse('2026-05-19T08:00:00.000Z'));
   });
 
-  test('ensurePaired refreshes stored access token within refresh skew', () async {
+  test('ensurePaired refreshes stored access token within refresh skew',
+      () async {
     final tokenStore = MemoryTokenStore();
     await tokenStore.writeAccessTokenSession(
       'device-1',
@@ -155,7 +156,8 @@ void main() {
     expect(client.currentToken, 'access-2');
   });
 
-  test('authorized request refreshes and retries once after auth required', () async {
+  test('authorized request refreshes and retries once after auth required',
+      () async {
     final tokenStore = MemoryTokenStore();
     final requests = <http.Request>[];
     final client = DaemonClient(
@@ -169,9 +171,13 @@ void main() {
             200,
           );
         }
-        if (request.url.path == '/api/adapters' && requests.where((item) => item.url.path == '/api/adapters').length == 1) {
+        if (request.url.path == '/api/adapters' &&
+            requests.where((item) => item.url.path == '/api/adapters').length ==
+                1) {
           expect(request.headers['authorization'], 'Bearer access-1');
-          return http.Response('{"error":"AUTH_REQUIRED","message":"invalid bearer token"}', 401);
+          return http.Response(
+              '{"error":"AUTH_REQUIRED","message":"invalid bearer token"}',
+              401);
         }
         if (request.url.path == '/api/token/refresh') {
           expect(request.headers.containsKey('authorization'), false);

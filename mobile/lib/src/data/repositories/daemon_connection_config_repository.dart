@@ -1,4 +1,4 @@
-import '../../services/daemon_connection_config.dart';
+import '../../domain/models/daemon_connection_config.dart';
 import '../../services/daemon_connection_config_store.dart';
 
 class DaemonConnectionConfigRepository {

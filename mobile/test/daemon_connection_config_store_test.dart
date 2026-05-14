@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

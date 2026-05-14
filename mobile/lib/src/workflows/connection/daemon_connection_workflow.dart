@@ -3,7 +3,7 @@ import '../../domain/models/connected_app_session.dart';
 import '../../domain/models/daemon_initial_data.dart';
 import '../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../services/daemon_client.dart';
-import '../../services/daemon_connection_config.dart';
+import '../../domain/models/daemon_connection_config.dart';
 import '../../services/device_identity_store.dart';
 import '../../shell/app_snapshot.dart';
 

@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
 import '../services/daemon_client.dart';
-import '../services/daemon_connection_config.dart';
+import '../domain/models/daemon_connection_config.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import 'core/widgets/widgets.dart';

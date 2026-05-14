@@ -16,7 +16,7 @@ import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
-import 'package:lan_ai_cli_control/src/services/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_controller.dart';

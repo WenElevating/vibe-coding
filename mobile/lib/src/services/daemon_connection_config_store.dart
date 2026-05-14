@@ -1,6 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'daemon_connection_config.dart';
+import '../domain/models/daemon_connection_config.dart';
 
 class DaemonConnectionConfigStore {
   static const _addressKey = 'daemonConnection.addressInput';

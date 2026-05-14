@@ -1,4 +1,4 @@
-import '../../services/daemon_connection_config.dart';
+import 'daemon_connection_config.dart';
 import 'daemon_initial_data.dart';
 
 class ConnectedAppSession<TClient extends Object> {

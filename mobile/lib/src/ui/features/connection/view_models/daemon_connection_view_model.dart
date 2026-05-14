@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../data/repositories/daemon_connection_config_repository.dart';
 import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../../../services/daemon_client.dart';
-import '../../../../services/daemon_connection_config.dart';
+import '../../../../domain/models/daemon_connection_config.dart';
 import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/connection/daemon_connection_workflow.dart'
     show DaemonConnectionCancelled;

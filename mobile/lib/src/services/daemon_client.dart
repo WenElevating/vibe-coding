@@ -10,7 +10,7 @@ import '../data/services/run_service.dart';
 import '../data/services/workspace_service.dart';
 import '../models/protocol.dart';
 import 'asr_model_client.dart';
-import 'daemon_connection_config.dart';
+import '../domain/models/daemon_connection_config.dart';
 import 'device_identity_store.dart';
 
 abstract class SecureTokenStore {
