@@ -283,44 +283,6 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
   }
 }
 
-class _WorkspaceSheetHeader extends StatelessWidget {
-  const _WorkspaceSheetHeader({required this.title, required this.subtitle});
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        Container(
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: const Color(0xFF141518),
-                borderRadius: BorderRadius.circular(10),
-                border:
-                    Border.all(color: Colors.white.withValues(alpha: .075))),
-            child: const Icon(Icons.folder_open_rounded,
-                color: Color(0xFF9EA3AD), size: 16)),
-        const SizedBox(width: 10),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title,
-              style: const TextStyle(
-                  color: theme.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.15)),
-          const SizedBox(height: 3),
-          Text(subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Color(0xFF858A94), fontSize: 11.5, height: 1.35)),
-        ])),
-      ]);
-}
-
 class _WorkspaceSectionHeader extends StatelessWidget {
   const _WorkspaceSectionHeader({required this.title, required this.meta});
   final String title;
