@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../../services/daemon_client.dart';
 import '../../../services/speech_input_service.dart';
 import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
@@ -31,7 +30,6 @@ class CodingWorkbenchPage extends StatefulWidget {
   const CodingWorkbenchPage({
     super.key,
     required this.data,
-    required this.client,
     required this.onBack,
     required this.onSessionListChanged,
     required this.openSessionListRequest,
@@ -42,7 +40,6 @@ class CodingWorkbenchPage extends StatefulWidget {
     this.speechInputService,
   });
   final AppSnapshot data;
-  final DaemonClient client;
   final VoidCallback onBack;
   final ValueChanged<bool> onSessionListChanged;
   final int openSessionListRequest;

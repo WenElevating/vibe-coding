@@ -491,7 +491,6 @@ Widget buildCodingWorkbenchEntryPreview() {
           backgroundColor: theme.bg,
           body: CodingWorkbenchPage(
               data: data,
-              client: client,
               onBack: () {},
               onSessionListChanged: (_) {},
               openSessionListRequest: 0,

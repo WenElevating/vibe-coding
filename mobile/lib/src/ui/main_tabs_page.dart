@@ -38,12 +38,15 @@ class MainTabsPage extends StatefulWidget {
 class _MainTabsPageState extends State<MainTabsPage> {
   late MainTabsViewModel _viewModel;
   late ConnectedDataDependencies _connectedData;
+  late WorkbenchDependencies _workbenchDependencies;
   final _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
 
   @override
   void initState() {
     super.initState();
     _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
+    _workbenchDependencies =
+        widget.dependencies.features.createWorkbenchDependencies(widget.client);
     _viewModel = MainTabsViewModel(
       initialData: widget.data,
       adapterRepository: _connectedData.adapterRepository,
@@ -55,7 +58,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
+      _workbenchDependencies.asrModelManager.dispose();
       _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
+      _workbenchDependencies = widget.dependencies.features
+          .createWorkbenchDependencies(widget.client);
       _viewModel.resetForNewClient(
         adapterRepository: _connectedData.adapterRepository,
         data: widget.data,
@@ -70,6 +76,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
 
   @override
   void dispose() {
+    _workbenchDependencies.asrModelManager.dispose();
     _viewModel.dispose();
     super.dispose();
   }
@@ -157,8 +164,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
     if (_viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
       return CodingPage(
         data: _viewModel.data,
-        client: widget.client,
-        dependencies: widget.dependencies,
+        workbenchDependencies: _workbenchDependencies,
         workbenchKey: _codingWorkbenchKey,
         onBack: () => _viewModel.selectTab(0),
         onSessionListChanged: _viewModel.reportSessionListOpen,
