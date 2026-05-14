@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../../services/speech_input_contract.dart';
 import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';

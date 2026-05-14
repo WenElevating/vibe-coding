@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/services/speech_input_contract.dart'
+    as speech_contract;
 import 'package:lan_ai_cli_control/src/services/speech_input_service.dart';
 
 void main() {
@@ -51,6 +53,6 @@ void main() {
   });
 
   test('voice input is available on Windows desktop', () {
-    expect(isVoiceInputPlatformSupported, isTrue);
+    expect(speech_contract.isVoiceInputPlatformSupported, isTrue);
   }, skip: !Platform.isWindows);
 }

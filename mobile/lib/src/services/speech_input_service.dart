@@ -13,14 +13,6 @@ export 'speech_input_contract.dart';
 
 const _sampleRate = 16000;
 
-bool get isVoiceInputPlatformSupported =>
-    !kIsWeb &&
-    (Platform.isAndroid ||
-        Platform.isIOS ||
-        Platform.isMacOS ||
-        Platform.isLinux ||
-        Platform.isWindows);
-
 typedef SherpaOnnxInitializer = void Function();
 
 @visibleForTesting
