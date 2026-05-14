@@ -24,7 +24,6 @@ import 'workbench_messages.dart';
 import '../sessions/sessions.dart';
 import '../workspace_picker/workspace_picker.dart';
 import 'coding_workbench_controller.dart';
-import 'conversation_reducer.dart';
 import 'view_models/workbench_view_model.dart';
 import 'workbench_dependencies.dart';
 
@@ -69,25 +68,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
   SherpaSpeechInputService? _ownedSpeechInputService;
-  final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
-  final List<AgentEvent> _events = <AgentEvent>[];
-  final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
-  late WorkbenchRouteState _routeState;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
-  String? _activeRunId;
-  String? _activeConversationId;
-  ConversationSummary? _activeConversation;
-  ConversationViewState _conversationState = const ConversationViewState();
-  String? _selectedAdapter;
-  int _lastSeq = 0;
-  bool _sending = false;
-  String? _error;
-  String? _errorTraceId;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
-  final Set<String> _resolvedApprovalIds = <String>{};
   String _currentRoute = _routeWorkspaces;
   bool? _lastReportedListOpen = true;
   late int _handledOpenSessionListRequest;
@@ -95,13 +80,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems(
       widget.data.conversations, widget.data.runs);
 
-  List<WorkspaceSummary> get _workspaces => _routeState.workspaces;
+  List<WorkspaceSummary> get _workspaces => _workbenchViewModel.workspaces;
 
-  WorkspaceSummary? get _routeWorkspace => switch (_routeState) {
-        WorkspaceSessionsRouteState(:final workspace) => workspace,
-        ConversationRouteState(:final workspace) => workspace,
-        _ => null,
-      };
+  WorkspaceSummary? get _routeWorkspace => _workbenchViewModel.routeWorkspace;
+  String? get _activeRunId => _workbenchViewModel.activeRunId;
+  String? get _activeConversationId => _workbenchViewModel.activeConversationId;
+  ConversationSummary? get _activeConversation =>
+      _workbenchViewModel.activeConversation;
+  List<WorkbenchMessage> get _messages => _workbenchViewModel.messages;
+  List<ConversationEvent> get _conversationEvents =>
+      _workbenchViewModel.conversationEvents;
+  bool get _sending => _workbenchViewModel.sending;
+  String? get _error => _workbenchViewModel.error;
+  String? get _errorTraceId => _workbenchViewModel.errorTraceId;
 
   Future<bool> handleSystemBack() async {
     final navigator = _navigatorKey.currentState;
@@ -151,55 +142,33 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _goToSessions(WorkspaceSummary workspace) {
-    setState(() {
-      _routeState = WorkspaceSessionsRouteState(
-        workspace: workspace,
-        workspaces: _workspaces,
-      );
-    });
+    _workbenchViewModel.showSessions(workspace);
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeSessions, (route) => route.settings.name == _routeWorkspaces);
   }
 
   void _goToConversation() {
     final workspace = _routeWorkspace;
-    if (workspace != null && _routeState is! ConversationRouteState) {
-      setState(() {
-        _routeState = ConversationRouteState(
-          workspace: workspace,
-          workspaces: _workspaces,
-        );
-      });
+    if (workspace != null &&
+        _workbenchViewModel.routeState is! ConversationRouteState) {
+      _workbenchViewModel.showConversation(workspace);
     }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeConversation, (route) => route.settings.name == _routeSessions);
   }
 
   void _resetConversationState() {
-    _messages.clear();
-    _events.clear();
-    _conversationEvents.clear();
-    _conversationState = const ConversationViewState();
-    _resolvedApprovalIds.clear();
-    _activeRunId = null;
-    _activeConversationId = null;
-    _activeConversation = null;
-    _lastSeq = 0;
+    _workbenchViewModel.resetConversationDisplay(notify: false);
   }
 
   Future<void> _openSession(SessionItem item) async {
     _poller?.cancel();
     setState(() {
       _resetConversationState();
-      _activeRunId = item.run.id;
-      _activeConversationId = item.conversation?.id;
-      _activeConversation = item.conversation;
-      _routeState = ConversationRouteState(
-        workspace: _workspaceForId(item.run.workspaceId),
-        workspaces: _workspaces,
-      );
-      _error = null;
+      _workbenchViewModel.openSession(item, notify: false);
+      _workbenchViewModel.clearOperationError(notify: false);
     });
+    _workbenchViewModel.showConversation(_workspaceForId(item.run.workspaceId));
     if (item.conversation != null) await _pollEvents();
     if (!mounted) return;
     _goToConversation();
@@ -217,7 +186,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final runId = _activeRunId;
     final conversationId = _activeConversationId;
     if ((runId == null && conversationId == null) || _sending) return;
-    setState(() => _sending = true);
+    _workbenchViewModel.beginOperation();
     try {
       final result = await _workbenchViewModel.cancelActiveRun(
         conversationId: conversationId,
@@ -227,29 +196,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       final conversation = result.conversation;
       if (!mounted) return;
       setState(() {
-        if (conversation != null) {
-          final cancelled = applyCancelledConversationSummary(conversation);
-          _activeConversation = cancelled;
-          _activeConversationId = cancelled.id;
-          _activeRunId = run?.id ?? cancelled.id;
-          _conversationState = ConversationViewState(
-              messages: _conversationState.messages,
-              lastSeq: _conversationState.lastSeq,
-              status: cancelled.status,
-              pendingPartial: _conversationState.pendingPartial);
-        } else {
-          _conversationState = const ConversationViewState(status: 'cancelled');
-          _activeRunId = null;
-          _activeConversationId = null;
-          _activeConversation = null;
-        }
-        _lastSeq = 0;
+        _workbenchViewModel.setCancelledConversationDisplayStatus(conversation,
+            run: run, notify: false);
       });
       _poller?.cancel();
     } catch (err) {
-      if (mounted) setState(() => _error = err.toString());
+      if (mounted) _workbenchViewModel.setOperationError(err.toString());
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) _workbenchViewModel.finishOperation();
     }
   }
 
@@ -258,17 +212,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _handledOpenSessionListRequest = widget.openSessionListRequest;
-    _selectedAdapter = _preferredAdapter()?.adapter;
-    _routeState = WorkspaceListRouteState(
-      workspaces: List<WorkspaceSummary>.of(widget.data.workspaces),
-    );
     _workbenchViewModel = WorkbenchViewModel(
       initialData: widget.data,
       conversationRepository: widget.dependencies.conversationRepository,
       diagnosticsRepository: widget.dependencies.diagnosticsRepository,
       runRepository: widget.dependencies.runRepository,
       workspaceRepository: widget.dependencies.workspaceRepository,
-    );
+    )..addListener(_syncWorkbenchViewModel);
     _asrModelManager = widget.dependencies.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
@@ -280,8 +230,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _syncSelectedAdapterFromSnapshot();
-    _workbenchViewModel.reconcile(widget.data);
+    _workbenchViewModel.updateFromSnapshot(widget.data);
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -289,13 +238,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     });
   }
 
-  void _syncSelectedAdapterFromSnapshot() {
-    final selected = _selectedAdapter;
-    final selectedStillAvailable = selected != null &&
-        widget.data.adapters
-            .any((adapter) => adapter.adapter == selected && adapter.available);
-    if (selectedStillAvailable) return;
-    _selectedAdapter = _preferredAdapter()?.adapter;
+  void _syncWorkbenchViewModel() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -305,6 +249,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
+    _workbenchViewModel.removeListener(_syncWorkbenchViewModel);
     _workbenchViewModel.dispose();
     _ownedSpeechInputService = null;
     _scrollController.dispose();
@@ -423,34 +368,20 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  AdapterStatus? _preferredAdapter() {
-    for (final name in const ['claude', 'codex', 'opencode']) {
-      final found = widget.data.adapters.where((a) =>
-          a.adapter == name && a.available && _isSelectableCliAdapter(a));
-      if (found.isNotEmpty) return found.first;
-    }
-    final available = widget.data.adapters
-        .where((a) => a.available && _isSelectableCliAdapter(a));
-    return available.isEmpty ? null : available.first;
-  }
-
   bool get _isTerminal {
-    final status = _activeConversation?.status ?? _conversationState.status;
-    return !isActiveConversationStatus(status);
+    return _workbenchViewModel.isTerminalConversation;
   }
 
   bool get _isRunningCli =>
       _activeConversationId != null &&
-      (_activeConversation?.status ?? _conversationState.status) == 'running';
+      _workbenchViewModel.effectiveConversationStatus == 'running';
 
   bool get _isBusyCli =>
       _activeConversationId != null &&
       isActiveConversationStatus(
-          _activeConversation?.status ?? _conversationState.status) &&
-      (_activeConversation?.status ?? _conversationState.status) !=
-          'waiting_input' &&
-      (_activeConversation?.status ?? _conversationState.status) !=
-          'waiting_approval';
+          _workbenchViewModel.effectiveConversationStatus) &&
+      _workbenchViewModel.effectiveConversationStatus != 'waiting_input' &&
+      _workbenchViewModel.effectiveConversationStatus != 'waiting_approval';
 
   List<AdapterStatus> get _availableAdapters => widget.data.adapters
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
@@ -465,9 +396,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         backgroundColor: Colors.transparent,
         builder: (context) => AdapterPickerSheet(
             adapters: adapters,
-            selected: _selectedAdapter,
+            selected: _workbenchViewModel.selectedAdapter,
             onSelected: (adapter) {
-              setState(() => _selectedAdapter = adapter);
+              _workbenchViewModel.setSelectedAdapter(adapter);
               Navigator.of(context).pop();
             }));
   }
@@ -484,13 +415,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             ));
     if (request == null || !mounted) return;
     final previousWorkspaces = List<WorkspaceSummary>.of(_workspaces);
+    _workbenchViewModel.showCreatingWorkspace(
+        requestLabel: request.name ?? request.path);
     setState(() {
-      _routeState = CreatingWorkspaceRouteState(
-        previousWorkspaces: previousWorkspaces,
-        requestLabel: request.name ?? request.path,
-      );
       _resetConversationState();
-      _error = null;
+      _workbenchViewModel.clearOperationError(notify: false);
     });
     _navigatorKey.currentState
         ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
@@ -503,19 +432,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+        _workbenchViewModel.confirmWorkspaceCreated(
+          workspace: workspace,
+          workspaces: workspaces,
+        );
         setState(() {
-          _routeState = WorkspaceSessionsRouteState(
-            workspace: workspace,
-            workspaces: workspaces,
-          );
           _resetConversationState();
-          _error = null;
+          _workbenchViewModel.clearOperationError(notify: false);
         });
         _goToSessions(workspace);
       case CreateWorkspaceNotConfirmed(:final workspaces):
+        _workbenchViewModel.cancelWorkspaceCreation(workspaces);
         setState(() {
-          _routeState = WorkspaceListRouteState(workspaces: workspaces);
-          _error = null;
+          _workbenchViewModel.clearOperationError(notify: false);
         });
         await _showWorkspaceCreationDialog(
           title: 'Workspace not ready',
@@ -523,18 +452,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               'The workspace was created, but the daemon did not include it in the refreshed list yet.',
         );
       case CreateWorkspaceTimeout():
+        _workbenchViewModel.cancelWorkspaceCreation(previousWorkspaces);
         setState(() {
-          _routeState = WorkspaceListRouteState(workspaces: previousWorkspaces);
-          _error = null;
+          _workbenchViewModel.clearOperationError(notify: false);
         });
         await _showWorkspaceCreationDialog(
           title: 'Workspace creation timed out',
           message: 'The daemon did not finish creating the workspace in time.',
         );
       case CreateWorkspaceFailure(:final error):
+        _workbenchViewModel.cancelWorkspaceCreation(previousWorkspaces);
         setState(() {
-          _routeState = WorkspaceListRouteState(workspaces: previousWorkspaces);
-          _error = error.toString();
+          _workbenchViewModel.setOperationError(error.toString(),
+              notify: false);
         });
         await _showWorkspaceCreationDialog(
           title: 'Workspace creation failed',
@@ -562,10 +492,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   String _pendingStatusText(AppLocalizations l10n) =>
-      _conversationPendingStatusText(
-          l10n,
-          _activeConversation?.status ?? _conversationState.status,
-          _conversationEvents);
+      _conversationPendingStatusText(l10n,
+          _workbenchViewModel.effectiveConversationStatus, _conversationEvents);
 
   String _conversationPendingStatusText(AppLocalizations l10n, String status,
       Iterable<ConversationEvent> events) {
@@ -579,7 +507,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   // ignore: unused_element
   String? _eventActionSummary(AgentEvent event) {
     if (event.type == 'run.started') {
-      return 'Started ${event.raw['tool'] ?? _selectedAdapter ?? 'CLI'} session';
+      return 'Started ${event.raw['tool'] ?? _workbenchViewModel.selectedAdapter ?? 'CLI'} session';
     }
     if (event.type == 'approval.required') {
       return 'Waiting for permission confirmation';
@@ -653,25 +581,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted) return;
     final prompt = _prompt.text.trim();
     final draft = _prompt.text;
-    final adapter = _selectedAdapter;
+    final adapter = _workbenchViewModel.selectedAdapter;
     if (prompt.isEmpty || adapter == null || _sending) return;
-    final pendingQuestion = _conversationState.messages
-        .cast<ConversationMessage?>()
-        .lastWhere(
-            (message) =>
-                message?.role == 'question' ||
-                message?.role == 'question_hidden',
-            orElse: () => null);
-    final pendingQuestionId = pendingQuestion?.questionId;
+    final pendingQuestionId = _workbenchViewModel.pendingQuestionId;
     final routeWorkspace = _routeWorkspace;
     if (_activeRunId == null && routeWorkspace == null) {
       _goToWorkspaces();
       return;
     }
     setState(() {
-      _sending = true;
-      _error = null;
-      _messages.add(WorkbenchMessage.user(prompt));
+      _workbenchViewModel.beginOperation(notify: false);
+      _workbenchViewModel.addUserMessage(prompt, notify: false);
       _prompt.clear();
     });
     _scrollToBottom();
@@ -685,18 +605,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           permissionMode: widget.permissionMode,
         );
         setState(() {
-          _activeConversation = result.runningConversation;
-          _activeRunId = result.run.id;
-          _activeConversationId = result.conversation.id;
-          _lastSeq = 0;
-          _events.clear();
-          _resolvedApprovalIds.clear();
+          _workbenchViewModel.prepareNewConversationSend(
+              result.runningConversation,
+              run: result.run,
+              notify: false);
         });
         if (mounted) _goToConversation();
         await _restartConversationPolling();
         final updated = await result.updatedConversation;
         if (mounted) {
-          setState(() => _activeConversation = updated);
+          setState(() => _workbenchViewModel.updateActiveConversation(updated,
+              notify: false));
         }
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
         final conversation =
@@ -706,17 +625,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           text: prompt,
         );
         setState(() {
-          _activeConversation = conversation;
-          _messages.removeWhere((message) => message.role == 'question');
+          _workbenchViewModel.updateActiveConversation(conversation,
+              notify: false);
+          _workbenchViewModel.removeQuestionMessages(notify: false);
         });
       } else {
         if (_isRunningCli) return;
         setState(() {
-          if (_activeConversation != null) {
-            _activeConversation =
-                copyConversationStatus(_activeConversation!, 'running');
-          }
-          _events.removeWhere((event) => event.type == 'run.completed');
+          _workbenchViewModel.markConversationRunning(notify: false);
         });
         final conversation =
             await _workbenchViewModel.sendExistingConversationPrompt(
@@ -726,7 +642,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         );
         if (mounted) {
           setState(() {
-            _activeConversation = conversation;
+            _workbenchViewModel.updateActiveConversation(conversation,
+                notify: false);
           });
         }
       }
@@ -743,11 +660,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               text: draft,
               selection: TextSelection.collapsed(offset: draft.length));
         }
-        _error = traced.message;
-        _errorTraceId = traced.traceId;
+        _workbenchViewModel.setOperationError(traced.message,
+            traceId: traced.traceId, notify: false);
       });
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) _workbenchViewModel.finishOperation();
     }
   }
 
@@ -762,42 +679,30 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       final conversationEvents =
           await _workbenchViewModel.fetchConversationEvents(
         conversationId: conversationId,
-        afterSeq: _lastSeq,
+        afterSeq: _workbenchViewModel.lastSeq,
       );
       if (conversationEvents.isEmpty || !mounted) return;
+      var changed = false;
       setState(() {
-        for (final event in conversationEvents) {
-          _conversationEvents.add(event);
-          if (event.seq > _lastSeq) _lastSeq = event.seq;
-          _applyConversationStatusEvent(event);
-        }
-        _conversationState = _conversationState.apply(conversationEvents,
-            streamOutput: widget.streamOutput);
-        _messages
-          ..clear()
-          ..addAll(messagesForConversationSnapshot(
-                  _conversationState.messages, _activeConversation)
-              .where((message) => message.role != 'question_hidden')
-              .map(workbenchMessageFromConversation));
-        final emptyCompletionDiagnostic = emptyConversationCompletionDiagnostic(
-            _conversationEvents, _conversationState.messages, _isTerminal);
-        if (emptyCompletionDiagnostic != null) {
-          _messages.add(WorkbenchMessage.status(emptyCompletionDiagnostic));
-        }
+        changed = _workbenchViewModel.applyConversationEvents(
+            conversationEvents,
+            streamOutput: widget.streamOutput,
+            notify: false);
       });
-      _scrollToBottom();
+      if (changed) _scrollToBottom();
       if (!_isRunningCli) _poller?.cancel();
     } catch (err, stack) {
       final traced = await _recordWorkbenchException(
         err,
         stack,
         operation: 'pollConversationEvents',
-        path: '/api/conversations/$conversationId/events?afterSeq=$_lastSeq',
+        path:
+            '/api/conversations/$conversationId/events?afterSeq=${_workbenchViewModel.lastSeq}',
       );
       if (mounted) {
         setState(() {
-          _error = traced.message;
-          _errorTraceId = traced.traceId;
+          _workbenchViewModel.setOperationError(traced.message,
+              traceId: traced.traceId, notify: false);
         });
       }
       _poller?.cancel();
@@ -832,212 +737,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted ||
         _activeConversationId == null ||
         !isActiveConversationStatus(
-            _activeConversation?.status ?? _conversationState.status)) {
+            _workbenchViewModel.effectiveConversationStatus)) {
       return;
     }
     _poller =
         Timer.periodic(const Duration(milliseconds: 900), (_) => _pollEvents());
-  }
-
-  void _applyConversationStatusEvent(ConversationEvent event) {
-    final current = _activeConversation;
-    if (current == null) return;
-    var status = current.status;
-    ConversationBlockingItem? blockingItem = current.blockingItem;
-    if (event.type == 'conversation.status_changed') {
-      status = event.raw['status'] as String? ?? status;
-    } else if (conversationEventCompletesTurn(event)) {
-      status = 'idle';
-      blockingItem = null;
-    } else if (event.type == 'assistant.question') {
-      status = 'waiting_input';
-      blockingItem = ConversationBlockingItem(
-          type: 'input_request',
-          questionId: event.questionId,
-          toolUseId: event.toolUseId,
-          text: event.text,
-          suggestions: event.suggestions,
-          input: event.input);
-    } else if (event.type == 'approval.requested') {
-      status = 'waiting_approval';
-      blockingItem = ConversationBlockingItem(
-          type: 'approval_request',
-          approvalId: event.approvalId,
-          toolUseId: event.toolUseId,
-          toolName: event.toolName,
-          summary: event.summary,
-          input: event.input);
-    } else if (event.type == 'approval.resolved') {
-      status = 'running';
-      blockingItem = null;
-    } else if (event.type == 'conversation.cancelled') {
-      status = event.raw['status'] as String? ?? 'cancelled';
-      blockingItem = null;
-    } else if (event.type == 'run.error') {
-      status = 'failed';
-      blockingItem = null;
-    }
-    _activeConversation =
-        copyConversationStatus(current, status, blockingItem: blockingItem);
-  }
-
-  // ignore: unused_element
-  void _mergeEventMessage(AgentEvent event) {
-    if (event.type == 'approval.responded') {
-      final approvalId = event.approvalId ?? event.raw['approvalId'] as String?;
-      if (approvalId != null && approvalId.isNotEmpty) {
-        _resolvedApprovalIds.add(approvalId);
-        _messages.removeWhere((item) =>
-            item.role == 'approval' && item.event?.approvalId == approvalId);
-      }
-      final command = _approvalResolvedCommand(event);
-      if (command != null) {
-        final exists = _messages.any((item) =>
-            item.role == 'command' &&
-            item.runId == event.runId &&
-            item.body.trim() == command.trim());
-        if (!exists) {
-          _upsertCommandMessage(WorkbenchMessage(
-              'command', 'cwd resolved · permissions checked', command,
-              event: event, runId: event.runId));
-        }
-      }
-      return;
-    }
-    if (isTerminalAgentEventType(event.type)) {
-      _markCommandMessagesCompleted(event);
-    }
-    final message = WorkbenchMessage.fromEvent(event, widget.streamOutput);
-    if (message == null) return;
-    if (message.role == 'approval' &&
-        message.event?.approvalId != null &&
-        _resolvedApprovalIds.contains(message.event!.approvalId)) {
-      return;
-    }
-    if (message.role == 'approval') {
-      final approvalId = message.event?.approvalId;
-      final messageKey = approvalId ?? message.body.trim();
-      final existingIndex = _messages.indexWhere((item) {
-        if (item.role != 'approval') return false;
-        final itemKey = item.event?.approvalId ?? item.body.trim();
-        return itemKey == messageKey;
-      });
-      if (existingIndex >= 0) {
-        _messages[existingIndex] = message;
-      } else {
-        _messages.add(message);
-      }
-      return;
-    }
-    if (message.role == 'assistant_stream') {
-      final lastIndex = _messages.lastIndexWhere((item) =>
-          item.role == 'assistant_stream' && item.runId == event.runId);
-      if (lastIndex >= 0) {
-        final current = _messages[lastIndex];
-        _messages[lastIndex] =
-            current.copyWith(body: current.body + message.body);
-      } else {
-        _messages.add(message);
-      }
-      return;
-    }
-    if (message.role == 'assistant') {
-      _messages.removeWhere((item) =>
-          item.role == 'assistant_stream' && item.runId == event.runId);
-      _messages.removeWhere(
-          (item) => item.role == 'question' && item.runId == event.runId);
-      final sameRunIndex = _messages.lastIndexWhere(
-          (item) => item.role == 'assistant' && item.runId == event.runId);
-      if (sameRunIndex >= 0) {
-        _messages[sameRunIndex] = message;
-      } else {
-        final exists = _messages.any((item) =>
-            item.role == 'assistant' &&
-            item.body.trim() == message.body.trim());
-        if (!exists) _messages.add(message);
-      }
-      return;
-    }
-    if (message.role == 'question') {
-      final hasAssistantForRun = _messages
-          .any((item) => item.role == 'assistant' && item.runId == event.runId);
-      if (hasAssistantForRun) return;
-      _messages.removeWhere((item) =>
-          item.role == 'assistant_stream' && item.runId == event.runId);
-      _messages.removeWhere(
-          (item) => item.role == 'question' && item.runId == event.runId);
-      _messages.add(message);
-      return;
-    }
-    if (message.role == 'command') {
-      _upsertCommandMessage(message.copyWith(
-          completed: _isTerminal,
-          duration: _commandDurationFor(
-              message.runId ?? event.runId, event.createdAt)));
-      return;
-    }
-    _messages.add(message);
-  }
-
-  void _upsertCommandMessage(WorkbenchMessage message) {
-    final command = message.body.trim();
-    final existingIndex = _messages.indexWhere((item) =>
-        item.role == 'command' &&
-        item.runId == message.runId &&
-        _sameCommandDisplay(item.body.trim(), command));
-    if (existingIndex >= 0) {
-      final current = _messages[existingIndex];
-      final body = _preferDetailedCommand(current.body.trim(), command);
-      _messages[existingIndex] = current.copyWith(
-          body: body,
-          completed: current.completed || message.completed,
-          isError: current.isError || message.isError,
-          duration: message.duration ?? current.duration);
-    } else {
-      _messages.add(message);
-    }
-  }
-
-  bool _sameCommandDisplay(String current, String incoming) {
-    if (current == incoming) return true;
-    if (current.isEmpty || incoming.isEmpty) return false;
-    final currentHead = current.split(RegExp(r'\s+')).first;
-    final incomingHead = incoming.split(RegExp(r'\s+')).first;
-    return currentHead == incomingHead &&
-        (incoming.startsWith('$current ') || current.startsWith('$incoming '));
-  }
-
-  String _preferDetailedCommand(String current, String incoming) {
-    return incoming.length > current.length ? incoming : current;
-  }
-
-  void _markCommandMessagesCompleted(AgentEvent terminalEvent) {
-    for (var index = 0; index < _messages.length; index += 1) {
-      final message = _messages[index];
-      if (message.role != 'command' || message.runId != terminalEvent.runId) {
-        continue;
-      }
-      _messages[index] = message.copyWith(
-          completed: true,
-          duration:
-              _commandDurationFor(message.runId, terminalEvent.createdAt));
-    }
-  }
-
-  Duration? _commandDurationFor(String? runId, DateTime completedAt) {
-    if (runId == null) return null;
-    AgentEvent? started;
-    for (final event in _events) {
-      if (event.runId == runId && event.type == 'run.started') {
-        started = event;
-        break;
-      }
-    }
-    started ??= _events
-        .cast<AgentEvent?>()
-        .firstWhere((event) => event?.runId == runId, orElse: () => null);
-    if (started == null || completedAt.isBefore(started.createdAt)) return null;
-    return completedAt.difference(started.createdAt);
   }
 
   void _startNewSessionFromList() {
@@ -1046,32 +750,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _goToWorkspaces();
       return;
     }
+    _workbenchViewModel.showConversation(workspace);
     setState(() {
-      _routeState = ConversationRouteState(
-        workspace: workspace,
-        workspaces: _workspaces,
-      );
       _resetConversationState();
-      _error = null;
+      _workbenchViewModel.clearOperationError(notify: false);
       _prompt.clear();
     });
     _goToConversation();
-  }
-
-  String? _approvalResolvedCommand(AgentEvent event) {
-    final decision = event.raw['decision'];
-    if (decision != 'allow') return null;
-    final input = event.raw['input'];
-    if (input is Map<String, Object?>) {
-      final command = input['command'];
-      if (command is String && command.trim().isNotEmpty) return command.trim();
-      final target = input['file_path'] ?? input['path'] ?? input['filename'];
-      if (target is String && target.trim().isNotEmpty) {
-        return '${event.name ?? 'Tool'} ${target.trim()}';
-      }
-    }
-    final text = event.text;
-    return text == null || text.trim().isEmpty ? null : text.trim();
   }
 
   Future<void> _respondApproval(AgentEvent event, String decision) async {
@@ -1086,7 +771,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           approvalId: approvalId,
           decision: decision,
         );
-        _activeConversation = conversation;
+        _workbenchViewModel.updateActiveConversation(conversation,
+            notify: false);
       } else {
         await _workbenchViewModel.respondRunApproval(
           approvalId: approvalId,
@@ -1094,26 +780,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         );
       }
       setState(() {
-        _resolvedApprovalIds.add(approvalId);
-        _messages.removeWhere((item) =>
-            item.role == 'approval' && item.event?.approvalId == approvalId);
-        if (decision == 'allow') {
-          _upsertCommandMessage(WorkbenchMessage(
-              'command',
-              'cwd resolved · permissions checked',
-              WorkbenchMessage.toolEventBody(event),
-              event: event,
-              runId: event.runId));
-        } else {
-          _messages.add(WorkbenchMessage.status('Denied permission request'));
-        }
+        _workbenchViewModel.applyApprovalResponse(event, decision,
+            notify: false);
       });
       final conversation = _activeConversation;
       if (conversation != null && shouldPollAfterApproval(conversation)) {
         await _restartConversationPolling();
       }
     } catch (err) {
-      setState(() => _error = err.toString());
+      _workbenchViewModel.setOperationError(err.toString());
     }
   }
 
@@ -1141,7 +816,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Widget _buildRoute(String route) {
-    if (_routeState is CreatingWorkspaceRouteState) {
+    if (_workbenchViewModel.routeState is CreatingWorkspaceRouteState) {
       return _buildCreatingWorkspaceTransition();
     }
     if (route == _routeSessions) return _buildSessionList();
@@ -1150,7 +825,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Widget _buildCreatingWorkspaceTransition() {
-    final state = _routeState;
+    final state = _workbenchViewModel.routeState;
     final label =
         state is CreatingWorkspaceRouteState ? state.requestLabel : 'workspace';
     return Center(
@@ -1218,11 +893,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final l10n = AppLocalizations.of(context);
     final workspace = _routeWorkspace;
     if (workspace == null) return _buildWorkspaceList();
-    final adapter = _selectedAdapter;
+    final adapter = _workbenchViewModel.selectedAdapter;
     final canSend = adapter != null &&
         !_sending &&
         canSendInConversationStatus(
-            _activeConversation?.status ?? _conversationState.status);
+            _workbenchViewModel.effectiveConversationStatus);
     return Column(key: const ValueKey('coding-workbench-detail'), children: [
       Container(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),

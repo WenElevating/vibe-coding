@@ -3,6 +3,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/conversation_reposito
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/ui/features/sessions/session_item.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
@@ -80,6 +81,241 @@ void main() {
     expect(route.workspace, conversationWorkspace);
     expect(route.workspaces,
         const <WorkspaceSummary>[current, conversationWorkspace]);
+  });
+
+  test('workbench view model owns current route workspace state', () {
+    const other = WorkspaceSummary(
+      id: 'workspace_2',
+      name: 'Other Workspace',
+      path: r'D:\other',
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData:
+          _snapshot(workspaces: const <WorkspaceSummary>[_workspace, other]),
+    );
+
+    expect(viewModel.routeWorkspace, isNull);
+
+    viewModel.showSessions(_workspace);
+    expect(viewModel.routeWorkspace, _workspace);
+
+    viewModel.showConversation(other);
+    expect(viewModel.routeWorkspace, other);
+
+    viewModel.showWorkspaceList();
+    expect(viewModel.routeWorkspace, isNull);
+  });
+
+  test('workbench view model owns active conversation identity', () {
+    final conversation = _conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    );
+    final updated = _conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'idle',
+      userMessageCount: 1,
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+
+    expect(viewModel.activeRunId, isNull);
+    expect(viewModel.activeConversationId, isNull);
+    expect(viewModel.activeConversation, isNull);
+
+    viewModel.openSession(SessionItem(
+      run: WorkbenchViewModel.runSummaryFromConversation(conversation),
+      conversation: conversation,
+    ));
+    expect(viewModel.activeRunId, 'conv_1');
+    expect(viewModel.activeConversationId, 'conv_1');
+    expect(viewModel.activeConversation, conversation);
+
+    viewModel.updateActiveConversation(updated);
+    expect(viewModel.activeRunId, 'conv_1');
+    expect(viewModel.activeConversationId, 'conv_1');
+    expect(viewModel.activeConversation, updated);
+
+    viewModel.clearActiveConversation();
+    expect(viewModel.activeRunId, isNull);
+    expect(viewModel.activeConversationId, isNull);
+    expect(viewModel.activeConversation, isNull);
+  });
+
+  test('workbench view model owns operation busy and error state', () {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+
+    expect(viewModel.sending, isFalse);
+    expect(viewModel.error, isNull);
+    expect(viewModel.errorTraceId, isNull);
+
+    viewModel.beginOperation();
+    expect(viewModel.sending, isTrue);
+    expect(viewModel.error, isNull);
+    expect(viewModel.errorTraceId, isNull);
+
+    viewModel.setOperationError('boom', traceId: 'trace_1');
+    expect(viewModel.error, 'boom');
+    expect(viewModel.errorTraceId, 'trace_1');
+
+    viewModel.finishOperation();
+    expect(viewModel.sending, isFalse);
+
+    viewModel.clearOperationError();
+    expect(viewModel.error, isNull);
+    expect(viewModel.errorTraceId, isNull);
+  });
+
+  test('workbench view model owns conversation event projection', () {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+    final conversation = _conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    );
+    viewModel.updateActiveConversation(conversation);
+
+    final approvalEventsApplied = viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(seq: 1, type: 'user.message', text: 'run tests'),
+        _event(seq: 2, type: 'assistant.partial', text: 'Checking'),
+        _event(
+          seq: 3,
+          type: 'approval.requested',
+          approvalId: 'approval_1',
+          toolUseId: 'tool_1',
+          toolName: 'Bash',
+          summary: 'Run flutter tests',
+          input: const <String, Object?>{'command': 'flutter test'},
+        ),
+      ],
+      streamOutput: true,
+    );
+
+    expect(approvalEventsApplied, isTrue);
+    expect(viewModel.lastSeq, 3);
+    expect(viewModel.conversationEvents, hasLength(3));
+    expect(viewModel.conversationState.status, 'waiting_approval');
+    expect(viewModel.pendingQuestionId, isNull);
+    expect(viewModel.activeConversation?.status, 'waiting_approval');
+    expect(
+        viewModel.activeConversation?.blockingItem?.approvalId, 'approval_1');
+    expect(
+      viewModel.messages.map((message) => '${message.role}:${message.body}'),
+      const <String>[
+        'user:run tests',
+        'assistant_stream:Checking',
+        'approval:Run flutter tests',
+      ],
+    );
+
+    final completionEventsApplied = viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 4,
+          type: 'approval.resolved',
+          approvalId: 'approval_1',
+          toolUseId: 'tool_1',
+          toolName: 'Bash',
+          input: const <String, Object?>{'command': 'flutter test'},
+          raw: const <String, Object?>{'decision': 'allow'},
+        ),
+        _event(seq: 5, type: 'assistant.message', text: 'Done.'),
+      ],
+      streamOutput: true,
+    );
+
+    expect(completionEventsApplied, isTrue);
+    expect(viewModel.lastSeq, 5);
+    expect(viewModel.conversationEvents, hasLength(5));
+    expect(viewModel.conversationState.status, 'idle');
+    expect(viewModel.activeConversation?.status, 'idle');
+    expect(viewModel.activeConversation?.blockingItem, isNull);
+    expect(
+      viewModel.messages.map((message) => '${message.role}:${message.body}'),
+      const <String>[
+        'user:run tests',
+        'command:flutter test',
+        'assistant:Done.',
+      ],
+    );
+  });
+
+  test('workbench view model exposes pending question id', () {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(seq: 1, type: 'assistant.message', text: 'Need detail'),
+        _event(
+          seq: 2,
+          type: 'assistant.question',
+          questionId: 'question_hidden',
+          text: 'Which direction?',
+          raw: const <String, Object?>{'turnFinal': false},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.pendingQuestionId, 'question_hidden');
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 3,
+          type: 'assistant.question',
+          questionId: 'question_visible',
+          text: 'Pick one',
+        )
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.pendingQuestionId, 'question_visible');
+  });
+
+  test('workbench view model resets conversation display state', () {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+    final conversation = _conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    );
+    viewModel.updateActiveConversation(conversation);
+    viewModel.addUserMessage('hello');
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(seq: 1, type: 'conversation.started'),
+        _event(seq: 2, type: 'assistant.message', text: 'hi'),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.messages, isNotEmpty);
+    expect(viewModel.conversationEvents, isNotEmpty);
+    expect(viewModel.lastSeq, 2);
+    expect(viewModel.activeConversationId, 'conv_1');
+
+    viewModel.resetConversationDisplay();
+
+    expect(viewModel.messages, isEmpty);
+    expect(viewModel.conversationEvents, isEmpty);
+    expect(viewModel.conversationState.messages, isEmpty);
+    expect(viewModel.conversationState.status, 'idle');
+    expect(viewModel.lastSeq, 0);
+    expect(viewModel.activeConversationId, isNull);
+    expect(viewModel.activeConversation, isNull);
   });
 
   test('reusable conversation statuses can send another message', () {
@@ -695,4 +931,32 @@ ConversationSummary _conversation({
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-12T00:00:00.000Z',
       updatedAt: '2026-05-12T00:00:01.000Z',
+    );
+
+ConversationEvent _event({
+  required int seq,
+  required String type,
+  String conversationId = 'conv_1',
+  String? text,
+  String? questionId,
+  String? approvalId,
+  String? toolUseId,
+  String? toolName,
+  String? summary,
+  Map<String, Object?> input = const <String, Object?>{},
+  Map<String, Object?> raw = const <String, Object?>{},
+}) =>
+    ConversationEvent(
+      seq: seq,
+      conversationId: conversationId,
+      type: type,
+      createdAt: DateTime.parse('2026-05-12T00:00:0$seq.000Z'),
+      text: text,
+      questionId: questionId,
+      approvalId: approvalId,
+      toolUseId: toolUseId,
+      toolName: toolName,
+      summary: summary,
+      input: input,
+      raw: raw,
     );

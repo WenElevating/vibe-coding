@@ -8,7 +8,9 @@ import '../../../../models/protocol.dart';
 import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
-import '../workbench_route_state.dart';
+import '../coding_workbench_controller.dart';
+import '../conversation_reducer.dart';
+import '../workbench_messages.dart';
 
 class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchViewModel({
@@ -36,12 +38,52 @@ class WorkbenchViewModel extends ChangeNotifier {
   final WorkspaceRepository? _workspaceRepository;
   final Duration _workspaceCreationTimeout;
   String? _selectedAdapter;
+  String? _activeRunId;
+  String? _activeConversationId;
+  ConversationSummary? _activeConversation;
+  final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
+  final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
+  ConversationViewState _conversationState = const ConversationViewState();
+  int _lastSeq = 0;
+  final Set<String> _resolvedApprovalIds = <String>{};
+  bool _sending = false;
+  String? _error;
+  String? _errorTraceId;
 
   WorkbenchRouteState get routeState => _routeState;
   List<SessionItem> get optimisticSessions =>
       List.unmodifiable(_optimisticSessions.values);
   String? get selectedAdapter => _selectedAdapter;
+  String? get activeRunId => _activeRunId;
+  String? get activeConversationId => _activeConversationId;
+  ConversationSummary? get activeConversation => _activeConversation;
+  List<WorkbenchMessage> get messages => List.unmodifiable(_messages);
+  List<ConversationEvent> get conversationEvents =>
+      List.unmodifiable(_conversationEvents);
+  ConversationViewState get conversationState => _conversationState;
+  int get lastSeq => _lastSeq;
+  String? get pendingQuestionId {
+    for (final message in _conversationState.messages.reversed) {
+      if (message.role == 'question' || message.role == 'question_hidden') {
+        return message.questionId;
+      }
+    }
+    return null;
+  }
+
+  String get effectiveConversationStatus =>
+      _activeConversation?.status ?? _conversationState.status;
+  bool get isTerminalConversation =>
+      !isActiveConversationStatus(effectiveConversationStatus);
+  bool get sending => _sending;
+  String? get error => _error;
+  String? get errorTraceId => _errorTraceId;
   List<WorkspaceSummary> get workspaces => _routeState.workspaces;
+  WorkspaceSummary? get routeWorkspace => switch (_routeState) {
+        WorkspaceSessionsRouteState(:final workspace) => workspace,
+        ConversationRouteState(:final workspace) => workspace,
+        _ => null,
+      };
 
   List<SessionItem> sessionItems(
     List<ConversationSummary> snapshotConversations,
@@ -98,6 +140,193 @@ class WorkbenchViewModel extends ChangeNotifier {
       workspaces: List.unmodifiable(workspaces),
     );
     notifyListeners();
+  }
+
+  void openSession(SessionItem item, {bool notify = true}) {
+    _activeRunId = item.run.id;
+    _activeConversationId = item.conversation?.id;
+    _activeConversation = item.conversation;
+    if (notify) notifyListeners();
+  }
+
+  void updateActiveConversation(
+    ConversationSummary conversation, {
+    String? runId,
+    bool notify = true,
+  }) {
+    _activeConversation = conversation;
+    _activeConversationId = conversation.id;
+    _activeRunId = runId ?? _activeRunId ?? conversation.id;
+    if (notify) notifyListeners();
+  }
+
+  void clearActiveConversation({bool notify = true}) {
+    final changed = _activeRunId != null ||
+        _activeConversationId != null ||
+        _activeConversation != null;
+    _activeRunId = null;
+    _activeConversationId = null;
+    _activeConversation = null;
+    if (changed && notify) notifyListeners();
+  }
+
+  void resetConversationDisplay({
+    bool clearActiveConversation = true,
+    bool notify = true,
+  }) {
+    final changed = _messages.isNotEmpty ||
+        _conversationEvents.isNotEmpty ||
+        _conversationState.messages.isNotEmpty ||
+        _conversationState.status != 'idle' ||
+        _conversationState.pendingPartial.isNotEmpty ||
+        _lastSeq != 0 ||
+        _resolvedApprovalIds.isNotEmpty ||
+        (clearActiveConversation &&
+            (_activeRunId != null ||
+                _activeConversationId != null ||
+                _activeConversation != null));
+    _messages.clear();
+    _conversationEvents.clear();
+    _conversationState = const ConversationViewState();
+    _lastSeq = 0;
+    _resolvedApprovalIds.clear();
+    if (clearActiveConversation) {
+      _activeRunId = null;
+      _activeConversationId = null;
+      _activeConversation = null;
+    }
+    if (changed && notify) notifyListeners();
+  }
+
+  void setCancelledConversationDisplayStatus(
+    ConversationSummary? conversation, {
+    RunSummary? run,
+    bool notify = true,
+  }) {
+    if (conversation != null) {
+      final cancelled = applyCancelledConversationSummary(conversation);
+      updateActiveConversation(
+        cancelled,
+        runId: run?.id ?? cancelled.id,
+        notify: false,
+      );
+      _conversationState = ConversationViewState(
+        messages: _conversationState.messages,
+        lastSeq: _conversationState.lastSeq,
+        status: cancelled.status,
+        pendingPartial: _conversationState.pendingPartial,
+      );
+    } else {
+      _conversationState = const ConversationViewState(status: 'cancelled');
+      clearActiveConversation(notify: false);
+    }
+    _lastSeq = 0;
+    if (notify) notifyListeners();
+  }
+
+  void addUserMessage(String prompt, {bool notify = true}) {
+    _messages.add(WorkbenchMessage.user(prompt));
+    if (notify) notifyListeners();
+  }
+
+  void prepareNewConversationSend(
+    ConversationSummary runningConversation, {
+    required RunSummary run,
+    bool notify = true,
+  }) {
+    updateActiveConversation(runningConversation, runId: run.id, notify: false);
+    _lastSeq = 0;
+    _resolvedApprovalIds.clear();
+    if (notify) notifyListeners();
+  }
+
+  void markConversationRunning({bool notify = true}) {
+    final conversation = _activeConversation;
+    if (conversation == null) return;
+    updateActiveConversation(
+      copyConversationStatus(conversation, 'running'),
+      notify: notify,
+    );
+  }
+
+  void removeQuestionMessages({bool notify = true}) {
+    final before = _messages.length;
+    _messages.removeWhere((message) => message.role == 'question');
+    if (notify && _messages.length != before) notifyListeners();
+  }
+
+  bool applyConversationEvents(
+    List<ConversationEvent> events, {
+    required bool streamOutput,
+    bool notify = true,
+  }) {
+    final newEvents = events.where((event) => event.seq > _lastSeq).toList();
+    if (newEvents.isEmpty) return false;
+    newEvents.sort((a, b) => a.seq.compareTo(b.seq));
+    for (final event in newEvents) {
+      _conversationEvents.add(event);
+      if (event.seq > _lastSeq) _lastSeq = event.seq;
+      _applyConversationStatusEvent(event);
+    }
+    _conversationState =
+        _conversationState.apply(newEvents, streamOutput: streamOutput);
+    _rebuildMessagesFromConversationState();
+    if (notify) notifyListeners();
+    return true;
+  }
+
+  void applyApprovalResponse(
+    AgentEvent event,
+    String decision, {
+    bool notify = true,
+  }) {
+    final approvalId = event.approvalId;
+    if (approvalId == null || approvalId.isEmpty) return;
+    _resolvedApprovalIds.add(approvalId);
+    _messages.removeWhere((item) =>
+        item.role == 'approval' && item.event?.approvalId == approvalId);
+    if (decision == 'allow') {
+      _upsertCommandMessage(WorkbenchMessage(
+        'command',
+        'cwd resolved · permissions checked',
+        WorkbenchMessage.toolEventBody(event),
+        event: event,
+        runId: event.runId,
+      ));
+    } else {
+      _messages.add(WorkbenchMessage.status('Denied permission request'));
+    }
+    if (notify) notifyListeners();
+  }
+
+  void beginOperation({bool notify = true}) {
+    _sending = true;
+    _error = null;
+    _errorTraceId = null;
+    if (notify) notifyListeners();
+  }
+
+  void finishOperation({bool notify = true}) {
+    if (!_sending) return;
+    _sending = false;
+    if (notify) notifyListeners();
+  }
+
+  void setOperationError(
+    String message, {
+    String? traceId,
+    bool notify = true,
+  }) {
+    _error = message;
+    _errorTraceId = traceId;
+    if (notify) notifyListeners();
+  }
+
+  void clearOperationError({bool notify = true}) {
+    final changed = _error != null || _errorTraceId != null;
+    _error = null;
+    _errorTraceId = null;
+    if (changed && notify) notifyListeners();
   }
 
   void setSelectedAdapter(String? adapter) {
@@ -245,6 +474,106 @@ class WorkbenchViewModel extends ChangeNotifier {
         runId: runId,
         metadata: <String, Object?>{'operation': operation},
       );
+
+  void _applyConversationStatusEvent(ConversationEvent event) {
+    final current = _activeConversation;
+    if (current == null) return;
+    var status = current.status;
+    ConversationBlockingItem? blockingItem = current.blockingItem;
+    if (event.type == 'conversation.status_changed') {
+      status = event.raw['status'] as String? ?? status;
+    } else if (conversationEventCompletesTurn(event)) {
+      status = 'idle';
+      blockingItem = null;
+    } else if (event.type == 'assistant.question') {
+      status = 'waiting_input';
+      blockingItem = ConversationBlockingItem(
+        type: 'input_request',
+        questionId: event.questionId,
+        toolUseId: event.toolUseId,
+        text: event.text,
+        suggestions: event.suggestions,
+        input: event.input,
+      );
+    } else if (event.type == 'approval.requested') {
+      status = 'waiting_approval';
+      blockingItem = ConversationBlockingItem(
+        type: 'approval_request',
+        approvalId: event.approvalId,
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        summary: event.summary,
+        input: event.input,
+      );
+    } else if (event.type == 'approval.resolved') {
+      status = 'running';
+      blockingItem = null;
+    } else if (event.type == 'conversation.cancelled') {
+      status = event.raw['status'] as String? ?? 'cancelled';
+      blockingItem = null;
+    } else if (event.type == 'run.error') {
+      status = 'failed';
+      blockingItem = null;
+    }
+    updateActiveConversation(
+      copyConversationStatus(current, status, blockingItem: blockingItem),
+      notify: false,
+    );
+  }
+
+  void _rebuildMessagesFromConversationState() {
+    _messages
+      ..clear()
+      ..addAll(
+        messagesForConversationSnapshot(
+          _conversationState.messages,
+          _activeConversation,
+        )
+            .where((message) => message.role != 'question_hidden')
+            .map(workbenchMessageFromConversation),
+      );
+    final emptyCompletionDiagnostic = emptyConversationCompletionDiagnostic(
+      _conversationEvents,
+      _conversationState.messages,
+      isTerminalConversation,
+    );
+    if (emptyCompletionDiagnostic != null) {
+      _messages.add(WorkbenchMessage.status(emptyCompletionDiagnostic));
+    }
+  }
+
+  void _upsertCommandMessage(WorkbenchMessage message) {
+    final command = message.body.trim();
+    final existingIndex = _messages.indexWhere((item) =>
+        item.role == 'command' &&
+        item.runId == message.runId &&
+        _sameCommandDisplay(item.body.trim(), command));
+    if (existingIndex >= 0) {
+      final current = _messages[existingIndex];
+      final body = _preferDetailedCommand(current.body.trim(), command);
+      _messages[existingIndex] = current.copyWith(
+        body: body,
+        completed: current.completed || message.completed,
+        isError: current.isError || message.isError,
+        duration: message.duration ?? current.duration,
+      );
+    } else {
+      _messages.add(message);
+    }
+  }
+
+  bool _sameCommandDisplay(String current, String incoming) {
+    if (current == incoming) return true;
+    if (current.isEmpty || incoming.isEmpty) return false;
+    final currentHead = current.split(RegExp(r'\s+')).first;
+    final incomingHead = incoming.split(RegExp(r'\s+')).first;
+    return currentHead == incomingHead &&
+        (incoming.startsWith('$current ') || current.startsWith('$incoming '));
+  }
+
+  String _preferDetailedCommand(String current, String incoming) {
+    return incoming.length > current.length ? incoming : current;
+  }
 
   Future<CreateWorkspaceOutcome> createWorkspace({
     required String path,
