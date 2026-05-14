@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../../models/protocol.dart';
 import '../session_item.dart';
-import '../session_list_view_model.dart';
+import '../session_item_projection.dart';
 
 class SessionListViewModel extends ChangeNotifier {
   SessionListViewModel({
