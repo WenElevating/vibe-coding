@@ -27,6 +27,7 @@ class MainTabsViewModel extends ChangeNotifier {
   int _openSessionListRequest = 0;
   CodingAdapterLoadState _adapterLoadState = CodingAdapterLoadState.idle;
   Future<void>? _adapterLoadFuture;
+  int _adapterLoadGeneration = 0;
   Object? _adapterLoadError;
   RoutePage _activeRoute = RoutePage.tabs;
   bool _disposed = false;
@@ -102,6 +103,7 @@ class MainTabsViewModel extends ChangeNotifier {
   }) {
     _adapterRepository = adapterRepository;
     _data = data;
+    _adapterLoadGeneration++;
     _adapterLoadState = CodingAdapterLoadState.idle;
     _adapterLoadFuture = null;
     _adapterLoadError = null;
@@ -116,22 +118,23 @@ class MainTabsViewModel extends ChangeNotifier {
     _adapterLoadState = CodingAdapterLoadState.loading;
     _adapterLoadError = null;
     notifyListeners();
-    final load = _loadCodingAdapters();
+    final generation = _adapterLoadGeneration;
+    final load = _loadCodingAdapters(generation);
     _adapterLoadFuture = load;
     return load;
   }
 
-  Future<void> _loadCodingAdapters() async {
+  Future<void> _loadCodingAdapters(int generation) async {
     try {
       final adapters = await _adapterRepository.listAdapters();
-      if (_disposed) return;
+      if (_disposed || generation != _adapterLoadGeneration) return;
       _data = _snapshotWithAdapters(_data, adapters);
       _adapterLoadState = CodingAdapterLoadState.loaded;
       _adapterLoadError = null;
       _adapterLoadFuture = null;
       notifyListeners();
     } catch (error) {
-      if (_disposed) return;
+      if (_disposed || generation != _adapterLoadGeneration) return;
       _adapterLoadState = CodingAdapterLoadState.failed;
       _adapterLoadError = error;
       _adapterLoadFuture = null;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -19,6 +21,41 @@ class _FakeAdapterRepository implements AdapterRepository {
     return const <AdapterStatus>[
       AdapterStatus(adapter: 'codex', available: true, status: 'available'),
     ];
+  }
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async =>
+      const <ExtensionSummary>[];
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+}
+
+class _ManualAdapterRepository implements AdapterRepository {
+  _ManualAdapterRepository();
+
+  int listAdaptersCalls = 0;
+  Completer<List<AdapterStatus>> completer = Completer<List<AdapterStatus>>();
+
+  @override
+  Future<List<AdapterStatus>> listAdapters() {
+    listAdaptersCalls++;
+    return completer.future;
+  }
+
+  void completeWithAdapter(String adapter) {
+    completer.complete(<AdapterStatus>[
+      AdapterStatus(adapter: adapter, available: true, status: 'available'),
+    ]);
+  }
+
+  void completeWithError(Object error) {
+    completer.completeError(error);
   }
 
   @override
@@ -87,6 +124,9 @@ AppSnapshot _snapshot() {
   );
 }
 
+List<String> _adapterNames(MainTabsViewModel viewModel) =>
+    viewModel.data.adapters.map((adapter) => adapter.adapter).toList();
+
 void main() {
   test('loads coding adapters through repository once', () async {
     final repository = _FakeAdapterRepository();
@@ -101,8 +141,7 @@ void main() {
 
     expect(repository.listAdaptersCalls, 1);
     expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
-    expect(viewModel.data.adapters.map((adapter) => adapter.adapter),
-        contains('codex'));
+    expect(_adapterNames(viewModel), const <String>['codex']);
   });
 
   test('reports adapter load failures and retries', () async {
@@ -122,5 +161,69 @@ void main() {
 
     expect(repository.listAdaptersCalls, 2);
     expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
+  });
+
+  test('ignores stale adapter success after repository reset', () async {
+    final repositoryA = _ManualAdapterRepository();
+    final repositoryB = _ManualAdapterRepository();
+    final viewModel = MainTabsViewModel(
+      initialData: _snapshot(),
+      adapterRepository: repositoryA,
+    );
+    addTearDown(viewModel.dispose);
+
+    final loadA = viewModel.ensureCodingAdaptersLoaded();
+    expect(repositoryA.listAdaptersCalls, 1);
+
+    viewModel.resetForNewClient(
+      adapterRepository: repositoryB,
+      data: _snapshot(),
+    );
+    final loadB = viewModel.ensureCodingAdaptersLoaded();
+    expect(repositoryB.listAdaptersCalls, 1);
+
+    repositoryB.completeWithAdapter('claude');
+    await loadB;
+
+    expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
+    expect(_adapterNames(viewModel), const <String>['claude']);
+
+    repositoryA.completeWithAdapter('codex');
+    await loadA;
+
+    expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
+    expect(_adapterNames(viewModel), const <String>['claude']);
+  });
+
+  test('ignores stale adapter failure after repository reset', () async {
+    final repositoryA = _ManualAdapterRepository();
+    final repositoryB = _ManualAdapterRepository();
+    final viewModel = MainTabsViewModel(
+      initialData: _snapshot(),
+      adapterRepository: repositoryA,
+    );
+    addTearDown(viewModel.dispose);
+
+    final loadA = viewModel.ensureCodingAdaptersLoaded();
+
+    viewModel.resetForNewClient(
+      adapterRepository: repositoryB,
+      data: _snapshot(),
+    );
+    final loadB = viewModel.ensureCodingAdaptersLoaded();
+    expect(repositoryB.listAdaptersCalls, 1);
+
+    repositoryB.completeWithAdapter('claude');
+    await loadB;
+
+    expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
+    expect(_adapterNames(viewModel), const <String>['claude']);
+
+    repositoryA.completeWithError(StateError('stale adapter load failed'));
+    await loadA;
+
+    expect(viewModel.adapterLoadState, CodingAdapterLoadState.loaded);
+    expect(viewModel.adapterLoadError, isNull);
+    expect(_adapterNames(viewModel), const <String>['claude']);
   });
 }
