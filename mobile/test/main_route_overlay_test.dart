@@ -1,0 +1,277 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/app/app_localization.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
+import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
+import 'package:lan_ai_cli_control/src/shell/app_route.dart';
+import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
+import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
+import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
+import 'package:lan_ai_cli_control/src/ui/main_route_overlay.dart';
+
+void main() {
+  group('MainRouteOverlay', () {
+    testWidgets('recreates run detail view model when run metadata changes',
+        (tester) async {
+      final factory = _RunDetailFactory();
+      final scope = Object();
+
+      await tester.pumpWidget(_OverlayHarness(
+        data: _snapshot(runs: const <RunSummary>[_runningRun]),
+        runDetailViewModelScope: scope,
+        factory: factory.create,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('running'), findsOneWidget);
+      expect(factory.createdRuns, const <RunSummary>[_runningRun]);
+
+      await tester.pumpWidget(_OverlayHarness(
+        data: _snapshot(runs: const <RunSummary>[_completedRun]),
+        runDetailViewModelScope: scope,
+        factory: factory.create,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('completed'), findsOneWidget);
+      expect(find.text('running'), findsNothing);
+      expect(factory.createdRuns, const <RunSummary>[
+        _runningRun,
+        _completedRun,
+      ]);
+      expect(factory.disposedRuns, const <RunSummary>[_runningRun]);
+    });
+
+    testWidgets('recreates run detail view model when repository scope changes',
+        (tester) async {
+      final factory = _RunDetailFactory();
+
+      await tester.pumpWidget(_OverlayHarness(
+        data: _snapshot(runs: const <RunSummary>[_runningRun]),
+        runDetailViewModelScope: Object(),
+        factory: factory.create,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(_OverlayHarness(
+        data: _snapshot(runs: const <RunSummary>[_runningRun]),
+        runDetailViewModelScope: Object(),
+        factory: factory.create,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(factory.createdRuns, const <RunSummary>[
+        _runningRun,
+        _runningRun,
+      ]);
+      expect(factory.disposedRuns, const <RunSummary>[_runningRun]);
+    });
+  });
+}
+
+const _workspace = WorkspaceSummary(
+  id: 'workspace_1',
+  name: 'Workspace',
+  path: r'D:\workspace',
+);
+
+const _runningRun = RunSummary(
+  id: 'run_1',
+  tool: 'codex',
+  workspaceId: 'workspace_1',
+  status: 'running',
+  cliSessionId: 'session_1',
+);
+
+const _completedRun = RunSummary(
+  id: 'run_1',
+  tool: 'codex',
+  workspaceId: 'workspace_1',
+  status: 'completed',
+  cliSessionId: 'session_1',
+);
+
+AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
+      health: const DaemonHealth(
+        status: 'ok',
+        daemonVersion: 'test',
+        mode: 'test',
+        lanMode: false,
+        bindAddress: '127.0.0.1',
+        port: 4317,
+        security: <String, Object?>{},
+      ),
+      workspaces: const <WorkspaceSummary>[_workspace],
+      workspace: _workspace,
+      overview: const ProjectOverview(
+        workspaceId: 'workspace_1',
+        name: 'Workspace',
+        path: r'D:\workspace',
+        fileCount: 0,
+        codeLineCount: 0,
+        symbolCount: 0,
+        analysisScore: 0,
+        recentFiles: <RecentFileSummary>[],
+      ),
+      adapters: const <AdapterStatus>[
+        AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+      ],
+      runs: runs,
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      templates: const <CommandTemplate>[],
+      gitStatus: null,
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: const FileTreeResponse(
+        workspaceId: 'workspace_1',
+        root: r'D:\workspace',
+        entries: <FileTreeEntry>[],
+      ),
+      diagnostics: const CodeDiagnosticsSummary(
+        workspaceId: 'workspace_1',
+        available: false,
+        diagnostics: <CodeDiagnostic>[],
+      ),
+      extensions: const <ExtensionSummary>[],
+    );
+
+class _OverlayHarness extends StatelessWidget {
+  const _OverlayHarness({
+    required this.data,
+    required this.runDetailViewModelScope,
+    required this.factory,
+  });
+
+  final AppSnapshot data;
+  final Object runDetailViewModelScope;
+  final RunDetailViewModel Function(RunSummary run) factory;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: Scaffold(
+        body: MainRouteOverlay(
+          route: RoutePage.detail,
+          data: data,
+          client: DaemonClient(
+            baseUri: Uri.parse('http://127.0.0.1:4317'),
+            tokenStore: MemoryTokenStore(),
+          ),
+          diagnosticsViewModel: DiagnosticsViewModel(
+            repository: _FakeDiagnosticsRepository(),
+          ),
+          runDetailViewModelScope: runDetailViewModelScope,
+          createRunDetailViewModel: factory,
+          onBack: () {},
+        ),
+      ),
+    );
+  }
+}
+
+class _RunDetailFactory {
+  final createdRuns = <RunSummary>[];
+  final disposedRuns = <RunSummary>[];
+
+  RunDetailViewModel create(RunSummary run) {
+    createdRuns.add(run);
+    return _TrackingRunDetailViewModel(
+      run: run,
+      onDispose: () => disposedRuns.add(run),
+    );
+  }
+}
+
+class _TrackingRunDetailViewModel extends RunDetailViewModel {
+  _TrackingRunDetailViewModel({
+    required super.run,
+    required this.onDispose,
+  }) : super(runRepository: _FakeRunRepository());
+
+  final VoidCallback onDispose;
+
+  @override
+  void dispose() {
+    onDispose();
+    super.dispose();
+  }
+}
+
+class _FakeRunRepository implements RunRepository {
+  @override
+  Future<RunSummary> cancelRun(String runId) => throw UnimplementedError();
+
+  @override
+  Future<RunSummary> createRun({
+    required String tool,
+    required String workspaceId,
+    String? prompt,
+    String? shortcutId,
+    String permissionMode = 'default',
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async {
+    return const <AgentEvent>[];
+  }
+
+  @override
+  Future<RunSummary> invokeCommandTemplate({
+    required String templateId,
+    required String workspaceId,
+    String tool = 'claude',
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<QueueItem>> listQueue() => throw UnimplementedError();
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> respondApproval(String approvalId, String decision) =>
+      throw UnimplementedError();
+
+  @override
+  Future<RunSummary> sendRunInput(
+    String runId,
+    String prompt, {
+    String permissionMode = 'default',
+  }) =>
+      throw UnimplementedError();
+}
+
+class _FakeDiagnosticsRepository implements DiagnosticsRepository {
+  @override
+  Future<DiagnosticBundleSummary> exportDiagnostics() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<String> recordException({
+    required String message,
+    String? stack,
+    String? path,
+    String? method,
+    String? conversationId,
+    String? runId,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    throw UnimplementedError();
+  }
+}

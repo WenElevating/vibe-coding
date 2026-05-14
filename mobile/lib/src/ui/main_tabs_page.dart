@@ -177,6 +177,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
                   data: data,
                   client: widget.client,
                   diagnosticsViewModel: _diagnosticsViewModel,
+                  runDetailViewModelScope: _connectedData,
+                  createRunDetailViewModel: (run) => widget
+                      .dependencies.features
+                      .createRunDetailViewModel(_connectedData, run),
                   onBack: _viewModel.closeOverlay,
                 ),
         ),

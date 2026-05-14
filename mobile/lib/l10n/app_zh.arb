@@ -244,6 +244,17 @@
   "runDetailMockTask": "修复登录 API 测试失败",
   "runDetailRunningStatus": "运行中",
   "runDetailStartedDuration": "10:32 开始 · 用时 12m 45s",
+  "runDetailWorkspaceLabel": "工作区 {workspaceId}",
+  "@runDetailWorkspaceLabel": {
+    "placeholders": {
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
+  "runDetailLoadingEvents": "正在加载事件...",
+  "runDetailNoEvents": "暂无事件",
+  "runDetailEmptyEventsDescription": "该运行暂无仓库事件。",
   "runDetailTabOverview": "概览",
   "runDetailTabEvents": "事件",
   "runDetailTabFileChanges": "文件变更",

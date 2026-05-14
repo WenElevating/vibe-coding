@@ -11,6 +11,7 @@ import '../domain/repositories/conversation_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
+import '../models/protocol.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
@@ -18,6 +19,7 @@ import '../services/device_identity_store.dart';
 import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/diagnostics/diagnostics.dart';
+import '../ui/features/run_detail/run_detail.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
@@ -133,6 +135,7 @@ class FeatureDependencies {
   FeatureDependencies({
     required this.createDaemonConnectionViewModel,
     required this.createDiagnosticsViewModel,
+    required this.createRunDetailViewModel,
     required this.createWorkbenchDependencies,
   });
 
@@ -147,6 +150,10 @@ class FeatureDependencies {
         ),
         createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
           repository: connectedData.diagnosticsRepository,
+        ),
+        createRunDetailViewModel: (connectedData, run) => RunDetailViewModel(
+          run: run,
+          runRepository: connectedData.runRepository,
         ),
         createWorkbenchDependencies: (client) {
           final connectedData = data.forDaemonClient(client);
@@ -166,6 +173,10 @@ class FeatureDependencies {
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
   final DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)
       createDiagnosticsViewModel;
+  final RunDetailViewModel Function(
+    ConnectedDataDependencies connectedData,
+    RunSummary run,
+  ) createRunDetailViewModel;
   final WorkbenchDependencies Function(DaemonClient client)
       createWorkbenchDependencies;
 }

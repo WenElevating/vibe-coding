@@ -244,6 +244,17 @@
   "runDetailMockTask": "Fix login API test failure",
   "runDetailRunningStatus": "Running",
   "runDetailStartedDuration": "10:32 started ? Duration 12m 45s",
+  "runDetailWorkspaceLabel": "Workspace {workspaceId}",
+  "@runDetailWorkspaceLabel": {
+    "placeholders": {
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
+  "runDetailLoadingEvents": "Loading events...",
+  "runDetailNoEvents": "No events yet",
+  "runDetailEmptyEventsDescription": "Repository returned no events for this run.",
   "runDetailTabOverview": "Overview",
   "runDetailTabEvents": "Events",
   "runDetailTabFileChanges": "File changes",
