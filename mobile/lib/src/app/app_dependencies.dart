@@ -15,6 +15,7 @@ import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/device_identity_store.dart';
+import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
@@ -150,6 +151,8 @@ class FeatureDependencies {
             conversationRepository: connectedData.conversationRepository,
             diagnosticsRepository: connectedData.diagnosticsRepository,
             runRepository: connectedData.runRepository,
+            speechInputServiceBuilder: (modelDirectory) =>
+                SherpaSpeechInputService(modelDirectory: modelDirectory),
             workspaceRepository: connectedData.workspaceRepository,
           );
         },

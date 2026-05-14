@@ -8,6 +8,7 @@ import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
+import '../services/speech_input_contract.dart';
 import '../shell/shell.dart';
 import '../ui/features/sessions/sessions.dart' hide mergeSessionItems;
 import '../ui/features/workbench/workbench.dart';
@@ -505,6 +506,8 @@ Widget buildCodingWorkbenchEntryPreview() {
                 diagnosticsRepository:
                     DaemonDiagnosticsRepository(client: client),
                 runRepository: DaemonRunRepository(client: client),
+                speechInputServiceBuilder: (_) =>
+                    const DisabledSpeechInputService(),
                 workspaceRepository: DaemonWorkspaceRepository(client: client),
               ))));
 }

@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../../services/speech_input_service.dart';
+import '../../../services/speech_input_contract.dart';
 import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
@@ -64,7 +64,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _scrollController = ScrollController();
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
-  SherpaSpeechInputService? _ownedSpeechInputService;
+  SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
   String? _lastVoiceErrorNotice;
@@ -313,7 +313,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           : await _showAsrDownloadDialog();
       if (modelDirectory == null || !mounted) return;
       final nextService =
-          SherpaSpeechInputService(modelDirectory: modelDirectory);
+          widget.dependencies.speechInputServiceBuilder(modelDirectory);
       _ownedSpeechInputService = nextService;
       _voiceInput.updateService(nextService);
     }
