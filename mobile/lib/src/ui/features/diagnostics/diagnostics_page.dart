@@ -1,52 +1,73 @@
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
-import '../../../services/daemon_client.dart';
-import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
+import 'view_models/diagnostics_view_model.dart';
 
 class DiagnosticsPage extends StatelessWidget {
-  const DiagnosticsPage(
-      {super.key,
-      required this.onBack,
-      required this.data,
-      required this.client});
+  const DiagnosticsPage({
+    super.key,
+    required this.onBack,
+    required this.viewModel,
+  });
+
   final VoidCallback onBack;
-  final AppSnapshot data;
-  final DaemonClient client;
+  final DiagnosticsViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return PageScroll(children: [
-      TopBar(title: l10n.diagnosticsTitle, leading: true, action: '?'),
-      const SizedBox(height: 10),
-      Text(l10n.diagnosticsDescription,
-          style: const TextStyle(color: theme.muted, fontSize: 12)),
-      const SizedBox(height: 14),
-      GlassCard(
-          child: Column(children: [
-        _DiagRow(l10n.diagnosticsSystemInfo, '1.2 KB'),
-        const Hairline(),
-        _DiagRow(l10n.diagnosticsAdapterStatus, '2.4 KB'),
-        const Hairline(),
-        _DiagRow(l10n.diagnosticsRunLogsRecent, '512 KB'),
-        const Hairline(),
-        _DiagRow(l10n.diagnosticsEventRecordsRecent, '3.1 MB'),
-        const Hairline(),
-        _DiagRow(l10n.diagnosticsConfigInfo, '1.8 KB')
-      ])),
-      const SizedBox(height: 18),
-      Row(children: [
-        Text(l10n.diagnosticsEstimatedSize,
+    return ListenableBuilder(
+      listenable: viewModel,
+      builder: (context, _) => PageScroll(children: [
+        TopBar(title: l10n.diagnosticsTitle, leading: true, action: '?'),
+        const SizedBox(height: 10),
+        Text(l10n.diagnosticsDescription,
             style: const TextStyle(color: theme.muted, fontSize: 12)),
-        const Spacer(),
-        const Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
+        const SizedBox(height: 14),
+        GlassCard(
+            child: Column(children: [
+          _DiagRow(l10n.diagnosticsSystemInfo, '1.2 KB'),
+          const Hairline(),
+          _DiagRow(l10n.diagnosticsAdapterStatus, '2.4 KB'),
+          const Hairline(),
+          _DiagRow(l10n.diagnosticsRunLogsRecent, '512 KB'),
+          const Hairline(),
+          _DiagRow(l10n.diagnosticsEventRecordsRecent, '3.1 MB'),
+          const Hairline(),
+          _DiagRow(l10n.diagnosticsConfigInfo, '1.8 KB')
+        ])),
+        const SizedBox(height: 18),
+        Row(children: [
+          Text(l10n.diagnosticsEstimatedSize,
+              style: const TextStyle(color: theme.muted, fontSize: 12)),
+          const Spacer(),
+          const Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
+        ]),
+        if (viewModel.error != null) ...[
+          const SizedBox(height: 12),
+          Text(viewModel.error!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: theme.red, fontSize: 12)),
+        ],
+        if (viewModel.bundle != null) ...[
+          const SizedBox(height: 12),
+          Text(viewModel.bundle!.path,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: theme.green, fontSize: 12)),
+        ],
+        const SizedBox(height: 18),
+        PrimaryButton(
+          l10n.diagnosticsGenerateAction,
+          onTap: viewModel.isLoading ? () {} : viewModel.createBundle,
+        ),
+        const SizedBox(height: 8),
+        GhostButton(l10n.commonBack, color: theme.purple, onTap: onBack),
       ]),
-      const SizedBox(height: 18),
-      PrimaryButton(l10n.diagnosticsGenerateAction, onTap: onBack),
-    ]);
+    );
   }
 }
 

@@ -1,4 +1,8 @@
+import '../../models/protocol.dart';
+
 abstract class DiagnosticsRepository {
+  Future<DiagnosticBundleSummary> exportDiagnostics();
+
   Future<String> recordException({
     required String message,
     String? stack,

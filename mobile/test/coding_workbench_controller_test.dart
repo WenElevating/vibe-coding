@@ -762,6 +762,16 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   final List<String> calls = <String>[];
 
   @override
+  Future<DiagnosticBundleSummary> exportDiagnostics() async =>
+      DiagnosticBundleSummary(
+        bundleId: 'diag_1',
+        createdAt: DateTime.utc(2026, 5, 14),
+        path: r'C:\temp\diag_1.zip',
+        redacted: true,
+        items: const <String>['system', 'logs'],
+      );
+
+  @override
   Future<String> recordException({
     required String message,
     String? stack,

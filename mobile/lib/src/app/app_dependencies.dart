@@ -17,6 +17,7 @@ import '../services/daemon_connection_config_store.dart';
 import '../services/device_identity_store.dart';
 import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
+import '../ui/features/diagnostics/diagnostics.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
@@ -131,6 +132,7 @@ class DomainDependencies {
 class FeatureDependencies {
   FeatureDependencies({
     required this.createDaemonConnectionViewModel,
+    required this.createDiagnosticsViewModel,
     required this.createWorkbenchDependencies,
   });
 
@@ -142,6 +144,9 @@ class FeatureDependencies {
         createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
           configRepository: data.connectionConfigRepository,
           connectToDaemon: domain.connectionWorkflow,
+        ),
+        createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
+          repository: connectedData.diagnosticsRepository,
         ),
         createWorkbenchDependencies: (client) {
           final connectedData = data.forDaemonClient(client);
@@ -159,6 +164,8 @@ class FeatureDependencies {
       );
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
+  final DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)
+      createDiagnosticsViewModel;
   final WorkbenchDependencies Function(DaemonClient client)
       createWorkbenchDependencies;
 }

@@ -1,4 +1,5 @@
 import '../../domain/repositories/diagnostics_repository.dart';
+import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 
 class DaemonDiagnosticsRepository implements DiagnosticsRepository {
@@ -6,6 +7,10 @@ class DaemonDiagnosticsRepository implements DiagnosticsRepository {
       : _client = client;
 
   final DaemonClient _client;
+
+  @override
+  Future<DiagnosticBundleSummary> exportDiagnostics() =>
+      _client.exportDiagnostics();
 
   @override
   Future<String> recordException({

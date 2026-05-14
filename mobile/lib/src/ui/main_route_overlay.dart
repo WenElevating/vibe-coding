@@ -15,12 +15,14 @@ class MainRouteOverlay extends StatelessWidget {
     required this.route,
     required this.data,
     required this.client,
+    required this.diagnosticsViewModel,
     required this.onBack,
   });
 
   final RoutePage route;
   final AppSnapshot data;
   final DaemonClient client;
+  final DiagnosticsViewModel diagnosticsViewModel;
   final VoidCallback onBack;
 
   @override
@@ -39,8 +41,7 @@ class MainRouteOverlay extends StatelessWidget {
       RoutePage.notifications => NotificationsPage(onBack: onBack),
       RoutePage.diagnostics => DiagnosticsPage(
           onBack: onBack,
-          data: data,
-          client: client,
+          viewModel: diagnosticsViewModel,
         ),
       RoutePage.tabs => const SizedBox.shrink(),
     };
