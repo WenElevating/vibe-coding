@@ -213,6 +213,7 @@ function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default' 
     'exec',
     '--json',
     '-C', workspacePath,
+    '--skip-git-repo-check',
     '--sandbox', 'workspace-write',
     prompt
   ];
@@ -224,6 +225,7 @@ function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', w
     'exec',
     'resume',
     '--json',
+    '--skip-git-repo-check',
     ...(resumeSupportsCd ? ['--cd', workspacePath] : []),
     sessionId,
     prompt

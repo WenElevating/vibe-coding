@@ -207,6 +207,15 @@ class ConversationViewState {
           break;
         case 'run.error':
           _completeCommandMessages(nextMessages, event);
+          final errorText = _runErrorText(event);
+          if (errorText != null) {
+            nextMessages.add(ConversationMessage(
+              role: 'notice',
+              text: errorText,
+              eventSeq: event.seq,
+              isError: true,
+            ));
+          }
           nextStatus = 'failed';
           partial = '';
           break;
@@ -399,6 +408,15 @@ String? _approvalCommandText(ConversationEvent event) {
     return '$toolName ${file.trim()}';
   }
   return null;
+}
+
+String? _runErrorText(ConversationEvent event) {
+  final message = event.raw['message'];
+  final text =
+      event.text ?? event.summary ?? (message is String ? message : null);
+  final value = text?.trim();
+  if (value == null || value.isEmpty) return null;
+  return 'Run error: $value';
 }
 
 String _toolCommandText(ConversationEvent event) {

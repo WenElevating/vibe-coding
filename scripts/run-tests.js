@@ -2164,6 +2164,7 @@ test('Codex conversation adapter starts first turn with global approval before e
 
   assert.equal(spawnCommand, 'codex');
   assert.deepEqual(spawnArgs.slice(0, 5), ['--ask-for-approval', 'never', 'exec', '--json', '-C']);
+  assert.equal(spawnArgs.includes('--skip-git-repo-check'), true);
   assert.equal(spawnArgs.includes('--dangerously-bypass-approvals-and-sandbox'), false);
   assert.equal(spawnArgs[spawnArgs.length - 1], 'hello');
   assert.equal(spawnOptions.cwd, 'D:\\AiProject\\vibe-coding');
@@ -2206,8 +2207,9 @@ test('Codex conversation adapter resumes captured thread with authorized workspa
   assert.equal(spawnCalls[0].args.includes('-C'), false);
   assert.equal(spawnCalls[0].args.includes('--cd'), false);
   assert.equal(spawnCalls[0].options.cwd, 'D:\\Authorized\\Repo');
-  assert.equal(spawnCalls[0].args[5], 'thread_1');
-  assert.equal(spawnCalls[0].args[6], 'second');
+  assert.equal(spawnCalls[0].args.includes('--skip-git-repo-check'), true);
+  assert.equal(spawnCalls[0].args[6], 'thread_1');
+  assert.equal(spawnCalls[0].args[7], 'second');
   spawnCalls[0].child.emit('exit', 0, null);
 });
 
@@ -2650,8 +2652,8 @@ function fakeCodexSpawnSync(_cmd, args) {
 
 function fakeCodexConversationSpawnSync(_cmd, args) {
   if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
-  if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]\n--json', stderr: '' };
-  if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec [OPTIONS] [PROMPT]\n--json\n-C, --cd <DIR>\n--sandbox <SANDBOX_MODE>', stderr: '' };
+  if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]\n--json\n--skip-git-repo-check', stderr: '' };
+  if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec [OPTIONS] [PROMPT]\n--json\n-C, --cd <DIR>\n--sandbox <SANDBOX_MODE>\n--skip-git-repo-check', stderr: '' };
   return { status: 0, stdout: '', stderr: '' };
 }
 

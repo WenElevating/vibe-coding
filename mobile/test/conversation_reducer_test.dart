@@ -128,6 +128,34 @@ void main() {
     expect(state.messages.single.text, '我是 Codex。');
   });
 
+  test('ConversationViewState exposes run errors after user messages', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'user.message',
+        'createdAt': '2026-05-15T07:38:09.585Z',
+        'text': '你是谁？',
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'run.error',
+        'createdAt': '2026-05-15T07:38:10.835Z',
+        'message':
+            'Not inside a trusted directory and --skip-git-repo-check was not specified.',
+        'exitCode': 1,
+      }),
+    ]);
+
+    expect(state.status, 'failed');
+    expect(
+      state.messages.map((message) => message.role),
+      const <String>['user', 'notice'],
+    );
+    expect(state.messages.last.text, contains('trusted directory'));
+  });
+
   test('ConversationViewState keeps thinking separate from final answer', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{
