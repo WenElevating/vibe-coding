@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../app/app_dependencies.dart';
 import '../models/protocol.dart';
-import '../services/daemon_client.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import 'features/adapters/adapters.dart';
@@ -15,19 +15,15 @@ class MainRouteOverlay extends StatefulWidget {
     super.key,
     required this.route,
     required this.data,
-    required this.client,
-    required this.diagnosticsViewModel,
-    required this.runDetailViewModelScope,
-    required this.createRunDetailViewModel,
+    required this.connectedData,
+    required this.featureDependencies,
     required this.onBack,
   });
 
   final RoutePage route;
   final AppSnapshot data;
-  final DaemonClient client;
-  final DiagnosticsViewModel diagnosticsViewModel;
-  final Object runDetailViewModelScope;
-  final RunDetailViewModel Function(RunSummary run) createRunDetailViewModel;
+  final ConnectedDataDependencies connectedData;
+  final FeatureDependencies featureDependencies;
   final VoidCallback onBack;
 
   @override
@@ -35,8 +31,22 @@ class MainRouteOverlay extends StatefulWidget {
 }
 
 class _MainRouteOverlayState extends State<MainRouteOverlay> {
+  DiagnosticsViewModel? _diagnosticsViewModel;
   RunDetailViewModel? _runDetailViewModel;
   _RunDetailViewModelKey? _runDetailViewModelKey;
+
+  @override
+  void didUpdateWidget(covariant MainRouteOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.connectedData != widget.connectedData ||
+        oldWidget.featureDependencies != widget.featureDependencies) {
+      _diagnosticsViewModel?.dispose();
+      _diagnosticsViewModel = null;
+      _runDetailViewModel?.dispose();
+      _runDetailViewModel = null;
+      _runDetailViewModelKey = null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,23 +58,30 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
           viewModel: AdaptersViewModel(snapshot: widget.data),
         ),
       RoutePage.notifications => NotificationsPage(onBack: widget.onBack),
-      RoutePage.diagnostics => DiagnosticsPage(
-          onBack: widget.onBack,
-          viewModel: widget.diagnosticsViewModel,
-        ),
+      RoutePage.diagnostics => _buildDiagnosticsPage(),
       RoutePage.tabs => const SizedBox.shrink(),
     };
+  }
+
+  Widget _buildDiagnosticsPage() {
+    _diagnosticsViewModel ??= widget.featureDependencies
+        .createDiagnosticsViewModel(widget.connectedData);
+    return DiagnosticsPage(
+      onBack: widget.onBack,
+      viewModel: _diagnosticsViewModel!,
+    );
   }
 
   Widget _buildRunDetailPage() {
     final selectedRun = _selectedRun(widget.data);
     final viewModelKey = _RunDetailViewModelKey(
       run: selectedRun,
-      scope: widget.runDetailViewModelScope,
+      scope: widget.connectedData,
     );
     if (_runDetailViewModel == null || _runDetailViewModelKey != viewModelKey) {
       _runDetailViewModel?.dispose();
-      _runDetailViewModel = widget.createRunDetailViewModel(selectedRun);
+      _runDetailViewModel = widget.featureDependencies
+          .createRunDetailViewModel(widget.connectedData, selectedRun);
       _runDetailViewModelKey = viewModelKey;
     }
 
@@ -76,6 +93,7 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
 
   @override
   void dispose() {
+    _diagnosticsViewModel?.dispose();
     _runDetailViewModel?.dispose();
     super.dispose();
   }

@@ -9,6 +9,12 @@ const migrationOnlyRoots = <String>[
 
 const productionTestingRoot = 'src/testing/';
 
+const allowedUiDaemonClientBoundaryImports = <String>{
+  'lib/src/ui/main_tabs_page.dart',
+  'lib/src/ui/features/connection/view_models/daemon_connection_view_model.dart',
+  'lib/src/ui/features/connection/view_models/daemon_connection_controller.dart',
+};
+
 const allowedMigrationDebt = <_AllowedDebt>[];
 
 final importOrExportPattern = RegExp(
@@ -27,7 +33,8 @@ void main(List<String> args) {
 
   final violations = <String>[];
   final migrationDebt = <String>[];
-  final uiDaemonClientDebt = <String>[];
+  final allowedUiDaemonClientImports = <String>[];
+  final forbiddenUiDaemonClientImports = <String>[];
   final oldPathCounts = <String, int>{
     for (final root in migrationOnlyRoots) root: 0,
   };
@@ -78,7 +85,8 @@ void main(List<String> args) {
         uri: uri,
         normalizedTarget: normalizedTarget,
         lineNumber: lineNumber,
-        uiDaemonClientDebt: uiDaemonClientDebt,
+        allowedUiDaemonClientImports: allowedUiDaemonClientImports,
+        forbiddenUiDaemonClientImports: forbiddenUiDaemonClientImports,
       );
       _checkTestingRule(
         relativeFile: relativeFile,
@@ -102,14 +110,23 @@ void main(List<String> args) {
       stdout.writeln('  $debt');
     }
   }
-  stdout.writeln('UI direct DaemonClient imports:');
-  if (uiDaemonClientDebt.isEmpty) {
+  stdout.writeln('Allowed UI DaemonClient boundary imports:');
+  if (allowedUiDaemonClientImports.isEmpty) {
     stdout.writeln('  none');
   } else {
-    for (final debt in uiDaemonClientDebt) {
+    for (final debt in allowedUiDaemonClientImports) {
       stdout.writeln('  $debt');
     }
   }
+  stdout.writeln('Forbidden UI DaemonClient imports:');
+  if (forbiddenUiDaemonClientImports.isEmpty) {
+    stdout.writeln('  none');
+  } else {
+    for (final debt in forbiddenUiDaemonClientImports) {
+      stdout.writeln('  $debt');
+    }
+  }
+  violations.addAll(forbiddenUiDaemonClientImports);
 
   if (violations.isEmpty) {
     stdout.writeln('No forbidden imports found.');
@@ -264,15 +281,20 @@ void _checkUiDaemonClientRule({
   required String uri,
   required String normalizedTarget,
   required int lineNumber,
-  required List<String> uiDaemonClientDebt,
+  required List<String> allowedUiDaemonClientImports,
+  required List<String> forbiddenUiDaemonClientImports,
 }) {
   if (!relativeFile.startsWith('lib/src/ui/')) return;
   if (!_targetsRoot(normalizedTarget, 'src/services/daemon_client.dart')) {
     return;
   }
-  uiDaemonClientDebt.add(
-    '$relativeFile:$lineNumber UI imports concrete DaemonClient ($uri)',
-  );
+  final finding =
+      '$relativeFile:$lineNumber UI imports concrete DaemonClient ($uri)';
+  if (allowedUiDaemonClientBoundaryImports.contains(relativeFile)) {
+    allowedUiDaemonClientImports.add(finding);
+  } else {
+    forbiddenUiDaemonClientImports.add(finding);
+  }
 }
 
 void _checkTestingRule({

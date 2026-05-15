@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_localization.dart';
+import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
@@ -17,12 +21,15 @@ void main() {
     testWidgets('recreates run detail view model when run metadata changes',
         (tester) async {
       final factory = _RunDetailFactory();
-      final scope = Object();
+      final connectedData = _connectedData();
+      final featureDependencies = _featureDependencies(
+        createRunDetailViewModel: factory.create,
+      );
 
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
-        runDetailViewModelScope: scope,
-        factory: factory.create,
+        connectedData: connectedData,
+        featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
@@ -31,8 +38,8 @@ void main() {
 
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_completedRun]),
-        runDetailViewModelScope: scope,
-        factory: factory.create,
+        connectedData: connectedData,
+        featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
@@ -48,18 +55,21 @@ void main() {
     testWidgets('recreates run detail view model when repository scope changes',
         (tester) async {
       final factory = _RunDetailFactory();
+      final featureDependencies = _featureDependencies(
+        createRunDetailViewModel: factory.create,
+      );
 
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
-        runDetailViewModelScope: Object(),
-        factory: factory.create,
+        connectedData: _connectedData(),
+        featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
-        runDetailViewModelScope: Object(),
-        factory: factory.create,
+        connectedData: _connectedData(),
+        featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
@@ -68,6 +78,30 @@ void main() {
         _runningRun,
       ]);
       expect(factory.disposedRuns, const <RunSummary>[_runningRun]);
+    });
+
+    testWidgets('creates diagnostics view model through feature dependencies',
+        (tester) async {
+      final connectedData = _connectedData();
+      final diagnosticsFactory = _DiagnosticsFactory();
+      final featureDependencies = _featureDependencies(
+        createRunDetailViewModel: _RunDetailFactory().create,
+        createDiagnosticsViewModel: diagnosticsFactory.create,
+      );
+
+      await tester.pumpWidget(_OverlayHarness(
+        route: RoutePage.diagnostics,
+        data: _snapshot(runs: const <RunSummary>[_runningRun]),
+        connectedData: connectedData,
+        featureDependencies: featureDependencies,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(diagnosticsFactory.createdWith, [connectedData]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      expect(diagnosticsFactory.disposeCount, 1);
     });
   });
 }
@@ -139,16 +173,34 @@ AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
       extensions: const <ExtensionSummary>[],
     );
 
+FeatureDependencies _featureDependencies({
+  required RunDetailViewModel Function(RunSummary run) createRunDetailViewModel,
+  DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)?
+      createDiagnosticsViewModel,
+}) =>
+    FeatureDependencies(
+      createDaemonConnectionViewModel: () => throw UnimplementedError(),
+      createDiagnosticsViewModel: createDiagnosticsViewModel ??
+          (connectedData) => DiagnosticsViewModel(
+                repository: connectedData.diagnosticsRepository,
+              ),
+      createRunDetailViewModel: (connectedData, run) =>
+          createRunDetailViewModel(run),
+      createWorkbenchDependencies: (client) => throw UnimplementedError(),
+    );
+
 class _OverlayHarness extends StatelessWidget {
   const _OverlayHarness({
+    this.route = RoutePage.detail,
     required this.data,
-    required this.runDetailViewModelScope,
-    required this.factory,
+    required this.connectedData,
+    required this.featureDependencies,
   });
 
+  final RoutePage route;
   final AppSnapshot data;
-  final Object runDetailViewModelScope;
-  final RunDetailViewModel Function(RunSummary run) factory;
+  final ConnectedDataDependencies connectedData;
+  final FeatureDependencies featureDependencies;
 
   @override
   Widget build(BuildContext context) {
@@ -159,21 +211,54 @@ class _OverlayHarness extends StatelessWidget {
       theme: theme.buildAppTheme(),
       home: Scaffold(
         body: MainRouteOverlay(
-          route: RoutePage.detail,
+          route: route,
           data: data,
-          client: DaemonClient(
-            baseUri: Uri.parse('http://127.0.0.1:4317'),
-            tokenStore: MemoryTokenStore(),
-          ),
-          diagnosticsViewModel: DiagnosticsViewModel(
-            repository: _FakeDiagnosticsRepository(),
-          ),
-          runDetailViewModelScope: runDetailViewModelScope,
-          createRunDetailViewModel: factory,
+          connectedData: connectedData,
+          featureDependencies: featureDependencies,
           onBack: () {},
         ),
       ),
     );
+  }
+}
+
+ConnectedDataDependencies _connectedData() {
+  final unused = _UnusedRepository();
+  return ConnectedDataDependencies(
+    authRepository: unused,
+    adapterRepository: unused,
+    conversationRepository: unused,
+    diagnosticsRepository: _FakeDiagnosticsRepository(),
+    runRepository: _FakeRunRepository(),
+    workspaceRepository: unused,
+  );
+}
+
+class _DiagnosticsFactory {
+  final createdWith = <ConnectedDataDependencies>[];
+  var disposeCount = 0;
+
+  DiagnosticsViewModel create(ConnectedDataDependencies connectedData) {
+    createdWith.add(connectedData);
+    return _TrackingDiagnosticsViewModel(
+      repository: connectedData.diagnosticsRepository,
+      onDispose: () => disposeCount += 1,
+    );
+  }
+}
+
+class _TrackingDiagnosticsViewModel extends DiagnosticsViewModel {
+  _TrackingDiagnosticsViewModel({
+    required super.repository,
+    required this.onDispose,
+  });
+
+  final VoidCallback onDispose;
+
+  @override
+  void dispose() {
+    onDispose();
+    super.dispose();
   }
 }
 
@@ -274,4 +359,146 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   }) {
     throw UnimplementedError();
   }
+}
+
+class _UnusedRepository
+    implements
+        AdapterRepository,
+        AuthRepository,
+        ConversationRepository,
+        WorkspaceRepository {
+  @override
+  Future<List<AdapterStatus>> listAdapters() => throw UnimplementedError();
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() => throw UnimplementedError();
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() => throw UnimplementedError();
+
+  @override
+  Future<DaemonHealth> health() => throw UnimplementedError();
+
+  @override
+  Future<DaemonVersionInfo> version() => throw UnimplementedError();
+
+  @override
+  Future<String> createPairingCode() => throw UnimplementedError();
+
+  @override
+  Future<void> pair({
+    required String code,
+    String label = '',
+    String? deviceId,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> refreshToken() => throw UnimplementedError();
+
+  @override
+  Future<void> revokeCurrentDevice() => throw UnimplementedError();
+
+  @override
+  Future<List<ConversationSummary>> listConversations() =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> sendConversationMessage(
+    String conversationId,
+    String text,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> cancelConversation(String conversationId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() => throw UnimplementedError();
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ProjectOverview> projectOverview(String workspaceId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileTreeResponse> fileTree(
+    String workspaceId, {
+    String path = '',
+    int maxDepth = 8,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<FileContent> fileContent(String workspaceId, String path) =>
+      throw UnimplementedError();
+
+  @override
+  Future<GitStatusSummary> gitStatus(String workspaceId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DiffSummary>> gitDiff(String workspaceId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<GitCommitSummary>> gitCommits(
+    String workspaceId, {
+    int limit = 20,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<DirectoryEntrySummary>> listFileSystemRoots() =>
+      throw UnimplementedError();
+
+  @override
+  Future<DirectoryListing> listDirectory(String path) =>
+      throw UnimplementedError();
 }

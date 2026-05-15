@@ -10,7 +10,6 @@ import '../domain/models/daemon_connection_config.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import 'core/widgets/widgets.dart';
-import 'features/diagnostics/diagnostics.dart';
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
@@ -39,7 +38,6 @@ class MainTabsPage extends StatefulWidget {
 class _MainTabsPageState extends State<MainTabsPage> {
   late MainTabsViewModel _viewModel;
   late ConnectedDataDependencies _connectedData;
-  late DiagnosticsViewModel _diagnosticsViewModel;
   late WorkbenchDependencies _workbenchDependencies;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
 
@@ -47,8 +45,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
   void initState() {
     super.initState();
     _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
-    _diagnosticsViewModel =
-        widget.dependencies.features.createDiagnosticsViewModel(_connectedData);
     _workbenchDependencies =
         widget.dependencies.features.createWorkbenchDependencies(widget.client);
     _viewModel = MainTabsViewModel(
@@ -63,10 +59,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
       final oldWorkbenchDependencies = _workbenchDependencies;
-      final oldDiagnosticsViewModel = _diagnosticsViewModel;
       _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
-      _diagnosticsViewModel = widget.dependencies.features
-          .createDiagnosticsViewModel(_connectedData);
       _workbenchDependencies = widget.dependencies.features
           .createWorkbenchDependencies(widget.client);
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
@@ -75,7 +68,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
         data: widget.data,
       );
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
-      _disposeDiagnosticsViewModelAfterBuild(oldDiagnosticsViewModel);
       return;
     }
     if (oldWidget.data != widget.data &&
@@ -87,7 +79,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
   @override
   void dispose() {
     _disposeWorkbenchDependencies(_workbenchDependencies);
-    _diagnosticsViewModel.dispose();
     _viewModel.dispose();
     super.dispose();
   }
@@ -101,14 +92,6 @@ class _MainTabsPageState extends State<MainTabsPage> {
   ) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _disposeWorkbenchDependencies(dependencies);
-    });
-  }
-
-  void _disposeDiagnosticsViewModelAfterBuild(
-    DiagnosticsViewModel viewModel,
-  ) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      viewModel.dispose();
     });
   }
 
@@ -175,12 +158,8 @@ class _MainTabsPageState extends State<MainTabsPage> {
               : MainRouteOverlay(
                   route: _viewModel.activeRoute,
                   data: data,
-                  client: widget.client,
-                  diagnosticsViewModel: _diagnosticsViewModel,
-                  runDetailViewModelScope: _connectedData,
-                  createRunDetailViewModel: (run) => widget
-                      .dependencies.features
-                      .createRunDetailViewModel(_connectedData, run),
+                  connectedData: _connectedData,
+                  featureDependencies: widget.dependencies.features,
                   onBack: _viewModel.closeOverlay,
                 ),
         ),
