@@ -66,6 +66,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
+  bool _terminalPollDrainPending = false;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
@@ -686,7 +687,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             notify: false);
       });
       if (changed) _scrollToBottom();
-      if (!_isRunningCli) _poller?.cancel();
+      if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(changed)) {
+        _poller?.cancel();
+      }
     } catch (err, stack) {
       final traced = await _recordWorkbenchException(
         err,
@@ -729,6 +732,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _restartConversationPolling() async {
     _poller?.cancel();
+    _terminalPollDrainPending = false;
     await _pollEvents();
     if (!mounted ||
         _activeConversationId == null ||
@@ -738,6 +742,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
     _poller =
         Timer.periodic(const Duration(milliseconds: 900), (_) => _pollEvents());
+  }
+
+  bool _shouldKeepPollingForTerminalDrain(bool changed) {
+    final keepPolling = shouldKeepPollingForTerminalDrain(
+      isRunningCli: _isRunningCli,
+      changed: changed,
+      drainPending: _terminalPollDrainPending,
+    );
+    _terminalPollDrainPending = keepPolling && !_isRunningCli;
+    return keepPolling;
   }
 
   void _startNewSessionFromList() {

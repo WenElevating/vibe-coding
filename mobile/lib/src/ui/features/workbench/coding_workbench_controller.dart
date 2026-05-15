@@ -16,6 +16,16 @@ bool isActiveConversationStatus(String? status) {
       status == 'waiting_approval';
 }
 
+bool shouldKeepPollingForTerminalDrain({
+  required bool isRunningCli,
+  required bool changed,
+  required bool drainPending,
+}) {
+  if (isRunningCli) return true;
+  if (drainPending) return false;
+  return changed;
+}
+
 ConversationSummary applyCancelledConversationSummary(
   ConversationSummary conversation,
 ) {

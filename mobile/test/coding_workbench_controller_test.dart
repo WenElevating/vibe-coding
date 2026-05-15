@@ -337,6 +337,33 @@ void main() {
     expect(isActiveConversationStatus('interrupted'), isFalse);
   });
 
+  test('terminal poll drain keeps one extra poll after completion events', () {
+    expect(
+      shouldKeepPollingForTerminalDrain(
+        isRunningCli: true,
+        changed: false,
+        drainPending: false,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldKeepPollingForTerminalDrain(
+        isRunningCli: false,
+        changed: true,
+        drainPending: false,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldKeepPollingForTerminalDrain(
+        isRunningCli: false,
+        changed: false,
+        drainPending: true,
+      ),
+      isFalse,
+    );
+  });
+
   test('cancelled conversation summary keeps product identity and binding', () {
     const conversation = ConversationSummary(
       id: 'conv_1',
