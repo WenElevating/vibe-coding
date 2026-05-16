@@ -11,7 +11,9 @@ import '../data/services/workspace_service.dart';
 import '../models/protocol.dart';
 import 'asr_model_client.dart';
 import '../domain/models/daemon_connection_config.dart';
+import 'client_timeouts.dart';
 import 'device_identity_store.dart';
+import 'exception_redactor.dart';
 
 abstract class SecureTokenStore {
   Future<void> writeAccessTokenSession(String deviceId, TokenSession session);
@@ -132,11 +134,18 @@ class DaemonClient
   String? _deviceId;
   String? _token;
   Completer<void>? _refreshCompleter;
+  bool _closed = false;
 
   String? get currentToken => _token;
 
   AsrModelClient createAsrModelClient() => AsrModelClient(
       baseUri: baseUri, tokenProvider: () => _token, httpClient: _httpClient);
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _httpClient.close();
+  }
 
   @override
   Future<DaemonHealth> health() async {
@@ -265,7 +274,7 @@ class DaemonClient
 
   Future<List<AdapterStatus>> listAdapters() async {
     final response = await _get('/api/adapters');
-    final items = response['adapters'] as List<Object?>;
+    final items = _readList(response, 'adapters');
     return items
         .cast<Map<String, Object?>>()
         .map(AdapterStatus.fromJson)
@@ -274,7 +283,7 @@ class DaemonClient
 
   Future<List<ShortcutCommand>> listShortcuts() async {
     final response = await _get('/api/shortcuts');
-    final items = response['shortcuts'] as List<Object?>;
+    final items = _readList(response, 'shortcuts');
     return items
         .cast<Map<String, Object?>>()
         .map(ShortcutCommand.fromJson)
@@ -283,7 +292,7 @@ class DaemonClient
 
   Future<List<CommandTemplate>> listCommandTemplates() async {
     final response = await _get('/api/command-templates');
-    final items = response['templates'] as List<Object?>;
+    final items = _readList(response, 'templates');
     return items
         .cast<Map<String, Object?>>()
         .map(CommandTemplate.fromJson)
@@ -292,7 +301,7 @@ class DaemonClient
 
   Future<List<QueueItem>> listQueue() async {
     final response = await _get('/api/queue');
-    final items = response['queue'] as List<Object?>;
+    final items = _readList(response, 'queue');
     return items.cast<Map<String, Object?>>().map(QueueItem.fromJson).toList();
   }
 
@@ -305,7 +314,7 @@ class DaemonClient
   @override
   Future<List<DiffSummary>> gitDiff(String workspaceId) async {
     final response = await _get('/api/workspaces/$workspaceId/git/diff');
-    final items = response['summaries'] as List<Object?>;
+    final items = _readList(response, 'summaries');
     return items
         .cast<Map<String, Object?>>()
         .map(DiffSummary.fromJson)
@@ -430,7 +439,7 @@ class DaemonClient
         Uri(path: '/api/runs', queryParameters: query.isEmpty ? null : query)
             .toString();
     final response = await _get(path);
-    final items = response['runs'] as List<Object?>;
+    final items = _readList(response, 'runs');
     return items.cast<Map<String, Object?>>().map(RunSummary.fromJson).toList();
   }
 
@@ -454,7 +463,7 @@ class DaemonClient
   @override
   Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async {
     final response = await _get('/api/runs/$runId/events?afterSeq=$afterSeq');
-    final items = response['events'] as List<Object?>;
+    final items = _readList(response, 'events');
     return items.cast<Map<String, Object?>>().map(AgentEvent.fromJson).toList();
   }
 
@@ -490,16 +499,22 @@ class DaemonClient
     String? runId,
     Map<String, Object?> metadata = const <String, Object?>{},
   }) async {
+    final redacted = ExceptionRedactor.redactException(
+      message: message,
+      stack: stack,
+      path: path,
+      metadata: metadata,
+    );
     final response = await _post('/api/exceptions', <String, Object?>{
       'source': 'mobile',
       'severity': 'error',
-      'message': message,
-      if (stack != null) 'stack': stack,
-      if (path != null) 'path': path,
+      'message': redacted.message,
+      if (redacted.stack != null) 'stack': redacted.stack,
+      if (redacted.path != null) 'path': redacted.path,
       if (method != null) 'method': method,
       if (conversationId != null) 'conversationId': conversationId,
       if (runId != null) 'runId': runId,
-      if (metadata.isNotEmpty) 'metadata': metadata,
+      if (redacted.metadata.isNotEmpty) 'metadata': redacted.metadata,
     });
     return ExceptionTrace.fromJson(response);
   }
@@ -507,7 +522,7 @@ class DaemonClient
   @override
   Future<List<ConversationSummary>> listConversations() async {
     final response = await _get('/api/conversations');
-    final items = response['conversations'] as List<Object?>;
+    final items = _readList(response, 'conversations');
     return items
         .cast<Map<String, Object?>>()
         .map(ConversationSummary.fromJson)
@@ -544,7 +559,7 @@ class DaemonClient
       {int afterSeq = 0}) async {
     final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
     final response = await _get(path);
-    final items = response['events'] as List<Object?>;
+    final items = _readList(response, 'events');
     return items
         .cast<Map<String, Object?>>()
         .map(ConversationEvent.fromJson)
@@ -607,37 +622,40 @@ class DaemonClient
   Future<http.Response> _getWithRetry(String path,
       {required bool authorize}) async {
     try {
-      return await _httpClient.get(baseUri.resolve(path),
-          headers: _headers(authorize: authorize));
+      return await _request(() => _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize)));
     } on SocketException {
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      return _httpClient.get(baseUri.resolve(path),
-          headers: _headers(authorize: authorize));
+      return _request(() => _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize)));
     } on http.ClientException {
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      return _httpClient.get(baseUri.resolve(path),
-          headers: _headers(authorize: authorize));
+      return _request(() => _httpClient.get(baseUri.resolve(path),
+          headers: _headers(authorize: authorize)));
     }
   }
 
   Future<Map<String, Object?>> _post(String path, Map<String, Object?> body,
       {bool authorize = true}) async {
-    final response = await _httpClient.post(
-      baseUri.resolve(path),
-      headers: _headers(authorize: authorize),
-      body: jsonEncode(body),
-    );
+    final response = await _request(() => _httpClient.post(
+          baseUri.resolve(path),
+          headers: _headers(authorize: authorize),
+          body: jsonEncode(body),
+        ));
     if (authorize && _isAuthRequired(response)) {
       await _refreshAfterAuthRequired();
-      final retry = await _httpClient.post(
-        baseUri.resolve(path),
-        headers: _headers(authorize: authorize),
-        body: jsonEncode(body),
-      );
+      final retry = await _request(() => _httpClient.post(
+            baseUri.resolve(path),
+            headers: _headers(authorize: authorize),
+            body: jsonEncode(body),
+          ));
       return _decode(retry);
     }
     return _decode(response);
   }
+
+  Future<http.Response> _request(Future<http.Response> Function() request) =>
+      request().timeout(daemonRequestTimeout);
 
   bool _needsRefresh(TokenSession session) =>
       !_now().isBefore(session.expiresAt.subtract(refreshSkew));
@@ -759,6 +777,16 @@ String daemonClientProxyForUri(Uri uri,
         ? 'DIRECT'
         : 'PROXY ${manualProxy.host}:${manualProxy.port}',
   };
+}
+
+List<Object?> _readList(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value is List<Object?>) return value;
+  if (value is List) return value.cast<Object?>();
+  throw DaemonClientException(200, <String, Object?>{
+    'error': 'invalid_response',
+    'message': 'Expected "$key" to be a list.',
+  });
 }
 
 class DaemonClientException implements Exception {

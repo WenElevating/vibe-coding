@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
 import '../services/daemon_client.dart';
 import '../domain/models/daemon_connection_config.dart';
+import '../domain/models/daemon_initial_data.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
 import 'core/widgets/widgets.dart';
@@ -26,6 +27,14 @@ class MainTabsPage extends StatefulWidget {
     required this.dependencies,
   });
 
+  MainTabsPage.fromInitialData({
+    super.key,
+    required DaemonInitialData initialData,
+    required this.client,
+    required this.connectionConfig,
+    required this.dependencies,
+  }) : data = initialData.toAppSnapshot();
+
   final AppSnapshot data;
   final DaemonClient client;
   final DaemonConnectionConfig connectionConfig;
@@ -44,9 +53,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
   @override
   void initState() {
     super.initState();
-    _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
-    _workbenchDependencies =
-        widget.dependencies.features.createWorkbenchDependencies(widget.client);
+    final pageDependencies =
+        widget.dependencies.createMainTabsDependencies(widget.client);
+    _connectedData = pageDependencies.connectedData;
+    _workbenchDependencies = pageDependencies.workbenchDependencies;
     _viewModel = MainTabsViewModel(
       initialData: widget.data,
       adapterRepository: _connectedData.adapterRepository,
@@ -59,9 +69,10 @@ class _MainTabsPageState extends State<MainTabsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
       final oldWorkbenchDependencies = _workbenchDependencies;
-      _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
-      _workbenchDependencies = widget.dependencies.features
-          .createWorkbenchDependencies(widget.client);
+      final pageDependencies =
+          widget.dependencies.createMainTabsDependencies(widget.client);
+      _connectedData = pageDependencies.connectedData;
+      _workbenchDependencies = pageDependencies.workbenchDependencies;
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       _viewModel.resetForNewClient(
         adapterRepository: _connectedData.adapterRepository,

@@ -2,11 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../../data/repositories/daemon_connection_config_repository.dart';
+import '../../../../domain/models/daemon_initial_data.dart';
+import '../../../../domain/repositories/daemon_connection_config_repository.dart';
 import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../../../services/daemon_client.dart';
+import '../../../../services/exception_redactor.dart';
 import '../../../../domain/models/daemon_connection_config.dart';
-import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/connection/daemon_connection_workflow.dart'
     show DaemonConnectionCancelled;
 
@@ -40,7 +41,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   String? _inputError;
   String? _errorSummary;
   String? _errorDetail;
-  AppSnapshot? _snapshot;
+  DaemonInitialData? _initialData;
   DaemonClient? _client;
   DaemonConnectionConfig? _connectedConfig;
   int _connectionAttempt = 0;
@@ -52,7 +53,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   String? get inputError => _inputError;
   String? get errorSummary => _errorSummary;
   String? get errorDetail => _errorDetail;
-  AppSnapshot? get snapshot => _snapshot;
+  DaemonInitialData? get initialData => _initialData;
   DaemonClient? get client => _client;
   DaemonConnectionConfig? get connectedConfig => _connectedConfig;
   Duration get connectionTimeout => _connectionTimeout;
@@ -112,8 +113,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final session = await _connectToDaemon
-          .connect(
+      final connection = _connectToDaemon.connect(
         addressInput: _addressInput,
         proxyMode: _proxyMode,
         manualProxyInput: _manualProxyInput,
@@ -132,14 +132,19 @@ class DaemonConnectionViewModel extends ChangeNotifier {
           _status = DaemonConnectionStatus.loadingSnapshot;
           notifyListeners();
         },
-      )
-          .timeout(
+      );
+      connection.then((session) {
+        if (attempt != _connectionAttempt) {
+          session.client.close();
+        }
+      }, onError: (_) {});
+      final session = await connection.timeout(
         _connectionTimeout,
         onTimeout: () {
           if (attempt == _connectionAttempt && isBusy) {
             _connectionAttempt++;
             _client = null;
-            _snapshot = null;
+            _initialData = null;
             _connectedConfig = null;
             _errorSummary = 'The daemon did not respond in time.';
             _errorDetail =
@@ -151,10 +156,11 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         },
       );
       if (attempt != _connectionAttempt) {
+        session.client.close();
         return;
       }
       _client = session.client;
-      _snapshot = session.initialData;
+      _initialData = session.initialData;
       _connectedConfig = session.connectedConfig;
       _status = DaemonConnectionStatus.connected;
       notifyListeners();
@@ -172,10 +178,10 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         return;
       }
       _client = null;
-      _snapshot = null;
+      _initialData = null;
       _connectedConfig = null;
       _errorSummary = daemonConnectionErrorSummary(error);
-      _errorDetail = error.toString();
+      _errorDetail = ExceptionRedactor.redactText(error.toString());
       _status = DaemonConnectionStatus.failed;
       notifyListeners();
     }

@@ -165,4 +165,22 @@ void main() {
     expect(controller.state, VoiceInputState.failed);
     expect(controller.error, '麦克风权限未开启，请允许访问麦克风后重试。');
   });
+
+  test('start failure leaves controller retryable', () async {
+    final service = _FakeSpeechInputService()
+      ..startError = StateError('first start failed');
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed');
+
+    expect(controller.state, VoiceInputState.failed);
+    expect(service.startCalls, 1);
+
+    service.startError = null;
+    await controller.start(currentPrompt: 'typed');
+
+    expect(service.startCalls, 2);
+    expect(controller.state, VoiceInputState.listening);
+    expect(controller.previewText(), 'typed');
+  });
 }

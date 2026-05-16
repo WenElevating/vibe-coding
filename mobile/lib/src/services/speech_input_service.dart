@@ -14,6 +14,27 @@ export 'speech_input_contract.dart';
 const _sampleRate = 16000;
 
 typedef SherpaOnnxInitializer = void Function();
+typedef SpeechPermissionFactory = SpeechPermission Function();
+typedef SpeechRecorderFactory = SpeechRecorder Function();
+typedef SpeechRecognizerFactory = SpeechRecognizer Function(
+    String modelDirectory);
+
+abstract class SpeechPermission {
+  Future<bool> request();
+}
+
+abstract class SpeechRecorder {
+  Future<Stream<List<int>>> startStream();
+  Future<void> stop();
+  void dispose();
+}
+
+abstract class SpeechRecognizer {
+  String acceptWaveform(List<int> bytes);
+  String finalResult();
+  void cancel() {}
+  void dispose();
+}
 
 @visibleForTesting
 SherpaOnnxInitializer sherpaOnnxInitializer = _initializeSherpaOnnxBindings;
@@ -55,8 +76,10 @@ String? _sherpaOnnxLibraryDirectory() {
 }
 
 Float32List pcm16LittleEndianToFloatSamples(Uint8List bytes) {
-  final data =
-      bytes.buffer.asByteData(bytes.offsetInBytes, bytes.lengthInBytes);
+  final data = bytes.buffer.asByteData(
+    bytes.offsetInBytes,
+    bytes.lengthInBytes,
+  );
   final samples = Float32List(bytes.length ~/ 2);
   for (var index = 0; index < samples.length; index++) {
     samples[index] = data.getInt16(index * 2, Endian.little) / 32768.0;
@@ -65,13 +88,21 @@ Float32List pcm16LittleEndianToFloatSamples(Uint8List bytes) {
 }
 
 class SherpaSpeechInputService implements SpeechInputService {
-  SherpaSpeechInputService({required this.modelDirectory});
+  SherpaSpeechInputService({
+    required this.modelDirectory,
+    SpeechPermissionFactory? permissionFactory,
+    SpeechRecorderFactory? recorderFactory,
+    SpeechRecognizerFactory? recognizerFactory,
+  })  : _permission = (permissionFactory ?? _defaultPermissionFactory)(),
+        _recorder = (recorderFactory ?? _defaultRecorderFactory)(),
+        _recognizerFactory = recognizerFactory ?? _defaultRecognizerFactory;
 
   final String modelDirectory;
-  final AudioRecorder _recorder = AudioRecorder();
-  StreamSubscription<Uint8List>? _audioSubscription;
-  sherpa.OnlineRecognizer? _recognizer;
-  sherpa.OnlineStream? _recognizerStream;
+  final SpeechPermission _permission;
+  final SpeechRecorder _recorder;
+  final SpeechRecognizerFactory _recognizerFactory;
+  StreamSubscription<List<int>>? _audioSubscription;
+  SpeechRecognizer? _recognizer;
   bool _started = false;
   String _latestText = '';
 
@@ -79,46 +110,37 @@ class SherpaSpeechInputService implements SpeechInputService {
   Future<void> start({required void Function(String text) onPartial}) async {
     if (_started) return;
     _latestText = '';
-    final permission = await Permission.microphone.request();
-    if (!permission.isGranted) {
+    final permissionGranted = await _permission.request();
+    if (!permissionGranted) {
       throw StateError('Microphone permission denied');
     }
-    await _ensureRecognizer();
-    final recognizer = _recognizer!;
-    _recognizerStream?.free();
-    _recognizerStream = recognizer.createStream();
-    final stream = _recognizerStream!;
-    _started = true;
-    final audioStream = await _recorder.startStream(const RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: _sampleRate,
-        numChannels: 1));
-    _audioSubscription = audioStream.listen((data) {
-      final samples = pcm16LittleEndianToFloatSamples(data);
-      stream.acceptWaveform(samples: samples, sampleRate: _sampleRate);
-      while (recognizer.isReady(stream)) {
-        recognizer.decode(stream);
-      }
-      _latestText = recognizer.getResult(stream).text;
-      onPartial(_latestText);
-    });
+    try {
+      await _ensureRecognizer();
+      final recognizer = _recognizer!;
+      recognizer.cancel();
+      final audioStream = await _recorder.startStream();
+      _audioSubscription = audioStream.listen((data) {
+        _latestText = recognizer.acceptWaveform(data);
+        onPartial(_latestText);
+      });
+      _started = true;
+    } catch (_) {
+      await _cleanupFailedStart();
+      rethrow;
+    }
+  }
+
+  Future<void> _cleanupFailedStart() async {
+    _started = false;
+    await _audioSubscription?.cancel();
+    _audioSubscription = null;
+    await _recorder.stop().catchError((Object _) => null);
+    _recognizer?.cancel();
   }
 
   Future<void> _ensureRecognizer() async {
     if (_recognizer != null) return;
-    ensureSherpaOnnxInitialized();
-    final model = sherpa.OnlineModelConfig(
-        transducer: sherpa.OnlineTransducerModelConfig(
-            encoder: '$modelDirectory/encoder.onnx',
-            decoder: '$modelDirectory/decoder.onnx',
-            joiner: '$modelDirectory/joiner.onnx'),
-        tokens: '$modelDirectory/tokens.txt',
-        modelType: 'zipformer');
-    final config = sherpa.OnlineRecognizerConfig(
-        feat:
-            const sherpa.FeatureConfig(sampleRate: _sampleRate, featureDim: 80),
-        model: model);
-    _recognizer = sherpa.OnlineRecognizer(config);
+    _recognizer = _recognizerFactory(modelDirectory);
   }
 
   @override
@@ -127,9 +149,10 @@ class SherpaSpeechInputService implements SpeechInputService {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     await _recorder.stop();
-    _recognizerStream?.inputFinished();
-    _recognizerStream?.free();
-    _recognizerStream = null;
+    final finalText = _recognizer?.finalResult() ?? '';
+    if (finalText.isNotEmpty) {
+      _latestText = finalText;
+    }
     return _latestText;
   }
 
@@ -140,15 +163,110 @@ class SherpaSpeechInputService implements SpeechInputService {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     await _recorder.stop();
-    _recognizerStream?.free();
-    _recognizerStream = null;
+    _recognizer?.cancel();
   }
 
   @override
   void dispose() {
     unawaited(_audioSubscription?.cancel());
-    _recognizerStream?.free();
-    _recognizer?.free();
+    _recognizer?.dispose();
     _recorder.dispose();
   }
+}
+
+SpeechPermission _defaultPermissionFactory() => _MicrophoneSpeechPermission();
+
+SpeechRecorder _defaultRecorderFactory() => _AudioSpeechRecorder();
+
+SpeechRecognizer _defaultRecognizerFactory(String modelDirectory) =>
+    _SherpaSpeechRecognizer(modelDirectory);
+
+class _MicrophoneSpeechPermission implements SpeechPermission {
+  @override
+  Future<bool> request() async {
+    final permission = await Permission.microphone.request();
+    return permission.isGranted;
+  }
+}
+
+class _AudioSpeechRecorder implements SpeechRecorder {
+  final AudioRecorder _recorder = AudioRecorder();
+
+  @override
+  Future<Stream<List<int>>> startStream() => _recorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: _sampleRate,
+          numChannels: 1,
+        ),
+      );
+
+  @override
+  Future<void> stop() => _recorder.stop();
+
+  @override
+  void dispose() {
+    _recorder.dispose();
+  }
+}
+
+class _SherpaSpeechRecognizer implements SpeechRecognizer {
+  _SherpaSpeechRecognizer(String modelDirectory)
+      : _recognizer = _createRecognizer(modelDirectory);
+
+  final sherpa.OnlineRecognizer _recognizer;
+  sherpa.OnlineStream? _stream;
+  String _latestText = '';
+
+  @override
+  String acceptWaveform(List<int> bytes) {
+    final stream = _stream ??= _recognizer.createStream();
+    final samples = pcm16LittleEndianToFloatSamples(Uint8List.fromList(bytes));
+    stream.acceptWaveform(samples: samples, sampleRate: _sampleRate);
+    while (_recognizer.isReady(stream)) {
+      _recognizer.decode(stream);
+    }
+    _latestText = _recognizer.getResult(stream).text;
+    return _latestText;
+  }
+
+  @override
+  String finalResult() {
+    final stream = _stream;
+    if (stream == null) return _latestText;
+    stream.inputFinished();
+    stream.free();
+    _stream = null;
+    return _latestText;
+  }
+
+  @override
+  void cancel() {
+    _stream?.free();
+    _stream = null;
+  }
+
+  @override
+  void dispose() {
+    cancel();
+    _recognizer.free();
+  }
+}
+
+sherpa.OnlineRecognizer _createRecognizer(String modelDirectory) {
+  ensureSherpaOnnxInitialized();
+  final model = sherpa.OnlineModelConfig(
+    transducer: sherpa.OnlineTransducerModelConfig(
+      encoder: '$modelDirectory/encoder.onnx',
+      decoder: '$modelDirectory/decoder.onnx',
+      joiner: '$modelDirectory/joiner.onnx',
+    ),
+    tokens: '$modelDirectory/tokens.txt',
+    modelType: 'zipformer',
+  );
+  final config = sherpa.OnlineRecognizerConfig(
+    feat: const sherpa.FeatureConfig(sampleRate: _sampleRate, featureDim: 80),
+    model: model,
+  );
+  return sherpa.OnlineRecognizer(config);
 }

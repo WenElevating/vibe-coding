@@ -21,8 +21,25 @@ final importOrExportPattern = RegExp(
   r'''^\s*(import|export)\s+['"]([^'"]+)['"]''',
 );
 
-void main(List<String> args) {
-  final mobileRoot = _findMobileRoot();
+Future<void> main(List<String> args) async {
+  final exitCode = await checkArchitectureImports(
+    root: Directory.current,
+    out: stdout,
+    err: stderr,
+  );
+  if (exitCode != 0) exit(exitCode);
+}
+
+Future<int> checkArchitectureImports({
+  required Directory root,
+  StringSink? out,
+  StringSink? err,
+}) async {
+  out ??= stdout;
+  err ??= stderr;
+
+  final mobileRoot = _findMobileRoot(root, err);
+  if (mobileRoot == null) return 1;
   final libRoot = Directory('${mobileRoot.path}${Platform.pathSeparator}lib');
   final dartFiles = libRoot
       .listSync(recursive: true)
@@ -99,45 +116,45 @@ void main(List<String> args) {
     }
   }
 
-  stdout.writeln('Architecture import check');
-  stdout.writeln('Migration-only import/export counts:');
+  out.writeln('Architecture import check');
+  out.writeln('Migration-only import/export counts:');
   for (final root in migrationOnlyRoots) {
-    stdout.writeln('  $root ${oldPathCounts[root]}');
+    out.writeln('  $root ${oldPathCounts[root]}');
   }
   if (migrationDebt.isNotEmpty) {
-    stdout.writeln('Allowed migration debt:');
+    out.writeln('Allowed migration debt:');
     for (final debt in migrationDebt) {
-      stdout.writeln('  $debt');
+      out.writeln('  $debt');
     }
   }
-  stdout.writeln('Allowed UI DaemonClient boundary imports:');
+  out.writeln('Allowed UI DaemonClient boundary imports:');
   if (allowedUiDaemonClientImports.isEmpty) {
-    stdout.writeln('  none');
+    out.writeln('  none');
   } else {
     for (final debt in allowedUiDaemonClientImports) {
-      stdout.writeln('  $debt');
+      out.writeln('  $debt');
     }
   }
-  stdout.writeln('Forbidden UI DaemonClient imports:');
+  out.writeln('Forbidden UI DaemonClient imports:');
   if (forbiddenUiDaemonClientImports.isEmpty) {
-    stdout.writeln('  none');
+    out.writeln('  none');
   } else {
     for (final debt in forbiddenUiDaemonClientImports) {
-      stdout.writeln('  $debt');
+      out.writeln('  $debt');
     }
   }
   violations.addAll(forbiddenUiDaemonClientImports);
 
   if (violations.isEmpty) {
-    stdout.writeln('No forbidden imports found.');
-    return;
+    out.writeln('No forbidden imports found.');
+    return 0;
   }
 
-  stderr.writeln('Forbidden imports found:');
+  err.writeln('Forbidden imports found:');
   for (final violation in violations) {
-    stderr.writeln('  $violation');
+    err.writeln('  $violation');
   }
-  exitCode = 1;
+  return 1;
 }
 
 final class _AllowedDebt {
@@ -152,8 +169,8 @@ final class _AllowedDebt {
   final String rule;
 }
 
-Directory _findMobileRoot() {
-  var directory = Directory.current;
+Directory? _findMobileRoot(Directory root, StringSink err) {
+  var directory = root.absolute;
   while (true) {
     final pubspec =
         File('${directory.path}${Platform.pathSeparator}pubspec.yaml');
@@ -161,10 +178,8 @@ Directory _findMobileRoot() {
     if (pubspec.existsSync() && lib.existsSync()) return directory;
     final parent = directory.parent;
     if (parent.path == directory.path) {
-      stderr.writeln(
-          'Could not find Flutter mobile root from ${Directory.current.path}.');
-      exitCode = 1;
-      exit(1);
+      err.writeln('Could not find Flutter mobile root from ${root.path}.');
+      return null;
     }
     directory = parent;
   }
@@ -330,6 +345,12 @@ String? _domainRule(String uri, String normalizedTarget) {
   }
   if (_targetsRoot(normalizedTarget, 'src/services/')) {
     return 'domain must not import services';
+  }
+  if (_targetsRoot(normalizedTarget, 'src/workflows/')) {
+    return 'domain must not import workflows';
+  }
+  if (_targetsRoot(normalizedTarget, 'src/shell/')) {
+    return 'domain must not import shell';
   }
   return null;
 }

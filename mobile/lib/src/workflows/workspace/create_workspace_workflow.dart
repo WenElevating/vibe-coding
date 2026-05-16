@@ -1,15 +1,7 @@
 import 'dart:async';
 
 import '../../models/protocol.dart';
-
-abstract class WorkspaceCreationClient {
-  Future<WorkspaceSummary> createWorkspace({
-    required String path,
-    String? name,
-  });
-
-  Future<List<WorkspaceSummary>> listWorkspaces();
-}
+import '../../domain/repositories/workspace_repository.dart';
 
 sealed class CreateWorkspaceOutcome {
   const CreateWorkspaceOutcome();

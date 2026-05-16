@@ -556,6 +556,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _scrollToBottom({bool jump = false, int retries = 2}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       if (!_scrollController.hasClients) {
         if (retries > 0) _scrollToBottom(jump: jump, retries: retries - 1);
         return;
@@ -923,69 +924,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               running: _isRunningCli,
               onBack: () => _navigatorKey.currentState?.popUntil(
                   (route) => route.settings.name == _routeSessions))),
-      Expanded(
-          child: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
-        children: [
-          if (_activeRunId != null) ...[
-            WorkbenchInlineStatus(
-                adapter: adapter,
-                runId: _activeRunId,
-                eventCount: _conversationEvents.length,
-                terminal: _isTerminal),
-            const SizedBox(height: 12),
-          ],
-          for (final message in _messages) ...[
-            WorkbenchMessageCard(
-                message: message,
-                expandThinking: widget.expandThinking,
-                onSuggestion: (text) => _useQuestionSuggestion(text),
-                onApproval: (decision) =>
-                    _respondApproval(message.event!, decision)),
-            const SizedBox(height: 10),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            GlassCard(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text('Run error: $_error',
-                      style: const TextStyle(
-                          color: theme.red, fontSize: 12, height: 1.45)),
-                  if (_errorTraceId != null) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                        spacing: 10,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          SelectableText('Trace ID: $_errorTraceId',
-                              style: const TextStyle(
-                                  color: theme.muted,
-                                  fontSize: 12,
-                                  height: 1.35)),
-                          TinyActionButton('Copy Trace ID', onTap: () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            await Clipboard.setData(
-                                ClipboardData(text: _errorTraceId!));
-                            messenger.showSnackBar(const SnackBar(
-                                content: Text('Trace ID copied')));
-                          })
-                        ])
-                  ]
-                ])),
-          ],
-          if (_isBusyCli) ...[
-            const SizedBox(height: 10),
-            PendingSentinel(
-                adapter: adapter ?? 'CLI',
-                statusText: _pendingStatusText(l10n),
-                actions: _recentActionSummaries),
-          ],
-        ],
-      )),
+      Expanded(child: _buildMessageList(adapter, l10n)),
       CodingComposer(
           controller: _prompt,
           adapter: adapter,
@@ -1010,6 +949,97 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           onTap: _showWorkspacePicker),
     ]);
   }
+
+  Widget _buildMessageList(String? adapter, AppLocalizations l10n) {
+    final hasStatus = _activeRunId != null;
+    final hasError = _error != null;
+    final hasPending = _isBusyCli;
+    final itemCount = (hasStatus ? 1 : 0) +
+        _messages.length +
+        (hasError ? 1 : 0) +
+        (hasPending ? 1 : 0);
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        var messageIndex = index;
+        if (hasStatus) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: WorkbenchInlineStatus(
+                adapter: adapter,
+                runId: _activeRunId,
+                eventCount: _conversationEvents.length,
+                terminal: _isTerminal,
+              ),
+            );
+          }
+          messageIndex -= 1;
+        }
+        if (messageIndex < _messages.length) {
+          final message = _messages[messageIndex];
+          return Padding(
+            key: ValueKey('workbench-message-$messageIndex-${message.role}'),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: WorkbenchMessageCard(
+              message: message,
+              expandThinking: widget.expandThinking,
+              onSuggestion: (text) => _useQuestionSuggestion(text),
+              onApproval: (decision) =>
+                  _respondApproval(message.event!, decision),
+            ),
+          );
+        }
+        messageIndex -= _messages.length;
+        if (hasError) {
+          if (messageIndex == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: _buildRunErrorCard(),
+            );
+          }
+          messageIndex -= 1;
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: PendingSentinel(
+            adapter: adapter ?? 'CLI',
+            statusText: _pendingStatusText(l10n),
+            actions: _recentActionSummaries,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRunErrorCard() => GlassCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Run error: $_error',
+              style: const TextStyle(
+                  color: theme.red, fontSize: 12, height: 1.45)),
+          if (_errorTraceId != null) ...[
+            const SizedBox(height: 8),
+            Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SelectableText('Trace ID: $_errorTraceId',
+                      style: const TextStyle(
+                          color: theme.muted, fontSize: 12, height: 1.35)),
+                  TinyActionButton('Copy Trace ID', onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await Clipboard.setData(
+                        ClipboardData(text: _errorTraceId!));
+                    messenger.showSnackBar(
+                        const SnackBar(content: Text('Trace ID copied')));
+                  })
+                ]),
+          ],
+        ]),
+      );
 
   String _conversationTitle(AppLocalizations l10n) {
     final userMessage = _messages.where((message) => message.role == 'user');

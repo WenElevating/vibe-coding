@@ -1,4 +1,5 @@
 import '../models/protocol.dart';
+import '../domain/models/daemon_initial_data.dart';
 import '../services/daemon_client.dart';
 import '../services/device_identity_store.dart';
 
@@ -118,6 +119,38 @@ class AppSnapshot {
       extensions: const <ExtensionSummary>[],
     );
   }
+}
+
+extension AppSnapshotDaemonInitialData on AppSnapshot {
+  DaemonInitialData toDaemonInitialData() => DaemonInitialData(
+        health: health,
+        workspaces: workspaces,
+        workspace: workspace,
+        adapters: adapters,
+        runs: runs,
+        conversations: conversations,
+        queue: queue,
+      );
+}
+
+extension DaemonInitialDataAppSnapshot on DaemonInitialData {
+  AppSnapshot toAppSnapshot() => AppSnapshot(
+        health: health,
+        workspaces: workspaces,
+        workspace: workspace,
+        overview: _deferredOverview(workspace),
+        adapters: adapters,
+        runs: runs,
+        conversations: conversations,
+        queue: queue,
+        templates: const <CommandTemplate>[],
+        gitStatus: null,
+        diffs: const <DiffSummary>[],
+        commits: const <GitCommitSummary>[],
+        fileTree: _deferredFileTree(workspace),
+        diagnostics: _deferredDiagnostics(workspace),
+        extensions: const <ExtensionSummary>[],
+      );
 }
 
 ProjectOverview _deferredOverview(WorkspaceSummary workspace) =>

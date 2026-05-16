@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_connection_config_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
@@ -18,7 +18,7 @@ void main() {
     final store = DaemonConnectionConfigStore();
     final client = _WorkflowDaemonClient();
     final workflow = DaemonConnectionWorkflow(
-      configRepository: DaemonConnectionConfigRepository(store: store),
+      configRepository: StoreDaemonConnectionConfigRepository(store: store),
       tokenStore: MemoryTokenStore(),
       clientFactory: ({
         required baseUri,
@@ -34,7 +34,7 @@ void main() {
       healthProbe: (_) async => calls.add('health'),
       initialDataLoader: (_) async {
         calls.add('loadInitialData');
-        return _snapshot();
+        return _snapshot().toDaemonInitialData();
       },
     );
 
@@ -60,7 +60,7 @@ void main() {
   test('connect does not load initial data when health fails', () async {
     var loadedInitialData = false;
     final workflow = DaemonConnectionWorkflow(
-      configRepository: DaemonConnectionConfigRepository(
+      configRepository: StoreDaemonConnectionConfigRepository(
           store: DaemonConnectionConfigStore()),
       tokenStore: MemoryTokenStore(),
       clientFactory: ({
@@ -73,7 +73,7 @@ void main() {
       healthProbe: (_) async => throw StateError('health failed'),
       initialDataLoader: (_) async {
         loadedInitialData = true;
-        return _snapshot();
+        return _snapshot().toDaemonInitialData();
       },
     );
 
@@ -93,7 +93,7 @@ void main() {
       () async {
     final store = DaemonConnectionConfigStore();
     final workflow = DaemonConnectionWorkflow(
-      configRepository: DaemonConnectionConfigRepository(store: store),
+      configRepository: StoreDaemonConnectionConfigRepository(store: store),
       tokenStore: MemoryTokenStore(),
       clientFactory: ({
         required baseUri,

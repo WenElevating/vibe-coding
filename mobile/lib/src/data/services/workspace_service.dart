@@ -1,7 +1,7 @@
 import '../../models/protocol.dart';
-import '../../workflows/workspace/create_workspace_workflow.dart';
+import '../../domain/repositories/workspace_repository.dart';
 
-abstract class WorkspaceService extends WorkspaceCreationClient {
+abstract class WorkspaceService implements WorkspaceCreationClient {
   Future<ProjectOverview> projectOverview(String workspaceId);
 
   Future<FileTreeResponse> fileTree(

@@ -1,5 +1,7 @@
 import '../../models/protocol.dart';
 
+/// Temporary protocol-backed domain projection tracked by
+/// `docs/adr/2026-05-16-mobile-protocol-dto-boundary.md`.
 class DashboardState {
   const DashboardState({
     required this.health,

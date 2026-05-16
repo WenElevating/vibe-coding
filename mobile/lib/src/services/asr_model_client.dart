@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'client_timeouts.dart';
+
 class AsrModelMetadata {
   const AsrModelMetadata({
     required this.version,
@@ -52,8 +54,9 @@ class AsrModelClient {
   final http.Client _httpClient;
 
   Future<AsrModelMetadata> metadata() async {
-    final response = await _httpClient.get(baseUri.resolve('/api/asr-model'),
-        headers: await _headers());
+    final response = await _httpClient
+        .get(baseUri.resolve('/api/asr-model'), headers: await _headers())
+        .timeout(daemonRequestTimeout);
     final decoded = _decode(response.statusCode, response.body);
     return AsrModelMetadata.fromJson(decoded);
   }
@@ -65,7 +68,8 @@ class AsrModelClient {
     if (start != null && start > 0) {
       request.headers['range'] = 'bytes=$start-';
     }
-    final response = await _httpClient.send(request);
+    final response =
+        await _httpClient.send(request).timeout(daemonRequestTimeout);
     if (response.statusCode >= 400 && response.statusCode != 416) {
       final body = await response.stream.bytesToString();
       _decode(response.statusCode, body);
@@ -73,7 +77,7 @@ class AsrModelClient {
     return AsrModelDownloadResponse(
         statusCode: response.statusCode,
         headers: response.headers,
-        stream: response.stream);
+        stream: response.stream.timeout(asrDownloadInactivityTimeout));
   }
 
   Future<Map<String, String>> _headers() async {

@@ -9,6 +9,7 @@ import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
@@ -157,9 +158,15 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
 }
 
 class _MainTabsHarness extends StatefulWidget {
-  const _MainTabsHarness({required this.client});
+  const _MainTabsHarness({
+    required this.client,
+    this.dependencies,
+    this.snapshot,
+  });
 
   final DaemonClient client;
+  final AppDependencies? dependencies;
+  final AppSnapshot? snapshot;
 
   @override
   State<_MainTabsHarness> createState() => _MainTabsHarnessState();
@@ -193,13 +200,14 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                   resolveSupportedLocale(locale, supportedLocales),
               theme: theme.buildAppTheme(),
               home: MainTabsPage(
-                  data: _testSnapshot(),
+                  data: widget.snapshot ?? _testSnapshot(),
                   client: widget.client,
                   connectionConfig: const DaemonConnectionConfig(
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
                       manualProxyInput: ''),
-                  dependencies: AppDependencies.createDefault()))));
+                  dependencies: widget.dependencies ??
+                      AppDependencies.createDefault()))));
 }
 
 class _AdapterRefreshClient extends DaemonClient {
@@ -227,6 +235,18 @@ class _AdapterRefreshClient extends DaemonClient {
           version: 'synthetic')
     ];
   }
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_lazy',
+          workspaceId: 'workspace_1',
+          status: 'completed',
+          sessionBinding: 'confirmed',
+          userMessageCount: 500,
+        ),
+      ];
 }
 
 class _PendingAdapterClient extends DaemonClient {
@@ -258,6 +278,66 @@ class _PendingAdapterClient extends DaemonClient {
   void resetCompleter() {
     adaptersCompleter = Completer<List<AdapterStatus>>();
   }
+}
+
+class _LazyConversationRepository implements ConversationRepository {
+  _LazyConversationRepository(this.messages);
+
+  final List<ConversationEvent> messages;
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> cancelConversation(String conversationId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) async =>
+      messages;
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_lazy',
+          workspaceId: 'workspace_1',
+          status: 'completed',
+          sessionBinding: 'confirmed',
+          userMessageCount: messages.length,
+        ),
+      ];
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> sendConversationMessage(
+    String conversationId,
+    String text,
+  ) async =>
+      throw UnimplementedError();
 }
 
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
@@ -816,6 +896,80 @@ void main() {
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
     expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
+  });
+
+  testWidgets('workbench conversation lazily builds large message lists',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final messages = List<ConversationEvent>.generate(
+      500,
+      (index) => ConversationEvent.fromJson(<String, Object?>{
+        'seq': index + 1,
+        'conversationId': 'conv_lazy',
+        'type': 'user.message',
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'text': 'message $index',
+      }),
+    );
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LazyConversationRepository(messages);
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_lazy',
+              workspaceId: 'workspace_1',
+              status: 'completed',
+              sessionBinding: 'confirmed',
+              userMessageCount: messages.length,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Codex task lazy'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('message '), findsWidgets);
+    expect(find.text('message 250'), findsNothing);
   });
 
   testWidgets('connected app preloads adapters before new session',
@@ -1413,6 +1567,22 @@ void main() {
     expect(find.text('输出详情'), findsOneWidget);
     expect(find.byTooltip('复制全文'), findsOneWidget);
     expect(find.text('hello from intro'), findsWidgets);
+  });
+
+  testWidgets('large command output renders capped content with show more',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildLargeOutputCommandCardPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('line 0'), findsOneWidget);
+    expect(find.textContaining('line 204'), findsNothing);
+    expect(find.text('Show more'), findsOneWidget);
+
+    await tester.tap(find.text('Show more'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('line 204'), findsOneWidget);
+    expect(find.text('Show less'), findsOneWidget);
   });
 
   testWidgets(

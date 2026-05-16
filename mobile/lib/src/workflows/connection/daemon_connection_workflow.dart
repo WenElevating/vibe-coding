@@ -1,6 +1,6 @@
-import '../../data/repositories/daemon_connection_config_repository.dart';
 import '../../domain/models/connected_app_session.dart';
 import '../../domain/models/daemon_initial_data.dart';
+import '../../domain/repositories/daemon_connection_config_repository.dart';
 import '../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../services/daemon_client.dart';
 import '../../domain/models/daemon_connection_config.dart';
@@ -69,7 +69,8 @@ class DaemonConnectionWorkflow implements ConnectToDaemonUseCase<DaemonClient> {
     onLoadingInitialData?.call();
     final initialData = _initialDataLoader == null
         ? await AppSnapshot.loadBootstrap(client,
-            deviceIdentityStore: _deviceIdentityStore)
+                deviceIdentityStore: _deviceIdentityStore)
+            .then((snapshot) => snapshot.toDaemonInitialData())
         : await _initialDataLoader(client);
     if (shouldContinue != null && !shouldContinue()) {
       throw const DaemonConnectionCancelled();

@@ -5,8 +5,13 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../core/theme/theme.dart' as theme;
+import '../../core/widgets/widgets.dart';
 import 'conversation_reducer.dart';
 import 'workbench_messages.dart';
+
+const largeOutputLineThreshold = 200;
+const largeOutputCharThreshold = 20000;
+const initialLargeOutputLines = 120;
 
 class WorkbenchInlineStatus extends StatelessWidget {
   const WorkbenchInlineStatus({
@@ -201,13 +206,29 @@ class WorkbenchMessageCard extends StatelessWidget {
   }
 }
 
-class AssistantMarkdownBody extends StatelessWidget {
+class AssistantMarkdownBody extends StatefulWidget {
   const AssistantMarkdownBody({super.key, required this.markdown});
   final String markdown;
 
   @override
+  State<AssistantMarkdownBody> createState() => _AssistantMarkdownBodyState();
+}
+
+class _AssistantMarkdownBodyState extends State<AssistantMarkdownBody> {
+  String? _raw;
+  String? _normalized;
+
+  String get _cachedNormalized {
+    if (_raw != widget.markdown) {
+      _raw = widget.markdown;
+      _normalized = normalizeAssistantMarkdown(widget.markdown);
+    }
+    return _normalized!;
+  }
+
+  @override
   Widget build(BuildContext context) => MarkdownBody(
-      data: normalizeAssistantMarkdown(markdown),
+      data: _cachedNormalized,
       selectable: true,
       softLineBreak: true,
       styleSheet: buildAssistantMarkdownStyleSheet(context),
@@ -554,12 +575,27 @@ class _ToolKindBadge extends StatelessWidget {
               letterSpacing: .45)));
 }
 
-class _ToolDetailBlock extends StatelessWidget {
+class _ToolDetailBlock extends StatefulWidget {
   const _ToolDetailBlock(
       {required this.label, required this.text, required this.onTap});
   final String label;
   final String text;
   final VoidCallback onTap;
+
+  @override
+  State<_ToolDetailBlock> createState() => _ToolDetailBlockState();
+}
+
+class _ToolDetailBlockState extends State<_ToolDetailBlock> {
+  bool _expanded = false;
+
+  bool get _large => _isLargeOutput(widget.text);
+
+  String get _visibleText {
+    if (!_large || _expanded) return widget.text;
+    final lines = widget.text.split('\n');
+    return lines.take(initialLargeOutputLines).join('\n');
+  }
 
   @override
   Widget build(BuildContext context) => Column(
@@ -568,7 +604,7 @@ class _ToolDetailBlock extends StatelessWidget {
           children: [
             Padding(
                 padding: const EdgeInsets.only(left: 1, bottom: 4),
-                child: Text(label,
+                child: Text(widget.label,
                     style: const TextStyle(
                         color: theme.faint,
                         fontSize: 9.5,
@@ -578,7 +614,7 @@ class _ToolDetailBlock extends StatelessWidget {
             Material(
                 color: Colors.transparent,
                 child: InkWell(
-                    onTap: onTap,
+                    onTap: widget.onTap,
                     borderRadius: BorderRadius.circular(9),
                     child: Container(
                         width: double.infinity,
@@ -591,8 +627,8 @@ class _ToolDetailBlock extends StatelessWidget {
                                 color: Colors.white.withValues(alpha: .045))),
                         child: Row(children: [
                           Expanded(
-                              child: Text(text,
-                                  maxLines: 2,
+                              child: Text(_visibleText,
+                                  maxLines: _large && !_expanded ? 8 : 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                       color: theme.muted,
@@ -602,9 +638,20 @@ class _ToolDetailBlock extends StatelessWidget {
                           const SizedBox(width: 8),
                           const Icon(Icons.open_in_full_rounded,
                               color: theme.faint, size: 12),
-                        ]))))
+                        ])))),
+            if (_large) ...[
+              const SizedBox(height: 6),
+              Align(
+                  alignment: Alignment.centerLeft,
+                  child: TinyActionButton(_expanded ? 'Show less' : 'Show more',
+                      onTap: () => setState(() => _expanded = !_expanded))),
+            ]
           ]);
 }
+
+bool _isLargeOutput(String text) =>
+    text.length > largeOutputCharThreshold ||
+    text.split('\n').length > largeOutputLineThreshold;
 
 String _toolKindLabel(WorkbenchMessage message) {
   final tool = _rawToolName(message).toLowerCase();
@@ -852,6 +899,32 @@ Widget buildConversationCommandCardPreview() {
       output: 'hello from intro'));
   return MaterialApp(
       locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: theme.bg,
+          body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _CommandEventCard(message: message))));
+}
+
+@visibleForTesting
+Widget buildLargeOutputCommandCardPreview() {
+  final largeOutput =
+      List<String>.generate(205, (index) => 'line $index').join('\n');
+  final message = workbenchMessageFromConversation(ConversationMessage(
+      role: 'command',
+      text: 'cat huge.log',
+      eventSeq: 2,
+      completed: true,
+      output: largeOutput));
+  return MaterialApp(
+      locale: const Locale('en', 'US'),
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
       localizationsDelegates: theme.appLocalizationsDelegates,
       theme: ThemeData(

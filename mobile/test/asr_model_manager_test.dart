@@ -114,6 +114,100 @@ void main() {
         Directory('${tempDir.path}/asr_models/model-v1').existsSync(), false);
   });
 
+  test('extraction rejects archive path traversal entries', () async {
+    final bytes = _zipBytes(files: const <String, String>{
+      'encoder.onnx': 'encoder',
+      'decoder.onnx': 'decoder',
+      'joiner.onnx': 'joiner',
+      'tokens.txt': 'tokens',
+      '../escape.txt': 'escaped',
+    });
+    final client = _FakeAsrModelClient(
+        metadata: _metadata(bytes),
+        downloadHandler: (_) => _downloadResponse(200, bytes, null));
+    final manager = AsrModelManager(
+        client: client, supportDirectoryProvider: () async => tempDir);
+
+    await expectLater(manager.ensureReady(), throwsA(isA<StateError>()));
+
+    expect(manager.state.status, AsrModelStatus.failed);
+    expect(File('${tempDir.path}/asr_models/escape.txt').existsSync(), false);
+    expect(
+        Directory('${tempDir.path}/asr_models/model-v1.staging').existsSync(),
+        false);
+    expect(
+        Directory('${tempDir.path}/asr_models/model-v1.normalized')
+            .existsSync(),
+        false);
+    expect(
+        Directory('${tempDir.path}/asr_models/model-v1').existsSync(), false);
+  });
+
+  test('extraction rejects unsafe absolute and dot archive paths', () async {
+    for (final unsafePath in <String>[
+      '/absolute.txt',
+      r'C:\Users\Alice\absolute.txt',
+      r'nested\..\escape.txt',
+      '.',
+    ]) {
+      final bytes = _zipBytes(files: <String, String>{
+        'encoder.onnx': 'encoder',
+        'decoder.onnx': 'decoder',
+        'joiner.onnx': 'joiner',
+        'tokens.txt': 'tokens',
+        unsafePath: 'unsafe',
+      });
+      final client = _FakeAsrModelClient(
+          metadata: _metadata(bytes),
+          downloadHandler: (_) => _downloadResponse(200, bytes, null));
+      final manager = AsrModelManager(
+          client: client, supportDirectoryProvider: () async => tempDir);
+
+      await expectLater(manager.ensureReady(), throwsA(isA<StateError>()));
+
+      expect(manager.state.status, AsrModelStatus.failed);
+      expect(
+          Directory('${tempDir.path}/asr_models/model-v1.staging').existsSync(),
+          false);
+      expect(
+          Directory('${tempDir.path}/asr_models/model-v1.normalized')
+              .existsSync(),
+          false);
+      expect(
+          Directory('${tempDir.path}/asr_models/model-v1').existsSync(), false);
+    }
+  });
+
+  test('extraction rejects archives with too many files', () async {
+    final archive = Archive();
+    for (final entry in const <String, String>{
+      'encoder.onnx': 'encoder',
+      'decoder.onnx': 'decoder',
+      'joiner.onnx': 'joiner',
+      'tokens.txt': 'tokens',
+    }.entries) {
+      archive.addFile(ArchiveFile.string(entry.key, entry.value));
+    }
+    for (var index = 0; index < 4093; index++) {
+      archive.addFile(ArchiveFile.string('extra-$index.txt', ''));
+    }
+    final bytes = ZipEncoder().encode(archive);
+    final client = _FakeAsrModelClient(
+        metadata: _metadata(bytes),
+        downloadHandler: (_) => _downloadResponse(200, bytes, null));
+    final manager = AsrModelManager(
+        client: client, supportDirectoryProvider: () async => tempDir);
+
+    await expectLater(manager.ensureReady(), throwsA(isA<StateError>()));
+
+    expect(manager.state.status, AsrModelStatus.failed);
+    expect(
+        Directory('${tempDir.path}/asr_models/model-v1.staging').existsSync(),
+        false);
+    expect(
+        Directory('${tempDir.path}/asr_models/model-v1').existsSync(), false);
+  });
+
   test('extraction normalizes nested Sherpa archive file names', () async {
     final bytes = _zipBytes(files: const <String, String>{
       'real-model/encoder-epoch-99-avg-1.int8.onnx': 'encoder',
@@ -176,18 +270,21 @@ AsrModelMetadata _metadata(List<int> bytes, {String? sha256Value}) =>
     );
 
 List<int> _zipBytes({Map<String, String>? files}) {
-  final encoder = ZipFileEncoder();
-  final dir = Directory.systemTemp.createTempSync('asr-model-zip-fixture-');
-  final zipPath = '${dir.path}/fixture.zip';
-  final entries = files ??
+  final rawEntries = files ??
       const <String, String>{
         'encoder.onnx': 'encoder',
         'decoder.onnx': 'decoder',
         'joiner.onnx': 'joiner',
         'tokens.txt': 'tokens',
       };
+  if (rawEntries.keys.any(_requiresSyntheticArchive)) {
+    return _archiveBytes(rawEntries);
+  }
+  final encoder = ZipFileEncoder();
+  final dir = Directory.systemTemp.createTempSync('asr-model-zip-fixture-');
+  final zipPath = '${dir.path}/fixture.zip';
   encoder.create(zipPath);
-  for (final entry in entries.entries) {
+  for (final entry in rawEntries.entries) {
     final file = File('${dir.path}/${entry.key}');
     file.parent.createSync(recursive: true);
     file.writeAsStringSync(entry.value);
@@ -197,6 +294,21 @@ List<int> _zipBytes({Map<String, String>? files}) {
   final bytes = File(zipPath).readAsBytesSync();
   dir.deleteSync(recursive: true);
   return bytes;
+}
+
+bool _requiresSyntheticArchive(String path) =>
+    path == '.' ||
+    path.startsWith('/') ||
+    RegExp(r'^[A-Za-z]:').hasMatch(path) ||
+    path.contains('..') ||
+    path.contains(r'\');
+
+List<int> _archiveBytes(Map<String, String> files) {
+  final archive = Archive();
+  for (final entry in files.entries) {
+    archive.addFile(ArchiveFile.string(entry.key, entry.value));
+  }
+  return ZipEncoder().encode(archive);
 }
 
 AsrModelDownloadResponse _downloadResponse(

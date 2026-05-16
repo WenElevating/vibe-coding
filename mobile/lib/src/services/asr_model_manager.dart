@@ -86,6 +86,9 @@ class AsrModelManager extends ChangeNotifier {
     'tokens.txt',
   ];
 
+  static const maxAsrArchiveFiles = 4096;
+  static const maxAsrArchiveUncompressedBytes = 2 * 1024 * 1024 * 1024;
+
   final AsrModelClient _client;
   final Future<Directory> Function() _supportDirectoryProvider;
   final DateTime Function() _now;
@@ -239,32 +242,121 @@ class AsrModelManager extends ChangeNotifier {
       await paths.normalized.delete(recursive: true);
     }
     await paths.staging.create(recursive: true);
-    final input = InputFileStream(zip.path);
     try {
-      await extractArchiveToDisk(
-          ZipDecoder().decodeStream(input), paths.staging.path);
-    } finally {
-      await input.close();
-    }
-    final resolvedFiles = await _resolveRequiredModelFiles(paths.staging);
-    if (resolvedFiles == null) {
+      final input = InputFileStream(zip.path);
+      try {
+        await _safeExtractArchiveToDisk(
+            ZipDecoder().decodeStream(input), paths.staging);
+      } finally {
+        await input.close();
+      }
+      final resolvedFiles = await _resolveRequiredModelFiles(paths.staging);
+      if (resolvedFiles == null) {
+        await paths.staging
+            .delete(recursive: true)
+            .catchError((_) => paths.staging);
+        throw StateError('ASR model archive is missing required files');
+      }
+      await paths.normalized.create(recursive: true);
+      for (final entry in resolvedFiles.entries) {
+        await entry.value.copy(
+            '${paths.normalized.path}${Platform.pathSeparator}${entry.key}');
+      }
+      if (await paths.modelDirectory.exists()) {
+        await paths.modelDirectory.delete(recursive: true);
+      }
+      await paths.normalized.rename(paths.modelDirectory.path);
       await paths.staging
           .delete(recursive: true)
           .catchError((_) => paths.staging);
-      throw StateError('ASR model archive is missing required files');
+    } catch (_) {
+      await paths.staging
+          .delete(recursive: true)
+          .catchError((_) => paths.staging);
+      await paths.normalized
+          .delete(recursive: true)
+          .catchError((_) => paths.normalized);
+      rethrow;
     }
-    await paths.normalized.create(recursive: true);
-    for (final entry in resolvedFiles.entries) {
-      await entry.value.copy(
-          '${paths.normalized.path}${Platform.pathSeparator}${entry.key}');
+  }
+
+  Future<void> _safeExtractArchiveToDisk(
+      Archive archive, Directory staging) async {
+    final canonicalStaging = await staging.resolveSymbolicLinks();
+    var entryCount = 0;
+    var fileCount = 0;
+    var uncompressedBytes = 0;
+    for (final file in archive) {
+      entryCount++;
+      if (entryCount > maxAsrArchiveFiles) {
+        throw StateError('ASR model archive contains too many entries');
+      }
+      final relativePath = _validateArchiveEntryName(file.name);
+      if (file.isSymbolicLink) {
+        throw StateError('ASR model archive contains a symbolic link');
+      }
+      if (!file.isFile) {
+        await Directory(_joinPath(staging.path, relativePath))
+            .create(recursive: true);
+        continue;
+      }
+      fileCount++;
+      if (fileCount > maxAsrArchiveFiles) {
+        throw StateError('ASR model archive contains too many files');
+      }
+      uncompressedBytes += file.size;
+      if (uncompressedBytes > maxAsrArchiveUncompressedBytes) {
+        throw StateError('ASR model archive is too large');
+      }
+
+      final destination = File(_joinPath(staging.path, relativePath));
+      await destination.parent.create(recursive: true);
+      final canonicalParent = await destination.parent.resolveSymbolicLinks();
+      if (!_isWithinDirectory(canonicalParent, canonicalStaging)) {
+        throw StateError('ASR model archive entry escapes staging directory');
+      }
+      final output = OutputFileStream(destination.path);
+      try {
+        file.writeContent(output);
+      } finally {
+        await output.close();
+      }
     }
-    if (await paths.modelDirectory.exists()) {
-      await paths.modelDirectory.delete(recursive: true);
+  }
+
+  String _validateArchiveEntryName(String name) {
+    final normalized = name.replaceAll('\\', '/');
+    final drivePattern = RegExp(r'^[A-Za-z]:');
+    if (normalized.startsWith('/') ||
+        normalized.startsWith('\\') ||
+        drivePattern.hasMatch(normalized)) {
+      throw StateError('ASR model archive contains an absolute path');
     }
-    await paths.normalized.rename(paths.modelDirectory.path);
-    await paths.staging
-        .delete(recursive: true)
-        .catchError((_) => paths.staging);
+    final parts = normalized.split('/').where((part) => part.isNotEmpty);
+    if (parts.isEmpty || parts.any((part) => part == '.' || part == '..')) {
+      throw StateError('ASR model archive contains an unsafe path');
+    }
+    return parts.join(Platform.pathSeparator);
+  }
+
+  String _joinPath(String parent, String child) =>
+      '$parent${Platform.pathSeparator}$child';
+
+  bool _isWithinDirectory(String child, String parent) {
+    final normalizedChild = _normalizeDirectoryPath(child);
+    final normalizedParent = _normalizeDirectoryPath(parent);
+    return normalizedChild == normalizedParent ||
+        normalizedChild
+            .startsWith('$normalizedParent${Platform.pathSeparator}');
+  }
+
+  String _normalizeDirectoryPath(String path) {
+    var normalized = Directory(path).absolute.path;
+    if (Platform.isWindows) normalized = normalized.toLowerCase();
+    while (normalized.endsWith(Platform.pathSeparator)) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    return normalized;
   }
 
   Future<_AsrModelPaths> _paths(String version) async {

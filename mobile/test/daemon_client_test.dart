@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -5,7 +7,25 @@ import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
 
+import 'support/fake_http.dart';
+
 void main() {
+  test('close is idempotent and closes injected HTTP client', () {
+    final httpClient = FakeHttpClient(
+      (_) => jsonResponse(const <String, Object?>{}),
+    );
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: httpClient,
+    );
+
+    client.close();
+    client.close();
+
+    expect(httpClient.closed, isTrue);
+  });
+
   test('empty daemon response becomes a client exception', () async {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -58,6 +78,45 @@ void main() {
     final trace = await client.recordException(message: 'SocketException');
 
     expect(trace.traceId, 'trc_test');
+  });
+
+  test('recordException redacts diagnostics before upload', () async {
+    late Map<String, Object?> uploaded;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/exceptions');
+        uploaded = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response(
+            '{"traceId":"trc_test","createdAt":"2026-05-07T00:00:00.000Z"}',
+            201);
+      }),
+    );
+
+    await client.recordException(
+      message:
+          'Authorization: Bearer secret-token at https://example.com/path?token=secret',
+      stack: r'C:\Users\Alice\repo\main.dart api_key=secret-key',
+      path: r'C:\Users\Alice\repo\main.dart',
+      metadata: const <String, Object?>{
+        'password': 'hunter2',
+        'request': 'https://example.com/run?access_token=secret',
+        'id': '123e4567-e89b-12d3-a456-426614174000',
+      },
+    );
+
+    expect(uploaded['message'], contains('Authorization: Bearer [REDACTED]'));
+    expect(uploaded['message'],
+        contains('https://example.com/path?[REDACTED_QUERY]'));
+    expect(uploaded['message'], isNot(contains('secret-token')));
+    expect(uploaded['stack'], contains(r'[USER_PATH]\main.dart'));
+    expect(uploaded['stack'], isNot(contains('secret-key')));
+    expect(uploaded['path'], r'[USER_PATH]\main.dart');
+    final metadata = uploaded['metadata'] as Map<String, Object?>;
+    expect(metadata['password'], '[REDACTED]');
+    expect(metadata['request'], 'https://example.com/run?[REDACTED_QUERY]');
+    expect(metadata['id'], '123e4567-e89b-12d3-a456-426614174000');
   });
 
   test('pair stores access and refresh tokens separately', () async {
@@ -255,5 +314,87 @@ void main() {
       ),
       'PROXY 192.168.20.18:27890',
     );
+  });
+
+  test('list endpoints report typed parse errors for malformed lists',
+      () async {
+    final cases = <({
+      String name,
+      String key,
+      Map<String, Object?> body,
+      Future<Object?> Function(DaemonClient client) call,
+    })>[
+      (
+        name: 'listAdapters',
+        key: 'adapters',
+        body: const <String, Object?>{'adapters': 'bad'},
+        call: (client) => client.listAdapters(),
+      ),
+      (
+        name: 'listShortcuts',
+        key: 'shortcuts',
+        body: const <String, Object?>{'shortcuts': 'bad'},
+        call: (client) => client.listShortcuts(),
+      ),
+      (
+        name: 'listCommandTemplates',
+        key: 'templates',
+        body: const <String, Object?>{'templates': 'bad'},
+        call: (client) => client.listCommandTemplates(),
+      ),
+      (
+        name: 'listQueue',
+        key: 'queue',
+        body: const <String, Object?>{'queue': 'bad'},
+        call: (client) => client.listQueue(),
+      ),
+      (
+        name: 'gitDiff',
+        key: 'summaries',
+        body: const <String, Object?>{'summaries': 'bad'},
+        call: (client) => client.gitDiff('workspace_1'),
+      ),
+      (
+        name: 'listRuns',
+        key: 'runs',
+        body: const <String, Object?>{'runs': 'bad'},
+        call: (client) => client.listRuns(),
+      ),
+      (
+        name: 'fetchEvents',
+        key: 'events',
+        body: const <String, Object?>{'events': 'bad'},
+        call: (client) => client.fetchEvents('run_1'),
+      ),
+      (
+        name: 'listConversations',
+        key: 'conversations',
+        body: const <String, Object?>{'conversations': 'bad'},
+        call: (client) => client.listConversations(),
+      ),
+      (
+        name: 'fetchConversationEvents',
+        key: 'events',
+        body: const <String, Object?>{'events': 'bad'},
+        call: (client) => client.fetchConversationEvents('conv_1'),
+      ),
+    ];
+
+    for (final entry in cases) {
+      final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore(),
+        httpClient: FakeHttpClient((_) => jsonResponse(entry.body)),
+      );
+
+      await expectLater(
+        entry.call(client),
+        throwsA(isA<DaemonClientException>().having(
+          (error) => error.body['message'],
+          '${entry.name} message',
+          contains(entry.key),
+        )),
+      );
+    }
   });
 }

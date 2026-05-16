@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
@@ -60,6 +62,34 @@ void main() {
     expect(controller.errorSummary, contains('proxy or gateway'));
   });
 
+  test('failed connection redacts sensitive error detail', () async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async {
+        throw StateError(
+          r'GET https://example.test/status?token=query-secret '
+          r'Authorization: Bearer bearer-secret '
+          r'C:\Users\Alice\repo\main.dart api_key=key-secret',
+        );
+      },
+    );
+    await controller.load();
+
+    await controller.connect();
+
+    expect(controller.status, DaemonConnectionStatus.failed);
+    expect(controller.errorDetail, contains('[REDACTED_QUERY]'));
+    expect(controller.errorDetail, contains('Bearer [REDACTED]'));
+    expect(controller.errorDetail, contains(r'[USER_PATH]\main.dart'));
+    expect(controller.errorDetail, contains('api_key=[REDACTED]'));
+    expect(controller.errorDetail, isNot(contains('query-secret')));
+    expect(controller.errorDetail, isNot(contains('bearer-secret')));
+    expect(controller.errorDetail, isNot(contains('key-secret')));
+    expect(controller.errorDetail, isNot(contains('Alice')));
+  });
+
   test('successful connection saves config and exposes snapshot', () async {
     final store = DaemonConnectionConfigStore();
     final snapshot = _snapshot();
@@ -77,7 +107,8 @@ void main() {
     await controller.connect();
 
     expect(controller.status, DaemonConnectionStatus.connected);
-    expect(controller.snapshot, same(snapshot));
+    expect(controller.initialData, isNotNull);
+    expect(controller.initialData!.workspace.id, snapshot.workspace.id);
     final saved = await store.load();
     expect(saved.addressInput, '192.168.1.23');
     expect(saved.proxyMode, DaemonProxyMode.manual);
@@ -121,8 +152,69 @@ void main() {
     await connection;
 
     expect(controller.status, DaemonConnectionStatus.failed);
-    expect(controller.snapshot, isNull);
+    expect(controller.initialData, isNull);
   });
+
+  test('connection timeout closes abandoned late client', () async {
+    final sessionCompleter = Completer<ConnectedAppSession<DaemonClient>>();
+    final lateClient = _CloseTrackingDaemonClient();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectionTimeout: Duration.zero,
+      connectToDaemon: _DeferredConnectUseCase(sessionCompleter.future),
+    );
+    await controller.load();
+
+    await controller.connect();
+
+    sessionCompleter.complete(ConnectedAppSession<DaemonClient>(
+      client: lateClient,
+      initialData: _snapshot().toDaemonInitialData(),
+      connectedConfig: const DaemonConnectionConfig(
+        addressInput: '127.0.0.1:4317',
+        proxyMode: DaemonProxyMode.direct,
+        manualProxyInput: '',
+      ),
+    ));
+    await sessionCompleter.future;
+
+    expect(lateClient.closeCount, 1);
+    expect(controller.client, isNull);
+  });
+}
+
+class _DeferredConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
+  const _DeferredConnectUseCase(this.session);
+
+  final Future<ConnectedAppSession<DaemonClient>> session;
+
+  @override
+  Future<ConnectedAppSession<DaemonClient>> connect({
+    required String addressInput,
+    required DaemonProxyMode proxyMode,
+    required String manualProxyInput,
+    bool Function()? shouldContinue,
+    void Function()? onCheckingHealth,
+    void Function()? onLoadingInitialData,
+  }) =>
+      session;
+}
+
+class _CloseTrackingDaemonClient extends DaemonClient {
+  _CloseTrackingDaemonClient()
+      : super(
+          baseUri: Uri.parse('http://127.0.0.1:4317'),
+          tokenStore: MemoryTokenStore(),
+        );
+
+  int closeCount = 0;
+
+  @override
+  void close() {
+    closeCount++;
+    super.close();
+  }
 }
 
 DaemonHealth _health() => DaemonHealth.fromJson(const <String, Object?>{

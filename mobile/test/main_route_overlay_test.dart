@@ -186,7 +186,8 @@ FeatureDependencies _featureDependencies({
               ),
       createRunDetailViewModel: (connectedData, run) =>
           createRunDetailViewModel(run),
-      createWorkbenchDependencies: (client) => throw UnimplementedError(),
+      createWorkbenchDependencies: (client, connectedData) =>
+          throw UnimplementedError(),
     );
 
 class _OverlayHarness extends StatelessWidget {

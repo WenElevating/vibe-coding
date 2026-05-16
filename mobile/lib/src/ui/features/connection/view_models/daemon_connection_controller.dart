@@ -1,4 +1,4 @@
-import '../../../../data/repositories/daemon_connection_config_repository.dart';
+﻿import '../../../../data/repositories/daemon_connection_config_repository.dart';
 import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../../../services/daemon_client.dart';
 import '../../../../services/daemon_connection_config_store.dart';
@@ -21,7 +21,7 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,
   }) : this._fromRepo(
-          configRepository: DaemonConnectionConfigRepository(store: store),
+          configRepository: StoreDaemonConnectionConfigRepository(store: store),
           tokenStore: tokenStore,
           connectToDaemon: connectToDaemon,
           snapshotLoader: snapshotLoader,
@@ -41,7 +41,10 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
               DaemonConnectionWorkflow(
                 configRepository: configRepository,
                 tokenStore: tokenStore,
-                initialDataLoader: snapshotLoader,
+                initialDataLoader: snapshotLoader == null
+                    ? null
+                    : (client) async =>
+                        (await snapshotLoader(client)).toDaemonInitialData(),
                 healthProbe: healthProbe,
               ),
           connectionTimeout: connectionTimeout ?? const Duration(seconds: 30),

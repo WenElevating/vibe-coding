@@ -8,6 +8,7 @@ import '../data/repositories/daemon_workspace_repository.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/conversation_repository.dart';
+import '../domain/repositories/daemon_connection_config_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
@@ -54,6 +55,27 @@ class AppDependencies {
   final DataDependencies data;
   final DomainDependencies domain;
   final FeatureDependencies features;
+
+  MainTabsDependencies createMainTabsDependencies(DaemonClient client) {
+    final connectedData = data.forDaemonClient(client);
+    return MainTabsDependencies(
+      connectedData: connectedData,
+      workbenchDependencies: features.createWorkbenchDependencies(
+        client,
+        connectedData,
+      ),
+    );
+  }
+}
+
+class MainTabsDependencies {
+  MainTabsDependencies({
+    required this.connectedData,
+    required this.workbenchDependencies,
+  });
+
+  final ConnectedDataDependencies connectedData;
+  final WorkbenchDependencies workbenchDependencies;
 }
 
 class NetworkDependencies {
@@ -78,7 +100,7 @@ class DataDependencies {
     final connectionConfigStore = DaemonConnectionConfigStore();
     return DataDependencies(
       connectionConfigRepository:
-          DaemonConnectionConfigRepository(store: connectionConfigStore),
+          StoreDaemonConnectionConfigRepository(store: connectionConfigStore),
     );
   }
 
@@ -155,8 +177,7 @@ class FeatureDependencies {
           run: run,
           runRepository: connectedData.runRepository,
         ),
-        createWorkbenchDependencies: (client) {
-          final connectedData = data.forDaemonClient(client);
+        createWorkbenchDependencies: (client, connectedData) {
           return WorkbenchDependencies(
             asrModelManager:
                 AsrModelManager(client: client.createAsrModelClient()),
@@ -177,6 +198,8 @@ class FeatureDependencies {
     ConnectedDataDependencies connectedData,
     RunSummary run,
   ) createRunDetailViewModel;
-  final WorkbenchDependencies Function(DaemonClient client)
-      createWorkbenchDependencies;
+  final WorkbenchDependencies Function(
+    DaemonClient client,
+    ConnectedDataDependencies connectedData,
+  ) createWorkbenchDependencies;
 }

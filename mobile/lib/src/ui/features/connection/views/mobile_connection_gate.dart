@@ -25,10 +25,10 @@ class MobileConnectionGate extends StatelessWidget {
           return const MobileLoadingPage();
         }
         if (viewModel.status == DaemonConnectionStatus.connected &&
-            viewModel.snapshot != null &&
+            viewModel.initialData != null &&
             viewModel.client != null) {
-          return MainTabsPage(
-            data: viewModel.snapshot!,
+          return MainTabsPage.fromInitialData(
+            initialData: viewModel.initialData!,
             client: viewModel.client!,
             connectionConfig: viewModel.connectedConfig!,
             dependencies: dependencies,
