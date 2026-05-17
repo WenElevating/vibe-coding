@@ -30,13 +30,16 @@ The implementation must not infer tasks from free-form natural language and must
 
 ## Normalized Event
 
-Add a conversation event type:
+Add a conversation event type. The daemon event store still supplies the canonical `seq` and `createdAt` fields for ordering and replay; the normalized payload includes `updatedAt` as the source event timestamp for UI display and debugging.
 
 ```json
 {
+  "seq": 42,
+  "createdAt": "2026-05-17T08:00:00.000Z",
   "type": "task.progress.updated",
   "taskId": "item_1",
   "source": "codex",
+  "updatedAt": "2026-05-17T08:00:00.000Z",
   "items": [
     { "id": "item_1_0", "title": "Inspect repo", "status": "pending" },
     { "id": "item_1_1", "title": "Run tests", "status": "in_progress" },
@@ -48,7 +51,7 @@ Add a conversation event type:
 }
 ```
 
-Allowed item statuses are `pending`, `in_progress`, and `completed`.
+Allowed item statuses are `pending`, `in_progress`, and `completed`. The `raw` field is retained only for diagnostics and export; reducer and UI logic must use normalized fields, not adapter-specific raw data.
 
 ## Codex Mapping Rules
 
@@ -60,14 +63,19 @@ Allowed item statuses are `pending`, `in_progress`, and `completed`.
   - Observed Codex CLI shape: `item.items[].text` plus `item.items[].completed`.
   - Compatibility shape: `item.todos[].content` plus `item.todos[].status`.
 
+`item.updated` is included for forward compatibility. The confirmed sample only contains `item.started` and `item.completed`, so tests should flag `item.updated` as speculative while applying the same normalization rules.
+
+If both `items` and `todos` arrays are present, prefer `items` because it is the observed Codex CLI shape.
+
 Status normalization:
 
+- For `item.completed`, the todo-list item itself is complete. If every child item is otherwise incomplete or pending, map all child items to `completed` so the UI does not show a finished todo-list item as entirely pending.
 - `completed: true` maps to `completed`.
 - `status: "completed"` maps to `completed`.
 - `status: "in_progress"` maps to `in_progress`.
 - Otherwise maps to `pending`.
 
-When the observed `items[].completed` shape contains no explicit in-progress item, all incomplete items stay `pending`. The UI should still show the current task card and progress count rather than inventing an active step.
+When the observed `items[].completed` shape contains no explicit in-progress item, all incomplete items stay `pending` except for the `item.completed` terminal rule above. The UI should still show the current task card and progress count rather than inventing an active step.
 
 Malformed TODO lists return `null` from the mapper so they do not render as unknown system notices.
 
@@ -95,6 +103,7 @@ Visual rules:
   - Completed: green check icon, dimmed title, optional duration/detail when available.
   - In progress: blue active dot/ring, stronger title, secondary text `正在执行` / `In progress`.
   - Pending: neutral ring, muted title, secondary text `等待执行` / `Pending`.
+- The in-progress branch is required for compatibility-shape `status: "in_progress"` and future Claude `TodoWrite`; the observed Codex `items[].completed` shape may never emit it.
 - Footer legend shows completed / in progress / pending dots only if it does not crowd small screens.
 - The card should be compact and consistent with existing glass-card styling.
 
@@ -102,6 +111,7 @@ Visual rules:
 
 - Daemon unit test: Codex mapper converts observed `item.started` `todo_list.items[]` into `task.progress.updated`.
 - Daemon unit test: Codex mapper converts compatibility `todo_list.todos[]` statuses.
+- Daemon unit test: `item.completed` with all `completed: false` items maps all items to `completed`.
 - Daemon unit test: malformed `todo_list` returns `null` or otherwise does not become a visible unknown notice.
 - Mobile reducer test: `task.progress.updated` creates one task progress message with counts and item statuses.
 - Mobile reducer test: later update with the same `taskId` replaces the old card.
@@ -110,12 +120,12 @@ Visual rules:
 ## Risks
 
 - Codex TODO JSON shape may continue evolving. The mapper must be shape-tolerant but not text-guessy.
-- Some Codex events may emit only `pending`/`completed` without explicit `in_progress`; the UI must not fabricate state.
+- Observed Codex `items[].completed` events may emit only `pending`/`completed` without explicit `in_progress`; the UI must not fabricate state.
 - Adding a new event type requires model parsing updates in mobile protocol models and tests.
 
 ## Rollout Plan
 
 1. Add normalized protocol event fields and Codex mapper tests.
 2. Add mobile event/model parsing and reducer projection tests.
-3. Add task progress card UI and widget test.
+3. Add task progress card UI and widget coverage.
 4. Verify with `npm test`, architecture import check, focused Flutter tests, and manual Codex JSONL sample if needed.
