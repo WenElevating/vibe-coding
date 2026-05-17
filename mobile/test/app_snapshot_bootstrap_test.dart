@@ -30,16 +30,47 @@ void main() {
       'listQueue',
     ]);
   });
+
+  test('bootstrap accepts an empty workspace catalog', () async {
+    final deviceStore = MemoryDeviceIdentityStore(deviceId: 'device-123');
+    final client = _BootstrapDaemonClient(
+      deviceStore: deviceStore,
+      workspaces: const <WorkspaceSummary>[],
+    );
+
+    final initialData = await loadDaemonInitialDataBootstrap(client,
+        deviceIdentityStore: deviceStore);
+
+    expect(initialData.health.status, 'ok');
+    expect(initialData.workspaces, isEmpty);
+    expect(initialData.workspace, isNull);
+    expect(initialData.runs, isEmpty);
+    expect(initialData.conversations, isEmpty);
+    expect(initialData.queue, isEmpty);
+    expect(client.calls, <String>[
+      'health',
+      'ensurePaired',
+      'listWorkspaces',
+    ]);
+  });
 }
 
 class _BootstrapDaemonClient extends DaemonClient {
-  _BootstrapDaemonClient({required this.deviceStore})
-      : super(
+  _BootstrapDaemonClient({
+    required this.deviceStore,
+    this.workspaces = const <WorkspaceSummary>[
+      WorkspaceSummary(
+          id: 'workspace_1',
+          name: 'vibe-coding',
+          path: r'D:\AiProject\vibe-coding')
+    ],
+  }) : super(
           baseUri: Uri.parse('http://127.0.0.1:4317'),
           tokenStore: MemoryTokenStore(),
         );
 
   final DeviceIdentityStore deviceStore;
+  final List<WorkspaceSummary> workspaces;
   final List<String> calls = <String>[];
 
   @override
@@ -74,12 +105,7 @@ class _BootstrapDaemonClient extends DaemonClient {
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
     calls.add('listWorkspaces');
-    return const <WorkspaceSummary>[
-      WorkspaceSummary(
-          id: 'workspace_1',
-          name: 'vibe-coding',
-          path: r'D:\AiProject\vibe-coding')
-    ];
+    return workspaces;
   }
 
   @override

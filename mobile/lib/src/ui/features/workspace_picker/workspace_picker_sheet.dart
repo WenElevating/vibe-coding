@@ -350,7 +350,7 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: -.2)),
                           const SizedBox(height: 2),
-                          Text(l10n.workspaceChoosePathHint,
+                          Text(l10n.workspaceListFootnote,
                               style: const TextStyle(
                                   color: theme.muted,
                                   fontSize: 11.5,

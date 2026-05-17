@@ -13,7 +13,8 @@ class DaemonInitialData {
 
   final DaemonHealth health;
   final List<WorkspaceSummary> workspaces;
-  final WorkspaceSummary workspace;
+  final WorkspaceSummary? workspace;
+  bool get hasWorkspace => workspace != null;
   final List<AdapterStatus> adapters;
   final List<RunSummary> runs;
   final List<ConversationSummary> conversations;

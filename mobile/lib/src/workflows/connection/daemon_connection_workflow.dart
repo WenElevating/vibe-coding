@@ -68,9 +68,8 @@ class DaemonConnectionWorkflow implements ConnectToDaemonUseCase<DaemonClient> {
     }
     onLoadingInitialData?.call();
     final initialData = _initialDataLoader == null
-        ? await AppSnapshot.loadBootstrap(client,
-                deviceIdentityStore: _deviceIdentityStore)
-            .then((snapshot) => snapshot.toDaemonInitialData())
+        ? await loadDaemonInitialDataBootstrap(client,
+            deviceIdentityStore: _deviceIdentityStore)
         : await _initialDataLoader(client);
     if (shouldContinue != null && !shouldContinue()) {
       throw const DaemonConnectionCancelled();

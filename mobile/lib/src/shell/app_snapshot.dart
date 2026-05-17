@@ -121,6 +121,42 @@ class AppSnapshot {
   }
 }
 
+Future<DaemonInitialData> loadDaemonInitialDataBootstrap(DaemonClient client,
+    {DaemonHealth? health, DeviceIdentityStore? deviceIdentityStore}) async {
+  final resolvedHealth = health ?? await client.health();
+  await client.ensurePaired(
+      deviceIdentityStore:
+          deviceIdentityStore ?? SharedPreferencesDeviceIdentityStore(),
+      label: 'Windows preview');
+  final workspaces = await client.listWorkspaces();
+  if (workspaces.isEmpty) {
+    return DaemonInitialData(
+      health: resolvedHealth,
+      workspaces: const <WorkspaceSummary>[],
+      workspace: null,
+      adapters: const <AdapterStatus>[],
+      runs: const <RunSummary>[],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+    );
+  }
+  final workspace = workspaces.first;
+  final results = await Future.wait<Object?>([
+    _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
+    _loadStep('conversations', client.listConversations),
+    _loadStep('queue', client.listQueue),
+  ]);
+  return DaemonInitialData(
+    health: resolvedHealth,
+    workspaces: workspaces,
+    workspace: workspace,
+    adapters: const <AdapterStatus>[],
+    runs: results[0] as List<RunSummary>,
+    conversations: results[1] as List<ConversationSummary>,
+    queue: results[2] as List<QueueItem>,
+  );
+}
+
 extension AppSnapshotDaemonInitialData on AppSnapshot {
   DaemonInitialData toDaemonInitialData() => DaemonInitialData(
         health: health,
@@ -134,23 +170,30 @@ extension AppSnapshotDaemonInitialData on AppSnapshot {
 }
 
 extension DaemonInitialDataAppSnapshot on DaemonInitialData {
-  AppSnapshot toAppSnapshot() => AppSnapshot(
-        health: health,
-        workspaces: workspaces,
-        workspace: workspace,
-        overview: _deferredOverview(workspace),
-        adapters: adapters,
-        runs: runs,
-        conversations: conversations,
-        queue: queue,
-        templates: const <CommandTemplate>[],
-        gitStatus: null,
-        diffs: const <DiffSummary>[],
-        commits: const <GitCommitSummary>[],
-        fileTree: _deferredFileTree(workspace),
-        diagnostics: _deferredDiagnostics(workspace),
-        extensions: const <ExtensionSummary>[],
-      );
+  AppSnapshot toAppSnapshot() {
+    final selectedWorkspace = workspace;
+    if (selectedWorkspace == null) {
+      throw StateError(
+          'Cannot create AppSnapshot without a selected workspace. Render the connected empty workspace state instead.');
+    }
+    return AppSnapshot(
+      health: health,
+      workspaces: workspaces,
+      workspace: selectedWorkspace,
+      overview: _deferredOverview(selectedWorkspace),
+      adapters: adapters,
+      runs: runs,
+      conversations: conversations,
+      queue: queue,
+      templates: const <CommandTemplate>[],
+      gitStatus: null,
+      diffs: const <DiffSummary>[],
+      commits: const <GitCommitSummary>[],
+      fileTree: _deferredFileTree(selectedWorkspace),
+      diagnostics: _deferredDiagnostics(selectedWorkspace),
+      extensions: const <ExtensionSummary>[],
+    );
+  }
 }
 
 ProjectOverview _deferredOverview(WorkspaceSummary workspace) =>

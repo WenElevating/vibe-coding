@@ -8,9 +8,13 @@ import '../app/app_dependencies.dart';
 import '../services/daemon_client.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
+import '../models/protocol.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
+import '../workflows/workspace/create_workspace_workflow.dart';
 import 'core/widgets/widgets.dart';
+import 'core/theme/theme.dart' as theme;
+import 'features/workspace_picker/workspace_picker_sheet.dart';
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
@@ -42,6 +46,169 @@ class MainTabsPage extends StatefulWidget {
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
+}
+
+class ConnectedEmptyWorkspacePage extends StatefulWidget {
+  const ConnectedEmptyWorkspacePage({
+    super.key,
+    required this.health,
+    required this.initialWorkspaces,
+    required this.client,
+    required this.connectionConfig,
+    required this.dependencies,
+  });
+
+  final DaemonHealth health;
+  final List<WorkspaceSummary> initialWorkspaces;
+  final DaemonClient client;
+  final DaemonConnectionConfig connectionConfig;
+  final AppDependencies dependencies;
+
+  @override
+  State<ConnectedEmptyWorkspacePage> createState() =>
+      _ConnectedEmptyWorkspacePageState();
+}
+
+class _ConnectedEmptyWorkspacePageState
+    extends State<ConnectedEmptyWorkspacePage> {
+  late final ConnectedDataDependencies _connectedData;
+  late List<WorkspaceSummary> _workspaces;
+  Object? _error;
+  bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
+    _workspaces = List<WorkspaceSummary>.unmodifiable(widget.initialWorkspaces);
+  }
+
+  Future<void> _showCreateWorkspace() async {
+    if (_creating) return;
+    final request = await showModalBottomSheet<WorkspaceCreationRequest>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => AddWorkspaceSheet(
+              workspaceRepository: _connectedData.workspaceRepository,
+            ));
+    if (request == null || !mounted) return;
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+    final outcome = await CreateWorkspaceWorkflow(
+      client: _connectedData.workspaceRepository,
+      timeout: const Duration(seconds: 15),
+    ).create(path: request.path, name: request.name);
+    if (!mounted) return;
+    switch (outcome) {
+      case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+        _openMainTabs(workspace, workspaces);
+      case CreateWorkspaceNotConfirmed(:final workspaceId, :final workspaces):
+        setState(() {
+          _creating = false;
+          _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
+          _error = StateError(
+              'Workspace $workspaceId was created but not listed yet.');
+        });
+      case CreateWorkspaceFailure(:final error):
+        setState(() {
+          _creating = false;
+          _error = error;
+        });
+      case CreateWorkspaceTimeout():
+        setState(() {
+          _creating = false;
+          _error = TimeoutException('Workspace creation timed out.');
+        });
+    }
+  }
+
+  void _openMainTabs(
+    WorkspaceSummary workspace,
+    List<WorkspaceSummary> workspaces,
+  ) {
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        builder: (context) => MainTabsPage.fromInitialData(
+              initialData: DaemonInitialData(
+                health: widget.health,
+                workspaces: workspaces,
+                workspace: workspace,
+                adapters: const <AdapterStatus>[],
+                runs: const <RunSummary>[],
+                conversations: const <ConversationSummary>[],
+                queue: const <QueueItem>[],
+              ),
+              client: widget.client,
+              connectionConfig: widget.connectionConfig,
+              dependencies: widget.dependencies,
+            )));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MobileUiFrame(
+      child: Stack(children: [
+        WorkspaceListPage(
+          workspaces: _workspaces,
+          onSelected: (workspace) => _openMainTabs(workspace, _workspaces),
+          onAddWorkspace: _showCreateWorkspace,
+        ),
+        if (_creating)
+          Container(
+            color: Colors.black.withValues(alpha: .24),
+            alignment: Alignment.center,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF111820),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: .1)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Text('Adding workspace...',
+                      style: TextStyle(color: theme.text, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        if (_error != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 20 + MediaQuery.paddingOf(context).bottom,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.red.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: theme.red.withValues(alpha: .24)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.error_outline_rounded,
+                    color: theme.red, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('$_error',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: theme.red, fontSize: 11.5)),
+                ),
+              ]),
+            ),
+          ),
+      ]),
+    );
+  }
 }
 
 class _MainTabsPageState extends State<MainTabsPage> {
