@@ -21,6 +21,8 @@ Run commands from the repository root unless noted.
 - `cd mobile && flutter analyze`: Runs Flutter static analysis.
 - `cd mobile && flutter test`: Runs Flutter unit and widget tests.
 - `cd mobile && flutter build windows --debug`: Builds the Windows debug app.
+- For any Flutter/Dart command that touches package resolution, artifact download, build, analyze, test, or run flows under `mobile/`, use mainland China mirrors by default: set `PUB_HOSTED_URL=https://pub.flutter-io.cn` and `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn` for that command invocation.
+- If a Flutter/Dart command times out on the first attempt, stop retrying automatically, tell the user the command timed out, and provide the exact mirror-configured command for the user to run manually.
 
 ## Coding Style & Naming Conventions
 
