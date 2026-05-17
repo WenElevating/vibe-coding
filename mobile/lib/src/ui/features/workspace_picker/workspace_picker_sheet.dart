@@ -28,34 +28,56 @@ class AdapterPickerSheet extends StatelessWidget {
       top: false,
       child: Container(
           key: const ValueKey('adapter-picker-sheet'),
-          margin: const EdgeInsets.all(12),
+          margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
           constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * .72),
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           decoration: BoxDecoration(
-              color: const Color(0xFF0D131D),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: Colors.white.withValues(alpha: .08)),
+              color: const Color(0xFF111820),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withValues(alpha: .1)),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withValues(alpha: .45),
-                    blurRadius: 28,
+                    color: Colors.black.withValues(alpha: .42),
+                    blurRadius: 30,
                     offset: const Offset(0, 18))
               ]),
           child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Choose model / CLI',
-                    style: TextStyle(
-                        color: theme.text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                const Text(
-                    'Used for the next real daemon run. Cannot switch while running.',
-                    style: TextStyle(color: theme.muted, fontSize: 12)),
-                const SizedBox(height: 12),
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .045),
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: .13))),
+                      child: const Icon(Icons.terminal_rounded,
+                          size: 17, color: theme.active)),
+                  const SizedBox(width: 11),
+                  const Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text('Choose model / CLI',
+                            style: TextStyle(
+                                color: theme.text,
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -.2)),
+                        SizedBox(height: 2),
+                        Text(
+                            'Used for the next real daemon run. Cannot switch while running.',
+                            style: TextStyle(
+                                color: theme.muted,
+                                fontSize: 11.5,
+                                height: 1.2)),
+                      ])),
+                ]),
+                const SizedBox(height: 13),
                 Flexible(
                     child: ListView.builder(
                         padding: EdgeInsets.zero,
@@ -160,21 +182,21 @@ class _AdapterChoiceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
           margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
           decoration: BoxDecoration(
               color: selected
-                  ? theme.purple.withValues(alpha: .16)
-                  : Colors.white.withValues(alpha: .035),
-              borderRadius: BorderRadius.circular(16),
+                  ? const Color(0xFF1A212A)
+                  : Colors.white.withValues(alpha: .03),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                   color: selected
-                      ? theme.purple.withValues(alpha: .45)
+                      ? theme.activeStroke.withValues(alpha: .75)
                       : theme.stroke)),
           child: Row(children: [
-            AgentIcon(color: toolColor(adapter.adapter)),
+            _AdapterBrandIcon(adapter: adapter.adapter),
             const SizedBox(width: 10),
             Expanded(
                 child: Column(
@@ -182,15 +204,57 @@ class _AdapterChoiceRow extends StatelessWidget {
                     children: [
                   Text(adapter.adapter,
                       style: const TextStyle(
-                          color: theme.text, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 3),
+                          color: theme.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.1)),
+                  const SizedBox(height: 2),
                   Text(displayVersion(adapter.version),
-                      style: const TextStyle(color: theme.muted, fontSize: 12))
+                      style:
+                          const TextStyle(color: theme.muted, fontSize: 11.5))
                 ])),
             if (selected)
-              const Icon(Icons.check_circle_rounded,
-                  color: theme.purple, size: 19)
+              Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .06),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: theme.activeStroke.withValues(alpha: .7))),
+                  child: const Icon(Icons.check_rounded,
+                      color: theme.active, size: 12))
           ])));
+}
+
+class _AdapterBrandIcon extends StatelessWidget {
+  const _AdapterBrandIcon({required this.adapter});
+
+  final String adapter;
+
+  @override
+  Widget build(BuildContext context) {
+    final assetPath = _adapterAssetPath(adapter);
+    if (assetPath != null) {
+      return SizedBox(
+          width: 24,
+          height: 24,
+          child: Image.asset(assetPath, fit: BoxFit.contain));
+    }
+    return AgentIcon(color: toolColor(adapter));
+  }
+}
+
+String? _adapterAssetPath(String adapter) {
+  final lower = adapter.toLowerCase();
+  if (lower.contains('claude') && lower.contains('code')) {
+    return 'assets/lobe-icons/claudecode-color.png';
+  }
+  if (lower.contains('claude')) return 'assets/lobe-icons/claude-color.png';
+  if (lower.contains('codex')) return 'assets/lobe-icons/codex-color.png';
+  if (lower.contains('opencode')) return 'assets/lobe-icons/opencode.png';
+  if (lower.contains('gemini')) return 'assets/lobe-icons/geminicli-color.png';
+  return null;
 }
 
 class AddWorkspaceSheet extends StatefulWidget {
@@ -247,11 +311,11 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
     return SafeArea(
         top: false,
         child: Container(
-            margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             decoration: BoxDecoration(
-                color: const Color(0xFF111821),
-                borderRadius: BorderRadius.circular(28),
+                color: const Color(0xFF111820),
+                borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: Colors.white.withValues(alpha: .1)),
                 boxShadow: [
                   BoxShadow(
@@ -263,18 +327,18 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                     Container(
-                        width: 42,
-                        height: 42,
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
-                            color: theme.purple.withValues(alpha: .12),
-                            borderRadius: BorderRadius.circular(14),
+                            color: Colors.white.withValues(alpha: .045),
+                            borderRadius: BorderRadius.circular(11),
                             border: Border.all(
-                                color: theme.purple.withValues(alpha: .22))),
+                                color: Colors.white.withValues(alpha: .13))),
                         child: const Icon(Icons.folder_open_rounded,
-                            color: theme.purple, size: 22)),
-                    const SizedBox(width: 12),
+                            color: theme.active, size: 18)),
+                    const SizedBox(width: 11),
                     Expanded(
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -282,28 +346,28 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
                           Text(l10n.workspaceAddTitle,
                               style: const TextStyle(
                                   color: theme.text,
-                                  fontSize: 18,
+                                  fontSize: 16.5,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: -.2)),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text(l10n.workspaceChoosePathHint,
                               style: const TextStyle(
                                   color: theme.muted,
-                                  fontSize: 12,
-                                  height: 1.25)),
+                                  fontSize: 11.5,
+                                  height: 1.2)),
                         ])),
                     _SheetIconButton(
                         label: l10n.workspaceBrowseAction,
                         icon: Icons.drive_folder_upload_rounded,
                         onTap: _browse),
                   ]),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 13),
                   _MiniInput(
                       controller: _path,
                       hint: l10n.workspaceChoosePathHint,
                       icon: Icons.folder_rounded,
                       autofocus: true),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 9),
                   _MiniInput(
                       controller: _name,
                       hint: l10n.workspaceNameHint,
@@ -333,7 +397,7 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
                                       height: 1.25))),
                         ])),
                   ],
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 13),
                   _CreateWorkspaceButton(
                       label: l10n.workspaceCreateAndUseAction, onTap: _create),
                 ])));
@@ -354,21 +418,21 @@ class _SheetIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(11),
       child: Container(
-          height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .045),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withValues(alpha: .11))),
+              color: const Color(0xFF171E26),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: Colors.white.withValues(alpha: .12))),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, color: theme.muted, size: 17),
-            const SizedBox(width: 7),
+            Icon(icon, color: theme.muted, size: 15),
+            const SizedBox(width: 6),
             Text(label,
                 style: const TextStyle(
                     color: theme.text,
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w800)),
           ])));
 }
@@ -382,19 +446,25 @@ class _CreateWorkspaceButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-          height: 48,
+          height: 42,
           width: double.infinity,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-              color: theme.purple.withValues(alpha: .2),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: theme.purple.withValues(alpha: .5))),
+              color: const Color(0xFF202832),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: .16)),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: .18),
+                    blurRadius: 14,
+                    offset: const Offset(0, 8))
+              ]),
           child: Text(label,
               style: const TextStyle(
                   color: theme.text,
-                  fontSize: 13,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w900))));
 }
 
@@ -669,30 +739,31 @@ class _MiniInput extends StatelessWidget {
   Widget build(BuildContext context) => TextField(
       controller: controller,
       autofocus: autofocus,
-      style: theme.appTextStyle.copyWith(color: theme.text, fontSize: 13),
+      style: theme.appTextStyle.copyWith(color: theme.text, fontSize: 12.5),
       decoration: InputDecoration(
           isDense: true,
           prefixIcon:
-              icon == null ? null : Icon(icon, color: theme.faint, size: 18),
+              icon == null ? null : Icon(icon, color: theme.faint, size: 16),
           prefixIconConstraints:
-              const BoxConstraints(minWidth: 42, minHeight: 42),
+              const BoxConstraints(minWidth: 38, minHeight: 38),
           hintText: hint,
           hintStyle:
-              theme.appTextStyle.copyWith(color: theme.faint, fontSize: 13),
+              theme.appTextStyle.copyWith(color: theme.faint, fontSize: 12.5),
           filled: true,
-          fillColor: const Color(0xFF151C26),
+          fillColor: const Color(0xFF151A20),
           border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(13),
               borderSide:
                   BorderSide(color: Colors.white.withValues(alpha: .1))),
           enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(13),
               borderSide:
                   BorderSide(color: Colors.white.withValues(alpha: .1))),
           focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(13),
               borderSide: BorderSide(
-                  color: theme.purple.withValues(alpha: .58), width: 1.2)),
+                  color: theme.activeStroke.withValues(alpha: .85),
+                  width: 1.2)),
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 13)));
+              const EdgeInsets.symmetric(horizontal: 11, vertical: 11)));
 }
