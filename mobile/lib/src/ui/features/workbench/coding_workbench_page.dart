@@ -380,13 +380,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.effectiveConversationStatus != 'waiting_input' &&
       _workbenchViewModel.effectiveConversationStatus != 'waiting_approval';
 
+  bool get _isConversationAdapterLocked => _activeConversationId != null;
+
   List<AdapterStatus> get _availableAdapters => widget.data.adapters
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
       .toList();
 
   void _showAdapterPicker() {
     final adapters = _availableAdapters;
-    if (adapters.isEmpty || _isRunningCli) return;
+    if (adapters.isEmpty || _isConversationAdapterLocked) return;
     showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,

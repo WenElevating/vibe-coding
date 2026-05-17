@@ -147,6 +147,60 @@ void main() {
     expect(viewModel.activeConversation, isNull);
   });
 
+  test('workbench view model restores conversation adapter and locks changes',
+      () {
+    final conversation = _conversation(
+      id: 'conv_codex',
+      workspaceId: _workspace.id,
+      status: 'idle',
+      adapter: 'codex',
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        adapters: const <AdapterStatus>[_claudeAdapter, _codexAdapter],
+      ),
+    );
+
+    expect(viewModel.selectedAdapter, 'claude');
+
+    viewModel.openSession(SessionItem(
+      run: WorkbenchViewModel.runSummaryFromConversation(conversation),
+      conversation: conversation,
+    ));
+    expect(viewModel.selectedAdapter, 'codex');
+
+    viewModel.setSelectedAdapter('claude');
+    expect(viewModel.selectedAdapter, 'codex');
+  });
+
+  test('workbench view model keeps active conversation adapter on snapshot update',
+      () {
+    final conversation = _conversation(
+      id: 'conv_claude',
+      workspaceId: _workspace.id,
+      status: 'idle',
+      adapter: 'claude',
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        adapters: const <AdapterStatus>[_codexAdapter, _claudeAdapter],
+      ),
+    );
+
+    viewModel.updateActiveConversation(conversation);
+    expect(viewModel.selectedAdapter, 'claude');
+
+    viewModel.updateFromSnapshot(_snapshot(
+      workspaces: const <WorkspaceSummary>[_workspace],
+      adapters: const <AdapterStatus>[_codexAdapter],
+      conversations: <ConversationSummary>[conversation],
+    ));
+
+    expect(viewModel.selectedAdapter, 'claude');
+  });
+
   test('workbench view model owns operation busy and error state', () {
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
@@ -692,6 +746,7 @@ const _workspace = WorkspaceSummary(
 
 AppSnapshot _snapshot({
   required List<WorkspaceSummary> workspaces,
+  List<AdapterStatus> adapters = const <AdapterStatus>[],
   List<ConversationSummary> conversations = const <ConversationSummary>[],
 }) =>
     AppSnapshot(
@@ -716,7 +771,7 @@ AppSnapshot _snapshot({
         analysisScore: 0,
         recentFiles: const <RecentFileSummary>[],
       ),
-      adapters: const <AdapterStatus>[],
+      adapters: adapters,
       runs: const <RunSummary>[],
       conversations: conversations,
       queue: const <QueueItem>[],
@@ -995,12 +1050,13 @@ ConversationSummary _conversation({
   required String id,
   required String workspaceId,
   required String status,
+  String adapter = 'codex',
   int userMessageCount = 0,
 }) =>
     ConversationSummary(
       id: id,
       workspaceId: workspaceId,
-      adapter: 'codex',
+      adapter: adapter,
       status: status,
       userMessageCount: userMessageCount,
       capabilities:
@@ -1008,6 +1064,18 @@ ConversationSummary _conversation({
       createdAt: '2026-05-12T00:00:00.000Z',
       updatedAt: '2026-05-12T00:00:01.000Z',
     );
+
+const _claudeAdapter = AdapterStatus(
+  adapter: 'claude',
+  available: true,
+  status: 'available',
+);
+
+const _codexAdapter = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+);
 
 ConversationEvent _event({
   required int seq,

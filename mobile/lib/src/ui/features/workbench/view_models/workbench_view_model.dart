@@ -146,6 +146,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _activeRunId = item.run.id;
     _activeConversationId = item.conversation?.id;
     _activeConversation = item.conversation;
+    _selectActiveConversationAdapter(item.conversation);
     if (notify) notifyListeners();
   }
 
@@ -157,6 +158,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _activeConversation = conversation;
     _activeConversationId = conversation.id;
     _activeRunId = runId ?? _activeRunId ?? conversation.id;
+    _selectActiveConversationAdapter(conversation);
     if (notify) notifyListeners();
   }
 
@@ -330,6 +332,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void setSelectedAdapter(String? adapter) {
+    if (_activeConversationId != null) return;
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
     notifyListeners();
@@ -339,16 +342,25 @@ class WorkbenchViewModel extends ChangeNotifier {
     reconcile(snapshot, notify: false);
     final workspaces = List<WorkspaceSummary>.unmodifiable(snapshot.workspaces);
     _routeState = _rebuildRouteState(workspaces);
-    final stillAvailable = _selectedAdapter != null &&
-        snapshot.adapters.any((a) =>
-            a.adapter == _selectedAdapter &&
-            a.available &&
-            _isSelectableAdapter(a));
-    if (!stillAvailable) {
+    final activeConversation = _activeConversation;
+    if (activeConversation != null) {
+      _selectActiveConversationAdapter(activeConversation);
+    } else if (!_selectedAdapterStillAvailable(snapshot.adapters)) {
       _selectedAdapter = _computePreferredAdapter(snapshot.adapters);
     }
     notifyListeners();
   }
+
+  void _selectActiveConversationAdapter(ConversationSummary? conversation) {
+    final adapter = conversation?.adapter.trim();
+    if (adapter == null || adapter.isEmpty) return;
+    _selectedAdapter = adapter;
+  }
+
+  bool _selectedAdapterStillAvailable(List<AdapterStatus> adapters) =>
+      _selectedAdapter != null &&
+      adapters.any((a) =>
+          a.adapter == _selectedAdapter && a.available && _isSelectableAdapter(a));
 
   void reconcile(AppSnapshot snapshot, {bool notify = true}) {
     var changed = false;
