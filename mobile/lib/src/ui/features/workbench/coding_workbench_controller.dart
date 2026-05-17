@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../../models/protocol.dart';
 
 export 'workbench_route_state.dart';
@@ -24,6 +26,15 @@ bool shouldKeepPollingForTerminalDrain({
   if (isRunningCli) return true;
   if (drainPending) return false;
   return changed;
+}
+
+bool isSendAcknowledgementTimeout(
+  Object error, {
+  required String? activeConversationId,
+  required String? activeRunId,
+}) {
+  return error is TimeoutException &&
+      (activeConversationId != null || activeRunId != null);
 }
 
 ConversationSummary applyCancelledConversationSummary(

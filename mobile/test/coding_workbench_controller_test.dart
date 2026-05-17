@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
@@ -169,6 +171,43 @@ void main() {
     viewModel.clearOperationError();
     expect(viewModel.error, isNull);
     expect(viewModel.errorTraceId, isNull);
+  });
+
+  test('send acknowledgement timeout is non-fatal after session is active', () {
+    final timeout = TimeoutException('Future not completed');
+
+    expect(
+      isSendAcknowledgementTimeout(
+        timeout,
+        activeConversationId: 'conv_1',
+        activeRunId: null,
+      ),
+      isTrue,
+    );
+    expect(
+      isSendAcknowledgementTimeout(
+        timeout,
+        activeConversationId: null,
+        activeRunId: 'run_1',
+      ),
+      isTrue,
+    );
+    expect(
+      isSendAcknowledgementTimeout(
+        timeout,
+        activeConversationId: null,
+        activeRunId: null,
+      ),
+      isFalse,
+    );
+    expect(
+      isSendAcknowledgementTimeout(
+        Exception('boom'),
+        activeConversationId: 'conv_1',
+        activeRunId: null,
+      ),
+      isFalse,
+    );
   });
 
   test('workbench view model owns conversation event projection', () {

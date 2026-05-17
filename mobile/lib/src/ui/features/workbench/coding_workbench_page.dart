@@ -647,6 +647,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       }
       _scrollToBottom();
     } catch (err, stack) {
+      final sendAcknowledgementTimedOut = isSendAcknowledgementTimeout(
+        err,
+        activeConversationId: _activeConversationId,
+        activeRunId: _activeRunId,
+      );
+      if (sendAcknowledgementTimedOut) {
+        setState(() {
+          _workbenchViewModel.clearOperationError(notify: false);
+        });
+        return;
+      }
       final traced = await _recordWorkbenchException(
         err,
         stack,
