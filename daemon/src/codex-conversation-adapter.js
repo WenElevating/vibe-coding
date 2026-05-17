@@ -323,6 +323,7 @@ function mapCodexEvent(raw, options = {}) {
     type: conversationEventTypes.SYSTEM_NOTICE,
     text: `Codex event: ${raw.type || 'unknown'}`,
     noticeKind: 'codex_unknown_event',
+    visible: false,
     raw
   };
 }

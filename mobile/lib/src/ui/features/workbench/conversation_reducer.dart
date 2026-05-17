@@ -165,6 +165,7 @@ class ConversationViewState {
           break;
         case 'system.notice':
           if (event.raw['visible'] == false) break;
+          if (isHiddenSystemNotice(event)) break;
           if (isTransitionSystemNotice(event)) break;
           nextMessages.add(ConversationMessage(
             role: 'notice',
@@ -251,6 +252,14 @@ class ConversationViewState {
       pendingPartial: partial,
     );
   }
+}
+
+bool isHiddenSystemNotice(ConversationEvent event) {
+  if (event.type != 'system.notice') return false;
+  final noticeKind = '${event.raw['noticeKind'] ?? ''}'.toLowerCase();
+  if (noticeKind == 'codex_unknown_event') return true;
+  final text = (event.text ?? event.summary ?? '').toLowerCase();
+  return text.startsWith('codex event:');
 }
 
 bool isTransitionSystemNotice(ConversationEvent event) {

@@ -284,6 +284,29 @@ void main() {
     expect(state.messages, isEmpty);
   });
 
+  test('ConversationViewState hides Codex unknown lifecycle notices', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-09T00:00:00.000Z',
+        'text': 'Codex event: item.completed',
+        'noticeKind': 'codex_unknown_event'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-09T00:00:01.000Z',
+        'text': 'Codex event: item.started'
+      }),
+    ]);
+
+    expect(state.lastSeq, 2);
+    expect(state.messages, isEmpty);
+  });
+
   test('ConversationViewState routes reconnect notices to pending status', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

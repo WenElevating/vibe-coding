@@ -2229,7 +2229,10 @@ test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, 
   assert.equal(declined.type, 'system.notice');
   assert.equal(declined.noticeKind, 'codex_policy_blocked');
   assert.equal(mapCodexEvent({ type: 'turn.failed', error: { message: 'bad model' } }).type, 'run.error');
-  assert.equal(mapCodexEvent({ type: 'new.future.event', value: 1 }).type, 'system.notice');
+  const unknown = mapCodexEvent({ type: 'new.future.event', value: 1 });
+  assert.equal(unknown.type, 'system.notice');
+  assert.equal(unknown.noticeKind, 'codex_unknown_event');
+  assert.equal(unknown.visible, false);
 });
 
 test('Codex mapper truncates large aggregated output with marker', () => {
