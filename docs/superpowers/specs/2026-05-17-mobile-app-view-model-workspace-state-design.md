@@ -19,6 +19,7 @@ This is an architecture problem, not a networking problem. The connected app nee
 
 - Do not redesign daemon HTTP endpoints.
 - Do not rewrite all feature ViewModels in one pass.
+- Do not split workspace-scoped ViewModels during this migration; keep that as a future extraction if `AppViewModel` grows beyond clear ownership.
 - Do not make every UI widget own workspace loading logic.
 - Do not introduce a new state management dependency.
 
@@ -46,6 +47,7 @@ class AppViewModel extends ChangeNotifier {
 
   Future<void> connect();
   Future<void> loadWorkspaces();
+  Future<void> startCreateWorkspaceFlow();
   Future<void> createWorkspace(String path, String? name);
   void selectWorkspace(String id);
   Future<void> refreshDetail();
@@ -54,7 +56,7 @@ class AppViewModel extends ChangeNotifier {
 
 `AppViewModel` is the observable UI state owner. It should be injected with repositories or use cases. Views subscribe to it with `ListenableBuilder` or equivalent Flutter primitives.
 
-`WorkspaceDetail` is the workspace-scoped data object. It can initially reuse much of the existing `AppSnapshot` shape, but the name and ownership should make clear that it only exists after a workspace is selected.
+`WorkspaceDetail` is the workspace-scoped data object. It replaces `AppSnapshot` for workspace-scoped business logic. During migration, `AppSnapshot` may temporarily become a type alias or adapter around `WorkspaceDetail`, but both names must not remain as competing business concepts.
 
 ```dart
 class WorkspaceDetail {
@@ -94,7 +96,7 @@ Future<List<WorkspaceSummary>> listWorkspaces();
 
 `listWorkspaces()` may return `[]`. Errors are reserved for network failures, authorization failures, invalid daemon responses, and other exceptional conditions.
 
-`createWorkspace()` should return the created workspace plus a refreshed catalog, or the ViewModel should refresh the catalog immediately after creation. After a successful create, the ViewModel selects the new workspace and calls `refreshDetail()`.
+`createWorkspace()` should return the created workspace plus a refreshed catalog, or the ViewModel should refresh the catalog immediately after creation. After a successful create, the ViewModel selects the new workspace, persists that selection, and calls `refreshDetail()`.
 
 ## UI Rendering Rule
 
@@ -113,7 +115,7 @@ ListenableBuilder(
     }
 
     if (appViewModel.workspaces.isEmpty) {
-      return EmptyWorkspaceView(onCreate: appViewModel.createWorkspace);
+      return EmptyWorkspaceView(onAddWorkspace: appViewModel.startCreateWorkspaceFlow);
     }
 
     return WorkshellView(viewModel: appViewModel);
@@ -130,16 +132,34 @@ This branch is presentation rendering over observable state. It is not a daemon 
 3. `connectionStatus` becomes `connected`.
 4. `AppViewModel.loadWorkspaces()` calls `WorkspaceRepository.listWorkspaces()`.
 5. If the list is empty, `workspaces = []`, `selectedWorkspaceId = null`, and UI shows the workspace empty state.
-6. If the list has items, the ViewModel may select the previous workspace id if available, otherwise the first item.
+6. If the list has items, the ViewModel selects the last persisted workspace id if it still exists, otherwise the first item.
 7. Selecting a workspace calls `refreshDetail()`.
-8. `refreshDetail()` loads workspace-scoped overview, runs, conversations, queue, git, file tree, and diagnostics.
+8. `refreshDetail()` loads all workspace-scoped resources: overview, runs, conversations, queue, git status, diffs, commits, file tree, diagnostics, and any other detail resources needed by the selected workspace shell.
+
+Workspace selection persistence is part of `loadWorkspaces()` and `selectWorkspace()`:
+
+```dart
+final savedId = await _selectionStore.readLastSelectedWorkspaceId();
+final hasSavedWorkspace = workspaces.any((workspace) => workspace.id == savedId);
+selectedWorkspaceId = hasSavedWorkspace
+    ? savedId
+    : workspaces.isEmpty
+        ? null
+        : workspaces.first.id;
+```
+
+`selectWorkspace(id)` must write the selected id through the same selection store before notifying listeners. The store can be implemented with `SharedPreferences` or an existing local settings store, but the key and ownership should be centralized, for example `lastSelectedWorkspaceId` inside a workspace selection store.
+
+`startCreateWorkspaceFlow()` is a UI-intent method, not the repository method itself. It may open the existing add-workspace sheet or route to a picker. Once the user supplies `path` and optional `name`, the ViewModel calls `createWorkspace(path, name)` internally.
+
+`refreshDetail()` must protect against stale responses when users switch workspaces quickly. Use a cancellation token, generation counter, or response-time workspace id comparison. A response may update `selectedWorkspaceDetail` only if it still matches the current `selectedWorkspaceId`.
 
 ## Migration Plan
 
 1. Add `AppViewModel` with connection, workspace catalog, and workspace detail sections.
 2. Keep existing repositories and `DaemonClient` behavior unchanged.
 3. Stop using `AppSnapshot.loadBootstrap()` as a daemon connection bootstrap that requires `workspaces.first`.
-4. Keep or rename `AppSnapshot` as an interim workspace-scoped detail model.
+4. Replace `AppSnapshot` usage in workspace-scoped business logic with `WorkspaceDetail`; during migration only, `AppSnapshot` may be a compatibility alias or adapter for `WorkspaceDetail`.
 5. Update `MainTabsPage` or the connected shell to subscribe to `AppViewModel`.
 6. Update workspace list UI to render an empty state from `workspaces.isEmpty`.
 7. Update Home, Settings, and Workbench to read selected workspace detail only when available.
@@ -151,14 +171,18 @@ This branch is presentation rendering over observable state. It is not a daemon 
 - Widget test connected empty workspace UI renders the add workspace action.
 - Unit test `createWorkspace()` refreshes the catalog and selects the created workspace.
 - Unit test selecting a workspace loads workspace-scoped detail.
+- Unit test `loadWorkspaces()` restores `lastSelectedWorkspaceId` when present and falls back to the first workspace when missing or stale.
+- Unit test `loadWorkspaces()` network failure sets `workspacesError` and does not change `connectionStatus` to `failed`.
+- Unit test stale `refreshDetail()` responses are ignored when `selectedWorkspaceId` changes before the response completes.
 - Regression test that real connection failures still show connection failure, not workspace empty state.
 - Architecture import check remains required for Flutter architecture changes.
 
 ## Risks
 
-- `AppSnapshot.workspace` is used widely. Do not nullable-convert the whole tree in one pass unless the implementation plan scopes that work carefully.
+- `AppSnapshot.workspace` is used widely. Do not nullable-convert the whole tree in one pass unless the implementation plan scopes that work carefully; replace it with `WorkspaceDetail` behind compatibility adapters first.
 - A single `AppViewModel` can become too large. Keep sections explicit and consider extracting smaller ViewModels only when a section grows beyond clear ownership.
 - Some pages may currently assume selected workspace data synchronously. Those pages need explicit loading/empty rendering.
+- `refreshDetail()` can race with workspace selection changes. Do not apply a detail response unless it belongs to the current `selectedWorkspaceId`.
 
 ## Decision
 
