@@ -29,7 +29,7 @@ class MainTabsPage extends StatefulWidget {
     required this.client,
     required this.connectionConfig,
     required this.dependencies,
-  });
+  }) : emptyInitialData = null;
 
   MainTabsPage.fromInitialData({
     super.key,
@@ -37,204 +37,18 @@ class MainTabsPage extends StatefulWidget {
     required this.client,
     required this.connectionConfig,
     required this.dependencies,
-  }) : data = initialData.toAppSnapshot();
+  })  : data =
+            initialData.workspace == null ? null : initialData.toAppSnapshot(),
+        emptyInitialData = initialData;
 
-  final AppSnapshot data;
+  final AppSnapshot? data;
+  final DaemonInitialData? emptyInitialData;
   final DaemonClient client;
   final DaemonConnectionConfig connectionConfig;
   final AppDependencies dependencies;
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
-}
-
-class ConnectedEmptyWorkspaceShell extends StatefulWidget {
-  const ConnectedEmptyWorkspaceShell({
-    super.key,
-    required this.health,
-    required this.initialWorkspaces,
-    required this.client,
-    required this.connectionConfig,
-    required this.dependencies,
-  });
-
-  final DaemonHealth health;
-  final List<WorkspaceSummary> initialWorkspaces;
-  final DaemonClient client;
-  final DaemonConnectionConfig connectionConfig;
-  final AppDependencies dependencies;
-
-  @override
-  State<ConnectedEmptyWorkspaceShell> createState() =>
-      _ConnectedEmptyWorkspaceShellState();
-}
-
-class _ConnectedEmptyWorkspaceShellState
-    extends State<ConnectedEmptyWorkspaceShell> {
-  late final ConnectedDataDependencies _connectedData;
-  late List<WorkspaceSummary> _workspaces;
-  var _activeTab = 1;
-  Object? _error;
-  bool _creating = false;
-  bool _loadingWorkspace = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _connectedData = widget.dependencies.data.forDaemonClient(widget.client);
-    _workspaces = List<WorkspaceSummary>.unmodifiable(widget.initialWorkspaces);
-  }
-
-  Future<void> _showCreateWorkspace() async {
-    if (_creating) return;
-    final request = await showModalBottomSheet<WorkspaceCreationRequest>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => AddWorkspaceSheet(
-              workspaceRepository: _connectedData.workspaceRepository,
-            ));
-    if (request == null || !mounted) return;
-    setState(() {
-      _creating = true;
-      _error = null;
-    });
-    final outcome = await CreateWorkspaceWorkflow(
-      client: _connectedData.workspaceRepository,
-      timeout: const Duration(seconds: 15),
-    ).create(path: request.path, name: request.name);
-    if (!mounted) return;
-    switch (outcome) {
-      case CreateWorkspaceSuccess(:final workspace, :final workspaces):
-        await _openMainTabs(workspace, workspaces);
-      case CreateWorkspaceNotConfirmed(:final workspaceId, :final workspaces):
-        setState(() {
-          _creating = false;
-          _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
-          _error = StateError(
-              'Workspace $workspaceId was created but not listed yet.');
-        });
-      case CreateWorkspaceFailure(:final error):
-        setState(() {
-          _creating = false;
-          _error = error;
-        });
-      case CreateWorkspaceTimeout():
-        setState(() {
-          _creating = false;
-          _error = TimeoutException('Workspace creation timed out.');
-        });
-    }
-  }
-
-  Future<void> _openMainTabs(
-    WorkspaceSummary workspace,
-    List<WorkspaceSummary> workspaces,
-  ) async {
-    setState(() {
-      _loadingWorkspace = true;
-      _error = null;
-    });
-    final snapshot = await loadWorkspaceBootstrap(
-      widget.client,
-      health: widget.health,
-      workspaces: workspaces,
-      workspace: workspace,
-    );
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
-        builder: (context) => MainTabsPage.fromInitialData(
-              initialData: snapshot.toDaemonInitialData(),
-              client: widget.client,
-              connectionConfig: widget.connectionConfig,
-              dependencies: widget.dependencies,
-            )));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final pages = [
-      _ConnectedEmptyHomePage(onCreateWorkspace: _showCreateWorkspace),
-      _buildWorkspaceListPage(),
-      _ConnectedEmptySettingsPage(
-        health: widget.health,
-        connectionConfig: widget.connectionConfig,
-      ),
-    ];
-    return Scaffold(
-      body: MobileUiFrame(
-        child: Stack(children: [
-          IndexedStack(index: _activeTab, children: pages),
-          if (_creating || _loadingWorkspace)
-            Container(
-              color: Colors.black.withValues(alpha: .24),
-              alignment: Alignment.center,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111820),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: .1)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 10),
-                    Text('Loading workspace...',
-                        style: TextStyle(color: theme.text, fontSize: 12)),
-                  ],
-                ),
-              ),
-            ),
-          if (_error != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 20 + MediaQuery.paddingOf(context).bottom,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: theme.red.withValues(alpha: .10),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: theme.red.withValues(alpha: .24)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.error_outline_rounded,
-                      color: theme.red, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('$_error',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            const TextStyle(color: theme.red, fontSize: 11.5)),
-                  ),
-                ]),
-              ),
-            ),
-        ]),
-      ),
-      bottomNavigationBar: BottomNav(
-        selected: _activeTab,
-        items: mainTabItems(l10n),
-        onTap: (index) => setState(() => _activeTab = index),
-      ),
-    );
-  }
-
-  Widget _buildWorkspaceListPage() => WorkspaceListPage(
-        workspaces: _workspaces,
-        onSelected: (workspace) =>
-            unawaited(_openMainTabs(workspace, _workspaces)),
-        onAddWorkspace: _showCreateWorkspace,
-      );
 }
 
 class _ConnectedEmptyHomePage extends StatelessWidget {
@@ -267,7 +81,7 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
     required this.connectionConfig,
   });
 
-  final DaemonHealth health;
+  final DaemonHealth? health;
   final DaemonConnectionConfig connectionConfig;
 
   @override
@@ -276,7 +90,7 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
     return PageScroll(children: [
       Subhead(l10n.settingsCurrentConnectionTitle),
       _EmptyStateCard(children: [
-        _EmptyStateRow(title: 'daemon', value: health.daemonVersion),
+        _EmptyStateRow(title: 'daemon', value: health?.daemonVersion ?? '—'),
         _EmptyStateRow(
             title: l10n.settingsDaemonAddressLabel,
             value: connectionConfig.addressInput),
@@ -332,10 +146,15 @@ class _EmptyStateRow extends StatelessWidget {
 }
 
 class _MainTabsPageState extends State<MainTabsPage> {
-  late MainTabsViewModel _viewModel;
+  MainTabsViewModel? _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
+  var _emptyActiveTab = 1;
+  late List<WorkspaceSummary> _emptyWorkspaces;
+  Object? _emptyError;
+  bool _creatingWorkspace = false;
+  bool _loadingWorkspace = false;
 
   @override
   void initState() {
@@ -344,11 +163,16 @@ class _MainTabsPageState extends State<MainTabsPage> {
         widget.dependencies.createMainTabsDependencies(widget.client);
     _connectedData = pageDependencies.connectedData;
     _workbenchDependencies = pageDependencies.workbenchDependencies;
-    _viewModel = MainTabsViewModel(
-      initialData: widget.data,
-      adapterRepository: _connectedData.adapterRepository,
-    );
-    unawaited(_viewModel.ensureCodingAdaptersLoaded());
+    _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
+        widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
+    final data = widget.data;
+    if (data != null) {
+      _viewModel = MainTabsViewModel(
+        initialData: data,
+        adapterRepository: _connectedData.adapterRepository,
+      );
+      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+    }
   }
 
   @override
@@ -361,23 +185,31 @@ class _MainTabsPageState extends State<MainTabsPage> {
       _connectedData = pageDependencies.connectedData;
       _workbenchDependencies = pageDependencies.workbenchDependencies;
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
-      _viewModel.resetForNewClient(
-        adapterRepository: _connectedData.adapterRepository,
-        data: widget.data,
-      );
+      final data = widget.data;
+      _viewModel?.dispose();
+      _viewModel = data == null
+          ? null
+          : MainTabsViewModel(
+              initialData: data,
+              adapterRepository: _connectedData.adapterRepository,
+            );
+      if (_viewModel != null) {
+        unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
       return;
     }
     if (oldWidget.data != widget.data &&
-        _viewModel.adapterLoadState != CodingAdapterLoadState.loaded) {
-      _viewModel.updateData(widget.data);
+        widget.data != null &&
+        _viewModel?.adapterLoadState != CodingAdapterLoadState.loaded) {
+      _viewModel?.updateData(widget.data!);
     }
   }
 
   @override
   void dispose() {
     _disposeWorkbenchDependencies(_workbenchDependencies);
-    _viewModel.dispose();
+    _viewModel?.dispose();
     super.dispose();
   }
 
@@ -394,20 +226,29 @@ class _MainTabsPageState extends State<MainTabsPage> {
   }
 
   Future<void> _handleSystemBack() async {
-    if (_viewModel.isOverlayActive) {
-      _viewModel.closeOverlay();
+    final viewModel = _viewModel;
+    if (viewModel == null) {
+      if (_emptyActiveTab != 0) {
+        setState(() => _emptyActiveTab = 0);
+        return;
+      }
+      await SystemNavigator.pop();
       return;
     }
-    if (_viewModel.activeTab == 1) {
+    if (viewModel.isOverlayActive) {
+      viewModel.closeOverlay();
+      return;
+    }
+    if (viewModel.activeTab == 1) {
       final consumed =
           await (_codingWorkbenchKey.currentState?.handleSystemBack() ??
               Future<bool>.value(false));
       if (consumed) return;
-      _viewModel.selectTab(0);
+      viewModel.selectTab(0);
       return;
     }
-    if (_viewModel.activeTab != 0) {
-      _viewModel.selectTab(0);
+    if (viewModel.activeTab != 0) {
+      viewModel.selectTab(0);
       return;
     }
     await SystemNavigator.pop();
@@ -415,31 +256,35 @@ class _MainTabsPageState extends State<MainTabsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = _viewModel;
+    if (viewModel == null) return _buildShell(context);
     return ListenableBuilder(
-      listenable: _viewModel,
+      listenable: viewModel,
       builder: (context, _) => _buildShell(context),
     );
   }
 
   Widget _buildShell(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final data = _viewModel.data;
+    final viewModel = _viewModel;
+    if (viewModel == null) return _buildEmptyShell(context, l10n);
+    final data = viewModel.data;
     final pages = [
       HomePage(
-          open: _viewModel.openOverlay,
-          selectTab: _viewModel.selectTab,
+          open: viewModel.openOverlay,
+          selectTab: viewModel.selectTab,
           data: data),
       _buildCodingTab(),
       SettingsPage(
-        open: _viewModel.openOverlay,
+        open: viewModel.openOverlay,
         data: data,
         connectionConfig: widget.connectionConfig,
-        streamOutput: _viewModel.streamOutput,
-        expandThinking: _viewModel.expandThinking,
-        permissionMode: _viewModel.permissionMode,
-        onPermissionModeChanged: _viewModel.setPermissionMode,
-        onStreamOutputChanged: _viewModel.setStreamOutput,
-        onExpandThinkingChanged: _viewModel.setExpandThinking,
+        streamOutput: viewModel.streamOutput,
+        expandThinking: viewModel.expandThinking,
+        permissionMode: viewModel.permissionMode,
+        onPermissionModeChanged: viewModel.setPermissionMode,
+        onStreamOutputChanged: viewModel.setStreamOutput,
+        onExpandThinkingChanged: viewModel.setExpandThinking,
       ),
     ];
     return PopScope(
@@ -449,46 +294,211 @@ class _MainTabsPageState extends State<MainTabsPage> {
       },
       child: Scaffold(
         body: MobileUiFrame(
-          child: _viewModel.activeRoute == RoutePage.tabs
-              ? IndexedStack(index: _viewModel.activeTab, children: pages)
+          child: viewModel.activeRoute == RoutePage.tabs
+              ? IndexedStack(index: viewModel.activeTab, children: pages)
               : MainRouteOverlay(
-                  route: _viewModel.activeRoute,
+                  route: viewModel.activeRoute,
                   data: data,
                   connectedData: _connectedData,
                   featureDependencies: widget.dependencies.features,
-                  onBack: _viewModel.closeOverlay,
+                  onBack: viewModel.closeOverlay,
                 ),
         ),
-        bottomNavigationBar: _viewModel.activeRoute == RoutePage.tabs &&
-                (_viewModel.activeTab != 1 || _viewModel.codingSessionListOpen)
+        bottomNavigationBar: viewModel.activeRoute == RoutePage.tabs &&
+                (viewModel.activeTab != 1 || viewModel.codingSessionListOpen)
             ? BottomNav(
-                selected: _viewModel.activeTab,
+                selected: viewModel.activeTab,
                 items: mainTabItems(l10n),
-                onTap: _viewModel.selectTab)
+                onTap: viewModel.selectTab)
             : null,
         extendBody: true,
       ),
     );
   }
 
+  Widget _buildEmptyShell(BuildContext context, AppLocalizations l10n) {
+    final initialData = widget.emptyInitialData;
+    final health = initialData?.health;
+    final pages = [
+      _ConnectedEmptyHomePage(onCreateWorkspace: _showCreateWorkspace),
+      _buildEmptyWorkspaceListPage(),
+      _ConnectedEmptySettingsPage(
+        health: health,
+        connectionConfig: widget.connectionConfig,
+      ),
+    ];
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_handleSystemBack());
+      },
+      child: Scaffold(
+        body: MobileUiFrame(
+          child: Stack(children: [
+            IndexedStack(index: _emptyActiveTab, children: pages),
+            if (_creatingWorkspace || _loadingWorkspace)
+              Container(
+                color: Colors.black.withValues(alpha: .24),
+                alignment: Alignment.center,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111820),
+                    borderRadius: BorderRadius.circular(16),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: .1)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 10),
+                      Text('Loading workspace...',
+                          style: TextStyle(color: theme.text, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            if (_emptyError != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 20 + MediaQuery.paddingOf(context).bottom,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.red.withValues(alpha: .10),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: theme.red.withValues(alpha: .24)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.error_outline_rounded,
+                        color: theme.red, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('$_emptyError',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.red, fontSize: 11.5)),
+                    ),
+                  ]),
+                ),
+              ),
+          ]),
+        ),
+        bottomNavigationBar: BottomNav(
+          selected: _emptyActiveTab,
+          items: mainTabItems(l10n),
+          onTap: (index) => setState(() => _emptyActiveTab = index),
+        ),
+        extendBody: true,
+      ),
+    );
+  }
+
+  Widget _buildEmptyWorkspaceListPage() => WorkspaceListPage(
+        workspaces: _emptyWorkspaces,
+        onSelected: (workspace) =>
+            unawaited(_openWorkspace(workspace, _emptyWorkspaces)),
+        onAddWorkspace: _showCreateWorkspace,
+      );
+
+  Future<void> _showCreateWorkspace() async {
+    if (_creatingWorkspace) return;
+    final request = await showModalBottomSheet<WorkspaceCreationRequest>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => AddWorkspaceSheet(
+              workspaceRepository: _connectedData.workspaceRepository,
+            ));
+    if (request == null || !mounted) return;
+    setState(() {
+      _creatingWorkspace = true;
+      _emptyError = null;
+    });
+    final outcome = await CreateWorkspaceWorkflow(
+      client: _connectedData.workspaceRepository,
+      timeout: const Duration(seconds: 15),
+    ).create(path: request.path, name: request.name);
+    if (!mounted) return;
+    switch (outcome) {
+      case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+        await _openWorkspace(workspace, workspaces);
+      case CreateWorkspaceNotConfirmed(:final workspaceId, :final workspaces):
+        setState(() {
+          _creatingWorkspace = false;
+          _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
+          _emptyError = StateError(
+              'Workspace $workspaceId was created but not listed yet.');
+        });
+      case CreateWorkspaceFailure(:final error):
+        setState(() {
+          _creatingWorkspace = false;
+          _emptyError = error;
+        });
+      case CreateWorkspaceTimeout():
+        setState(() {
+          _creatingWorkspace = false;
+          _emptyError = TimeoutException('Workspace creation timed out.');
+        });
+    }
+  }
+
+  Future<void> _openWorkspace(
+    WorkspaceSummary workspace,
+    List<WorkspaceSummary> workspaces,
+  ) async {
+    final health = widget.emptyInitialData?.health;
+    if (health == null) return;
+    setState(() {
+      _loadingWorkspace = true;
+      _emptyError = null;
+    });
+    final snapshot = await loadWorkspaceBootstrap(
+      widget.client,
+      health: health,
+      workspaces: workspaces,
+      workspace: workspace,
+    );
+    if (!mounted) return;
+    setState(() {
+      _creatingWorkspace = false;
+      _loadingWorkspace = false;
+      _viewModel = MainTabsViewModel(
+        initialData: snapshot,
+        adapterRepository: _connectedData.adapterRepository,
+      );
+    });
+    unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+  }
+
   Widget _buildCodingTab() {
-    if (_viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
+    final viewModel = _viewModel;
+    if (viewModel == null) return _buildEmptyWorkspaceListPage();
+    if (viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
       return CodingPage(
-        data: _viewModel.data,
+        data: viewModel.data,
         workbenchDependencies: _workbenchDependencies,
         workbenchKey: _codingWorkbenchKey,
-        onBack: () => _viewModel.selectTab(0),
-        onSessionListChanged: _viewModel.reportSessionListOpen,
-        openSessionListRequest: _viewModel.openSessionListRequest,
-        streamOutput: _viewModel.streamOutput,
-        expandThinking: _viewModel.expandThinking,
-        permissionMode: _viewModel.permissionMode,
+        onBack: () => viewModel.selectTab(0),
+        onSessionListChanged: viewModel.reportSessionListOpen,
+        openSessionListRequest: viewModel.openSessionListRequest,
+        streamOutput: viewModel.streamOutput,
+        expandThinking: viewModel.expandThinking,
+        permissionMode: viewModel.permissionMode,
       );
     }
     return _CodingAdapterGate(
-      failed: _viewModel.adapterLoadState == CodingAdapterLoadState.failed,
-      error: _viewModel.adapterLoadError,
-      onRetry: () => unawaited(_viewModel.ensureCodingAdaptersLoaded()),
+      failed: viewModel.adapterLoadState == CodingAdapterLoadState.failed,
+      error: viewModel.adapterLoadError,
+      onRetry: () => unawaited(viewModel.ensureCodingAdaptersLoaded()),
     );
   }
 }
