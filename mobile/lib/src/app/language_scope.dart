@@ -10,8 +10,7 @@ class LanguageScope extends InheritedNotifier<LanguageController> {
   }) : super(notifier: controller);
 
   static LanguageController watch(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<LanguageScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<LanguageScope>();
     assert(scope != null, 'LanguageScope not found in widget tree');
     return scope!.notifier!;
   }
