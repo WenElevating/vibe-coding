@@ -17,7 +17,7 @@ Codex documentation confirms that Codex configuration is stored at user-level `~
 ## Non-Goals
 
 - Do not infer model lists from natural language output.
-- Do not add new dependencies for TOML parsing or UI rendering.
+- Do not add new dependencies for TOML parsing or UI rendering unless an existing repo dependency already covers the need.
 - Do not redesign the entire workbench screen.
 - Do not change completed or active conversation adapter-lock behavior.
 - Do not implement workspace-scoped ViewModel splitting as part of this work.
@@ -62,8 +62,8 @@ The CLI picker keeps the current bottom-sheet behavior but adopts the refined re
 
 The model picker mirrors the CLI picker but lists models for the selected adapter:
 
-- Header title: `选择模型`.
-- Subtitle: current CLI and source, such as `当前 CLI: codex` or `来自 Codex 配置`.
+- Header title uses localized strings, not hard-coded mixed-language labels.
+- Subtitle shows current CLI and source, such as `当前 CLI: codex` or `来自 Codex 配置`, via localization.
 - Rows show model name, optional source/description, and a selected check.
 - If only one model exists, show one selectable/current row and explanatory secondary text.
 - If no model is known, show `默认模型` as an informational row and keep sending available.
@@ -98,6 +98,16 @@ Fields:
 - `selectedModel`: Current configured/default model when known.
 - `canSelectModel`: True only when the daemon can safely pass a selected model to the CLI process.
 - `source`: Diagnostic/display source only; business logic should use normalized fields.
+- `protocolVersion`: Optional future-proof additive field if a breaking contract ever becomes necessary; this rollout does not require one.
+
+## Compatibility Strategy
+
+The protocol change is additive and must be backward compatible by default.
+
+- New mobile + old daemon: missing `models`, `selectedModel`, or `canSelectModel` fields are treated as `models = []`, `selectedModel = null`, and `canSelectModel = false`.
+- Old mobile + new daemon: extra fields are ignored by the older JSON parser and must not break parsing.
+- The mobile protocol layer must tolerate absent fields without surfacing an error.
+- If the daemon ever needs a breaking shape, introduce an explicit versioned endpoint or `protocolVersion` gate rather than changing the additive contract in place.
 
 ## Codex Model Discovery
 
@@ -109,16 +119,25 @@ Codex model discovery should use official configuration locations:
 4. `model_catalog_json` can add model candidates if the referenced JSON file exists and is parseable.
 5. The configured `model` should be first and selected when present.
 
-No new TOML dependency should be added. Use a small targeted parser for the required scalar keys and simple sections, or reuse an existing parser if one already exists in the repo.
+Parsing rules:
+
+- Only parse the small TOML subset needed for this feature: top-level simple scalar assignments and the specific nested `model_providers` / `shell_environment_policy.set` values already used by the app.
+- Skip unfamiliar TOML constructs instead of trying to fully interpret them.
+- Never crash on comments, inline tables, multi-line strings, or malformed syntax; ignore what cannot be safely read.
+- If `model_catalog_json` points to a missing file, a directory, or a file larger than the configured safe size limit, ignore it and continue with the remaining sources.
+
+No new TOML dependency should be added unless the repo already contains one that fits this use case.
 
 ## Claude Model Discovery
 
-Claude model discovery should read stable environment/config sources:
+Claude model discovery should read stable local sources first and treat any environment-based defaults as best effort:
 
-1. Process environment values such as `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_HAIKU_MODEL`.
+1. Process environment values such as `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_HAIKU_MODEL` when they exist.
 2. Repo Codex shell policy values under `.codex/config.toml` when they set Claude environment variables for launched commands.
 3. De-duplicate values while preserving priority order.
 4. If all three default tiers point to the same model, show one model row.
+
+These environment variable names are treated as implementation-specific discovery hints, not a public stable contract. If none are present, show `默认模型` rather than inventing a model ID.
 
 Before passing a selected model to Claude, detect support from `claude --help` or existing capability detection. If explicit model selection is not supported by the installed CLI, set `canSelectModel` to false and present the discovered model as the default/informational model.
 
@@ -128,6 +147,7 @@ Before passing a selected model to Claude, detect support from `claude --help` o
 - Active or resumed conversation-backed histories keep their original adapter/session lock.
 - If `canSelectModel` is true and a selected model exists, pass the model through the conversation creation/start path to the adapter.
 - If `canSelectModel` is false, do not pass a model argument; only display the default model source.
+- If a refresh removes the currently selected model from the available list, keep the current value for an already-running conversation, but for a brand-new unsent draft fall back to the first available model or `selectedModel = null` and surface a small inline note that the prior choice is no longer available.
 - Missing model data must not block sending.
 
 ## Error Handling
@@ -136,6 +156,14 @@ Before passing a selected model to Claude, detect support from `claude --help` o
 - Missing catalog files should be ignored with an optional warning.
 - CLI help probing failures should set `canSelectModel` to false rather than marking the adapter unavailable.
 - Mobile should render empty/unknown model lists gracefully.
+- Missing protocol fields must be treated as safe defaults, not as parse failures.
+
+## Security Considerations
+
+- Only read the specific config and catalog file paths needed for discovery.
+- Resolve `model_catalog_json` to a real file before reading; reject directories and unreadable paths.
+- Apply a conservative size cap to catalog JSON files before parsing to avoid memory spikes.
+- Do not send raw config contents or arbitrary file contents to the mobile client.
 
 ## Testing Strategy
 
@@ -143,16 +171,22 @@ Daemon tests:
 
 - Codex scalar config discovery from user and project config, with project override.
 - Codex catalog discovery when `model_catalog_json` points to a JSON file.
+- Codex config parsing ignores comments, multiline strings, and unsupported TOML syntax safely.
 - Claude env/config discovery and de-duplication.
 - CLI model capability probing failure does not make the adapter unavailable.
 - Conversation launch includes a model only when `canSelectModel` is true.
 
 Mobile tests:
 
-- Adapter model fields parse from protocol JSON.
+- Adapter model fields parse from protocol JSON with missing-field defaults.
 - Composer renders separate CLI and model chips.
 - Model picker shows selected model and fallback default row.
 - Running/conversation-bound state keeps adapter/model mutation disabled.
+- Refreshing adapter data with a missing selected model preserves running sessions and falls back safely for new drafts.
+
+Integration smoke test:
+
+- Daemon returns capability JSON, mobile parses it, the picker renders discovered models, and a selected model is forwarded back into the conversation start payload.
 
 Manual/visual verification:
 
@@ -167,7 +201,14 @@ Manual/visual verification:
 3. Add selected model state to the workbench ViewModel and conversation creation path.
 4. Restyle the composer and split CLI/model chips.
 5. Add the model picker bottom sheet.
-6. Run daemon tests and focused Flutter tests/analyze with the configured domestic Flutter mirrors.
+6. Gate the UI behind a local feature flag so the new chip can be disabled quickly if needed.
+7. Run daemon tests and focused Flutter tests/analyze with the configured domestic Flutter mirrors.
+
+## Rollback Plan
+
+- If daemon discovery causes performance issues or crashes, return an empty `models` array and `canSelectModel = false` while leaving adapter availability intact.
+- If the UI regresses, disable the model-chip feature flag and keep the existing CLI chip behavior.
+- If Claude discovery proves unstable on a given installation, treat it as informational only and keep sending model-less for that adapter.
 
 ## Risks
 
