@@ -97,7 +97,7 @@ Fields:
 - `models`: Can be empty when discovery fails.
 - `selectedModel`: Current configured/default model when known.
 - `canSelectModel`: True only when the daemon can safely pass a selected model to the CLI process.
-- `source`: Diagnostic/display source only; business logic should use normalized fields.
+- `source`: Diagnostic/display source only; business logic should use normalized fields. Known values are `codex_config`, `codex_catalog`, `claude_env`, `cli_default`, and `unknown`. The list is additive; mobile should localize known values and display a neutral fallback for unknown values.
 - `protocolVersion`: Optional future-proof additive field if a breaking contract ever becomes necessary; this rollout does not require one.
 
 ## Compatibility Strategy
@@ -124,7 +124,8 @@ Parsing rules:
 - Only parse the small TOML subset needed for this feature: top-level simple scalar assignments and the specific nested `model_providers` / `shell_environment_policy.set` values already used by the app.
 - Skip unfamiliar TOML constructs instead of trying to fully interpret them.
 - Never crash on comments, inline tables, multi-line strings, or malformed syntax; ignore what cannot be safely read.
-- If `model_catalog_json` points to a missing file, a directory, or a file larger than the configured safe size limit, ignore it and continue with the remaining sources.
+- If `model_catalog_json` points to a missing file, a directory, an unreadable file, or a file larger than the configured safe size limit, ignore it and continue with the remaining sources.
+- Default catalog size cap is 1 MB, held as an internal daemon constant so it can be adjusted without changing the protocol.
 
 No new TOML dependency should be added unless the repo already contains one that fits this use case.
 
@@ -139,7 +140,7 @@ Claude model discovery should read stable local sources first and treat any envi
 
 These environment variable names are treated as implementation-specific discovery hints, not a public stable contract. If none are present, show `默认模型` rather than inventing a model ID.
 
-Before passing a selected model to Claude, detect support from `claude --help` or existing capability detection. If explicit model selection is not supported by the installed CLI, set `canSelectModel` to false and present the discovered model as the default/informational model.
+Before passing a selected model to Claude, detect support from `claude --help` or existing capability detection. Probe once during daemon adapter capability detection and cache the result with the detected CLI command path and version. Re-probe when the adapter is explicitly refreshed and the command path or version changes. If explicit model selection is not supported by the installed CLI, set `canSelectModel` to false and present the discovered model as the default/informational model.
 
 ## Sending Behavior
 
@@ -147,13 +148,13 @@ Before passing a selected model to Claude, detect support from `claude --help` o
 - Active or resumed conversation-backed histories keep their original adapter/session lock.
 - If `canSelectModel` is true and a selected model exists, pass the model through the conversation creation/start path to the adapter.
 - If `canSelectModel` is false, do not pass a model argument; only display the default model source.
-- If a refresh removes the currently selected model from the available list, keep the current value for an already-running conversation, but for a brand-new unsent draft fall back to the first available model or `selectedModel = null` and surface a small inline note that the prior choice is no longer available.
+- If a refresh removes the currently selected model from the available list, keep the current value for an already-running conversation, but for a brand-new unsent draft fall back to the first available model or `selectedModel = null`. Show a short non-blocking note near the model chip in secondary text color; it should disappear on the next user edit, picker open, or successful send and must not require confirmation.
 - Missing model data must not block sending.
 
 ## Error Handling
 
 - Malformed config files should not break adapter availability; return model discovery warnings only in diagnostics/debug data.
-- Missing catalog files should be ignored with an optional warning.
+- Missing or unreadable config/catalog files should be ignored with an optional warning. Permission errors are treated the same as absent files.
 - CLI help probing failures should set `canSelectModel` to false rather than marking the adapter unavailable.
 - Mobile should render empty/unknown model lists gracefully.
 - Missing protocol fields must be treated as safe defaults, not as parse failures.
@@ -162,7 +163,7 @@ Before passing a selected model to Claude, detect support from `claude --help` o
 
 - Only read the specific config and catalog file paths needed for discovery.
 - Resolve `model_catalog_json` to a real file before reading; reject directories and unreadable paths.
-- Apply a conservative size cap to catalog JSON files before parsing to avoid memory spikes.
+- Apply the 1 MB default size cap to catalog JSON files before parsing to avoid memory spikes.
 - Do not send raw config contents or arbitrary file contents to the mobile client.
 
 ## Testing Strategy
@@ -202,11 +203,12 @@ Manual/visual verification:
 4. Restyle the composer and split CLI/model chips.
 5. Add the model picker bottom sheet.
 6. Gate the UI behind a local feature flag so the new chip can be disabled quickly if needed.
-7. Run daemon tests and focused Flutter tests/analyze with the configured domestic Flutter mirrors.
+7. Gate daemon model discovery behind an environment variable or startup option so discovery can be disabled without reverting the build.
+8. Run daemon tests and focused Flutter tests/analyze with the configured domestic Flutter mirrors.
 
 ## Rollback Plan
 
-- If daemon discovery causes performance issues or crashes, return an empty `models` array and `canSelectModel = false` while leaving adapter availability intact.
+- If daemon discovery causes performance issues or crashes, disable it through the daemon startup option/environment variable and return an empty `models` array with `canSelectModel = false` while leaving adapter availability intact.
 - If the UI regresses, disable the model-chip feature flag and keep the existing CLI chip behavior.
 - If Claude discovery proves unstable on a given installation, treat it as informational only and keep sending model-less for that adapter.
 
