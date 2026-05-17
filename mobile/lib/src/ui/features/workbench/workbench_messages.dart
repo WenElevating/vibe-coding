@@ -129,6 +129,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
         'toolUseId': message.toolUseId,
         'toolName': message.toolName,
         'summary': message.summary,
+        'taskId': message.taskId,
+        'source': message.source,
         'isError': message.isError,
         if (message.input.isNotEmpty) 'input': message.input,
         'suggestions': message.suggestions,
@@ -166,6 +168,14 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
           completed: message.completed,
           isError: message.isError,
           duration: _conversationCommandDuration(message));
+    case 'task_progress':
+      return WorkbenchMessage('task_progress', 'Task progress', message.text,
+          event: event,
+          runId: 'conversation',
+          taskId: message.taskId,
+          taskItems: message.taskItems,
+          completedCount: message.completedCount,
+          totalCount: message.totalCount);
     default:
       return WorkbenchMessage.status(message.text);
   }
@@ -215,6 +225,10 @@ class WorkbenchMessage {
       this.completed = false,
       this.isError = false,
       this.duration,
+      this.taskId,
+      this.taskItems = const <TaskProgressItem>[],
+      this.completedCount,
+      this.totalCount,
       this.suggestions = const <String>[]});
   final String role;
   final String title;
@@ -224,6 +238,10 @@ class WorkbenchMessage {
   final bool completed;
   final bool isError;
   final Duration? duration;
+  final String? taskId;
+  final List<TaskProgressItem> taskItems;
+  final int? completedCount;
+  final int? totalCount;
   final List<String> suggestions;
   factory WorkbenchMessage.user(String text) =>
       WorkbenchMessage('user', 'You', text);
@@ -237,6 +255,10 @@ class WorkbenchMessage {
           completed: completed ?? this.completed,
           isError: isError ?? this.isError,
           duration: duration ?? this.duration,
+          taskId: this.taskId,
+          taskItems: taskItems,
+          completedCount: this.completedCount,
+          totalCount: this.totalCount,
           suggestions: suggestions);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {

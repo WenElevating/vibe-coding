@@ -1936,6 +1936,21 @@ void main() {
     expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
+  testWidgets('task progress card shows badge and item statuses',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildTaskProgressCardPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.text('任务进度'), findsOneWidget);
+    expect(find.text('1 / 3 完成'), findsOneWidget);
+    expect(find.text('分析工作区结构'), findsOneWidget);
+    expect(find.text('实现进度卡片'), findsOneWidget);
+    expect(find.text('运行回归测试'), findsOneWidget);
+    expect(find.text('完成'), findsWidgets);
+    expect(find.text('正在执行'), findsWidgets);
+    expect(find.text('等待执行'), findsWidgets);
+  });
+
   test('empty completed conversation shows diagnostic warning', () {
     const capabilities = ConversationCapabilities(
       longLivedProcess: true,
