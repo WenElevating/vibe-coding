@@ -9,7 +9,10 @@ import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
@@ -21,6 +24,7 @@ import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.da
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_controller.dart';
+import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -210,6 +214,46 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                       AppDependencies.createDefault()))));
 }
 
+class _MobileConnectionHarness extends StatefulWidget {
+  const _MobileConnectionHarness({required this.controller});
+
+  final DaemonConnectionViewModel controller;
+
+  @override
+  State<_MobileConnectionHarness> createState() =>
+      _MobileConnectionHarnessState();
+}
+
+class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
+  late final LanguageController _languageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _languageController = LanguageController()..load();
+  }
+
+  @override
+  void dispose() {
+    _languageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _languageController,
+      builder: (context, _) => LanguageScope(
+          controller: _languageController,
+          child: MaterialApp(
+              locale: _languageController.locale,
+              supportedLocales: appSupportedLocales,
+              localizationsDelegates: appLocalizationsDelegates,
+              localeResolutionCallback: (locale, supportedLocales) =>
+                  resolveSupportedLocale(locale, supportedLocales),
+              theme: theme.buildAppTheme(),
+              home: MobileUi(connectionController: widget.controller))));
+}
+
 class _AdapterRefreshClient extends DaemonClient {
   _AdapterRefreshClient()
       : super(
@@ -247,6 +291,26 @@ class _AdapterRefreshClient extends DaemonClient {
           userMessageCount: 500,
         ),
       ];
+}
+
+class _ImmediateConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
+  const _ImmediateConnectUseCase(this.session);
+
+  final ConnectedAppSession<DaemonClient> session;
+
+  @override
+  Future<ConnectedAppSession<DaemonClient>> connect({
+    required String addressInput,
+    required DaemonProxyMode proxyMode,
+    required String manualProxyInput,
+    bool Function()? shouldContinue,
+    void Function()? onCheckingHealth,
+    void Function()? onLoadingInitialData,
+  }) async {
+    onCheckingHealth?.call();
+    onLoadingInitialData?.call();
+    return session;
+  }
 }
 
 class _PendingAdapterClient extends DaemonClient {
@@ -715,6 +779,44 @@ void main() {
     expect(find.text('Manual proxy'), findsOneWidget);
     expect(find.text('Reconnect'), findsOneWidget);
     expect(find.byType(BottomNav), findsNothing);
+  });
+
+  testWidgets('connected empty workspace catalog renders workspace list',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _ImmediateConnectUseCase(
+        ConnectedAppSession<DaemonClient>(
+          client: _AdapterRefreshClient(),
+          initialData: DaemonInitialData(
+            health: _testSnapshot().health,
+            workspaces: const <WorkspaceSummary>[],
+            workspace: null,
+            adapters: const <AdapterStatus>[],
+            runs: const <RunSummary>[],
+            conversations: const <ConversationSummary>[],
+            queue: const <QueueItem>[],
+          ),
+          connectedConfig: const DaemonConnectionConfig(
+            addressInput: '127.0.0.1:4317',
+            proxyMode: DaemonProxyMode.system,
+            manualProxyInput: '',
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    await tester.pumpWidget(_MobileConnectionHarness(controller: controller));
+    await controller.load();
+    await controller.connect();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.textContaining('Unable to connect'), findsNothing);
+    expect(find.textContaining('Bad state'), findsNothing);
   });
 
   testWidgets('MobileUiFrame renders supplied child',

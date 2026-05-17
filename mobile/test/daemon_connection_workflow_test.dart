@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_connection_config_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
@@ -50,7 +50,9 @@ void main() {
       'loadInitialData',
     ]);
     expect(session.client, same(client));
-    expect(session.initialData.workspace.id, 'workspace_1');
+    final workspace = session.initialData.workspace;
+    expect(workspace, isNotNull);
+    expect(workspace!.id, 'workspace_1');
     final saved = await store.load();
     expect(saved.addressInput, '192.168.1.23');
     expect(saved.proxyMode, DaemonProxyMode.manual);

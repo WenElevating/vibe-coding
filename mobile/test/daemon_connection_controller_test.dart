@@ -108,7 +108,9 @@ void main() {
 
     expect(controller.status, DaemonConnectionStatus.connected);
     expect(controller.initialData, isNotNull);
-    expect(controller.initialData!.workspace.id, snapshot.workspace.id);
+    final workspace = controller.initialData!.workspace;
+    expect(workspace, isNotNull);
+    expect(workspace!.id, snapshot.workspace.id);
     final saved = await store.load();
     expect(saved.addressInput, '192.168.1.23');
     expect(saved.proxyMode, DaemonProxyMode.manual);

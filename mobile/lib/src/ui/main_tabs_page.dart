@@ -75,6 +75,7 @@ class _ConnectedEmptyWorkspacePageState
   late List<WorkspaceSummary> _workspaces;
   Object? _error;
   bool _creating = false;
+  bool _loadingWorkspace = false;
 
   @override
   void initState() {
@@ -104,7 +105,7 @@ class _ConnectedEmptyWorkspacePageState
     if (!mounted) return;
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace, :final workspaces):
-        _openMainTabs(workspace, workspaces);
+        await _openMainTabs(workspace, workspaces);
       case CreateWorkspaceNotConfirmed(:final workspaceId, :final workspaces):
         setState(() {
           _creating = false;
@@ -125,21 +126,24 @@ class _ConnectedEmptyWorkspacePageState
     }
   }
 
-  void _openMainTabs(
+  Future<void> _openMainTabs(
     WorkspaceSummary workspace,
     List<WorkspaceSummary> workspaces,
-  ) {
+  ) async {
+    setState(() {
+      _loadingWorkspace = true;
+      _error = null;
+    });
+    final snapshot = await loadWorkspaceBootstrap(
+      widget.client,
+      health: widget.health,
+      workspaces: workspaces,
+      workspace: workspace,
+    );
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
         builder: (context) => MainTabsPage.fromInitialData(
-              initialData: DaemonInitialData(
-                health: widget.health,
-                workspaces: workspaces,
-                workspace: workspace,
-                adapters: const <AdapterStatus>[],
-                runs: const <RunSummary>[],
-                conversations: const <ConversationSummary>[],
-                queue: const <QueueItem>[],
-              ),
+              initialData: snapshot.toDaemonInitialData(),
               client: widget.client,
               connectionConfig: widget.connectionConfig,
               dependencies: widget.dependencies,
@@ -148,65 +152,70 @@ class _ConnectedEmptyWorkspacePageState
 
   @override
   Widget build(BuildContext context) {
-    return MobileUiFrame(
-      child: Stack(children: [
-        WorkspaceListPage(
-          workspaces: _workspaces,
-          onSelected: (workspace) => _openMainTabs(workspace, _workspaces),
-          onAddWorkspace: _showCreateWorkspace,
-        ),
-        if (_creating)
-          Container(
-            color: Colors.black.withValues(alpha: .24),
-            alignment: Alignment.center,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF111820),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withValues(alpha: .1)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 10),
-                  Text('Adding workspace...',
-                      style: TextStyle(color: theme.text, fontSize: 12)),
-                ],
-              ),
-            ),
+    return Scaffold(
+      body: MobileUiFrame(
+        child: Stack(children: [
+          WorkspaceListPage(
+            workspaces: _workspaces,
+            onSelected: (workspace) =>
+                unawaited(_openMainTabs(workspace, _workspaces)),
+            onAddWorkspace: _showCreateWorkspace,
           ),
-        if (_error != null)
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 20 + MediaQuery.paddingOf(context).bottom,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.red.withValues(alpha: .10),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: theme.red.withValues(alpha: .24)),
-              ),
-              child: Row(children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: theme.red, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('$_error',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: theme.red, fontSize: 11.5)),
+          if (_creating || _loadingWorkspace)
+            Container(
+              color: Colors.black.withValues(alpha: .24),
+              alignment: Alignment.center,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111820),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: .1)),
                 ),
-              ]),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text('Loading workspace...',
+                        style: TextStyle(color: theme.text, fontSize: 12)),
+                  ],
+                ),
+              ),
             ),
-          ),
-      ]),
+          if (_error != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 20 + MediaQuery.paddingOf(context).bottom,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.red.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: theme.red.withValues(alpha: .24)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.error_outline_rounded,
+                      color: theme.red, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('$_error',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: theme.red, fontSize: 11.5)),
+                  ),
+                ]),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 }

@@ -96,29 +96,39 @@ class AppSnapshot {
         label: 'Windows preview');
     final workspaces = await client.listWorkspaces();
     final workspace = workspaces.first;
-    final results = await Future.wait<Object?>([
-      _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
-      _loadStep('conversations', client.listConversations),
-      _loadStep('queue', client.listQueue),
-    ]);
-    return AppSnapshot(
-      health: resolvedHealth,
-      workspaces: workspaces,
-      workspace: workspace,
-      overview: _deferredOverview(workspace),
-      adapters: const <AdapterStatus>[],
-      runs: results[0] as List<RunSummary>,
-      conversations: results[1] as List<ConversationSummary>,
-      queue: results[2] as List<QueueItem>,
-      templates: const <CommandTemplate>[],
-      gitStatus: null,
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: _deferredFileTree(workspace),
-      diagnostics: _deferredDiagnostics(workspace),
-      extensions: const <ExtensionSummary>[],
-    );
+    return loadWorkspaceBootstrap(client,
+        health: resolvedHealth, workspaces: workspaces, workspace: workspace);
   }
+}
+
+Future<AppSnapshot> loadWorkspaceBootstrap(
+  DaemonClient client, {
+  required DaemonHealth health,
+  required List<WorkspaceSummary> workspaces,
+  required WorkspaceSummary workspace,
+}) async {
+  final results = await Future.wait<Object?>([
+    _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
+    _loadStep('conversations', client.listConversations),
+    _loadStep('queue', client.listQueue),
+  ]);
+  return AppSnapshot(
+    health: health,
+    workspaces: workspaces,
+    workspace: workspace,
+    overview: _deferredOverview(workspace),
+    adapters: const <AdapterStatus>[],
+    runs: results[0] as List<RunSummary>,
+    conversations: results[1] as List<ConversationSummary>,
+    queue: results[2] as List<QueueItem>,
+    templates: const <CommandTemplate>[],
+    gitStatus: null,
+    diffs: const <DiffSummary>[],
+    commits: const <GitCommitSummary>[],
+    fileTree: _deferredFileTree(workspace),
+    diagnostics: _deferredDiagnostics(workspace),
+    extensions: const <ExtensionSummary>[],
+  );
 }
 
 Future<DaemonInitialData> loadDaemonInitialDataBootstrap(DaemonClient client,
@@ -141,20 +151,9 @@ Future<DaemonInitialData> loadDaemonInitialDataBootstrap(DaemonClient client,
     );
   }
   final workspace = workspaces.first;
-  final results = await Future.wait<Object?>([
-    _loadStep('runs', () => client.listRuns(workspaceId: workspace.id)),
-    _loadStep('conversations', client.listConversations),
-    _loadStep('queue', client.listQueue),
-  ]);
-  return DaemonInitialData(
-    health: resolvedHealth,
-    workspaces: workspaces,
-    workspace: workspace,
-    adapters: const <AdapterStatus>[],
-    runs: results[0] as List<RunSummary>,
-    conversations: results[1] as List<ConversationSummary>,
-    queue: results[2] as List<QueueItem>,
-  );
+  return loadWorkspaceBootstrap(client,
+          health: resolvedHealth, workspaces: workspaces, workspace: workspace)
+      .then((snapshot) => snapshot.toDaemonInitialData());
 }
 
 extension AppSnapshotDaemonInitialData on AppSnapshot {
