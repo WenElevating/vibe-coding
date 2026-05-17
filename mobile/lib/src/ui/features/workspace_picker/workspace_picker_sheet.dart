@@ -247,40 +247,155 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
     return SafeArea(
         top: false,
         child: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
             decoration: BoxDecoration(
-                color: const Color(0xFF0D131D),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withValues(alpha: .08))),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(children: [
-                Expanded(
-                    child: Text(l10n.workspaceAddTitle,
-                        style: const TextStyle(
-                            color: theme.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900))),
-                TinyActionButton(l10n.workspaceBrowseAction, onTap: _browse),
-              ]),
-              const SizedBox(height: 10),
-              _MiniInput(controller: _path, hint: l10n.workspaceChoosePathHint),
-              const SizedBox(height: 8),
-              _MiniInput(controller: _name, hint: l10n.workspaceNameHint),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: theme.red, fontSize: 11)),
-              ],
-              const SizedBox(height: 12),
-              SizedBox(
-                  width: double.infinity,
-                  child: TinyActionButton(l10n.workspaceCreateAndUseAction,
-                      onTap: _create, primary: true)),
-            ])));
+                color: const Color(0xFF111821),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: Colors.white.withValues(alpha: .1)),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .5),
+                      blurRadius: 32,
+                      offset: const Offset(0, 18))
+                ]),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                            color: theme.purple.withValues(alpha: .12),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: theme.purple.withValues(alpha: .22))),
+                        child: const Icon(Icons.folder_open_rounded,
+                            color: theme.purple, size: 22)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text(l10n.workspaceAddTitle,
+                              style: const TextStyle(
+                                  color: theme.text,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -.2)),
+                          const SizedBox(height: 4),
+                          Text(l10n.workspaceChoosePathHint,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12,
+                                  height: 1.25)),
+                        ])),
+                    _SheetIconButton(
+                        label: l10n.workspaceBrowseAction,
+                        icon: Icons.drive_folder_upload_rounded,
+                        onTap: _browse),
+                  ]),
+                  const SizedBox(height: 16),
+                  _MiniInput(
+                      controller: _path,
+                      hint: l10n.workspaceChoosePathHint,
+                      icon: Icons.folder_rounded,
+                      autofocus: true),
+                  const SizedBox(height: 10),
+                  _MiniInput(
+                      controller: _name,
+                      hint: l10n.workspaceNameHint,
+                      icon: Icons.label_outline_rounded),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 11, vertical: 9),
+                        decoration: BoxDecoration(
+                            color: theme.red.withValues(alpha: .1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: theme.red.withValues(alpha: .24))),
+                        child: Row(children: [
+                          const Icon(Icons.error_outline_rounded,
+                              color: theme.red, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: Text(_error!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: theme.red,
+                                      fontSize: 11.5,
+                                      height: 1.25))),
+                        ])),
+                  ],
+                  const SizedBox(height: 16),
+                  _CreateWorkspaceButton(
+                      label: l10n.workspaceCreateAndUseAction, onTap: _create),
+                ])));
   }
+}
+
+class _SheetIconButton extends StatelessWidget {
+  const _SheetIconButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .045),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: .11))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, color: theme.muted, size: 17),
+            const SizedBox(width: 7),
+            Text(label,
+                style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800)),
+          ])));
+}
+
+class _CreateWorkspaceButton extends StatelessWidget {
+  const _CreateWorkspaceButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+          height: 48,
+          width: double.infinity,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: theme.purple.withValues(alpha: .2),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.purple.withValues(alpha: .5))),
+          child: Text(label,
+              style: const TextStyle(
+                  color: theme.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900))));
 }
 
 class _WorkspaceSectionHeader extends StatelessWidget {
@@ -538,27 +653,46 @@ class _DirectoryRow extends StatelessWidget {
 }
 
 class _MiniInput extends StatelessWidget {
-  const _MiniInput({required this.controller, required this.hint});
+  const _MiniInput({
+    required this.controller,
+    required this.hint,
+    this.icon,
+    this.autofocus = false,
+  });
+
   final TextEditingController controller;
   final String hint;
+  final IconData? icon;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) => TextField(
       controller: controller,
-      style: theme.appTextStyle.copyWith(color: theme.text, fontSize: 12.5),
+      autofocus: autofocus,
+      style: theme.appTextStyle.copyWith(color: theme.text, fontSize: 13),
       decoration: InputDecoration(
           isDense: true,
+          prefixIcon:
+              icon == null ? null : Icon(icon, color: theme.faint, size: 18),
+          prefixIconConstraints:
+              const BoxConstraints(minWidth: 42, minHeight: 42),
           hintText: hint,
           hintStyle:
-              theme.appTextStyle.copyWith(color: theme.faint, fontSize: 12),
+              theme.appTextStyle.copyWith(color: theme.faint, fontSize: 13),
           filled: true,
-          fillColor: Colors.white.withValues(alpha: .035),
+          fillColor: const Color(0xFF151C26),
           border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: theme.stroke)),
+              borderRadius: BorderRadius.circular(15),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: .1))),
           enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: theme.stroke)),
+              borderRadius: BorderRadius.circular(15),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: .1))),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(
+                  color: theme.purple.withValues(alpha: .58), width: 1.2)),
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 10)));
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 13)));
 }

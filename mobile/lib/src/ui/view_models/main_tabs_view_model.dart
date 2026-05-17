@@ -58,12 +58,12 @@ class MainTabsViewModel extends ChangeNotifier {
     final previousTab = _activeTab;
     _activeTab = index;
     _activeRoute = RoutePage.tabs;
-    if (index == 2) {
+    if (index == 1) {
       _codingSessionListOpen = true;
       _openSessionListRequest++;
     }
     notifyListeners();
-    if (index == 2 && previousTab == 2) {
+    if (index == 1 && previousTab == 1) {
       unawaited(ensureCodingAdaptersLoaded());
     }
   }

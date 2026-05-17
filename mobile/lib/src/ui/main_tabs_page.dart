@@ -111,7 +111,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
       _viewModel.closeOverlay();
       return;
     }
-    if (_viewModel.activeTab == 2) {
+    if (_viewModel.activeTab == 1) {
       final consumed =
           await (_codingWorkbenchKey.currentState?.handleSystemBack() ??
               Future<bool>.value(false));
@@ -142,9 +142,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
           open: _viewModel.openOverlay,
           selectTab: _viewModel.selectTab,
           data: data),
-      RunsPage(open: _viewModel.openOverlay, data: data),
       _buildCodingTab(),
-      QueuePage(data: data),
       SettingsPage(
         open: _viewModel.openOverlay,
         data: data,
@@ -175,7 +173,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
                 ),
         ),
         bottomNavigationBar: _viewModel.activeRoute == RoutePage.tabs &&
-                (_viewModel.activeTab != 2 || _viewModel.codingSessionListOpen)
+                (_viewModel.activeTab != 1 || _viewModel.codingSessionListOpen)
             ? BottomNav(
                 selected: _viewModel.activeTab,
                 items: mainTabItems(l10n),

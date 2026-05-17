@@ -38,7 +38,7 @@ class HomePage extends StatelessWidget {
 
     return PageScroll(
       children: [
-        _HomeCommandBar(workspace: data.workspace, onTap: () => selectTab(2)),
+        _HomeCommandBar(workspace: data.workspace, onTap: () => selectTab(1)),
         const SizedBox(height: 14),
         _HomeNowPanel(
             data: deck, l10n: l10n, onTap: () => open(RoutePage.approval)),
@@ -272,13 +272,7 @@ class _HomeActionRow extends StatelessWidget {
               child: _ActionPill(
                   icon: Icons.terminal_rounded,
                   label: l10n.homeCommandTemplatesTitle,
-                  onTap: () => selectTab(2))),
-          const SizedBox(width: 8),
-          Expanded(
-              child: _ActionPill(
-                  icon: Icons.format_list_bulleted_rounded,
-                  label: l10n.homeViewQueueTitle,
-                  onTap: () => selectTab(3))),
+                  onTap: () => selectTab(1))),
         ],
       );
 }
