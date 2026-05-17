@@ -29,7 +29,7 @@ class MobileConnectionGate extends StatelessWidget {
             viewModel.client != null) {
           final initialData = viewModel.initialData!;
           if (!initialData.hasWorkspace) {
-            return ConnectedEmptyWorkspacePage(
+            return ConnectedEmptyWorkspaceShell(
               health: initialData.health,
               initialWorkspaces: initialData.workspaces,
               client: viewModel.client!,

@@ -48,8 +48,8 @@ class MainTabsPage extends StatefulWidget {
   State<MainTabsPage> createState() => _MainTabsPageState();
 }
 
-class ConnectedEmptyWorkspacePage extends StatefulWidget {
-  const ConnectedEmptyWorkspacePage({
+class ConnectedEmptyWorkspaceShell extends StatefulWidget {
+  const ConnectedEmptyWorkspaceShell({
     super.key,
     required this.health,
     required this.initialWorkspaces,
@@ -65,14 +65,15 @@ class ConnectedEmptyWorkspacePage extends StatefulWidget {
   final AppDependencies dependencies;
 
   @override
-  State<ConnectedEmptyWorkspacePage> createState() =>
-      _ConnectedEmptyWorkspacePageState();
+  State<ConnectedEmptyWorkspaceShell> createState() =>
+      _ConnectedEmptyWorkspaceShellState();
 }
 
-class _ConnectedEmptyWorkspacePageState
-    extends State<ConnectedEmptyWorkspacePage> {
+class _ConnectedEmptyWorkspaceShellState
+    extends State<ConnectedEmptyWorkspaceShell> {
   late final ConnectedDataDependencies _connectedData;
   late List<WorkspaceSummary> _workspaces;
+  var _activeTab = 1;
   Object? _error;
   bool _creating = false;
   bool _loadingWorkspace = false;
@@ -152,15 +153,19 @@ class _ConnectedEmptyWorkspacePageState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final pages = [
+      _ConnectedEmptyHomePage(onCreateWorkspace: _showCreateWorkspace),
+      _buildWorkspaceListPage(),
+      _ConnectedEmptySettingsPage(
+        health: widget.health,
+        connectionConfig: widget.connectionConfig,
+      ),
+    ];
     return Scaffold(
       body: MobileUiFrame(
         child: Stack(children: [
-          WorkspaceListPage(
-            workspaces: _workspaces,
-            onSelected: (workspace) =>
-                unawaited(_openMainTabs(workspace, _workspaces)),
-            onAddWorkspace: _showCreateWorkspace,
-          ),
+          IndexedStack(index: _activeTab, children: pages),
           if (_creating || _loadingWorkspace)
             Container(
               color: Colors.black.withValues(alpha: .24),
@@ -216,8 +221,114 @@ class _ConnectedEmptyWorkspacePageState
             ),
         ]),
       ),
+      bottomNavigationBar: BottomNav(
+        selected: _activeTab,
+        items: mainTabItems(l10n),
+        onTap: (index) => setState(() => _activeTab = index),
+      ),
     );
   }
+
+  Widget _buildWorkspaceListPage() => WorkspaceListPage(
+        workspaces: _workspaces,
+        onSelected: (workspace) =>
+            unawaited(_openMainTabs(workspace, _workspaces)),
+        onAddWorkspace: _showCreateWorkspace,
+      );
+}
+
+class _ConnectedEmptyHomePage extends StatelessWidget {
+  const _ConnectedEmptyHomePage({required this.onCreateWorkspace});
+
+  final VoidCallback onCreateWorkspace;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return PageScroll(children: [
+      const SizedBox(height: 8),
+      Text(l10n.workspaceListTitle,
+          style: const TextStyle(
+              color: theme.text, fontSize: 28, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 10),
+      Text(
+        l10n.workspaceListFootnote,
+        style: const TextStyle(color: theme.muted, fontSize: 13, height: 1.45),
+      ),
+      const SizedBox(height: 18),
+      PrimaryButton(l10n.workspaceAddTitle, onTap: onCreateWorkspace),
+    ]);
+  }
+}
+
+class _ConnectedEmptySettingsPage extends StatelessWidget {
+  const _ConnectedEmptySettingsPage({
+    required this.health,
+    required this.connectionConfig,
+  });
+
+  final DaemonHealth health;
+  final DaemonConnectionConfig connectionConfig;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return PageScroll(children: [
+      Subhead(l10n.settingsCurrentConnectionTitle),
+      _EmptyStateCard(children: [
+        _EmptyStateRow(title: 'daemon', value: health.daemonVersion),
+        _EmptyStateRow(
+            title: l10n.settingsDaemonAddressLabel,
+            value: connectionConfig.addressInput),
+        _EmptyStateRow(
+            title: l10n.settingsWorkspaceLabel,
+            value: l10n.workspaceAvailableSection),
+      ]),
+    ]);
+  }
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  const _EmptyStateCard({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: theme.stroke),
+        ),
+        child: Column(children: children),
+      );
+}
+
+class _EmptyStateRow extends StatelessWidget {
+  const _EmptyStateRow({required this.title, required this.value});
+
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          Text(title, style: const TextStyle(color: theme.muted, fontSize: 12)),
+          const Spacer(),
+          Flexible(
+            child: Text(value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800)),
+          ),
+        ]),
+      );
 }
 
 class _MainTabsPageState extends State<MainTabsPage> {

@@ -781,7 +781,7 @@ void main() {
     expect(find.byType(BottomNav), findsNothing);
   });
 
-  testWidgets('connected empty workspace catalog renders workspace list',
+  testWidgets('connected empty workspace catalog keeps bottom tabs',
       (WidgetTester tester) async {
     final controller = DaemonConnectionController(
       store: DaemonConnectionConfigStore(),
@@ -815,6 +815,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.byType(BottomNav), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Daemon address'), findsOneWidget);
+    expect(find.text('127.0.0.1:4317'), findsOneWidget);
     expect(find.textContaining('Unable to connect'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
   });
