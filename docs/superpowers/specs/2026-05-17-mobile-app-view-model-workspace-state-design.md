@@ -58,6 +58,8 @@ class AppViewModel extends ChangeNotifier {
 
 `WorkspaceDetail` is the workspace-scoped data object. It replaces `AppSnapshot` for workspace-scoped business logic. During migration, `AppSnapshot` may temporarily become a type alias or adapter around `WorkspaceDetail`, but both names must not remain as competing business concepts.
 
+`WorkspaceDetail` uses best-effort sections, not all-or-nothing loading. Required identity fields such as `workspace` must be present, but daemon-backed detail resources that can independently fail should either be nullable or wrapped in a section state. A failed file tree or diagnostics request must not prevent the selected workspace from rendering overview, runs, conversations, or other successfully loaded sections.
+
 ```dart
 class WorkspaceDetail {
   final WorkspaceSummary workspace;
@@ -66,10 +68,13 @@ class WorkspaceDetail {
   final List<ConversationSummary> conversations;
   final List<QueueItem> queue;
   final GitStatusSummary? gitStatus;
-  final FileTreeResponse fileTree;
-  final CodeDiagnosticsSummary diagnostics;
+  final FileTreeResponse? fileTree;
+  final CodeDiagnosticsSummary? diagnostics;
+  final Map<WorkspaceDetailSection, Object> sectionErrors;
 }
 ```
+
+Implementations may replace nullable detail fields plus `sectionErrors` with a typed `SectionState<T>` wrapper. The important rule is that independent workspace detail failures stay local to their section instead of failing the entire `WorkspaceDetail`.
 
 ## State Matrix
 
@@ -130,11 +135,12 @@ This branch is presentation rendering over observable state. It is not a daemon 
 1. User taps connect.
 2. `AppViewModel.connect()` validates address, checks daemon health, pairs device, and stores the connected client/config.
 3. `connectionStatus` becomes `connected`.
-4. `AppViewModel.loadWorkspaces()` calls `WorkspaceRepository.listWorkspaces()`.
-5. If the list is empty, `workspaces = []`, `selectedWorkspaceId = null`, and UI shows the workspace empty state.
-6. If the list has items, the ViewModel selects the last persisted workspace id if it still exists, otherwise the first item.
-7. Selecting a workspace calls `refreshDetail()`.
-8. `refreshDetail()` loads all workspace-scoped resources: overview, runs, conversations, queue, git status, diffs, commits, file tree, diagnostics, and any other detail resources needed by the selected workspace shell.
+4. `connect()` calls `loadWorkspaces()` internally after a successful daemon connection. Callers do not need to sequence these calls manually.
+5. `AppViewModel.loadWorkspaces()` calls `WorkspaceRepository.listWorkspaces()`.
+6. If the list is empty, `workspaces = []`, `selectedWorkspaceId = null`, and UI shows the workspace empty state.
+7. If the list has items, the ViewModel selects the last persisted workspace id if it still exists, otherwise the first item.
+8. Selecting a workspace calls `refreshDetail()`.
+9. `refreshDetail()` loads all workspace-scoped resources: overview, runs, conversations, queue, git status, diffs, commits, file tree, diagnostics, and any other detail resources needed by the selected workspace shell. Each section records its own error state; successfully loaded sections remain usable.
 
 Workspace selection persistence is part of `loadWorkspaces()` and `selectWorkspace()`:
 
