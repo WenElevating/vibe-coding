@@ -10,6 +10,11 @@ class ConversationMessage {
     this.toolUseId,
     this.toolName,
     this.summary,
+    this.taskId,
+    this.source,
+    this.taskItems = const <TaskProgressItem>[],
+    this.completedCount,
+    this.totalCount,
     this.input = const <String, Object?>{},
     this.completed = false,
     this.startedAt,
@@ -28,6 +33,11 @@ class ConversationMessage {
   final String? toolUseId;
   final String? toolName;
   final String? summary;
+  final String? taskId;
+  final String? source;
+  final List<TaskProgressItem> taskItems;
+  final int? completedCount;
+  final int? totalCount;
   final Map<String, Object?> input;
   final bool completed;
   final DateTime? startedAt;
@@ -123,6 +133,24 @@ class ConversationViewState {
             suggestions: event.suggestions,
           ));
           nextStatus = 'waiting_input';
+          break;
+        case 'task.progress.updated':
+          final taskId = event.taskId;
+          if (taskId == null || taskId.isEmpty || event.taskItems.isEmpty) {
+            break;
+          }
+          _upsertTaskProgressMessage(
+              nextMessages,
+              ConversationMessage(
+                role: 'task_progress',
+                text: 'Task Progress',
+                eventSeq: event.seq,
+                taskId: taskId,
+                source: event.source,
+                taskItems: event.taskItems,
+                completedCount: event.completedCount,
+                totalCount: event.totalCount,
+              ));
           break;
         case 'approval.requested':
           nextMessages.removeWhere((message) =>
@@ -461,6 +489,19 @@ void _upsertThinkingMessage(
   final merged = text.contains(current) ? text : '$current\n\n$text';
   messages[lastIndex] = ConversationMessage(
       role: 'thinking', text: merged, eventSeq: incoming.eventSeq);
+}
+
+void _upsertTaskProgressMessage(
+    List<ConversationMessage> messages, ConversationMessage incoming) {
+  final taskId = incoming.taskId;
+  if (taskId == null || taskId.isEmpty) return;
+  final index = messages.indexWhere(
+      (message) => message.role == 'task_progress' && message.taskId == taskId);
+  if (index < 0) {
+    messages.add(incoming);
+    return;
+  }
+  messages[index] = incoming;
 }
 
 String _mergeAssistantPartial(String current, String incoming) {

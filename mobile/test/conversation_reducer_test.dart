@@ -322,6 +322,91 @@ void main() {
     expect(state.messages, isEmpty);
   });
 
+  test('ConversationViewState projects task progress updates', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'task.progress.updated',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'taskId': 'item_1',
+        'source': 'codex',
+        'updatedAt': '2026-05-10T00:00:01.000Z',
+        'completedCount': 1,
+        'totalCount': 3,
+        'items': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': 'task_1',
+            'title': 'Inspect scoped files',
+            'status': 'completed'
+          },
+          <String, Object?>{
+            'id': 'task_2',
+            'title': 'Wire reducer',
+            'status': 'in_progress'
+          },
+          <String, Object?>{
+            'id': 'task_3',
+            'title': 'Run tests',
+            'status': 'pending'
+          },
+        ],
+      }),
+    ]);
+
+    expect(state.messages, hasLength(1));
+    final message = state.messages.single;
+    expect(message.role, 'task_progress');
+    expect(message.text, 'Task Progress');
+    expect(message.taskId, 'item_1');
+    expect(message.completedCount, 1);
+    expect(message.totalCount, 3);
+    expect(message.taskItems.map((item) => item.status),
+        const <String>['completed', 'in_progress', 'pending']);
+  });
+
+  test('ConversationViewState upserts repeated task progress updates', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'task.progress.updated',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'taskId': 'item_1',
+        'completedCount': 0,
+        'totalCount': 1,
+        'items': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': 'task_1',
+            'title': 'Inspect scoped files',
+            'status': 'pending'
+          },
+        ],
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'task.progress.updated',
+        'createdAt': '2026-05-10T00:00:01.000Z',
+        'taskId': 'item_1',
+        'completedCount': 1,
+        'totalCount': 1,
+        'items': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': 'task_1',
+            'title': 'Inspect scoped files',
+            'status': 'completed'
+          },
+        ],
+      }),
+    ]);
+
+    expect(state.messages, hasLength(1));
+    expect(state.messages.single.eventSeq, 2);
+    expect(state.messages.single.completedCount, 1);
+    expect(state.messages.single.taskItems.single.status, 'completed');
+  });
+
   test('ConversationViewState correlates tool output by toolUseId', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

@@ -153,6 +153,12 @@ class ConversationEvent {
     required this.conversationId,
     required this.createdAt,
     this.text,
+    this.taskId,
+    this.source,
+    this.updatedAt,
+    this.taskItems = const <TaskProgressItem>[],
+    this.completedCount,
+    this.totalCount,
     this.questionId,
     this.approvalId,
     this.toolUseId,
@@ -171,6 +177,12 @@ class ConversationEvent {
   final String conversationId;
   final DateTime createdAt;
   final String? text;
+  final String? taskId;
+  final String? source;
+  final DateTime? updatedAt;
+  final List<TaskProgressItem> taskItems;
+  final int? completedCount;
+  final int? totalCount;
   final String? questionId;
   final String? approvalId;
   final String? toolUseId;
@@ -191,6 +203,18 @@ class ConversationEvent {
         createdAt: DateTime.parse(
             json['createdAt'] as String? ?? DateTime.now().toIso8601String()),
         text: json['text'] as String?,
+        taskId: json['taskId'] as String?,
+        source: json['source'] as String?,
+        updatedAt: json['updatedAt'] is String
+            ? DateTime.parse(json['updatedAt']! as String)
+            : null,
+        taskItems: ((json['items'] as List<Object?>?) ?? const <Object?>[])
+            .whereType<Map<String, Object?>>()
+            .map(TaskProgressItem.fromJson)
+            .where((item) => item.title.trim().isNotEmpty)
+            .toList(),
+        completedCount: json['completedCount'] as int?,
+        totalCount: json['totalCount'] as int?,
         questionId: json['questionId'] as String?,
         approvalId: json['approvalId'] as String?,
         toolUseId: json['toolUseId'] as String?,
@@ -206,5 +230,24 @@ class ConversationEvent {
         isError: json['isError'] as bool? ?? false,
         durationMs: json['durationMs'] as int?,
         raw: json,
+      );
+}
+
+class TaskProgressItem {
+  const TaskProgressItem({
+    required this.id,
+    required this.title,
+    required this.status,
+  });
+
+  final String id;
+  final String title;
+  final String status;
+
+  factory TaskProgressItem.fromJson(Map<String, Object?> json) =>
+      TaskProgressItem(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        status: json['status'] as String? ?? '',
       );
 }
