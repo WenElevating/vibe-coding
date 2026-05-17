@@ -53,6 +53,7 @@ const conversationEventTypes = Object.freeze({
   TOOL_DELTA: 'tool.delta',
   TOOL_OUTPUT: 'tool.output',
   TOOL_COMPLETED: 'tool.completed',
+  TASK_PROGRESS_UPDATED: 'task.progress.updated',
   DIFF_SUMMARY: 'diff.summary',
   RUN_ERROR: 'run.error',
   CONVERSATION_COMPLETED: 'conversation.completed',

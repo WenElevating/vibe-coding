@@ -2235,6 +2235,77 @@ test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, 
   assert.equal(unknown.visible, false);
 });
 
+test('Codex mapper normalizes observed todo_list items into task progress', () => {
+  const event = mapCodexEvent({
+    type: 'item.started',
+    item: {
+      id: 'item_1',
+      type: 'todo_list',
+      items: [
+        { text: 'Inspect repo', completed: true },
+        { text: 'Run tests', completed: false },
+        { text: 'Summarize findings', completed: false }
+      ]
+    }
+  });
+
+  assert.equal(event.type, 'task.progress.updated');
+  assert.equal(event.taskId, 'item_1');
+  assert.equal(event.source, 'codex');
+  assert.equal(event.completedCount, 1);
+  assert.equal(event.totalCount, 3);
+  assert.deepEqual(event.items.map((item) => item.title), ['Inspect repo', 'Run tests', 'Summarize findings']);
+  assert.deepEqual(event.items.map((item) => item.status), ['completed', 'pending', 'pending']);
+  assert.match(event.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('Codex mapper normalizes compatibility todo_list todos statuses', () => {
+  const event = mapCodexEvent({
+    type: 'item.updated',
+    item: {
+      id: 'item_1',
+      type: 'todo_list',
+      todos: [
+        { content: 'Inspect repo', status: 'completed' },
+        { content: 'Run tests', status: 'in_progress' },
+        { content: 'Summarize findings', status: 'pending' }
+      ]
+    }
+  });
+
+  assert.equal(event.type, 'task.progress.updated');
+  assert.deepEqual(event.items.map((item) => item.title), ['Inspect repo', 'Run tests', 'Summarize findings']);
+  assert.deepEqual(event.items.map((item) => item.status), ['completed', 'in_progress', 'pending']);
+  assert.equal(event.completedCount, 1);
+  assert.equal(event.totalCount, 3);
+});
+
+test('Codex mapper treats completed todo_list event as terminal progress', () => {
+  const event = mapCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_1',
+      type: 'todo_list',
+      items: [
+        { text: 'Inspect repo', completed: false },
+        { text: 'Run tests', completed: false },
+        { text: 'Summarize findings', completed: false }
+      ]
+    }
+  });
+
+  assert.equal(event.type, 'task.progress.updated');
+  assert.deepEqual(event.items.map((item) => item.status), ['completed', 'completed', 'completed']);
+  assert.equal(event.completedCount, 3);
+  assert.equal(event.totalCount, 3);
+});
+
+test('Codex mapper drops malformed todo_list payloads', () => {
+  assert.equal(mapCodexEvent({ type: 'item.started', item: { id: 'item_1', type: 'todo_list' } }), null);
+  assert.equal(mapCodexEvent({ type: 'item.updated', item: { id: 'item_1', type: 'todo_list', items: [] } }), null);
+  assert.equal(mapCodexEvent({ type: 'item.completed', item: { id: 'item_1', type: 'todo_list', items: [{ completed: true }] } }), null);
+});
+
 test('Codex mapper truncates large aggregated output with marker', () => {
   const event = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_big', type: 'command_execution', command: 'dump', aggregated_output: 'abcdef', status: 'completed' } }, { maxAggregatedOutputBytes: 3 });
   assert.equal(event.type, 'tool.output');

@@ -276,6 +276,9 @@ function mapCodexEvent(raw, options = {}) {
     };
   }
   const item = raw.item && typeof raw.item === 'object' ? raw.item : null;
+  if (['item.started', 'item.updated', 'item.completed'].includes(raw.type) && item?.type === 'todo_list') {
+    return mapCodexTodoListEvent(raw, item);
+  }
   if (raw.type === 'item.started' && item?.type === 'command_execution') {
     return {
       type: conversationEventTypes.TOOL_STARTED,
@@ -326,6 +329,42 @@ function mapCodexEvent(raw, options = {}) {
     visible: false,
     raw
   };
+}
+
+function mapCodexTodoListEvent(raw, item) {
+  const sourceItems = Array.isArray(item.items) ? item.items : item.todos;
+  if (!Array.isArray(sourceItems) || sourceItems.length === 0) return null;
+
+  const progressItems = [];
+  for (const sourceItem of sourceItems) {
+    if (!sourceItem || typeof sourceItem !== 'object') return null;
+    const title = String(sourceItem.text || sourceItem.content || '').trim();
+    if (!title) return null;
+    progressItems.push({
+      title,
+      status: normalizeCodexTodoStatus(raw.type, sourceItem)
+    });
+  }
+
+  const completedCount = progressItems.filter((progressItem) => progressItem.status === 'completed').length;
+  return {
+    type: conversationEventTypes.TASK_PROGRESS_UPDATED,
+    taskId: item.id || null,
+    source: 'codex',
+    updatedAt: new Date().toISOString(),
+    items: progressItems,
+    completedCount,
+    totalCount: progressItems.length,
+    raw
+  };
+}
+
+function normalizeCodexTodoStatus(rawType, item) {
+  if (rawType === 'item.completed') return 'completed';
+  if (item.completed === true) return 'completed';
+  if (item.status === 'completed') return 'completed';
+  if (item.status === 'in_progress') return 'in_progress';
+  return 'pending';
 }
 
 function createJsonLineParser({ maxJsonLineBytes, onJson }) {
