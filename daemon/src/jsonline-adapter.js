@@ -3,18 +3,21 @@
 const { spawn, spawnSync } = require('node:child_process');
 const { eventTypes } = require('./protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
+const { discoverConfiguredModels } = require('./model-discovery');
 
 class JsonLineProcessAdapter {
-  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
+  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], modelCapabilityHelpArgs = null, spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
     this.name = name;
     this.command = command;
     this.capabilityArgs = capabilityArgs;
     this.runArgs = runArgs;
     this.requiredHelp = requiredHelp;
+    this.modelCapabilityHelpArgs = modelCapabilityHelpArgs;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
     this.explicitEnabled = explicitEnabled;
     this.capability = null;
+    this.modelCapability = defaultModelCapability();
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
   }
 
@@ -38,8 +41,19 @@ class JsonLineProcessAdapter {
         return this.capability;
       }
     }
+    const modelHelpText = this.modelCapabilityHelpArgs
+      ? resultText(this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, ...this.modelCapabilityHelpArgs], { encoding: 'utf8' }))
+      : helpText;
+    this.modelCapability = {
+      ...discoverConfiguredModels({ adapter: this.name }),
+      canSelectModel: helpHasModelFlag(modelHelpText)
+    };
     this.capability = capability(this.name, true, 'available', null, version);
     return this.capability;
+  }
+
+  getModelCapability() {
+    return this.modelCapability || defaultModelCapability();
   }
 
   ensureAvailable() {
@@ -70,12 +84,25 @@ class JsonLineProcessAdapter {
   }
 }
 
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: false };
+}
+
+function helpHasModelFlag(helpText) {
+  return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
+}
+
+function resultText(result = {}) {
+  return `${result.stdout || ''}\n${result.stderr || ''}`;
+}
+
 function createCodexAdapter(options = {}) {
   return new JsonLineProcessAdapter({
     name: 'codex',
     command: options.command || 'codex',
     capabilityArgs: ['--version'],
     requiredHelp: ['exec'],
+    modelCapabilityHelpArgs: ['exec', '--help'],
     runArgs: (prompt, workspacePath, sessionId, resume, permissionMode) => sessionId ? [
       'exec',
       'resume',

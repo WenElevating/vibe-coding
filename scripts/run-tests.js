@@ -14,6 +14,7 @@ const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
+const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
@@ -969,6 +970,27 @@ test('Claude detection exposes model flag support from help text', () => {
 
   assert.equal(detection.installed, true);
   assert.equal(detection.supportsModelFlag, true);
+});
+
+test('Claude capability detection probes help once and reports missing model flag', () => {
+  let helpCalls = 0;
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.119', stderr: '' };
+      if (args.includes('--help')) {
+        helpCalls++;
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(helpCalls, 1);
+  assert.equal(capability.capabilities.supportsModelFlag, false);
+  assert.equal(capability.canSelectModel, false);
 });
 
 test('Claude permission mode resolver falls back from unsupported auto to default', () => {
@@ -2231,6 +2253,27 @@ test('Codex model selection capability follows exec help model flag', () => {
   assert.equal(withoutModel.getModelCapability().canSelectModel, false);
 });
 
+test('Codex registry adapter exposes model selection capability from production path', async () => {
+  const registry = new AdapterRegistry([
+    createCodexAdapter({
+      explicitEnabled: true,
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn: (_cmd, args) => {
+        if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+        if (args[0] === 'exec' && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
+        if (args.includes('--help')) return { status: 0, stdout: 'Usage: codex\nexec', stderr: '' };
+        return { status: 1, stdout: '', stderr: 'unexpected probe' };
+      }
+    })
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.adapter, 'codex');
+  assert.equal(codex.available, true);
+  assert.equal(codex.canSelectModel, true);
+});
+
 test('Codex conversation adapter resumes captured thread with authorized workspace cwd', async () => {
   const spawnCalls = [];
   const adapter = new CodexConversationAdapter({
@@ -3298,6 +3341,37 @@ test('adapter capability listing merges model capability metadata', async () => 
   assert.deepEqual(claude.models, []);
   assert.equal(claude.selectedModel, null);
   assert.equal(claude.canSelectModel, false);
+});
+
+test('adapter capability listing falls back when model capability hooks fail', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'throws',
+      async detectCapabilities() {
+        return { adapter: 'throws', available: true, status: 'available' };
+      },
+      getModelCapability() {
+        throw new Error('model discovery failed');
+      }
+    },
+    {
+      name: 'rejects',
+      async detectCapabilities() {
+        return { adapter: 'rejects', available: true, status: 'available' };
+      },
+      async getModelCapability() {
+        throw new Error('async model discovery failed');
+      }
+    }
+  ]);
+
+  const listed = await registry.listCapabilities();
+
+  for (const item of listed) {
+    assert.deepEqual(item.models, []);
+    assert.equal(item.selectedModel, null);
+    assert.equal(item.canSelectModel, false);
+  }
 });
 
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {

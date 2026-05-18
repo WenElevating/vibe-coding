@@ -29,9 +29,7 @@ class AdapterRegistry {
 }
 
 async function enrich(adapter, status) {
-  const modelCapability = typeof adapter.getModelCapability === 'function'
-    ? await adapter.getModelCapability(status)
-    : {};
+  const modelCapability = await loadModelCapability(adapter, status);
   return {
     ...defaultModelCapability(),
     ...status,
@@ -40,6 +38,15 @@ async function enrich(adapter, status) {
     profile: status.profile || (typeof adapter.getProfile === 'function' ? adapter.getProfile() : null),
     capabilities: typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : status.capabilities
   };
+}
+
+async function loadModelCapability(adapter, status) {
+  if (typeof adapter.getModelCapability !== 'function') return {};
+  try {
+    return await adapter.getModelCapability(status);
+  } catch (_error) {
+    return {};
+  }
 }
 
 function defaultModelCapability() {

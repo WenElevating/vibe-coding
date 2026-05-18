@@ -24,7 +24,8 @@ class ClaudeAdapter {
       command: this.command,
       invocation: this.invocation,
       spawnSyncFn: this.spawnSyncFn,
-      readTextFile: this.readTextFile
+      readTextFile: this.readTextFile,
+      probeHelp: false
     });
     if (!detection.installed) {
       this.capability = unavailableCapability(this.command, detection.error || 'Claude Code CLI was not found');
@@ -150,7 +151,8 @@ function detectClaudeCodeInstallation({
   command = 'claude',
   invocation = { command, argsPrefix: [] },
   spawnSyncFn = spawnSync,
-  readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8')
+  readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8'),
+  probeHelp = true
 } = {}) {
   const result = {
     installed: false,
@@ -170,7 +172,7 @@ function detectClaudeCodeInstallation({
     result.version = String(version.stdout || version.stderr || '').trim();
     result.installed = !!result.version;
     result.method = result.method || 'exec';
-    result.supportsModelFlag = detectHelpModelFlag(invocation, spawnSyncFn);
+    result.supportsModelFlag = probeHelp ? detectHelpModelFlag(invocation, spawnSyncFn) : false;
     return result;
   }
 
@@ -180,7 +182,7 @@ function detectClaudeCodeInstallation({
     result.version = `${packageVersion} (Claude Code)`;
     result.installed = true;
     result.method = `${result.method || 'path'}+package`;
-    result.supportsModelFlag = detectHelpModelFlag(invocation, spawnSyncFn);
+    result.supportsModelFlag = probeHelp ? detectHelpModelFlag(invocation, spawnSyncFn) : false;
   }
   return result;
 }
