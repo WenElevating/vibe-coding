@@ -11,14 +11,14 @@ const { validateRunCreate, assertNoV1TerminalRequest, eventTypes } = require('..
 const { EventStore } = require('../daemon/src/event-store');
 const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
-const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes } = require('../daemon/src/claude-adapter');
+const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
-const { MODEL_CATALOG_MAX_BYTES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
+const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -954,6 +954,21 @@ test('Claude capability detection records permission modes from help text', () =
   });
   const capability = adapter.detectCapabilities();
   assert.deepEqual(capability.capabilities.permissionModes.sort(), ['acceptEdits', 'bypassPermissions', 'default', 'dontAsk', 'plan'].sort());
+});
+
+test('Claude detection exposes model flag support from help text', () => {
+  const detection = detectClaudeCodeInstallation({
+    command: 'claude',
+    invocation: { command: 'claude', argsPrefix: [] },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.119', stderr: '' };
+      if (args.includes('--help')) return { status: 0, stdout: '-p --model <MODEL> --output-format stream-json', stderr: '' };
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  assert.equal(detection.installed, true);
+  assert.equal(detection.supportsModelFlag, true);
 });
 
 test('Claude permission mode resolver falls back from unsupported auto to default', () => {
@@ -2189,6 +2204,33 @@ test('Codex capability detection allows slow Windows npm shim startup', () => {
   assert.equal(capability.version, 'codex-cli 0.130.0');
 });
 
+test('Codex model selection capability follows exec help model flag', () => {
+  const withModel = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+      if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json', stderr: '' };
+      if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  const withoutModel = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+      if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json', stderr: '' };
+      if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  withModel.detectCapabilities();
+  withoutModel.detectCapabilities();
+
+  assert.equal(withModel.getModelCapability().canSelectModel, true);
+  assert.equal(withoutModel.getModelCapability().canSelectModel, false);
+});
+
 test('Codex conversation adapter resumes captured thread with authorized workspace cwd', async () => {
   const spawnCalls = [];
   const adapter = new CodexConversationAdapter({
@@ -3215,6 +3257,47 @@ test('adapter capability loading shares concurrent probes', async () => {
   await registry.listCapabilities();
   assert.equal(firstCalls, 2);
   assert.equal(secondCalls, 2);
+});
+
+test('adapter capability listing merges model capability metadata', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      displayName: 'Codex',
+      async detectCapabilities() {
+        return { adapter: 'codex', available: true, status: 'available', selectedModel: 'status-model' };
+      },
+      getModelCapability() {
+        return {
+          models: [{ id: 'gpt-5', label: 'GPT-5', source: MODEL_SOURCES.CODEX_CONFIG, selected: true }],
+          selectedModel: 'gpt-5',
+          canSelectModel: true
+        };
+      },
+      getCapabilities() {
+        return { resume: true };
+      }
+    },
+    {
+      name: 'claude',
+      async detectCapabilities() {
+        return { adapter: 'claude', available: true, status: 'available', capabilities: { resume: true } };
+      }
+    }
+  ]);
+
+  const listed = await registry.listCapabilities();
+  const codex = listed.find((item) => item.adapter === 'codex');
+  const claude = listed.find((item) => item.adapter === 'claude');
+
+  assert.equal(codex.displayName, 'Codex');
+  assert.deepEqual(codex.models.map((model) => model.id), ['gpt-5']);
+  assert.equal(codex.selectedModel, 'gpt-5');
+  assert.equal(codex.canSelectModel, true);
+  assert.deepEqual(codex.capabilities, { resume: true });
+  assert.deepEqual(claude.models, []);
+  assert.equal(claude.selectedModel, null);
+  assert.equal(claude.canSelectModel, false);
 });
 
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {

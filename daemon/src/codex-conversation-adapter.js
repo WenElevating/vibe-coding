@@ -3,6 +3,7 @@
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
+const { discoverConfiguredModels } = require('./model-discovery');
 
 const DEFAULT_MAX_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES = 64 * 1024;
@@ -27,6 +28,7 @@ class CodexConversationAdapter {
     this.maxAggregatedOutputBytes = maxAggregatedOutputBytes;
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
+    this.modelCapability = defaultModelCapability();
     this.capabilities = {
       longLivedProcess: false,
       waitingInput: false,
@@ -51,6 +53,7 @@ class CodexConversationAdapter {
       this.capability.version = resultText(version).trim() || null;
       return this.capability;
     }
+    const execHelpText = resultText(execHelp);
     const resumeHelp = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, 'exec', 'resume', '--help'], { encoding: 'utf8', timeout: CODEX_DETECTION_TIMEOUT_MS });
     if (resumeHelp.error || resumeHelp.status !== 0 || !/resume/i.test(resultText(resumeHelp)) || !resultText(resumeHelp).includes('--json')) {
       this.capability = unavailableCapability(this.command, 'Codex CLI missing required exec resume --json capability');
@@ -58,11 +61,16 @@ class CodexConversationAdapter {
       return this.capability;
     }
     const resumeHelpText = resultText(resumeHelp);
+    this.modelCapability = {
+      ...discoverConfiguredModels({ adapter: 'codex' }),
+      canSelectModel: helpHasModelFlag(execHelpText)
+    };
     this.capability = {
       adapter: 'codex',
       version: resultText(version).trim() || null,
       available: true,
       command: this.command,
+      ...this.modelCapability,
       capabilities: {
         ...this.capabilities,
         execJson: true,
@@ -71,6 +79,10 @@ class CodexConversationAdapter {
       }
     };
     return this.capability;
+  }
+
+  getModelCapability() {
+    return this.modelCapability || defaultModelCapability();
   }
 
   ensureAvailable() {
@@ -205,6 +217,14 @@ class CodexConversationHandle {
   async dispose() {
     await this.cancel();
   }
+}
+
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: false };
+}
+
+function helpHasModelFlag(helpText) {
+  return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
 function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default' }) {

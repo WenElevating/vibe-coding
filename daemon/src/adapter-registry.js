@@ -28,13 +28,22 @@ class AdapterRegistry {
   }
 }
 
-function enrich(adapter, status) {
+async function enrich(adapter, status) {
+  const modelCapability = typeof adapter.getModelCapability === 'function'
+    ? await adapter.getModelCapability(status)
+    : {};
   return {
+    ...defaultModelCapability(),
     ...status,
-    displayName: adapter.displayName || adapter.name,
-    profile: typeof adapter.getProfile === 'function' ? adapter.getProfile() : null,
+    ...modelCapability,
+    displayName: status.displayName || adapter.displayName || adapter.name,
+    profile: status.profile || (typeof adapter.getProfile === 'function' ? adapter.getProfile() : null),
     capabilities: typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : status.capabilities
   };
+}
+
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: false };
 }
 
 module.exports = { AdapterRegistry };

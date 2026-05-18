@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { detectClaudeCodeInstallation, unavailableCapability } = require('./claude-adapter');
 const { resolveCliInvocation } = require('./cli-resolver');
+const { discoverConfiguredModels } = require('./model-discovery');
 
 class ClaudeConversationAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile } = {}) {
@@ -14,6 +15,7 @@ class ClaudeConversationAdapter {
     this.readTextFile = readTextFile;
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
+    this.modelCapability = defaultModelCapability();
     this.capabilities = { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true };
   }
 
@@ -28,6 +30,10 @@ class ClaudeConversationAdapter {
       this.capability = unavailableCapability(this.command, detection.error || 'Claude Code CLI was not found');
       return this.capability;
     }
+    this.modelCapability = {
+      ...discoverConfiguredModels({ adapter: 'claude' }),
+      canSelectModel: Boolean(detection.supportsModelFlag)
+    };
     this.capability = {
       adapter: 'claude',
       version: detection.version,
@@ -35,9 +41,17 @@ class ClaudeConversationAdapter {
       command: this.command,
       path: detection.path,
       detectionMethod: detection.method,
-      capabilities: this.capabilities
+      ...this.modelCapability,
+      capabilities: {
+        ...this.capabilities,
+        supportsModelFlag: Boolean(detection.supportsModelFlag)
+      }
     };
     return this.capability;
+  }
+
+  getModelCapability() {
+    return this.modelCapability || defaultModelCapability();
   }
 
   ensureAvailable() {
@@ -102,6 +116,10 @@ class ClaudeConversationAdapter {
     state.initFallback = fallback;
     return new ClaudeConversationHandle({ conversationId, state });
   }
+}
+
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: false };
 }
 
 class ClaudeConversationHandle {

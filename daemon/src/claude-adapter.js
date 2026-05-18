@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { eventTypes } = require('./protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
+const { discoverConfiguredModels } = require('./model-discovery');
 
 class ClaudeAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8') } = {}) {
@@ -15,6 +16,7 @@ class ClaudeAdapter {
     this.readTextFile = readTextFile;
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
+    this.modelCapability = defaultModelCapability();
   }
 
   detectCapabilities() {
@@ -31,6 +33,11 @@ class ClaudeAdapter {
     const help = this.spawnSyncFn(this.invocation.command, [...this.invocation.argsPrefix, '--help'], { encoding: 'utf8', timeout: 5000 });
     const helpAvailable = !help.error && help.status === 0;
     const helpText = `${help.stdout}\n${help.stderr}`;
+    const supportsModelFlag = helpAvailable ? helpHasModelFlag(helpText) : Boolean(detection.supportsModelFlag);
+    this.modelCapability = {
+      ...discoverConfiguredModels({ adapter: 'claude' }),
+      canSelectModel: supportsModelFlag
+    };
     const permissionModes = helpAvailable
       ? detectPermissionModes(this.invocation, this.spawnSyncFn, helpText)
       : ['default', 'auto'];
@@ -41,6 +48,7 @@ class ClaudeAdapter {
       command: this.command,
       path: detection.path,
       detectionMethod: detection.method,
+      ...this.modelCapability,
       capabilities: {
         print: !helpAvailable || helpText.includes('-p') || helpText.includes('--print'),
         bare: helpAvailable && helpText.includes('--bare'),
@@ -49,6 +57,7 @@ class ClaudeAdapter {
         verbose: !helpAvailable || helpText.includes('--verbose'),
         includePartialMessages: !helpAvailable || helpText.includes('--include-partial-messages'),
         resume: !helpAvailable || helpText.includes('--resume') || helpText.includes('resume'),
+        supportsModelFlag,
         permissionModes
       }
     };
@@ -59,6 +68,10 @@ class ClaudeAdapter {
       this.capability.error = `Claude CLI missing required capabilities: ${missing.join(', ')}`;
     }
     return this.capability;
+  }
+
+  getModelCapability() {
+    return this.modelCapability || defaultModelCapability();
   }
 
   ensureAvailable() {
@@ -144,7 +157,8 @@ function detectClaudeCodeInstallation({
     path: invocationPath(command, invocation),
     version: null,
     method: null,
-    error: null
+    error: null,
+    supportsModelFlag: false
   };
   if (result.path) result.method = 'which';
 
@@ -156,6 +170,7 @@ function detectClaudeCodeInstallation({
     result.version = String(version.stdout || version.stderr || '').trim();
     result.installed = !!result.version;
     result.method = result.method || 'exec';
+    result.supportsModelFlag = detectHelpModelFlag(invocation, spawnSyncFn);
     return result;
   }
 
@@ -165,8 +180,22 @@ function detectClaudeCodeInstallation({
     result.version = `${packageVersion} (Claude Code)`;
     result.installed = true;
     result.method = `${result.method || 'path'}+package`;
+    result.supportsModelFlag = detectHelpModelFlag(invocation, spawnSyncFn);
   }
   return result;
+}
+
+function detectHelpModelFlag(invocation, spawnSyncFn) {
+  const help = spawnSyncFn(invocation.command, [...(invocation.argsPrefix || []), '--help'], {
+    encoding: 'utf8',
+    timeout: 5000
+  });
+  if (help.error || help.status !== 0) return false;
+  return helpHasModelFlag(`${help.stdout || ''}\n${help.stderr || ''}`);
+}
+
+function helpHasModelFlag(helpText) {
+  return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
 function invocationPath(command, invocation) {
@@ -457,6 +486,10 @@ function unavailableCapability(command, reason) {
     capabilities: { print: false, bare: false, streamJson: false, inputFormat: false, verbose: false, includePartialMessages: false, resume: false },
     error: `Unable to inspect Claude CLI. Run claude --version and claude --help. ${reason ? String(reason) : ''}`.trim()
   };
+}
+
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: false };
 }
 
 function parseJsonLines(chunk, onEvent) {
