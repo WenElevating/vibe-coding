@@ -31,6 +31,24 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
 
+function createConversationManagerForTest({ adapters }) {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-09T00:00:00.000Z') });
+  const auditLog = new AuditLog();
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog,
+    adapters,
+    now: () => new Date('2026-05-09T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  return { manager, device, auditLog, eventStore };
+}
+
 test('pairing issues a token and stores only token hash', () => {
   const auth = new AuthManager({ now: () => 1000 });
   const pairing = auth.createPairingCode();
@@ -660,6 +678,52 @@ test('conversation manager passes selected model into adapter startup', async ()
   assert.equal(manager.getConversation(conversation.id, device).model, 'gpt-5.5');
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].model, 'gpt-5.5');
+});
+
+test('conversation manager validates model update capability', async () => {
+  const codex = {
+    capabilities: { resume: true },
+    async getModelCapability() {
+      return {
+        canSelectModel: true,
+        selectedModel: 'gpt-5',
+        models: [{ id: 'gpt-5', label: 'GPT-5' }]
+      };
+    },
+    async startConversation() {
+      throw new Error('not needed');
+    }
+  };
+  const claude = {
+    capabilities: { resume: true },
+    async getModelCapability() {
+      return {
+        canSelectModel: false,
+        selectedModel: null,
+        models: []
+      };
+    },
+    async startConversation() {
+      throw new Error('not needed');
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([['codex', codex], ['claude', claude]])
+  });
+
+  const codexConversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex', model: 'gpt-5' }, device);
+  await assert.rejects(
+    () => manager.updateModel(codexConversation.id, { model: 'unknown-model' }, device),
+    (error) => error.status === 422 && /not available/.test(error.message)
+  );
+
+  const claudeConversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await assert.rejects(
+    () => manager.updateModel(claudeConversation.id, { model: 'claude-opus' }, device),
+    (error) => error.status === 422 && /does not support model selection/.test(error.message)
+  );
+  const cleared = await manager.updateModel(claudeConversation.id, { model: null }, device);
+  assert.equal(cleared.model, null);
 });
 
 test('conversation manager preserves selected model after SQLite reload', async () => {
@@ -3013,9 +3077,20 @@ test('Codex conversation HTTP API sends message and stores CLI thread id', async
 });
 
 test('HTTP conversation API exposes model metadata and passes selected model into adapter startup', async () => {
+  const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
   const startCalls = [];
   const conversationAdapters = new Map([['codex', {
     capabilities: { resume: true, partialOutput: true },
+    async getModelCapability() {
+      return {
+        models: [
+          { id: 'gpt-5', label: 'GPT-5', source: MODEL_SOURCES.CODEX_CONFIG, selected: true },
+          { id: 'gpt-5.5', label: 'GPT-5.5', source: MODEL_SOURCES.CODEX_CONFIG }
+        ],
+        selectedModel: 'gpt-5',
+        canSelectModel: true
+      };
+    },
     async startConversation(input) {
       startCalls.push(input);
       return {
@@ -3040,12 +3115,19 @@ test('HTTP conversation API exposes model metadata and passes selected model int
     },
     getModelCapability() {
       return {
-        models: [{
-          id: 'gpt-5',
-          label: 'GPT-5',
-          source: MODEL_SOURCES.CODEX_CONFIG,
-          selected: true
-        }],
+        models: [
+          {
+            id: 'gpt-5',
+            label: 'GPT-5',
+            source: MODEL_SOURCES.CODEX_CONFIG,
+            selected: true
+          },
+          {
+            id: 'gpt-5.5',
+            label: 'GPT-5.5',
+            source: MODEL_SOURCES.CODEX_CONFIG
+          }
+        ],
         selectedModel: 'gpt-5',
         canSelectModel: true
       };
@@ -3065,7 +3147,7 @@ test('HTTP conversation API exposes model metadata and passes selected model int
     const token = paired.body.token;
     const adapters = await request(port, 'GET', '/api/adapters', null, token);
     const codex = adapters.body.adapters.find((item) => item.adapter === 'codex');
-    assert.deepEqual(codex.models.map((model) => model.id), ['gpt-5']);
+    assert.deepEqual(codex.models.map((model) => model.id), ['gpt-5', 'gpt-5.5']);
     assert.equal(codex.selectedModel, 'gpt-5');
     assert.equal(codex.canSelectModel, true);
 
@@ -3083,13 +3165,27 @@ test('HTTP conversation API exposes model metadata and passes selected model int
     assert.equal(created.body.conversation.model, 'gpt-5');
 
     const conversationId = created.body.conversation.id;
+    const patched = await request(port, 'PATCH', `/api/conversations/${conversationId}/model`, { model: 'gpt-5.5' }, token);
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.conversation.model, 'gpt-5.5');
+
+    const updatedList = await request(port, 'GET', '/api/conversations', null, token);
+    const updatedConversation = updatedList.body.conversations.find((item) => item.id === conversationId);
+    assert.equal(updatedConversation.model, 'gpt-5.5');
+
+    const updateEvents = await request(port, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, token);
+    const modelChanged = updateEvents.body.events.find((event) => event.type === conversationEventTypes.MODEL_CHANGED);
+    assert.ok(modelChanged);
+    assert.equal(modelChanged.previousModel, 'gpt-5');
+    assert.equal(modelChanged.model, 'gpt-5.5');
+
     await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'hello' }, token);
     assert.equal(startCalls.length, 1);
-    assert.equal(startCalls[0].model, 'gpt-5');
+    assert.equal(startCalls[0].model, 'gpt-5.5');
 
     const listed = await request(port, 'GET', '/api/conversations', null, token);
     const conversation = listed.body.conversations.find((item) => item.id === conversationId);
-    assert.equal(conversation.model, 'gpt-5');
+    assert.equal(conversation.model, 'gpt-5.5');
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }

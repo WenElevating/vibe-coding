@@ -6,6 +6,7 @@ const {
   conversationSessionBindings,
   conversationEventTypes,
   normalizeConversationCreate,
+  normalizeConversationModelUpdate,
   normalizeMessagePayload,
   normalizeQuestionResponse,
   normalizeApprovalDecision
@@ -104,6 +105,37 @@ class ConversationManager {
     return publicConversation(conversation);
   }
 
+  async updateModel(conversationId, payload, device) {
+    const conversation = this.requireConversation(conversationId, device);
+    const input = normalizeConversationModelUpdate(payload);
+    if (activeStateBlocksModelUpdate(conversation)) {
+      throw conflict('conversation is active; wait for the current turn before changing model');
+    }
+    if (conversation.modelUpdateLock) throw conflict('model update already in flight');
+
+    conversation.modelUpdateLock = true;
+    try {
+      if (activeStateBlocksModelUpdate(conversation)) {
+        throw conflict('conversation is active; wait for the current turn before changing model');
+      }
+      const adapter = this.getAdapter(conversation.adapter);
+      const capability = await modelCapabilityFor(adapter);
+      assertRequestedModelAllowed(input.model, capability);
+      if ((conversation.model || null) === input.model) return publicConversation(conversation);
+
+      const previousModel = conversation.model || null;
+      conversation.model = input.model;
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.MODEL_CHANGED, {
+        previousModel,
+        model: input.model
+      });
+      return publicConversation(conversation);
+    } finally {
+      conversation.modelUpdateLock = false;
+    }
+  }
+
   activeWorkspaceConversations(workspaceId, device) {
     return Array.from(this.conversations.values())
       .filter((conversation) => conversation.workspaceId === workspaceId)
@@ -129,6 +161,7 @@ class ConversationManager {
     const message = normalizeMessagePayload(payload);
     if (conversation.status === conversationStatuses.WAITING_INPUT) throw conflict('conversation is waiting for input response');
     if (conversation.status === conversationStatuses.WAITING_APPROVAL) throw conflict('conversation is waiting for approval response');
+    if (conversation.modelUpdateLock) throw conflict('model update already in flight');
     if (conversation.sendLock) throw conflict('message already in flight');
     conversation.sendLock = true;
     conversation.status = conversationStatuses.RUNNING;
@@ -401,6 +434,42 @@ function eventCompletesTurn(event) {
   return event.turnFinal !== false;
 }
 
+function activeStateBlocksModelUpdate(conversation) {
+  return [
+    conversationStatuses.RUNNING,
+    conversationStatuses.WAITING_INPUT,
+    conversationStatuses.WAITING_APPROVAL
+  ].includes(conversation.status) || Boolean(conversation.sendLock);
+}
+
+async function modelCapabilityFor(adapter) {
+  if (typeof adapter.detectCapabilities === 'function') {
+    await adapter.detectCapabilities();
+  }
+  if (typeof adapter.getModelCapability !== 'function') {
+    return { canSelectModel: false, selectedModel: null, models: [] };
+  }
+  const capability = await adapter.getModelCapability();
+  return {
+    canSelectModel: capability?.canSelectModel === true,
+    selectedModel: typeof capability?.selectedModel === 'string' ? capability.selectedModel : null,
+    models: Array.isArray(capability?.models) ? capability.models : []
+  };
+}
+
+function assertRequestedModelAllowed(requestedModel, capability) {
+  if (requestedModel == null) return;
+  if (capability.canSelectModel !== true) {
+    throw unprocessable('adapter does not support model selection');
+  }
+  if (capability.models.length === 0) {
+    throw unprocessable('adapter model capability has no selectable models');
+  }
+  if (!capability.models.some((model) => model && model.id === requestedModel)) {
+    throw unprocessable(`model is not available for this adapter: ${requestedModel}`);
+  }
+}
+
 function publicConversation(conversation) {
   return {
     id: conversation.id,
@@ -445,6 +514,13 @@ function conflict(message) {
   const error = new Error(message);
   error.status = 409;
   error.code = 'CONVERSATION_CONFLICT';
+  return error;
+}
+
+function unprocessable(message) {
+  const error = new Error(message);
+  error.status = 422;
+  error.code = 'CONVERSATION_MODEL_UNSUPPORTED';
   return error;
 }
 
