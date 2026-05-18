@@ -800,6 +800,7 @@ class _FakeConversationRepository implements ConversationRepository {
     required String workspaceId,
     String adapter = 'claude',
     String permissionMode = 'default',
+    String? model,
   }) async {
     calls.add('create:$workspaceId:$adapter:$permissionMode');
     return _conversation(

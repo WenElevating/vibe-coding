@@ -17,11 +17,13 @@ class DaemonConversationRepository implements ConversationRepository {
     required String workspaceId,
     String adapter = 'claude',
     String permissionMode = 'default',
+    String? model,
   }) =>
       _client.createConversation(
         workspaceId: workspaceId,
         adapter: adapter,
         permissionMode: permissionMode,
+        model: model,
       );
 
   @override

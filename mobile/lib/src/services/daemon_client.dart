@@ -530,14 +530,19 @@ class DaemonClient
   }
 
   @override
-  Future<ConversationSummary> createConversation(
-      {required String workspaceId,
-      String adapter = 'claude',
-      String permissionMode = 'default'}) async {
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+    String? model,
+  }) async {
+    final trimmedModel = model?.trim();
     final response = await _post('/api/conversations', <String, Object?>{
       'workspaceId': workspaceId,
       'adapter': adapter,
       'permissionMode': permissionMode,
+      if (trimmedModel != null && trimmedModel.isNotEmpty)
+        'model': trimmedModel,
     });
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);

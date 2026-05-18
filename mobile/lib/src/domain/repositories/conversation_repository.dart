@@ -7,6 +7,7 @@ abstract class ConversationRepository {
     required String workspaceId,
     String adapter,
     String permissionMode,
+    String? model,
   });
 
   Future<ConversationSummary> sendConversationMessage(

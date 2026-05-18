@@ -366,6 +366,7 @@ class _LazyConversationRepository implements ConversationRepository {
     required String workspaceId,
     String adapter = 'claude',
     String permissionMode = 'default',
+    String? model,
   }) async =>
       throw UnimplementedError();
 

@@ -1,3 +1,27 @@
+class AdapterModelOption {
+  const AdapterModelOption({
+    required this.id,
+    required this.label,
+    required this.source,
+    required this.selected,
+  });
+
+  final String id;
+  final String label;
+  final String source;
+  final bool selected;
+
+  factory AdapterModelOption.fromJson(Map<String, Object?> json) {
+    final id = _optionalString(json['id']) ?? '';
+    return AdapterModelOption(
+      id: id,
+      label: _optionalString(json['label']) ?? id,
+      source: _optionalString(json['source']) ?? 'unknown',
+      selected: json['selected'] == true,
+    );
+  }
+}
+
 class AdapterStatus {
   const AdapterStatus(
       {required this.adapter,
@@ -6,6 +30,9 @@ class AdapterStatus {
       this.version,
       this.error,
       this.actionable,
+      this.models = const <AdapterModelOption>[],
+      this.selectedModel,
+      this.canSelectModel = false,
       this.capabilities = const <String, Object?>{}});
   final String adapter;
   final bool available;
@@ -13,6 +40,9 @@ class AdapterStatus {
   final String? version;
   final String? error;
   final String? actionable;
+  final List<AdapterModelOption> models;
+  final String? selectedModel;
+  final bool canSelectModel;
   final Map<String, Object?> capabilities;
   factory AdapterStatus.fromJson(Map<String, Object?> json) => AdapterStatus(
         adapter: json['adapter'] as String? ?? '',
@@ -22,8 +52,10 @@ class AdapterStatus {
         version: json['version'] as String?,
         error: json['error'] as String?,
         actionable: json['actionable'] as String?,
-        capabilities: (json['capabilities'] as Map<String, Object?>?) ??
-            const <String, Object?>{},
+        models: _adapterModelsFromJson(json['models']),
+        selectedModel: _optionalString(json['selectedModel']),
+        canSelectModel: json['canSelectModel'] == true,
+        capabilities: _objectMap(json['capabilities']),
       );
   String get statusText {
     if (available) return status;
@@ -92,4 +124,40 @@ class ExtensionSummary {
           installed: json['installed'] as bool? ?? false,
           status: json['status'] as String? ?? 'unknown',
           description: json['description'] as String? ?? '');
+}
+
+List<AdapterModelOption> _adapterModelsFromJson(Object? value) {
+  if (value is! Iterable) {
+    return const <AdapterModelOption>[];
+  }
+  return value
+      .map(_objectMap)
+      .where((item) => item.isNotEmpty)
+      .map(AdapterModelOption.fromJson)
+      .toList(growable: false);
+}
+
+Map<String, Object?> _objectMap(Object? value) {
+  if (value is Map<String, Object?>) {
+    return value;
+  }
+  if (value is! Map) {
+    return const <String, Object?>{};
+  }
+  final result = <String, Object?>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    if (key is String) {
+      result[key] = entry.value;
+    }
+  }
+  return result;
+}
+
+String? _optionalString(Object? value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

@@ -413,6 +413,7 @@ class _UnusedRepository
     required String workspaceId,
     String adapter = 'claude',
     String permissionMode = 'default',
+    String? model,
   }) =>
       throw UnimplementedError();
 
