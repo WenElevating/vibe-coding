@@ -229,6 +229,35 @@ void main() {
       expect(viewModel.modelUpdateError, 'conversation not found');
     });
 
+    test('status transitions preserve confirmed conversation model', () {
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      );
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      viewModel.markConversationRunning(notify: false);
+
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-codex');
+
+      viewModel.applyConversationEvents(
+        <ConversationEvent>[
+          _event(
+            seq: 1,
+            type: 'conversation.status_changed',
+            raw: const <String, Object?>{'status': 'waiting_input'},
+          ),
+        ],
+        streamOutput: false,
+        notify: false,
+      );
+
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-codex');
+    });
+
     test('stale model update success does not overwrite active conversation',
         () async {
       final repository = _FakeConversationRepository();
@@ -500,6 +529,19 @@ ConversationSummary _conversation({
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-18T00:00:00.000Z',
       updatedAt: '2026-05-18T00:00:01.000Z',
+    );
+
+ConversationEvent _event({
+  required int seq,
+  required String type,
+  Map<String, Object?> raw = const <String, Object?>{},
+}) =>
+    ConversationEvent(
+      seq: seq,
+      conversationId: 'conv_1',
+      type: type,
+      createdAt: DateTime.parse('2026-05-18T00:00:02.000Z'),
+      raw: raw,
     );
 
 class _FakeConversationRepository implements ConversationRepository {
