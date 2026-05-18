@@ -20,6 +20,7 @@ const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
+const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -31,18 +32,34 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
 
-function createConversationManagerForTest({ adapters }) {
+function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
   const workspaces = new WorkspaceRegistry();
   workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
   const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-09T00:00:00.000Z') });
   const auditLog = new AuditLog();
+  const defaultAdapters = new Map([['codex', {
+    capabilities: { resume: true },
+    async getModelCapability() {
+      return {
+        canSelectModel: true,
+        selectedModel: 'gpt-5',
+        models: [
+          { id: 'gpt-5', label: 'GPT-5' },
+          { id: 'gpt-5.5', label: 'GPT-5.5' }
+        ]
+      };
+    },
+    async startConversation() {
+      throw new Error('not needed');
+    }
+  }]]);
   const manager = new ConversationManager({
     workspaces,
     eventStore,
     auditLog,
-    adapters,
+    adapters: adapters || defaultAdapters,
     now: () => new Date('2026-05-09T00:00:00.000Z')
   });
   const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
@@ -726,6 +743,84 @@ test('conversation manager validates model update capability', async () => {
   );
   const cleared = await manager.updateModel(claudeConversation.id, { model: null }, device);
   assert.equal(cleared.model, null);
+});
+
+test('PATCH conversation model disposal failure detaches handle without changing model', async () => {
+  const { manager, device, auditLog } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex', model: 'gpt-5' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+  internal.cliSessionId = 'thread_1';
+  internal.handle = {
+    async dispose() {
+      throw new Error('dispose failed');
+    }
+  };
+
+  await assert.rejects(
+    () => manager.updateModel(conversation.id, { model: 'gpt-5.5' }, device),
+    /dispose failed/
+  );
+
+  assert.equal(internal.model, 'gpt-5');
+  assert.equal(internal.handle, null);
+  assert.equal(internal.cliSessionId, 'thread_1');
+  assert.equal(auditLog.list().some((record) => record.type === 'conversation.model_handle_dispose_error'), true);
+});
+
+test('PATCH conversation model persistence failure restores in-memory model and skips event', async () => {
+  const { manager, device } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex', model: 'gpt-5' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+  internal.handle = { disposed: false, async dispose() { this.disposed = true; } };
+  const originalPersist = manager.persistConversation.bind(manager);
+  manager.persistConversation = (item) => {
+    if (item.id === conversation.id && item.model === 'gpt-5.5') throw new Error('persist failed');
+    originalPersist(item);
+  };
+
+  await assert.rejects(
+    () => manager.updateModel(conversation.id, { model: 'gpt-5.5' }, device),
+    /persist failed/
+  );
+
+  assert.equal(internal.model, 'gpt-5');
+  assert.equal(internal.handle, null);
+  assert.equal(manager.listEvents(conversation.id, 0, device).some((event) => event.type === conversationEventTypes.MODEL_CHANGED), false);
+});
+
+test('PATCH conversation model event append failure keeps persisted model', async () => {
+  const { manager, device, auditLog } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex', model: 'gpt-5' }, device);
+  const originalAppend = manager.eventStore.append.bind(manager.eventStore);
+  manager.eventStore.append = (conversationId, type, payload) => {
+    if (type === conversationEventTypes.MODEL_CHANGED) throw new Error('event failed');
+    return originalAppend(conversationId, type, payload);
+  };
+
+  const updated = await manager.updateModel(conversation.id, { model: 'gpt-5.5' }, device);
+
+  assert.equal(updated.model, 'gpt-5.5');
+  assert.equal(manager.requireConversation(conversation.id, device).model, 'gpt-5.5');
+  assert.equal(auditLog.list().some((record) => record.type === 'conversation.model_change_event_error'), true);
+});
+
+test('conversation model update and send locks reject crossing operations', async () => {
+  const { manager, device } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+
+  internal.sendLock = true;
+  await assert.rejects(
+    () => manager.updateModel(conversation.id, { model: 'gpt-5' }, device),
+    (error) => error.status === 409
+  );
+  internal.sendLock = false;
+
+  internal.modelUpdateLock = true;
+  await assert.rejects(
+    () => manager.sendMessage(conversation.id, { text: 'hello' }, device),
+    (error) => error.status === 409
+  );
 });
 
 test('conversation manager preserves selected model after SQLite reload', async () => {

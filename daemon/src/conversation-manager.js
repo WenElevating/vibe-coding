@@ -124,12 +124,35 @@ class ConversationManager {
       if ((conversation.model || null) === input.model) return publicConversation(conversation);
 
       const previousModel = conversation.model || null;
-      conversation.model = input.model;
-      this.touch(conversation);
-      this.eventStore.append(conversation.id, conversationEventTypes.MODEL_CHANGED, {
-        previousModel,
-        model: input.model
-      });
+      try {
+        try {
+          await disposeIdleHandle(conversation);
+        } catch (error) {
+          this.auditLog.record('conversation.model_handle_dispose_error', {
+            conversationId: conversation.id,
+            error: error.message
+          });
+          throw error;
+        }
+
+        conversation.model = input.model;
+        this.touch(conversation);
+      } catch (error) {
+        conversation.model = previousModel;
+        throw error;
+      }
+
+      try {
+        this.eventStore.append(conversation.id, conversationEventTypes.MODEL_CHANGED, {
+          previousModel,
+          model: input.model
+        });
+      } catch (error) {
+        this.auditLog.record('conversation.model_change_event_error', {
+          conversationId: conversation.id,
+          error: error.message
+        });
+      }
       return publicConversation(conversation);
     } finally {
       conversation.modelUpdateLock = false;
@@ -440,6 +463,16 @@ function activeStateBlocksModelUpdate(conversation) {
     conversationStatuses.WAITING_INPUT,
     conversationStatuses.WAITING_APPROVAL
   ].includes(conversation.status) || Boolean(conversation.sendLock);
+}
+
+async function disposeIdleHandle(conversation) {
+  if (!conversation.handle) return;
+  const handle = conversation.handle;
+  try {
+    if (typeof handle.dispose === 'function') await handle.dispose();
+  } finally {
+    conversation.handle = null;
+  }
 }
 
 async function modelCapabilityFor(adapter) {
