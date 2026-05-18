@@ -858,7 +858,8 @@ void main() {
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
                 voiceError: null,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -892,7 +893,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -928,7 +930,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -962,7 +965,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -997,7 +1001,8 @@ void main() {
                 voiceState: VoiceInputState.failed,
                 voiceEnabled: true,
                 voiceError: '未检测到可用麦克风，请连接或启用录音设备后重试。',
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -1029,7 +1034,8 @@ void main() {
                     name: 'Current Project',
                     path: r'D:\AiProject\vibe-coding'),
                 running: false,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 canSend: false,
                 sending: false,
                 voiceState: VoiceInputState.idle,
@@ -1055,7 +1061,7 @@ void main() {
     expect(modelTaps, 1);
   });
 
-  testWidgets('coding composer disables CLI and model chips when locked',
+  testWidgets('coding composer can lock CLI while model remains selectable',
       (WidgetTester tester) async {
     var cliTaps = 0;
     var modelTaps = 0;
@@ -1073,7 +1079,8 @@ void main() {
                     name: 'Current Project',
                     path: r'D:\AiProject\vibe-coding'),
                 running: false,
-                locked: true,
+                cliLocked: true,
+                modelLocked: false,
                 canSend: false,
                 sending: false,
                 voiceState: VoiceInputState.idle,
@@ -1092,7 +1099,7 @@ void main() {
     await tester.tap(find.text('GPT-5 Codex'));
 
     expect(cliTaps, 0);
-    expect(modelTaps, 0);
+    expect(modelTaps, 1);
   });
 
   testWidgets('coding composer wraps long CLI and model chips on compact width',
@@ -1116,7 +1123,8 @@ void main() {
                     name: 'Current Project',
                     path: r'D:\AiProject\vibe-coding'),
                 running: false,
-                locked: false,
+                cliLocked: false,
+                modelLocked: false,
                 canSend: false,
                 sending: false,
                 voiceState: VoiceInputState.idle,
@@ -1415,7 +1423,7 @@ void main() {
                   AdapterModelOption(
                       id: 'claude-sonnet',
                       label: 'Claude Sonnet',
-                      source: 'claude_env',
+                      source: 'claude_config',
                       selected: false),
                   AdapterModelOption(
                       id: 'cli-default',
@@ -1432,7 +1440,7 @@ void main() {
     expect(find.text('GPT-5 Codex'), findsOneWidget);
     expect(find.text('Codex config'), findsOneWidget);
     expect(find.text('Codex catalog'), findsOneWidget);
-    expect(find.text('Claude env'), findsOneWidget);
+    expect(find.text('Claude config'), findsOneWidget);
     expect(find.text('CLI default'), findsOneWidget);
     expect(find.text('Unknown source'), findsOneWidget);
 

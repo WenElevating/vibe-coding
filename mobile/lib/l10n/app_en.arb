@@ -288,7 +288,7 @@
   "modelPickerDefaultModel": "Default model",
   "modelPickerSourceCodexConfig": "Codex config",
   "modelPickerSourceCodexCatalog": "Codex catalog",
-  "modelPickerSourceClaudeEnv": "Claude env",
+  "modelPickerSourceClaudeEnv": "Claude config",
   "modelPickerSourceCliDefault": "CLI default",
   "modelPickerSourceUnknown": "Unknown source",
   "workspaceListTitle": "Workspaces",

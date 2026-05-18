@@ -383,6 +383,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool get _isConversationAdapterLocked =>
       _activeConversationId != null || _sending;
 
+  bool get _isModelSelectionLocked => _sending;
+
   List<AdapterStatus> get _availableAdapters => widget.data.adapters
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
       .toList();
@@ -404,7 +406,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _showModelPicker() {
-    if (_isConversationAdapterLocked) return;
+    if (_isModelSelectionLocked) return;
     _workbenchViewModel.clearModelNotice();
     final status = _workbenchViewModel.selectedAdapterStatus;
     final models = status?.canSelectModel == true
@@ -986,7 +988,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           modelNotice: _modelNoticeLabel(l10n),
           workspace: workspace,
           running: _isRunningCli,
-          locked: _isConversationAdapterLocked,
+          cliLocked: _isConversationAdapterLocked,
+          modelLocked: _isModelSelectionLocked,
           canSend: canSend,
           sending: _sending,
           voiceState: _voiceInput.state,
@@ -1531,6 +1534,7 @@ String _modelSourceLabel(AppLocalizations l10n, String source) =>
     switch (source) {
       'codex_config' => l10n.modelPickerSourceCodexConfig,
       'codex_catalog' => l10n.modelPickerSourceCodexCatalog,
+      'claude_config' => l10n.modelPickerSourceClaudeEnv,
       'claude_env' => l10n.modelPickerSourceClaudeEnv,
       'cli_default' => l10n.modelPickerSourceCliDefault,
       _ => l10n.modelPickerSourceUnknown,

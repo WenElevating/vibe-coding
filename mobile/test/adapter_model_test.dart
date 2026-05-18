@@ -114,7 +114,7 @@ void main() {
       expect(viewModel.modelNotice, isNull);
     });
 
-    test('locked conversation state refuses model changes', () {
+    test('active conversation state allows model changes', () {
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
       );
@@ -122,7 +122,7 @@ void main() {
 
       viewModel.setSelectedModel('gpt-5-mini');
 
-      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.selectedModel, 'gpt-5-mini');
     });
 
     test('sending operation state refuses adapter and model changes', () {

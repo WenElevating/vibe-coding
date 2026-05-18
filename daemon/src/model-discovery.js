@@ -10,6 +10,7 @@ const MODEL_SOURCES = {
   CODEX_CONFIG: 'codex_config',
   CODEX_CATALOG: 'codex_catalog',
   CLAUDE_ENV: 'claude_env',
+  CLAUDE_CONFIG: 'claude_config',
   CLI_DEFAULT: 'cli_default',
   UNKNOWN: 'unknown'
 };
@@ -94,27 +95,97 @@ function discoverCodexModels(options, env) {
 }
 
 function discoverClaudeModels(options, env) {
-  const models = [];
-  for (const key of CLAUDE_ENV_MODEL_KEYS) {
-    addModel(models, env[key], MODEL_SOURCES.CLAUDE_ENV, models.length === 0);
-  }
-
+  const homeDir = options.homeDir || os.homedir();
   const workspacePath = options.workspacePath || process.cwd();
+  const userSettings = readClaudeSettings(
+    options.claudeSettingsPath || path.join(homeDir, '.claude', 'settings.json')
+  );
+  const projectSettings = readClaudeSettings(
+    options.claudeProjectSettingsPath || path.join(workspacePath, '.claude', 'settings.json')
+  );
+  const models = [];
+
+  addClaudeSettingsModels(models, userSettings, MODEL_SOURCES.CLAUDE_CONFIG);
+  addClaudeSettingsModels(models, projectSettings, MODEL_SOURCES.CLAUDE_CONFIG);
+
   const projectConfigPath = options.projectConfigPath || path.join(workspacePath, '.codex', 'config.toml');
   const projectConfig = readTomlConfig(projectConfigPath);
   const shellEnv = projectConfig.shell_environment_policy && projectConfig.shell_environment_policy.set;
   if (shellEnv) {
     for (const key of CLAUDE_ENV_MODEL_KEYS) {
-      addModel(models, shellEnv[key], MODEL_SOURCES.CLAUDE_ENV, models.length === 0);
+      addModel(models, shellEnv[key], MODEL_SOURCES.CLAUDE_CONFIG, false);
     }
   }
 
-  markSelected(models, models[0] && models[0].id);
+  for (const key of CLAUDE_ENV_MODEL_KEYS) {
+    addModel(models, env[key], MODEL_SOURCES.CLAUDE_ENV, false);
+  }
+
+  if (models.length === 0) {
+    addModel(models, userSettings.model || projectSettings.model, MODEL_SOURCES.CLI_DEFAULT, true);
+  }
+
+  markSelected(models, preferredClaudeModel(userSettings, projectSettings, shellEnv, env) || (models[0] && models[0].id));
   return {
     models,
     selectedModel: selectedModelFrom(models),
     canSelectModel: false
   };
+}
+
+function readClaudeSettings(settingsPath) {
+  try {
+    const text = readTextFileIfSafe(settingsPath);
+    if (text === null) return emptyClaudeSettings();
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return emptyClaudeSettings();
+    const settingsEnv = parsed.env && typeof parsed.env === 'object' && !Array.isArray(parsed.env)
+      ? parsed.env
+      : {};
+    return {
+      model: isNonEmptyString(parsed.model) ? parsed.model : null,
+      models: modelsFromEnv(settingsEnv)
+    };
+  } catch (_error) {
+    return emptyClaudeSettings();
+  }
+}
+
+function emptyClaudeSettings() {
+  return { model: null, models: [] };
+}
+
+function modelsFromEnv(env) {
+  const models = [];
+  for (const key of CLAUDE_ENV_MODEL_KEYS) {
+    if (isNonEmptyString(env && env[key]) && !models.includes(env[key])) models.push(env[key]);
+  }
+  return models;
+}
+
+function addClaudeSettingsModels(models, settings, source) {
+  for (const model of settings.models) {
+    addModel(models, model, source, false);
+  }
+}
+
+function preferredClaudeModel(userSettings, projectSettings, projectEnv, systemEnv) {
+  return preferredFromSettings(userSettings) ||
+    preferredFromSettings(projectSettings) ||
+    firstEnvModel(projectEnv) ||
+    firstEnvModel(systemEnv);
+}
+
+function preferredFromSettings(settings) {
+  if (settings.model && settings.models.includes(settings.model)) return settings.model;
+  return settings.models[0] || null;
+}
+
+function firstEnvModel(env) {
+  for (const key of CLAUDE_ENV_MODEL_KEYS) {
+    if (isNonEmptyString(env && env[key])) return env[key];
+  }
+  return null;
 }
 
 function readTomlConfig(filePath) {

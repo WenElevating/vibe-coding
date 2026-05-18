@@ -18,7 +18,8 @@ class CodingComposer extends StatelessWidget {
       required this.voiceState,
       required this.voiceEnabled,
       required this.voiceError,
-      required this.locked,
+      required this.cliLocked,
+      required this.modelLocked,
       this.model,
       this.modelNotice,
       required this.onCliTap,
@@ -38,7 +39,8 @@ class CodingComposer extends StatelessWidget {
   final VoiceInputState voiceState;
   final bool voiceEnabled;
   final String? voiceError;
-  final bool locked;
+  final bool cliLocked;
+  final bool modelLocked;
   final String? model;
   final String? modelNotice;
   final VoidCallback onCliTap;
@@ -127,15 +129,15 @@ class CodingComposer extends StatelessWidget {
                   Flexible(
                       child: Wrap(spacing: 8, runSpacing: 6, children: [
                     InkWell(
-                        onTap: locked ? null : onCliTap,
+                        onTap: cliLocked ? null : onCliTap,
                         borderRadius: BorderRadius.circular(999),
-                        child:
-                            _ComposerCliPill(adapter: adapter, locked: locked)),
+                        child: _ComposerCliPill(
+                            adapter: adapter, locked: cliLocked)),
                     InkWell(
-                        onTap: locked ? null : onModelTap,
+                        onTap: modelLocked ? null : onModelTap,
                         borderRadius: BorderRadius.circular(999),
-                        child:
-                            _ComposerModelPill(model: model, locked: locked)),
+                        child: _ComposerModelPill(
+                            model: model, locked: modelLocked)),
                   ])),
                   const SizedBox(width: 8),
                   Row(mainAxisSize: MainAxisSize.min, children: [
@@ -328,8 +330,7 @@ class _ComposerPillShell extends StatelessWidget {
           decoration: BoxDecoration(
               color: const Color(0xFF111214),
               borderRadius: BorderRadius.circular(999),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: .075))),
+              border: Border.all(color: Colors.white.withValues(alpha: .075))),
           child: child));
 }
 

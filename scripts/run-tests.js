@@ -2681,8 +2681,11 @@ test('Codex model discovery ignores oversize catalog files', () => {
 });
 
 test('Claude model discovery de-duplicates environment defaults by priority', () => {
+  const os = require('node:os');
+  const path = require('node:path');
   const discovered = discoverConfiguredModels({
     adapter: 'claude',
+    claudeSettingsPath: path.join(os.tmpdir(), 'missing-claude-settings.json'),
     env: {
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-duplicate',
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-duplicate',
@@ -2694,6 +2697,167 @@ test('Claude model discovery de-duplicates environment defaults by priority', ()
   assert.deepEqual(discovered.models.map((model) => model.id), ['claude-duplicate', 'claude-haiku']);
   assert.deepEqual(discovered.models.map((model) => model.source), ['claude_env', 'claude_env']);
   assert.equal(discovered.models[0].selected, true);
+});
+
+test('Claude model discovery falls back to user CLI default when settings has no model list', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-model-'));
+  const homeDir = path.join(root, 'home');
+  fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+  fs.writeFileSync(
+    path.join(homeDir, '.claude', 'settings.json'),
+    JSON.stringify({ model: 'claude-opus-4-6' })
+  );
+
+  const discovered = discoverConfiguredModels({ adapter: 'claude', homeDir, env: {} });
+
+  assert.equal(discovered.selectedModel, 'claude-opus-4-6');
+  assert.deepEqual(discovered.models.map((model) => model.id), ['claude-opus-4-6']);
+  assert.deepEqual(discovered.models.map((model) => model.source), ['cli_default']);
+  assert.equal(discovered.models[0].selected, true);
+});
+
+test('Claude model discovery orders explicit config before system environment', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-config-models-'));
+  const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(workspacePath, '.claude'), { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(homeDir, '.claude', 'settings.json'),
+    JSON.stringify({
+      model: 'user-sonnet',
+      env: {
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'user-opus',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'user-sonnet',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'user-haiku'
+      }
+    })
+  );
+  fs.writeFileSync(
+    path.join(workspacePath, '.claude', 'settings.json'),
+    JSON.stringify({
+      model: 'project-sonnet',
+      env: {
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'project-opus',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'project-sonnet',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'project-haiku'
+      }
+    })
+  );
+  fs.writeFileSync(
+    path.join(homeDir, '.claude.json'),
+    JSON.stringify({
+      projects: {
+        [workspacePath.replace(/\\/g, '/')]: {
+          lastModelUsage: {
+            'history-only-model': { inputTokens: 1 }
+          }
+        }
+      }
+    })
+  );
+
+  const discovered = discoverConfiguredModels({
+    adapter: 'claude',
+    homeDir,
+    workspacePath,
+    env: {
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'system-opus',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'system-sonnet',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'system-haiku'
+    }
+  });
+
+  assert.equal(discovered.selectedModel, 'user-sonnet');
+  assert.deepEqual(discovered.models.map((model) => model.id), [
+    'user-opus',
+    'user-sonnet',
+    'user-haiku',
+    'project-opus',
+    'project-sonnet',
+    'project-haiku',
+    'system-opus',
+    'system-sonnet',
+    'system-haiku'
+  ]);
+  assert.deepEqual(discovered.models.map((model) => model.source), [
+    'claude_config',
+    'claude_config',
+    'claude_config',
+    'claude_config',
+    'claude_config',
+    'claude_config',
+    'claude_env',
+    'claude_env',
+    'claude_env'
+  ]);
+  assert.deepEqual(discovered.models.map((model) => model.selected), [
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ]);
+});
+
+test('Claude model discovery uses project settings before system environment when user list is absent', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-project-config-models-'));
+  const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(workspacePath, '.claude'), { recursive: true });
+  fs.writeFileSync(
+    path.join(homeDir, '.claude', 'settings.json'),
+    JSON.stringify({})
+  );
+  fs.writeFileSync(
+    path.join(workspacePath, '.claude', 'settings.json'),
+    JSON.stringify({
+      model: 'project-sonnet',
+      env: {
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'project-opus',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'project-sonnet'
+      }
+    })
+  );
+
+  const discovered = discoverConfiguredModels({
+    adapter: 'claude',
+    homeDir,
+    workspacePath,
+    env: {
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'system-opus',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'system-sonnet'
+    }
+  });
+
+  assert.equal(discovered.selectedModel, 'project-sonnet');
+  assert.deepEqual(discovered.models.map((model) => model.id), [
+    'project-opus',
+    'project-sonnet',
+    'system-opus',
+    'system-sonnet'
+  ]);
+  assert.deepEqual(discovered.models.map((model) => model.source), [
+    'claude_config',
+    'claude_config',
+    'claude_env',
+    'claude_env'
+  ]);
 });
 
 test('Codex mapper truncates large aggregated output with marker', () => {

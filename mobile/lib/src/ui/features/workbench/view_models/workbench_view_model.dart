@@ -357,7 +357,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void setSelectedModel(String? model) {
-    if (_activeConversationId != null || _sending) return;
+    if (_sending) return;
     final normalized = _normalizeModel(model);
     final status = selectedAdapterStatus;
     if (normalized != null &&
@@ -405,7 +405,8 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void _reconcileSelectedModel() {
     final status = selectedAdapterStatus;
-    if (_selectedModel != null && _modelStillAvailable(_selectedModel, status)) {
+    if (_selectedModel != null &&
+        _modelStillAvailable(_selectedModel, status)) {
       return;
     }
     final previous = _selectedModel;
