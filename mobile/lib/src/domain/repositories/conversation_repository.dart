@@ -1,5 +1,28 @@
 import '../../models/protocol.dart';
 
+class ConversationRepositoryException implements Exception {
+  const ConversationRepositoryException({
+    required this.statusCode,
+    this.code,
+    this.message,
+    this.cause,
+  });
+
+  final int statusCode;
+  final String? code;
+  final String? message;
+  final Object? cause;
+
+  @override
+  String toString() {
+    final detail = message?.trim();
+    if (detail != null && detail.isNotEmpty) {
+      return 'ConversationRepositoryException($statusCode, $detail)';
+    }
+    return 'ConversationRepositoryException($statusCode)';
+  }
+}
+
 abstract class ConversationRepository {
   Future<List<ConversationSummary>> listConversations();
 

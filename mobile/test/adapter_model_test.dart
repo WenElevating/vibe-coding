@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -59,27 +61,32 @@ void main() {
       expect(viewModel.selectedAdapterStatus, _codexModels);
       expect(viewModel.availableModels, _codexModels.models);
       expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.draftModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, isNull);
       expect(viewModel.modelNotice, isNull);
     });
 
-    test('setSelectedModel updates draft model state', () {
+    test('selectModel updates draft model state', () async {
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
       );
 
-      viewModel.setSelectedModel('gpt-5-mini');
+      final selected = await viewModel.selectModel('gpt-5-mini');
 
+      expect(selected, isTrue);
       expect(viewModel.selectedModel, 'gpt-5-mini');
+      expect(viewModel.draftModel, 'gpt-5-mini');
       expect(viewModel.modelNotice, isNull);
     });
 
-    test('setSelectedModel ignores unsupported model ids', () {
+    test('selectModel ignores unsupported model ids', () async {
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
       );
 
-      viewModel.setSelectedModel('not-configured');
+      final selected = await viewModel.selectModel('not-configured');
 
+      expect(selected, isFalse);
       expect(viewModel.selectedModel, 'gpt-5-codex');
     });
 
@@ -114,18 +121,178 @@ void main() {
       expect(viewModel.modelNotice, isNull);
     });
 
-    test('active conversation state allows model changes', () {
+    test('existing conversation model update waits for repository success',
+        () async {
+      final repository = _FakeConversationRepository();
+      final updateCompleter = Completer<ConversationSummary>();
+      repository.updateCompleter = updateCompleter;
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
       );
-      viewModel.updateActiveConversation(_conversation(adapter: 'codex'));
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
 
-      viewModel.setSelectedModel('gpt-5-mini');
+      final pendingSelection = viewModel.selectModel('gpt-5-mini');
 
+      expect(viewModel.modelUpdating, isTrue);
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-codex');
+      expect(repository.calls, <String>['update-model:conv_1:gpt-5-mini']);
+
+      updateCompleter.complete(_conversation(model: 'gpt-5-mini'));
+      final selected = await pendingSelection;
+
+      expect(selected, isTrue);
       expect(viewModel.selectedModel, 'gpt-5-mini');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-mini');
+      expect(viewModel.modelUpdating, isFalse);
+      expect(viewModel.modelUpdateError, isNull);
     });
 
-    test('sending operation state refuses adapter and model changes', () {
+    test('existing conversation model update failure keeps confirmed model',
+        () async {
+      final repository = _FakeConversationRepository()
+        ..updateError = const ConversationRepositoryException(
+          statusCode: 500,
+          code: 'SERVER_ERROR',
+          message: 'update failed',
+        );
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final selected = await viewModel.selectModel('gpt-5-mini');
+
+      expect(selected, isFalse);
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-codex');
+      expect(viewModel.modelUpdating, isFalse);
+      expect(viewModel.modelUpdateError, 'update failed');
+      expect(viewModel.conversationModelUpdatesUnsupported, isFalse);
+    });
+
+    test('old daemon model endpoint disables existing conversation updates',
+        () async {
+      final repository = _FakeConversationRepository()
+        ..updateError = const ConversationRepositoryException(statusCode: 405);
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final selected = await viewModel.selectModel('gpt-5-mini');
+
+      expect(selected, isFalse);
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.conversationModelUpdatesUnsupported, isTrue);
+      expect(
+        viewModel.modelUpdateError,
+        'existing conversation model updates require a newer daemon',
+      );
+
+      final secondSelection = await viewModel.selectModel('gpt-5-mini');
+
+      expect(secondSelection, isFalse);
+      expect(repository.calls, <String>['update-model:conv_1:gpt-5-mini']);
+    });
+
+    test('missing conversation response does not disable model updates',
+        () async {
+      final repository = _FakeConversationRepository()
+        ..updateError = const ConversationRepositoryException(
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: 'conversation not found',
+        );
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final selected = await viewModel.selectModel('gpt-5-mini');
+
+      expect(selected, isFalse);
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.conversationModelUpdatesUnsupported, isFalse);
+      expect(viewModel.modelUpdateError, 'conversation not found');
+    });
+
+    test('stale model update success does not overwrite active conversation',
+        () async {
+      final repository = _FakeConversationRepository();
+      final updateCompleter = Completer<ConversationSummary>();
+      repository.updateCompleter = updateCompleter;
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(id: 'conv_1', adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final pendingSelection = viewModel.selectModel('gpt-5-mini');
+      viewModel.updateActiveConversation(
+        _conversation(id: 'conv_2', adapter: 'codex', model: 'gpt-5-codex'),
+      );
+      updateCompleter.complete(
+        _conversation(id: 'conv_1', adapter: 'codex', model: 'gpt-5-mini'),
+      );
+
+      final selected = await pendingSelection;
+
+      expect(selected, isFalse);
+      expect(viewModel.activeConversationId, 'conv_2');
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.confirmedConversationModel, 'gpt-5-codex');
+      expect(viewModel.modelUpdating, isFalse);
+      expect(viewModel.modelUpdateError, isNull);
+      expect(viewModel.conversationModelUpdatesUnsupported, isFalse);
+    });
+
+    test('stale model update failure does not mark new conversation unsupported',
+        () async {
+      final repository = _FakeConversationRepository();
+      final updateCompleter = Completer<ConversationSummary>();
+      repository.updateCompleter = updateCompleter;
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(id: 'conv_1', adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final pendingSelection = viewModel.selectModel('gpt-5-mini');
+      viewModel.updateActiveConversation(
+        _conversation(id: 'conv_2', adapter: 'codex', model: 'gpt-5-codex'),
+      );
+      updateCompleter.completeError(
+        const ConversationRepositoryException(statusCode: 405),
+      );
+
+      final selected = await pendingSelection;
+
+      expect(selected, isFalse);
+      expect(viewModel.activeConversationId, 'conv_2');
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.modelUpdating, isFalse);
+      expect(viewModel.modelUpdateError, isNull);
+      expect(viewModel.conversationModelUpdatesUnsupported, isFalse);
+    });
+
+    test('sending operation state refuses adapter and model changes', () async {
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(
           adapters: const <AdapterStatus>[_codexModels, _claudeAvailable],
@@ -134,8 +301,9 @@ void main() {
 
       viewModel.beginOperation();
       viewModel.setSelectedAdapter('claude');
-      viewModel.setSelectedModel('gpt-5-mini');
+      final selected = await viewModel.selectModel('gpt-5-mini');
 
+      expect(selected, isFalse);
       expect(viewModel.selectedAdapter, 'codex');
       expect(viewModel.selectedModel, 'gpt-5-codex');
     });
@@ -317,9 +485,13 @@ AppSnapshot _snapshot({
       extensions: const <ExtensionSummary>[],
     );
 
-ConversationSummary _conversation({String adapter = 'codex', String? model}) =>
+ConversationSummary _conversation({
+  String id = 'conv_1',
+  String adapter = 'codex',
+  String? model,
+}) =>
     ConversationSummary(
-      id: 'conv_1',
+      id: id,
       workspaceId: _workspace.id,
       adapter: adapter,
       model: model,
@@ -332,6 +504,8 @@ ConversationSummary _conversation({String adapter = 'codex', String? model}) =>
 
 class _FakeConversationRepository implements ConversationRepository {
   final List<String> calls = <String>[];
+  Completer<ConversationSummary>? updateCompleter;
+  ConversationRepositoryException? updateError;
 
   @override
   Future<ConversationSummary> createConversation({
@@ -341,7 +515,7 @@ class _FakeConversationRepository implements ConversationRepository {
     String? model,
   }) async {
     calls.add('create:$workspaceId:$adapter:$permissionMode:$model');
-    return _conversation(adapter: adapter);
+    return _conversation(adapter: adapter, model: model);
   }
 
   @override
@@ -359,6 +533,10 @@ class _FakeConversationRepository implements ConversationRepository {
     String? model,
   ) async {
     calls.add('update-model:$conversationId:$model');
+    final error = updateError;
+    if (error != null) throw error;
+    final completer = updateCompleter;
+    if (completer != null) return completer.future;
     return _conversation(model: model);
   }
 

@@ -17,6 +17,9 @@ enum WorkbenchModelNotice {
 }
 
 class WorkbenchViewModel extends ChangeNotifier {
+  static const String _unsupportedModelUpdateMessage =
+      'existing conversation model updates require a newer daemon';
+
   WorkbenchViewModel({
     required AppSnapshot initialData,
     ConversationRepository? conversationRepository,
@@ -34,7 +37,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         ),
         _adapters = List<AdapterStatus>.unmodifiable(initialData.adapters),
         _selectedAdapter = _computePreferredAdapter(initialData.adapters),
-        _selectedModel = _initialSelectedModel(initialData.adapters);
+        _draftModel = _initialSelectedModel(initialData.adapters);
 
   WorkbenchRouteState _routeState;
   final Map<String, SessionItem> _optimisticSessions = <String, SessionItem>{};
@@ -45,7 +48,12 @@ class WorkbenchViewModel extends ChangeNotifier {
   final Duration _workspaceCreationTimeout;
   List<AdapterStatus> _adapters;
   String? _selectedAdapter;
-  String? _selectedModel;
+  String? _draftModel;
+  String? _confirmedConversationModel;
+  bool _modelUpdating = false;
+  String? _modelUpdateError;
+  bool _conversationModelUpdatesUnsupported = false;
+  int _modelUpdateGeneration = 0;
   WorkbenchModelNotice? _modelNotice;
   String? _activeRunId;
   String? _activeConversationId;
@@ -68,7 +76,14 @@ class WorkbenchViewModel extends ChangeNotifier {
       );
   List<AdapterModelOption> get availableModels =>
       selectedAdapterStatus?.models ?? const <AdapterModelOption>[];
-  String? get selectedModel => _selectedModel;
+  String? get draftModel => _draftModel;
+  String? get confirmedConversationModel => _confirmedConversationModel;
+  String? get selectedModel =>
+      _activeConversationId == null ? _draftModel : _confirmedConversationModel;
+  bool get modelUpdating => _modelUpdating;
+  String? get modelUpdateError => _modelUpdateError;
+  bool get conversationModelUpdatesUnsupported =>
+      _conversationModelUpdatesUnsupported;
   WorkbenchModelNotice? get modelNotice => _modelNotice;
   String? get activeRunId => _activeRunId;
   String? get activeConversationId => _activeConversationId;
@@ -159,9 +174,13 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void openSession(SessionItem item, {bool notify = true}) {
+    final conversationChanged = _activeConversationId != item.conversation?.id;
     _activeRunId = item.run.id;
     _activeConversationId = item.conversation?.id;
     _activeConversation = item.conversation;
+    if (conversationChanged) {
+      _resetConversationModelUpdateState();
+    }
     _selectActiveConversationAdapter(item.conversation);
     if (notify) notifyListeners();
   }
@@ -171,9 +190,13 @@ class WorkbenchViewModel extends ChangeNotifier {
     String? runId,
     bool notify = true,
   }) {
+    final conversationChanged = _activeConversationId != conversation.id;
     _activeConversation = conversation;
     _activeConversationId = conversation.id;
     _activeRunId = runId ?? _activeRunId ?? conversation.id;
+    if (conversationChanged) {
+      _resetConversationModelUpdateState();
+    }
     _selectActiveConversationAdapter(conversation);
     if (notify) notifyListeners();
   }
@@ -181,10 +204,19 @@ class WorkbenchViewModel extends ChangeNotifier {
   void clearActiveConversation({bool notify = true}) {
     final changed = _activeRunId != null ||
         _activeConversationId != null ||
-        _activeConversation != null;
+        _activeConversation != null ||
+        _confirmedConversationModel != null ||
+        _modelUpdating ||
+        _modelUpdateError != null ||
+        _conversationModelUpdatesUnsupported;
     _activeRunId = null;
     _activeConversationId = null;
     _activeConversation = null;
+    _confirmedConversationModel = null;
+    _modelUpdating = false;
+    _modelUpdateError = null;
+    _conversationModelUpdatesUnsupported = false;
+    _modelUpdateGeneration++;
     if (changed && notify) notifyListeners();
   }
 
@@ -202,7 +234,11 @@ class WorkbenchViewModel extends ChangeNotifier {
         (clearActiveConversation &&
             (_activeRunId != null ||
                 _activeConversationId != null ||
-                _activeConversation != null));
+                _activeConversation != null ||
+                _confirmedConversationModel != null ||
+                _modelUpdating ||
+                _modelUpdateError != null ||
+                _conversationModelUpdatesUnsupported));
     _messages.clear();
     _conversationEvents.clear();
     _conversationState = const ConversationViewState();
@@ -212,6 +248,11 @@ class WorkbenchViewModel extends ChangeNotifier {
       _activeRunId = null;
       _activeConversationId = null;
       _activeConversation = null;
+      _confirmedConversationModel = null;
+      _modelUpdating = false;
+      _modelUpdateError = null;
+      _conversationModelUpdatesUnsupported = false;
+      _modelUpdateGeneration++;
     }
     if (changed && notify) notifyListeners();
   }
@@ -351,24 +392,79 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_activeConversationId != null || _sending) return;
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
-    _selectedModel = _preferredModelFor(selectedAdapterStatus);
+    _draftModel = _preferredModelFor(selectedAdapterStatus);
     _modelNotice = null;
     notifyListeners();
   }
 
-  void setSelectedModel(String? model) {
-    if (_sending) return;
+  Future<bool> selectModel(String? model) async {
+    if (_sending || _modelUpdating) return false;
     final normalized = _normalizeModel(model);
     final status = selectedAdapterStatus;
     if (normalized != null &&
         (status?.canSelectModel != true ||
             !_modelStillAvailable(normalized, status))) {
-      return;
+      return false;
     }
-    final changed = _selectedModel != normalized || _modelNotice != null;
-    _selectedModel = normalized;
-    _modelNotice = null;
-    if (changed) notifyListeners();
+
+    final conversationId = _activeConversationId;
+    if (conversationId == null) {
+      final changed = _draftModel != normalized || _modelNotice != null;
+      _draftModel = normalized;
+      _modelNotice = null;
+      if (changed) notifyListeners();
+      return true;
+    }
+
+    if (_conversationModelUpdatesUnsupported) {
+      _modelUpdateError = _unsupportedModelUpdateMessage;
+      notifyListeners();
+      return false;
+    }
+
+    final repository = _requireConversationRepository();
+    final modelUpdateGeneration = ++_modelUpdateGeneration;
+    _modelUpdating = true;
+    _modelUpdateError = null;
+    notifyListeners();
+    try {
+      final conversation =
+          await repository.updateConversationModel(conversationId, normalized);
+      if (!_isCurrentModelUpdate(modelUpdateGeneration, conversationId)) {
+        return false;
+      }
+      _activeConversation = conversation;
+      _activeConversationId = conversation.id;
+      _selectActiveConversationAdapter(conversation);
+      _modelUpdateError = null;
+      _modelUpdating = false;
+      notifyListeners();
+      return true;
+    } on ConversationRepositoryException catch (error) {
+      if (!_isCurrentModelUpdate(modelUpdateGeneration, conversationId)) {
+        return false;
+      }
+      _modelUpdating = false;
+      if (_isUnsupportedModelUpdate(error)) {
+        _conversationModelUpdatesUnsupported = true;
+        _modelUpdateError = _unsupportedModelUpdateMessage;
+      } else {
+        final message = error.message?.trim();
+        _modelUpdateError = message == null || message.isEmpty
+            ? error.toString()
+            : message;
+      }
+      notifyListeners();
+      return false;
+    } catch (error) {
+      if (!_isCurrentModelUpdate(modelUpdateGeneration, conversationId)) {
+        return false;
+      }
+      _modelUpdating = false;
+      _modelUpdateError = error.toString();
+      notifyListeners();
+      return false;
+    }
   }
 
   void clearModelNotice({bool notify = true}) {
@@ -395,6 +491,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void _selectActiveConversationAdapter(ConversationSummary? conversation) {
+    _confirmedConversationModel = conversation?.model;
+    _modelUpdateError = null;
     final adapter = conversation?.adapter.trim();
     if (adapter == null || adapter.isEmpty) return;
     _selectedAdapter = adapter;
@@ -405,14 +503,13 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void _reconcileSelectedModel() {
     final status = selectedAdapterStatus;
-    if (_selectedModel != null &&
-        _modelStillAvailable(_selectedModel, status)) {
+    if (_draftModel != null && _modelStillAvailable(_draftModel, status)) {
       return;
     }
-    final previous = _selectedModel;
+    final previous = _draftModel;
     final fallback = _preferredModelFor(status);
     if (previous == null && fallback == null) return;
-    _selectedModel = fallback;
+    _draftModel = fallback;
     if (previous != null && fallback != null && previous != fallback) {
       _modelNotice = WorkbenchModelNotice.changedToAvailableOption;
     } else if (fallback == null) {
@@ -423,8 +520,19 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? _modelForCreate({required String adapter, String? requested}) {
     final status = _adapterStatusFor(adapter);
     if (status?.canSelectModel != true) return null;
-    final normalized = _normalizeModel(requested) ?? _selectedModel;
+    final normalized = _normalizeModel(requested) ?? _draftModel;
     return _modelStillAvailable(normalized, status) ? normalized : null;
+  }
+
+  bool _isCurrentModelUpdate(int generation, String conversationId) =>
+      _modelUpdateGeneration == generation &&
+      _activeConversationId == conversationId;
+
+  void _resetConversationModelUpdateState() {
+    _modelUpdateGeneration++;
+    _modelUpdating = false;
+    _modelUpdateError = null;
+    _conversationModelUpdatesUnsupported = false;
   }
 
   bool _selectedAdapterStillAvailable(List<AdapterStatus> adapters) =>
@@ -795,6 +903,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     return trimmed;
   }
 
+  static bool _isUnsupportedModelUpdate(ConversationRepositoryException error) {
+    if (error.statusCode == 405) return true;
+    if (error.statusCode != 404) return false;
+    return error.code != 'NOT_FOUND';
+  }
+
   static String? _computePreferredAdapter(List<AdapterStatus> adapters) {
     for (final name in const ['claude', 'codex', 'opencode']) {
       final found = adapters.where(
@@ -820,6 +934,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         id: conversation.id,
         workspaceId: conversation.workspaceId,
         adapter: conversation.adapter,
+        model: conversation.model,
         status: status,
         capabilities: conversation.capabilities,
         createdAt: conversation.createdAt,

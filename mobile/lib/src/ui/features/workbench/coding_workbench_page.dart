@@ -420,7 +420,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             models: models,
             selected: _workbenchViewModel.selectedModel,
             onSelected: (model) {
-              _workbenchViewModel.setSelectedModel(model);
+              unawaited(_workbenchViewModel.selectModel(model));
               Navigator.of(context).pop();
             }));
   }

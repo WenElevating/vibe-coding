@@ -37,8 +37,18 @@ class DaemonConversationRepository implements ConversationRepository {
   Future<ConversationSummary> updateConversationModel(
     String conversationId,
     String? model,
-  ) =>
-      _client.updateConversationModel(conversationId, model);
+  ) async {
+    try {
+      return await _client.updateConversationModel(conversationId, model);
+    } on DaemonClientException catch (error) {
+      throw ConversationRepositoryException(
+        statusCode: error.statusCode,
+        code: _daemonErrorCode(error.body),
+        message: _daemonErrorMessage(error.body),
+        cause: error,
+      );
+    }
+  }
 
   @override
   Future<List<ConversationEvent>> fetchConversationEvents(
@@ -66,4 +76,26 @@ class DaemonConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> cancelConversation(String conversationId) =>
       _client.cancelConversation(conversationId);
+}
+
+String? _daemonErrorCode(Map<String, Object?> body) {
+  final bodyError = body['error'];
+  if (bodyError is Map<String, Object?>) {
+    final code = bodyError['code'];
+    return code is String ? code : null;
+  }
+  return bodyError is String ? bodyError : null;
+}
+
+String? _daemonErrorMessage(Map<String, Object?> body) {
+  final bodyError = body['error'];
+  if (bodyError is Map<String, Object?>) {
+    final message = bodyError['message'];
+    return message is String && message.trim().isNotEmpty
+        ? message.trim()
+        : null;
+  }
+  final message = body['message'];
+  if (message is String && message.trim().isNotEmpty) return message.trim();
+  return null;
 }
