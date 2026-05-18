@@ -18,6 +18,7 @@ const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
+const { MODEL_CATALOG_MAX_BYTES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -2304,6 +2305,80 @@ test('Codex mapper drops malformed todo_list payloads', () => {
   assert.equal(mapCodexEvent({ type: 'item.started', item: { id: 'item_1', type: 'todo_list' } }), null);
   assert.equal(mapCodexEvent({ type: 'item.updated', item: { id: 'item_1', type: 'todo_list', items: [] } }), null);
   assert.equal(mapCodexEvent({ type: 'item.completed', item: { id: 'item_1', type: 'todo_list', items: [{ completed: true }] } }), null);
+});
+
+test('Codex model discovery prefers project config over user config and catalog entries', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-model-discovery-'));
+  const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(homeDir, '.codex'), { recursive: true });
+  fs.mkdirSync(path.join(workspacePath, '.codex'), { recursive: true });
+  const catalogPath = path.join(workspacePath, '.codex', 'models.json');
+  fs.writeFileSync(path.join(homeDir, '.codex', 'config.toml'), 'model = "gpt-user"\nmodel_catalog_json = "ignored.json"\n');
+  fs.writeFileSync(catalogPath, JSON.stringify({ models: [{ id: 'gpt-project' }, { id: 'gpt-catalog', label: 'Catalog model' }] }));
+  fs.writeFileSync(path.join(workspacePath, '.codex', 'config.toml'), `model = "gpt-project"\nmodel_catalog_json = "${catalogPath.replace(/\\/g, '\\\\')}"\n`);
+
+  const discovered = discoverConfiguredModels({ adapter: 'codex', homeDir, workspacePath, env: {} });
+
+  assert.equal(discovered.selectedModel, 'gpt-project');
+  assert.equal(discovered.canSelectModel, false);
+  assert.deepEqual(discovered.models.map((model) => model.id), ['gpt-project', 'gpt-catalog']);
+  assert.deepEqual(discovered.models.map((model) => model.source), ['codex_config', 'codex_catalog']);
+  assert.equal(discovered.models[0].selected, true);
+});
+
+test('model discovery ignores unsupported TOML syntax', () => {
+  const parsed = parseTomlScalarConfig([
+    'model = "gpt-supported"',
+    'inline = { model = "gpt-inline" }',
+    'number = 42',
+    'multi = """gpt-multiline"""',
+    '[shell_environment_policy.set]',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-sonnet-env"'
+  ].join('\n'));
+
+  assert.equal(parsed.model, 'gpt-supported');
+  assert.equal(parsed.inline, undefined);
+  assert.equal(parsed.number, undefined);
+  assert.equal(parsed.multi, undefined);
+  assert.deepEqual(parsed.shell_environment_policy.set, { ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-env' });
+});
+
+test('Codex model discovery ignores oversize catalog files', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-model-oversize-'));
+  const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(workspacePath, '.codex'), { recursive: true });
+  const catalogPath = path.join(workspacePath, '.codex', 'models.json');
+  fs.writeFileSync(catalogPath, Buffer.alloc(MODEL_CATALOG_MAX_BYTES + 1, 'x'));
+  fs.writeFileSync(path.join(workspacePath, '.codex', 'config.toml'), `model = "gpt-project"\nmodel_catalog_json = "${catalogPath.replace(/\\/g, '\\\\')}"\n`);
+
+  const discovered = discoverConfiguredModels({ adapter: 'codex', homeDir, workspacePath, env: {} });
+
+  assert.equal(discovered.selectedModel, 'gpt-project');
+  assert.deepEqual(discovered.models.map((model) => model.id), ['gpt-project']);
+});
+
+test('Claude model discovery de-duplicates environment defaults by priority', () => {
+  const discovered = discoverConfiguredModels({
+    adapter: 'claude',
+    env: {
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-duplicate',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-duplicate',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku'
+    }
+  });
+
+  assert.equal(discovered.selectedModel, 'claude-duplicate');
+  assert.deepEqual(discovered.models.map((model) => model.id), ['claude-duplicate', 'claude-haiku']);
+  assert.deepEqual(discovered.models.map((model) => model.source), ['claude_env', 'claude_env']);
+  assert.equal(discovered.models[0].selected, true);
 });
 
 test('Codex mapper truncates large aggregated output with marker', () => {
