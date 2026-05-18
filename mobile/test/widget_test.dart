@@ -403,6 +403,18 @@ class _LazyConversationRepository implements ConversationRepository {
     String text,
   ) async =>
       throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async =>
+      _conversationSummary(
+        id: conversationId,
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        model: model,
+      );
 }
 
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
@@ -526,11 +538,13 @@ ConversationSummary _conversationSummary({
   int userMessageCount = 0,
   ConversationCapabilities? capabilities,
   ConversationBlockingItem? blockingItem,
+  String? model,
 }) =>
     ConversationSummary(
       id: id,
       workspaceId: workspaceId,
       adapter: 'codex',
+      model: model,
       status: status,
       cliSessionId: cliSessionId,
       sessionBinding: sessionBinding,

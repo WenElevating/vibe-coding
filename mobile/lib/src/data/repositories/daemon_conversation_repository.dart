@@ -34,6 +34,13 @@ class DaemonConversationRepository implements ConversationRepository {
       _client.sendConversationMessage(conversationId, text);
 
   @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) =>
+      _client.updateConversationModel(conversationId, model);
+
+  @override
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,

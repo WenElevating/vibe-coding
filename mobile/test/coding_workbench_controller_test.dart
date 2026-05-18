@@ -878,6 +878,20 @@ class _FakeConversationRepository implements ConversationRepository {
       status: 'running',
     );
   }
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async {
+    calls.add('update-model:$conversationId:$model');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'idle',
+      model: model,
+    );
+  }
 }
 
 class _FakeDiagnosticsRepository implements DiagnosticsRepository {
@@ -1052,12 +1066,14 @@ ConversationSummary _conversation({
   required String workspaceId,
   required String status,
   String adapter = 'codex',
+  String? model,
   int userMessageCount = 0,
 }) =>
     ConversationSummary(
       id: id,
       workspaceId: workspaceId,
       adapter: adapter,
+      model: model,
       status: status,
       userMessageCount: userMessageCount,
       capabilities:

@@ -15,6 +15,11 @@ abstract class ConversationRepository {
     String text,
   );
 
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  );
+
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq,

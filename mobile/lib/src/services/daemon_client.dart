@@ -549,6 +549,19 @@ class DaemonClient
   }
 
   @override
+  Future<ConversationSummary> updateConversationModel(
+      String conversationId, String? model) async {
+    final trimmedModel = model?.trim();
+    final response = await _patch(
+        '/api/conversations/$conversationId/model', <String, Object?>{
+      'model':
+          trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
+    });
+    return ConversationSummary.fromJson(
+        response['conversation'] as Map<String, Object?>);
+  }
+
+  @override
   Future<ConversationSummary> sendConversationMessage(
       String conversationId, String text) async {
     final response = await _post(
@@ -650,6 +663,25 @@ class DaemonClient
     if (authorize && _isAuthRequired(response)) {
       await _refreshAfterAuthRequired();
       final retry = await _request(() => _httpClient.post(
+            baseUri.resolve(path),
+            headers: _headers(authorize: authorize),
+            body: jsonEncode(body),
+          ));
+      return _decode(retry);
+    }
+    return _decode(response);
+  }
+
+  Future<Map<String, Object?>> _patch(String path, Map<String, Object?> body,
+      {bool authorize = true}) async {
+    final response = await _request(() => _httpClient.patch(
+          baseUri.resolve(path),
+          headers: _headers(authorize: authorize),
+          body: jsonEncode(body),
+        ));
+    if (authorize && _isAuthRequired(response)) {
+      await _refreshAfterAuthRequired();
+      final retry = await _request(() => _httpClient.patch(
             baseUri.resolve(path),
             headers: _headers(authorize: authorize),
             body: jsonEncode(body),

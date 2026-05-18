@@ -8,6 +8,7 @@ void main() {
       'id': 'conv_1',
       'workspaceId': 'default',
       'adapter': 'claude',
+      'model': 'gpt-5.5',
       'status': 'waiting_input',
       'cliSessionId': 'session_1',
       'sessionBinding': 'confirmed',
@@ -32,6 +33,7 @@ void main() {
     });
 
     expect(summary.id, 'conv_1');
+    expect(summary.model, 'gpt-5.5');
     expect(summary.status, 'waiting_input');
     expect(summary.sessionBinding, 'confirmed');
     expect(summary.userMessageCount, 2);
@@ -58,6 +60,7 @@ void main() {
     });
 
     expect(summary.sessionBinding, 'unknown');
+    expect(summary.model, isNull);
     expect(summary.userMessageCount, 0);
   });
 

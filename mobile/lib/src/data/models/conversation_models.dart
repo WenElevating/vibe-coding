@@ -88,6 +88,7 @@ class ConversationSummary {
     required this.capabilities,
     required this.createdAt,
     required this.updatedAt,
+    this.model,
     this.protocolVersion = 1,
     this.requestedPermissionMode = '',
     this.effectivePermissionMode = '',
@@ -102,6 +103,7 @@ class ConversationSummary {
   final String id;
   final String workspaceId;
   final String adapter;
+  final String? model;
   final String status;
   final String? cliSessionId;
   final String sessionBinding;
@@ -121,6 +123,7 @@ class ConversationSummary {
         id: json['id'] as String? ?? '',
         workspaceId: json['workspaceId'] as String? ?? '',
         adapter: json['adapter'] as String? ?? '',
+        model: _optionalText(json['model']),
         status: json['status'] as String? ?? '',
         cliSessionId: json['cliSessionId'] as String?,
         sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
@@ -144,6 +147,12 @@ class ConversationSummary {
             (json['permissionSupport'] as Map<String, Object?>?) ??
                 const <String, Object?>{},
       );
+}
+
+String? _optionalText(Object? value) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
 
 class ConversationEvent {

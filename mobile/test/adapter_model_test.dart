@@ -165,6 +165,16 @@ void main() {
       expect(viewModel.modelNotice, isNull);
     });
 
+    test('repository updateConversationModel records selected model', () async {
+      final repository = _FakeConversationRepository();
+
+      final updated =
+          await repository.updateConversationModel('conv_1', 'gpt-5-mini');
+
+      expect(updated.model, 'gpt-5-mini');
+      expect(repository.calls, <String>['update-model:conv_1:gpt-5-mini']);
+    });
+
     test('createAndSend omits model when adapter cannot select models',
         () async {
       final repository = _FakeConversationRepository();
@@ -307,11 +317,12 @@ AppSnapshot _snapshot({
       extensions: const <ExtensionSummary>[],
     );
 
-ConversationSummary _conversation({String adapter = 'codex'}) =>
+ConversationSummary _conversation({String adapter = 'codex', String? model}) =>
     ConversationSummary(
       id: 'conv_1',
       workspaceId: _workspace.id,
       adapter: adapter,
+      model: model,
       status: 'idle',
       capabilities:
           ConversationCapabilities.fromJson(const <String, Object?>{}),
@@ -340,6 +351,15 @@ class _FakeConversationRepository implements ConversationRepository {
   ) async {
     calls.add('send:$conversationId:$text');
     return _conversation();
+  }
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async {
+    calls.add('update-model:$conversationId:$model');
+    return _conversation(model: model);
   }
 
   @override
