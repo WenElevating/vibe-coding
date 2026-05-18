@@ -383,7 +383,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool get _isConversationAdapterLocked =>
       _activeConversationId != null || _sending;
 
-  bool get _isModelSelectionLocked => _sending;
+  bool get _isModelSelectionLocked {
+    if (_sending || _workbenchViewModel.modelUpdating) return true;
+    if (_activeConversationId == null) return false;
+    return isActiveConversationStatus(
+        _workbenchViewModel.effectiveConversationStatus);
+  }
+
+  bool get _isModelSelectionDisabled =>
+      _activeConversationId != null &&
+      _workbenchViewModel.conversationModelUpdatesUnsupported;
 
   List<AdapterStatus> get _availableAdapters => widget.data.adapters
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
@@ -416,13 +425,28 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => ModelPickerSheet(
-            models: models,
-            selected: _workbenchViewModel.selectedModel,
-            onSelected: (model) {
-              unawaited(_workbenchViewModel.selectModel(model));
-              Navigator.of(context).pop();
+        builder: (sheetContext) => AnimatedBuilder(
+            animation: _workbenchViewModel,
+            builder: (context, _) {
+              return ModelPickerSheet(
+                  models: models,
+                  selected: _workbenchViewModel.selectedModel,
+                  updating: _workbenchViewModel.modelUpdating,
+                  selectionDisabled: _isModelSelectionDisabled,
+                  pendingModel: null,
+                  errorText: _modelUpdateErrorLabel(context),
+                  onSelected: (model) =>
+                      unawaited(_selectModelFromPicker(sheetContext, model)));
             }));
+  }
+
+  Future<void> _selectModelFromPicker(
+      BuildContext sheetContext, String? model) async {
+    final changed = await _workbenchViewModel.selectModel(model);
+    if (!mounted) return;
+    if (changed && sheetContext.mounted) {
+      Navigator.of(sheetContext).pop();
+    }
   }
 
   void _showWorkspacePicker() => _openWorkspaceList();
@@ -946,13 +970,29 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return null;
     }
     final selected = _workbenchViewModel.selectedModel;
-    if (selected == null || selected.isEmpty) return null;
+    if (selected == null || selected.isEmpty) {
+      return AppLocalizations.of(context).modelPickerDefaultModel;
+    }
     for (final model in _workbenchViewModel.availableModels) {
       if (model.id == selected) {
         return model.label.isEmpty ? model.id : model.label;
       }
     }
     return selected;
+  }
+
+  String? _modelUpdateErrorLabel(BuildContext context) {
+    if (_workbenchViewModel.conversationModelUpdatesUnsupported) {
+      return _modelPickerUnsupportedDaemonText(context);
+    }
+    final error = _workbenchViewModel.modelUpdateError?.trim();
+    if (error == null || error.isEmpty) return null;
+    final normalized = error.toLowerCase();
+    if (normalized.contains('current turn') ||
+        normalized.contains('active')) {
+      return _modelPickerBusyText(context);
+    }
+    return error;
   }
 
   Widget _buildConversationDetail() {
@@ -1368,11 +1408,19 @@ class ModelPickerSheet extends StatelessWidget {
     required this.models,
     required this.selected,
     required this.onSelected,
+    this.updating = false,
+    this.selectionDisabled = false,
+    this.pendingModel,
+    this.errorText,
   });
 
   final List<AdapterModelOption> models;
   final String? selected;
   final ValueChanged<String?> onSelected;
+  final bool updating;
+  final bool selectionDisabled;
+  final String? pendingModel;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -1380,6 +1428,9 @@ class ModelPickerSheet extends StatelessWidget {
     final visibleModels = models
         .where((model) => model.id.trim().isNotEmpty)
         .toList(growable: false);
+    final normalizedError = errorText?.trim();
+    final normalizedPending = pendingModel?.trim();
+    final choicesDisabled = updating || selectionDisabled;
     return SafeArea(
         top: false,
         child: Container(
@@ -1423,6 +1474,60 @@ class ModelPickerSheet extends StatelessWidget {
                                 letterSpacing: 0))),
                   ]),
                   const SizedBox(height: 13),
+                  if (updating)
+                    Container(
+                        key: const ValueKey('model-picker-updating'),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 11, vertical: 10),
+                        decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .035),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: theme.stroke)),
+                        child: Row(children: [
+                          const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: theme.active)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                              child: Text(
+                                  normalizedPending == null ||
+                                          normalizedPending.isEmpty
+                                      ? _modelPickerUpdatingText(context)
+                                      : '${_modelPickerUpdatingText(context)} $normalizedPending',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: theme.muted,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700)))
+                        ])),
+                  if (normalizedError != null && normalizedError.isNotEmpty)
+                    Container(
+                        key: const ValueKey('model-picker-error'),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 11, vertical: 10),
+                        decoration: BoxDecoration(
+                            color: theme.red.withValues(alpha: .1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: theme.red.withValues(alpha: .28))),
+                        child: Row(children: [
+                          Icon(Icons.error_outline_rounded,
+                              color: theme.red.withValues(alpha: .92),
+                              size: 16),
+                          const SizedBox(width: 9),
+                          Expanded(
+                              child: Text(normalizedError,
+                                  style: TextStyle(
+                                      color:
+                                          theme.red.withValues(alpha: .95),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700)))
+                        ])),
                   Flexible(
                       child: ListView(
                           padding: EdgeInsets.zero,
@@ -1433,9 +1538,13 @@ class ModelPickerSheet extends StatelessWidget {
                                       key: const ValueKey(
                                           'model-option-default'),
                                       title: l10n.modelPickerDefaultModel,
-                                      source: l10n.modelPickerSourceCliDefault,
+                                      source:
+                                          _modelPickerCliDefaultDetailText(
+                                              context),
                                       selected: selected == null,
-                                      onTap: () => onSelected(null)),
+                                      onTap: choicesDisabled
+                                          ? null
+                                          : () => onSelected(null)),
                                 ]
                               : <Widget>[
                                   for (final model in visibleModels)
@@ -1448,7 +1557,9 @@ class ModelPickerSheet extends StatelessWidget {
                                         source: _modelSourceLabel(
                                             l10n, model.source),
                                         selected: model.id == selected,
-                                        onTap: () => onSelected(model.id)),
+                                        onTap: choicesDisabled
+                                            ? null
+                                            : () => onSelected(model.id)),
                                 ])),
                 ])));
   }
@@ -1466,10 +1577,12 @@ class _ModelChoiceRow extends StatelessWidget {
   final String title;
   final String source;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
@@ -1504,8 +1617,10 @@ class _ModelChoiceRow extends StatelessWidget {
                   Text(title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: theme.text,
+                      style: TextStyle(
+                          color: enabled
+                              ? theme.text
+                              : theme.text.withValues(alpha: .45),
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0)),
@@ -1513,8 +1628,11 @@ class _ModelChoiceRow extends StatelessWidget {
                   Text(source,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(color: theme.muted, fontSize: 11.5))
+                      style: TextStyle(
+                          color: enabled
+                              ? theme.muted
+                              : theme.muted.withValues(alpha: .45),
+                          fontSize: 11.5))
                 ])),
             if (selected)
               Container(
@@ -1528,6 +1646,7 @@ class _ModelChoiceRow extends StatelessWidget {
                   child: const Icon(Icons.check_rounded,
                       color: theme.active, size: 12))
           ])));
+  }
 }
 
 String _modelSourceLabel(AppLocalizations l10n, String source) =>
@@ -1539,6 +1658,40 @@ String _modelSourceLabel(AppLocalizations l10n, String source) =>
       'cli_default' => l10n.modelPickerSourceCliDefault,
       _ => l10n.modelPickerSourceUnknown,
     };
+
+String _modelPickerUpdatingText(BuildContext context) =>
+    _modelPickerFallbackText(
+        context: context,
+        en: 'Updating model...',
+        zh: '\u6b63\u5728\u66f4\u65b0\u6a21\u578b...');
+
+String _modelPickerUnsupportedDaemonText(BuildContext context) =>
+    _modelPickerFallbackText(
+        context: context,
+        en: 'Update the desktop daemon to change models in existing '
+            'conversations.',
+        zh:
+            '\u8bf7\u66f4\u65b0\u684c\u9762\u7aef daemon \u540e\u518d\u4fee\u6539\u5df2\u6709\u5bf9\u8bdd\u7684\u6a21\u578b\u3002');
+
+String _modelPickerBusyText(BuildContext context) => _modelPickerFallbackText(
+    context: context,
+    en: 'Wait for the current turn to finish before changing model.',
+    zh:
+        '\u5f53\u524d\u8f6e\u6b21\u7ed3\u675f\u540e\u624d\u80fd\u5207\u6362\u6a21\u578b\u3002');
+
+String _modelPickerCliDefaultDetailText(BuildContext context) =>
+    _modelPickerFallbackText(
+        context: context,
+        en: 'Uses the CLI configured default.',
+        zh:
+            '\u4f7f\u7528 CLI \u5f53\u524d\u914d\u7f6e\u7684\u9ed8\u8ba4\u6a21\u578b\u3002');
+
+String _modelPickerFallbackText(
+    {required BuildContext context, required String en, required String zh}) {
+  return Localizations.localeOf(context).languageCode.toLowerCase() == 'zh'
+      ? zh
+      : en;
+}
 
 class _CodingHeader extends StatelessWidget {
   const _CodingHeader(

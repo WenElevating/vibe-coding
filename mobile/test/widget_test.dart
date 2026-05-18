@@ -1405,6 +1405,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('model-picker-sheet')), findsOneWidget);
     expect(find.text('Default model'), findsOneWidget);
+    expect(find.text('Uses the CLI configured default.'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('model-option-default')));
 
@@ -1461,6 +1462,99 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('model-option-claude-sonnet')));
 
     expect(selected, 'claude-sonnet');
+  });
+
+  testWidgets('model picker shows pending update and disables selections',
+      (WidgetTester tester) async {
+    String? selected = 'unchanged';
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: ModelPickerSheet(
+                selected: 'gpt-5-codex',
+                updating: true,
+                onSelected: (model) => selected = model,
+                models: const <AdapterModelOption>[
+                  AdapterModelOption(
+                      id: 'gpt-5-codex',
+                      label: 'GPT-5 Codex',
+                      source: 'codex_config',
+                      selected: true),
+                  AdapterModelOption(
+                      id: 'claude-sonnet',
+                      label: 'Claude Sonnet',
+                      source: 'claude_config',
+                      selected: false),
+                ]))));
+
+    expect(find.byKey(const ValueKey('model-picker-updating')), findsOneWidget);
+    expect(find.text('Updating model...'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('model-option-claude-sonnet')));
+
+    expect(selected, 'unchanged');
+  });
+
+  testWidgets('model picker displays model update errors',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: ModelPickerSheet(
+                selected: null,
+                errorText: 'Model backend rejected this model.',
+                onSelected: (_) {},
+                models: const <AdapterModelOption>[]))));
+
+    expect(find.byKey(const ValueKey('model-picker-error')), findsOneWidget);
+    expect(find.text('Model backend rejected this model.'), findsOneWidget);
+  });
+
+  testWidgets('model picker keeps unsupported errors visible while disabled',
+      (WidgetTester tester) async {
+    String? selected = 'unchanged';
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: ModelPickerSheet(
+                selected: 'gpt-5-codex',
+                selectionDisabled: true,
+                errorText:
+                    'Update the desktop daemon to change models in existing '
+                    'conversations.',
+                onSelected: (model) => selected = model,
+                models: const <AdapterModelOption>[
+                  AdapterModelOption(
+                      id: 'gpt-5-codex',
+                      label: 'GPT-5 Codex',
+                      source: 'codex_config',
+                      selected: true),
+                  AdapterModelOption(
+                      id: 'claude-sonnet',
+                      label: 'Claude Sonnet',
+                      source: 'claude_config',
+                      selected: false),
+                ]))));
+
+    expect(find.byKey(const ValueKey('model-picker-error')), findsOneWidget);
+    expect(
+        find.text(
+            'Update the desktop daemon to change models in existing '
+            'conversations.'),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('model-option-claude-sonnet')));
+
+    expect(selected, 'unchanged');
   });
 
   testWidgets('tapping current project opens workspace session list',
