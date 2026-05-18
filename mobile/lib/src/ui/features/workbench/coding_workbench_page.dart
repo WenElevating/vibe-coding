@@ -380,7 +380,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.effectiveConversationStatus != 'waiting_input' &&
       _workbenchViewModel.effectiveConversationStatus != 'waiting_approval';
 
-  bool get _isConversationAdapterLocked => _activeConversationId != null;
+  bool get _isConversationAdapterLocked =>
+      _activeConversationId != null || _sending;
 
   List<AdapterStatus> get _availableAdapters => widget.data.adapters
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
@@ -398,6 +399,26 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             selected: _workbenchViewModel.selectedAdapter,
             onSelected: (adapter) {
               _workbenchViewModel.setSelectedAdapter(adapter);
+              Navigator.of(context).pop();
+            }));
+  }
+
+  void _showModelPicker() {
+    if (_isConversationAdapterLocked) return;
+    _workbenchViewModel.clearModelNotice();
+    final status = _workbenchViewModel.selectedAdapterStatus;
+    final models = status?.canSelectModel == true
+        ? _workbenchViewModel.availableModels
+        : const <AdapterModelOption>[];
+    showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => ModelPickerSheet(
+            models: models,
+            selected: _workbenchViewModel.selectedModel,
+            onSelected: (model) {
+              _workbenchViewModel.setSelectedModel(model);
               Navigator.of(context).pop();
             }));
   }
@@ -598,11 +619,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     try {
       final existingConversationId = _activeConversationId;
       if (existingConversationId == null) {
+        final model =
+            _workbenchViewModel.selectedAdapterStatus?.canSelectModel == true
+                ? _workbenchViewModel.selectedModel
+                : null;
         final result = await _workbenchViewModel.createAndSend(
           workspace: routeWorkspace!,
           prompt: prompt,
           adapter: adapter,
           permissionMode: widget.permissionMode,
+          model: model,
         );
         setState(() {
           _workbenchViewModel.prepareNewConversationSend(
@@ -913,11 +939,26 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         onBackToWorkspaces: _returnToWorkspaceList);
   }
 
+  String? _selectedModelLabel() {
+    if (_workbenchViewModel.selectedAdapterStatus?.canSelectModel != true) {
+      return null;
+    }
+    final selected = _workbenchViewModel.selectedModel;
+    if (selected == null || selected.isEmpty) return null;
+    for (final model in _workbenchViewModel.availableModels) {
+      if (model.id == selected) {
+        return model.label.isEmpty ? model.id : model.label;
+      }
+    }
+    return selected;
+  }
+
   Widget _buildConversationDetail() {
     final l10n = AppLocalizations.of(context);
     final workspace = _routeWorkspace;
     if (workspace == null) return _buildWorkspaceList();
     final adapter = _workbenchViewModel.selectedAdapter;
+    final modelLabel = _selectedModelLabel();
     final canSend = adapter != null &&
         !_sending &&
         canSendInConversationStatus(
@@ -941,15 +982,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       CodingComposer(
           controller: _prompt,
           adapter: adapter,
+          model: modelLabel,
+          modelNotice: _modelNoticeLabel(l10n),
           workspace: workspace,
           running: _isRunningCli,
+          locked: _isConversationAdapterLocked,
           canSend: canSend,
           sending: _sending,
           voiceState: _voiceInput.state,
           voiceEnabled: widget.speechInputService != null ||
               isVoiceInputPlatformSupported,
           voiceError: null,
-          onModelTap: _showAdapterPicker,
+          onCliTap: _showAdapterPicker,
+          onModelTap: _showModelPicker,
           onVoiceStart: () => unawaited(_startVoiceInput()),
           onVoiceStop: () => unawaited(_stopVoiceInput()),
           onVoiceCancel: () => unawaited(_cancelVoiceInput()),
@@ -962,6 +1007,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           onTap: _showWorkspacePicker),
     ]);
   }
+
+  String? _modelNoticeLabel(AppLocalizations l10n) =>
+      switch (_workbenchViewModel.modelNotice) {
+        WorkbenchModelNotice.changedToAvailableOption =>
+          l10n.workbenchComposerModelChangedNotice,
+        null => null,
+      };
 
   Widget _buildMessageList(String? adapter, AppLocalizations l10n) {
     final hasStatus = _activeRunId != null;
@@ -1306,6 +1358,183 @@ bool _isSelectableCliAdapter(AdapterStatus adapter) {
   if (id.isEmpty || id.startsWith('synthetic-')) return false;
   return const {'claude', 'codex', 'opencode'}.contains(id);
 }
+
+class ModelPickerSheet extends StatelessWidget {
+  const ModelPickerSheet({
+    super.key,
+    required this.models,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<AdapterModelOption> models;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final visibleModels = models
+        .where((model) => model.id.trim().isNotEmpty)
+        .toList(growable: false);
+    return SafeArea(
+        top: false,
+        child: Container(
+            key: const ValueKey('model-picker-sheet'),
+            margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * .72),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            decoration: BoxDecoration(
+                color: const Color(0xFF111820),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withValues(alpha: .1)),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .42),
+                      blurRadius: 30,
+                      offset: const Offset(0, 18))
+                ]),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                    Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .045),
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: .13))),
+                        child: const Icon(Icons.memory_rounded,
+                            size: 17, color: theme.active)),
+                    const SizedBox(width: 11),
+                    Expanded(
+                        child: Text(l10n.modelPickerTitle,
+                            style: const TextStyle(
+                                color: theme.text,
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0))),
+                  ]),
+                  const SizedBox(height: 13),
+                  Flexible(
+                      child: ListView(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          children: visibleModels.isEmpty
+                              ? <Widget>[
+                                  _ModelChoiceRow(
+                                      key: const ValueKey(
+                                          'model-option-default'),
+                                      title: l10n.modelPickerDefaultModel,
+                                      source: l10n.modelPickerSourceCliDefault,
+                                      selected: selected == null,
+                                      onTap: () => onSelected(null)),
+                                ]
+                              : <Widget>[
+                                  for (final model in visibleModels)
+                                    _ModelChoiceRow(
+                                        key: ValueKey(
+                                            'model-option-${model.id}'),
+                                        title: model.label.isEmpty
+                                            ? model.id
+                                            : model.label,
+                                        source: _modelSourceLabel(
+                                            l10n, model.source),
+                                        selected: model.id == selected,
+                                        onTap: () => onSelected(model.id)),
+                                ])),
+                ])));
+  }
+}
+
+class _ModelChoiceRow extends StatelessWidget {
+  const _ModelChoiceRow({
+    super.key,
+    required this.title,
+    required this.source,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String source;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+          decoration: BoxDecoration(
+              color: selected
+                  ? const Color(0xFF1A212A)
+                  : Colors.white.withValues(alpha: .03),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                  color: selected
+                      ? theme.activeStroke.withValues(alpha: .75)
+                      : theme.stroke)),
+          child: Row(children: [
+            Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .045),
+                    borderRadius: BorderRadius.circular(8),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: .08))),
+                child: const Icon(Icons.memory_rounded,
+                    color: theme.muted, size: 14)),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: theme.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 2),
+                  Text(source,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: theme.muted, fontSize: 11.5))
+                ])),
+            if (selected)
+              Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .06),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: theme.activeStroke.withValues(alpha: .7))),
+                  child: const Icon(Icons.check_rounded,
+                      color: theme.active, size: 12))
+          ])));
+}
+
+String _modelSourceLabel(AppLocalizations l10n, String source) =>
+    switch (source) {
+      'codex_config' => l10n.modelPickerSourceCodexConfig,
+      'codex_catalog' => l10n.modelPickerSourceCodexCatalog,
+      'claude_env' => l10n.modelPickerSourceClaudeEnv,
+      'cli_default' => l10n.modelPickerSourceCliDefault,
+      _ => l10n.modelPickerSourceUnknown,
+    };
 
 class _CodingHeader extends StatelessWidget {
   const _CodingHeader(

@@ -12,6 +12,10 @@ import '../coding_workbench_controller.dart';
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
 
+enum WorkbenchModelNotice {
+  changedToAvailableOption,
+}
+
 class WorkbenchViewModel extends ChangeNotifier {
   WorkbenchViewModel({
     required AppSnapshot initialData,
@@ -42,7 +46,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<AdapterStatus> _adapters;
   String? _selectedAdapter;
   String? _selectedModel;
-  String? _modelNotice;
+  WorkbenchModelNotice? _modelNotice;
   String? _activeRunId;
   String? _activeConversationId;
   ConversationSummary? _activeConversation;
@@ -65,7 +69,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<AdapterModelOption> get availableModels =>
       selectedAdapterStatus?.models ?? const <AdapterModelOption>[];
   String? get selectedModel => _selectedModel;
-  String? get modelNotice => _modelNotice;
+  WorkbenchModelNotice? get modelNotice => _modelNotice;
   String? get activeRunId => _activeRunId;
   String? get activeConversationId => _activeConversationId;
   ConversationSummary? get activeConversation => _activeConversation;
@@ -344,7 +348,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void setSelectedAdapter(String? adapter) {
-    if (_activeConversationId != null) return;
+    if (_activeConversationId != null || _sending) return;
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
     _selectedModel = _preferredModelFor(selectedAdapterStatus);
@@ -353,7 +357,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   void setSelectedModel(String? model) {
-    if (_activeConversationId != null) return;
+    if (_activeConversationId != null || _sending) return;
     final normalized = _normalizeModel(model);
     final status = selectedAdapterStatus;
     if (normalized != null &&
@@ -409,7 +413,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (previous == null && fallback == null) return;
     _selectedModel = fallback;
     if (previous != null && fallback != null && previous != fallback) {
-      _modelNotice = 'Model changed to an available option';
+      _modelNotice = WorkbenchModelNotice.changedToAvailableOption;
     } else if (fallback == null) {
       _modelNotice = null;
     }

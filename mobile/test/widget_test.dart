@@ -842,6 +842,8 @@ void main() {
       (WidgetTester tester) async {
     final controller = TextEditingController();
     await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             body: CodingComposer(
                 controller: controller,
@@ -856,6 +858,8 @@ void main() {
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
                 voiceError: null,
+                locked: false,
+                onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -872,6 +876,8 @@ void main() {
     var sends = 0;
     final controller = TextEditingController(text: 'hello');
     await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             body: CodingComposer(
                 controller: controller,
@@ -886,6 +892,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
+                locked: false,
+                onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -904,6 +912,8 @@ void main() {
       (WidgetTester tester) async {
     final controller = TextEditingController();
     await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             body: CodingComposer(
                 controller: controller,
@@ -918,6 +928,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
+                locked: false,
+                onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -934,6 +946,8 @@ void main() {
     String? editedText;
     final controller = TextEditingController();
     await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             body: CodingComposer(
                 controller: controller,
@@ -948,6 +962,8 @@ void main() {
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
                 voiceError: null,
+                locked: false,
+                onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -965,6 +981,8 @@ void main() {
       (WidgetTester tester) async {
     final controller = TextEditingController();
     await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             body: CodingComposer(
                 controller: controller,
@@ -979,6 +997,8 @@ void main() {
                 voiceState: VoiceInputState.failed,
                 voiceEnabled: true,
                 voiceError: '未检测到可用麦克风，请连接或启用录音设备后重试。',
+                locked: false,
+                onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -988,6 +1008,130 @@ void main() {
                 onCancel: () {}))));
 
     expect(find.textContaining('未检测到可用麦克风'), findsNothing);
+  });
+
+  testWidgets('coding composer renders separate CLI and model chips',
+      (WidgetTester tester) async {
+    var cliTaps = 0;
+    var modelTaps = 0;
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                model: 'GPT-5 Codex',
+                modelNotice: 'Model changed to an available option',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                locked: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                onCliTap: () => cliTaps++,
+                onModelTap: () => modelTaps++,
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(find.text('codex'), findsOneWidget);
+    expect(find.text('GPT-5 Codex'), findsOneWidget);
+    expect(find.text('Model changed to an available option'), findsOneWidget);
+
+    await tester.tap(find.text('codex'));
+    await tester.tap(find.text('GPT-5 Codex'));
+
+    expect(cliTaps, 1);
+    expect(modelTaps, 1);
+  });
+
+  testWidgets('coding composer disables CLI and model chips when locked',
+      (WidgetTester tester) async {
+    var cliTaps = 0;
+    var modelTaps = 0;
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                model: 'GPT-5 Codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                locked: true,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                onCliTap: () => cliTaps++,
+                onModelTap: () => modelTaps++,
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    await tester.tap(find.text('codex'));
+    await tester.tap(find.text('GPT-5 Codex'));
+
+    expect(cliTaps, 0);
+    expect(modelTaps, 0);
+  });
+
+  testWidgets('coding composer wraps long CLI and model chips on compact width',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'very-long-codex-compatible-cli',
+                model: 'GPT-5 Codex Experimental Long Context',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                locked: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                onCliTap: () {},
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('coding back target renders workspace list',
@@ -1183,6 +1327,8 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(
         theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
             backgroundColor: theme.bg,
             body: AdapterPickerSheet(
@@ -1219,6 +1365,80 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('adapter-picker-sheet')), findsOneWidget);
+  });
+
+  testWidgets('model picker shows fallback row when no model list exists',
+      (WidgetTester tester) async {
+    String? selected = 'unchanged';
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: ModelPickerSheet(
+                selected: null,
+                onSelected: (model) => selected = model,
+                models: const <AdapterModelOption>[]))));
+
+    expect(find.byKey(const ValueKey('model-picker-sheet')), findsOneWidget);
+    expect(find.text('Default model'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('model-option-default')));
+
+    expect(selected, isNull);
+  });
+
+  testWidgets('model picker renders model source labels',
+      (WidgetTester tester) async {
+    String? selected;
+    await tester.pumpWidget(MaterialApp(
+        theme: theme.buildAppTheme(),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: ModelPickerSheet(
+                selected: 'gpt-5-codex',
+                onSelected: (model) => selected = model,
+                models: const <AdapterModelOption>[
+                  AdapterModelOption(
+                      id: 'gpt-5-codex',
+                      label: 'GPT-5 Codex',
+                      source: 'codex_config',
+                      selected: true),
+                  AdapterModelOption(
+                      id: 'gpt-5-catalog',
+                      label: 'GPT-5 Catalog',
+                      source: 'codex_catalog',
+                      selected: false),
+                  AdapterModelOption(
+                      id: 'claude-sonnet',
+                      label: 'Claude Sonnet',
+                      source: 'claude_env',
+                      selected: false),
+                  AdapterModelOption(
+                      id: 'cli-default',
+                      label: 'CLI Default',
+                      source: 'cli_default',
+                      selected: false),
+                  AdapterModelOption(
+                      id: 'mystery',
+                      label: 'Mystery',
+                      source: 'future_source',
+                      selected: false),
+                ]))));
+
+    expect(find.text('GPT-5 Codex'), findsOneWidget);
+    expect(find.text('Codex config'), findsOneWidget);
+    expect(find.text('Codex catalog'), findsOneWidget);
+    expect(find.text('Claude env'), findsOneWidget);
+    expect(find.text('CLI default'), findsOneWidget);
+    expect(find.text('Unknown source'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('model-option-claude-sonnet')));
+
+    expect(selected, 'claude-sonnet');
   });
 
   testWidgets('tapping current project opens workspace session list',

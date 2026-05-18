@@ -24,73 +24,75 @@ class AdapterPickerSheet extends StatelessWidget {
   final ValueChanged<String> onSelected;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-      top: false,
-      child: Container(
-          key: const ValueKey('adapter-picker-sheet'),
-          margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * .72),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          decoration: BoxDecoration(
-              color: const Color(0xFF111820),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: .1)),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: .42),
-                    blurRadius: 30,
-                    offset: const Offset(0, 18))
-              ]),
-          child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                  Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .045),
-                          borderRadius: BorderRadius.circular(11),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: .13))),
-                      child: const Icon(Icons.terminal_rounded,
-                          size: 17, color: theme.active)),
-                  const SizedBox(width: 11),
-                  const Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text('Choose model / CLI',
-                            style: TextStyle(
-                                color: theme.text,
-                                fontSize: 16.5,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -.2)),
-                        SizedBox(height: 2),
-                        Text(
-                            'Used for the next real daemon run. Cannot switch while running.',
-                            style: TextStyle(
-                                color: theme.muted,
-                                fontSize: 11.5,
-                                height: 1.2)),
-                      ])),
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SafeArea(
+        top: false,
+        child: Container(
+            key: const ValueKey('adapter-picker-sheet'),
+            margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * .72),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            decoration: BoxDecoration(
+                color: const Color(0xFF111820),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withValues(alpha: .1)),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .42),
+                      blurRadius: 30,
+                      offset: const Offset(0, 18))
                 ]),
-                const SizedBox(height: 13),
-                Flexible(
-                    child: ListView.builder(
-                        padding: EdgeInsets.zero,
-                        shrinkWrap: true,
-                        itemCount: adapters.length,
-                        itemBuilder: (context, index) {
-                          final adapter = adapters[index];
-                          return _AdapterChoiceRow(
-                              adapter: adapter,
-                              selected: adapter.adapter == selected,
-                              onTap: () => onSelected(adapter.adapter));
-                        })),
-              ])));
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                    Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .045),
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: .13))),
+                        child: const Icon(Icons.terminal_rounded,
+                            size: 17, color: theme.active)),
+                    const SizedBox(width: 11),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text(l10n.workspaceAdapterPickerTitle,
+                              style: const TextStyle(
+                                  color: theme.text,
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0)),
+                          const SizedBox(height: 2),
+                          Text(l10n.workspaceAdapterPickerSubtitle,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 11.5,
+                                  height: 1.2)),
+                        ])),
+                  ]),
+                  const SizedBox(height: 13),
+                  Flexible(
+                      child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: adapters.length,
+                          itemBuilder: (context, index) {
+                            final adapter = adapters[index];
+                            return _AdapterChoiceRow(
+                                adapter: adapter,
+                                selected: adapter.adapter == selected,
+                                onTap: () => onSelected(adapter.adapter));
+                          })),
+                ])));
+  }
 }
 
 class WorkspaceListPage extends StatelessWidget {

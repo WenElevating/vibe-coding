@@ -145,11 +145,13 @@ Widget buildRunningComposerPreview() => MaterialApp(
             workspace: const WorkspaceSummary(
                 id: 'workspace_1', name: 'vibe-coding', path: ''),
             running: true,
+            locked: true,
             canSend: true,
             sending: false,
             voiceState: VoiceInputState.idle,
             voiceEnabled: false,
             voiceError: null,
+            onCliTap: () {},
             onModelTap: () {},
             onVoiceStart: () {},
             onVoiceStop: () {},

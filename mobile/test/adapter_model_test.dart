@@ -105,7 +105,10 @@ void main() {
       );
 
       expect(viewModel.selectedModel, 'gpt-5-mini');
-      expect(viewModel.modelNotice, isNotNull);
+      expect(
+        viewModel.modelNotice,
+        WorkbenchModelNotice.changedToAvailableOption,
+      );
 
       viewModel.clearModelNotice();
       expect(viewModel.modelNotice, isNull);
@@ -119,6 +122,21 @@ void main() {
 
       viewModel.setSelectedModel('gpt-5-mini');
 
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+    });
+
+    test('sending operation state refuses adapter and model changes', () {
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexModels, _claudeAvailable],
+        ),
+      );
+
+      viewModel.beginOperation();
+      viewModel.setSelectedAdapter('claude');
+      viewModel.setSelectedModel('gpt-5-mini');
+
+      expect(viewModel.selectedAdapter, 'codex');
       expect(viewModel.selectedModel, 'gpt-5-codex');
     });
 
@@ -233,6 +251,12 @@ const _codexWithoutModelSelection = AdapterStatus(
       selected: true,
     ),
   ],
+);
+
+const _claudeAvailable = AdapterStatus(
+  adapter: 'claude',
+  available: true,
+  status: 'available',
 );
 
 AppSnapshot _snapshot({

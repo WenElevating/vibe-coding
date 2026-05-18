@@ -18,6 +18,10 @@ class CodingComposer extends StatelessWidget {
       required this.voiceState,
       required this.voiceEnabled,
       required this.voiceError,
+      required this.locked,
+      this.model,
+      this.modelNotice,
+      required this.onCliTap,
       required this.onModelTap,
       required this.onVoiceStart,
       required this.onVoiceStop,
@@ -34,6 +38,10 @@ class CodingComposer extends StatelessWidget {
   final VoiceInputState voiceState;
   final bool voiceEnabled;
   final String? voiceError;
+  final bool locked;
+  final String? model;
+  final String? modelNotice;
+  final VoidCallback onCliTap;
   final VoidCallback onModelTap;
   final VoidCallback onVoiceStart;
   final VoidCallback onVoiceStop;
@@ -102,27 +110,50 @@ class CodingComposer extends StatelessWidget {
                   const SizedBox(height: 8),
                   const _VoiceInputStatus('Listening… release to finish'),
                 ],
+                if (modelNotice != null && modelNotice!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(modelNotice!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.muted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500))),
+                ],
                 const SizedBox(height: 8),
-                Row(children: [
-                  InkWell(
-                      onTap: running ? null : onModelTap,
-                      borderRadius: BorderRadius.circular(999),
-                      child: _ComposerModelPill(adapter: adapter)),
-                  const Spacer(),
-                  const _ComposerIcon(Icons.add_rounded),
-                  const SizedBox(width: 12),
-                  _VoiceInputButton(
-                      state: voiceState,
-                      enabled: voiceEnabled && !running && !sending,
-                      onStart: onVoiceStart,
-                      onStop: onVoiceStop,
-                      onCancel: onVoiceCancel),
-                  const SizedBox(width: 12),
-                  _SendPromptButton(
-                      enabled: canSend,
-                      busy: sending,
-                      running: running,
-                      onTap: running ? onCancel : (canSend ? onSend : null)),
+                Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Flexible(
+                      child: Wrap(spacing: 8, runSpacing: 6, children: [
+                    InkWell(
+                        onTap: locked ? null : onCliTap,
+                        borderRadius: BorderRadius.circular(999),
+                        child:
+                            _ComposerCliPill(adapter: adapter, locked: locked)),
+                    InkWell(
+                        onTap: locked ? null : onModelTap,
+                        borderRadius: BorderRadius.circular(999),
+                        child:
+                            _ComposerModelPill(model: model, locked: locked)),
+                  ])),
+                  const SizedBox(width: 8),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const _ComposerIcon(Icons.add_rounded),
+                    const SizedBox(width: 12),
+                    _VoiceInputButton(
+                        state: voiceState,
+                        enabled: voiceEnabled && !running && !sending,
+                        onStart: onVoiceStart,
+                        onStop: onVoiceStop,
+                        onCancel: onVoiceCancel),
+                    const SizedBox(width: 12),
+                    _SendPromptButton(
+                        enabled: canSend,
+                        busy: sending,
+                        running: running,
+                        onTap: running ? onCancel : (canSend ? onSend : null)),
+                  ]),
                 ])
               ]))));
 }
@@ -229,28 +260,77 @@ class _SendPromptButton extends StatelessWidget {
   }
 }
 
-class _ComposerModelPill extends StatelessWidget {
-  const _ComposerModelPill({required this.adapter});
+class _ComposerCliPill extends StatelessWidget {
+  const _ComposerCliPill({required this.adapter, required this.locked});
   final String? adapter;
+  final bool locked;
 
   @override
-  Widget build(BuildContext context) => Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-          color: const Color(0xFF111214),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white.withValues(alpha: .075))),
+  Widget build(BuildContext context) => _ComposerPillShell(
+      locked: locked,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.code_rounded, color: theme.muted, size: 14),
+        Icon(Icons.terminal_rounded,
+            color: locked ? theme.faint : theme.muted, size: 14),
         const SizedBox(width: 7),
-        Text(adapter ?? 'CLI',
-            style: const TextStyle(
-                color: theme.text,
-                fontSize: 11.5,
-                fontFamily: 'Consolas',
-                fontWeight: FontWeight.w800)),
+        ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 126),
+            child: Text(adapter ?? 'CLI',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: locked ? theme.muted : theme.text,
+                    fontSize: 11.5,
+                    fontFamily: 'Consolas',
+                    fontWeight: FontWeight.w800))),
       ]));
+}
+
+class _ComposerModelPill extends StatelessWidget {
+  const _ComposerModelPill({required this.model, required this.locked});
+  final String? model;
+  final bool locked;
+
+  @override
+  Widget build(BuildContext context) {
+    final label =
+        model ?? AppLocalizations.of(context).workbenchComposerDefaultModel;
+    return _ComposerPillShell(
+        locked: locked,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.memory_rounded,
+              color: locked ? theme.faint : theme.muted, size: 14),
+          const SizedBox(width: 7),
+          ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 126),
+              child: Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: locked ? theme.muted : theme.text,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700))),
+        ]));
+  }
+}
+
+class _ComposerPillShell extends StatelessWidget {
+  const _ComposerPillShell({required this.locked, required this.child});
+  final bool locked;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Opacity(
+      opacity: locked ? .58 : 1,
+      child: Container(
+          height: 28,
+          constraints: const BoxConstraints(maxWidth: 168),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+              color: const Color(0xFF111214),
+              borderRadius: BorderRadius.circular(999),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: .075))),
+          child: child));
 }
 
 class _ComposerIcon extends StatelessWidget {
