@@ -94,6 +94,16 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       if (method === 'GET' && url.pathname === '/api/conversations') return json(res, 200, { conversations: conversations.listConversations(device) });
       if (method === 'POST' && url.pathname === '/api/conversations') return json(res, 201, { conversation: conversations.createConversation(await readJson(req), device) });
+      const conversationModel = url.pathname.match(/^\/api\/conversations\/([^/]+)\/model$/);
+      if (method === 'PATCH' && conversationModel) {
+        return json(res, 200, {
+          conversation: await conversations.updateModel(
+            conversationModel[1],
+            await readJson(req),
+            device
+          )
+        });
+      }
       const conversationEvents = url.pathname.match(/^\/api\/conversations\/([^/]+)\/events$/);
       if (method === 'GET' && conversationEvents) {
         const afterSeq = Number(url.searchParams.get('afterSeq') || 0);

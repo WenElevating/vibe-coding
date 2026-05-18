@@ -41,6 +41,7 @@ const terminalConversationStatuses = new Set([
 const conversationEventTypes = Object.freeze({
   CONVERSATION_STARTED: 'conversation.started',
   STATUS_CHANGED: 'conversation.status_changed',
+  MODEL_CHANGED: 'conversation.model_changed',
   USER_MESSAGE: 'user.message',
   ASSISTANT_THINKING: 'assistant.thinking',
   ASSISTANT_PARTIAL: 'assistant.partial',
@@ -79,6 +80,18 @@ function normalizeConversationCreate(payload) {
     resumePolicy: normalizeResumePolicy(payload.resumePolicy),
     systemPromptPolicy: normalizeSystemPromptPolicy(payload.systemPromptPolicy)
   };
+}
+
+function normalizeConversationModelUpdate(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw badRequest('payload must be an object');
+  }
+  if (payload.model == null) return { model: null };
+  if (typeof payload.model !== 'string') {
+    throw badRequest('model must be a string or null');
+  }
+  const model = payload.model.trim();
+  return { model: model || null };
 }
 
 function normalizeMessagePayload(payload) {
@@ -188,6 +201,7 @@ module.exports = {
   conversationSessionBindings,
   conversationEventTypes,
   normalizeConversationCreate,
+  normalizeConversationModelUpdate,
   normalizeMessagePayload,
   normalizeQuestionResponse,
   normalizeApprovalDecision,

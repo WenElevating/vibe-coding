@@ -75,6 +75,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
     conversationSessionBindings,
     conversationEventTypes,
     normalizeConversationCreate,
+    normalizeConversationModelUpdate,
     normalizeMessagePayload,
     normalizeQuestionResponse,
     normalizeApprovalDecision,
@@ -141,6 +142,11 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: ' gpt-5.5 ' }).model, 'gpt-5.5');
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: '   ' }).model, null);
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: 42 }).model, null);
+  assert.deepEqual(normalizeConversationModelUpdate({ model: ' gpt-5.5 ' }), { model: 'gpt-5.5' });
+  assert.deepEqual(normalizeConversationModelUpdate({ model: '   ' }), { model: null });
+  assert.deepEqual(normalizeConversationModelUpdate({ model: null }), { model: null });
+  assert.throws(() => normalizeConversationModelUpdate(null), /payload must be an object/);
+  assert.throws(() => normalizeConversationModelUpdate({ model: 42 }), /model must be a string or null/);
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');
   assert.equal(normalizeApprovalDecision({ decision: 'allow' }).decision, 'allow');
