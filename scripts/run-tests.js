@@ -2842,6 +2842,89 @@ test('Codex conversation HTTP API sends message and stores CLI thread id', async
   }
 });
 
+test('HTTP conversation API exposes model metadata and passes selected model into adapter startup', async () => {
+  const startCalls = [];
+  const conversationAdapters = new Map([['codex', {
+    capabilities: { resume: true, partialOutput: true },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        async sendUserMessage() {
+          input.onEvent({ type: 'conversation.completed' });
+        },
+        async cancel() {},
+        async dispose() {}
+      };
+    }
+  }]]);
+  const app = createApp({
+    port: 0,
+    conversationAdapters,
+    conversationDbPath: tempConversationDbPath('conversation-model-http-')
+  });
+  app.adapterRegistry.adapters.set('codex', {
+    name: 'codex',
+    displayName: 'Codex',
+    async detectCapabilities() {
+      return { adapter: 'codex', available: true, status: 'available' };
+    },
+    getModelCapability() {
+      return {
+        models: [{
+          id: 'gpt-5',
+          label: 'GPT-5',
+          source: MODEL_SOURCES.CODEX_CONFIG,
+          selected: true
+        }],
+        selectedModel: 'gpt-5',
+        canSelectModel: true
+      };
+    },
+    getCapabilities() {
+      return { resume: true };
+    }
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'conversation-model-test'
+    });
+    const token = paired.body.token;
+    const adapters = await request(port, 'GET', '/api/adapters', null, token);
+    const codex = adapters.body.adapters.find((item) => item.adapter === 'codex');
+    assert.deepEqual(codex.models.map((model) => model.id), ['gpt-5']);
+    assert.equal(codex.selectedModel, 'gpt-5');
+    assert.equal(codex.canSelectModel, true);
+
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'codex',
+      model: ' gpt-5 '
+    }, token);
+    assert.equal(created.status, 201);
+    assert.equal(created.body.conversation.model, 'gpt-5');
+
+    const conversationId = created.body.conversation.id;
+    await request(port, 'POST', `/api/conversations/${conversationId}/messages`, { text: 'hello' }, token);
+    assert.equal(startCalls.length, 1);
+    assert.equal(startCalls[0].model, 'gpt-5');
+
+    const listed = await request(port, 'GET', '/api/conversations', null, token);
+    const conversation = listed.body.conversations.find((item) => item.id === conversationId);
+    assert.equal(conversation.model, 'gpt-5');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
 test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 terminal boundary', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
   app.adapterRegistry.get('claude').spawnSyncFn = fakeSpawnSync;
