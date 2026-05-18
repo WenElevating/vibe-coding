@@ -14,6 +14,7 @@ This extends the existing workbench composer model picker design. The previous i
 - Keep the CLI adapter fixed for the conversation; only the model can change.
 - Avoid misleading optimistic UI. The composer chip should update only after the daemon confirms the new model.
 - Return explicit errors for unsupported models, unsupported CLI capabilities, and disallowed active states.
+- Treat `conversation.model` as the source of truth; diagnostic events are useful but not authoritative.
 
 ## Non-Goals
 
@@ -33,6 +34,7 @@ Daemon:
 - `ensureStarted()` passes `conversation.model` to `adapter.startConversation()`.
 - Codex and Claude adapters add `--model` only when capability probing says the CLI supports it.
 - `POST /api/conversations/:id/messages` currently accepts only message text, so follow-up sends cannot request a model update.
+- Existing persistence and event append APIs are not a single cross-resource transaction, so the update design must avoid claiming database-level atomicity where the codebase does not provide it.
 
 Mobile:
 
@@ -144,29 +146,35 @@ Flow:
 
 1. Load and authorize the conversation with `requireConversation(conversationId, device)`.
 2. Normalize the payload with `normalizeConversationModelUpdate()`.
-3. Reject if the conversation is active:
+3. Reject if `conversation.modelUpdateLock` is truthy.
+4. Set `conversation.modelUpdateLock = true` for the duration of the update. Clear it in `finally`.
+5. Reject if the conversation is active:
    - `running`
    - `waiting_input`
    - `waiting_approval`
    - `sendLock` is truthy
-4. Load the adapter and its current model capability.
-5. Validate the requested model:
+6. Load the adapter and its current model capability.
+7. Validate the requested model:
    - If `canSelectModel !== true`, reject non-null model selection.
    - If `models` is empty, allow only `null`.
    - If `models` is non-empty, a non-null model must match one `models[].id`.
-6. If the model is unchanged, return `publicConversation(conversation)` without writing an event.
-7. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
-8. Save `previousModel`.
-9. Assign `conversation.model = requestedModel`.
-10. Touch and persist the conversation.
-11. Append `conversation.model_changed` event with `previousModel` and `model`.
-12. Return `publicConversation(conversation)`.
+8. If the model is unchanged, return `publicConversation(conversation)` without writing an event.
+9. Save `previousModel`.
+10. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
+11. Assign `conversation.model = requestedModel`.
+12. Touch and persist the conversation.
+13. Best-effort append `conversation.model_changed` event with `previousModel` and `model`.
+14. Return `publicConversation(conversation)`.
 
-Persistence must behave transactionally from the client perspective:
+Consistency guarantee:
 
 - If validation fails, do not mutate `conversation.model`.
 - If handle disposal fails, do not mutate `conversation.model`.
 - If persistence fails after assigning the new model, restore the in-memory model to `previousModel`, leave no `model_changed` event, and return an error.
+- If handle disposal succeeds but persistence fails, do not try to reattach the disposed handle. Keep `conversation.handle = null`, restore `conversation.model = previousModel`, and preserve `cliSessionId`. This leaves the conversation idle and restartable; the next send resumes with the previous persisted model.
+- This is a best-effort compensation model, not a true cross-resource transaction. The client should rely only on the returned `publicConversation()` and later list/get responses.
+
+`sendMessage()` should also reject with `409` when `conversation.modelUpdateLock` is truthy, so a prompt cannot start while a model update is between validation and persistence.
 
 ## CLI Lifecycle
 
@@ -221,42 +229,59 @@ Implement in `DaemonConversationRepository` and `DaemonClient` with `PATCH /api/
 
 ### ViewModel State
 
-Add state focused on server-confirmed updates:
+Avoid giving one mutable field two meanings. Split local draft selection from confirmed conversation selection:
 
+- `String? draftModel`
+- `String? confirmedConversationModel`
 - `bool modelUpdating`
 - `String? modelUpdateError`
-- `String? confirmedConversationModel`
 
-`selectedModel` means:
+Keep `selectedModel` as a read-only compatibility getter for widgets:
 
-- Draft state for new conversations.
-- Confirmed daemon state for existing conversations.
+- If `_activeConversationId == null`, return `draftModel`.
+- If `_activeConversationId != null`, return `confirmedConversationModel`.
 
-When opening an existing conversation, `_selectActiveConversationAdapter()` should also use `conversation.model` as the confirmed selected model when present. If `conversation.model` is null, the chip should display the default model label.
+New conversation picker updates `draftModel` immediately. Existing conversation picker calls the server update path and changes `confirmedConversationModel` only after daemon success.
+
+When opening an existing conversation, `_selectActiveConversationAdapter()` should also set `confirmedConversationModel = conversation.model`. If `conversation.model` is null, the chip should display the default model label.
 
 ### Existing Conversation Selection Flow
 
 1. User opens the model picker in an idle existing conversation.
 2. User taps a model row.
-3. ViewModel sets `modelUpdating = true` and clears previous `modelUpdateError`.
-4. Composer chip keeps the previously confirmed model.
-5. Picker row shows a pending spinner and other rows are disabled.
-6. Mobile calls `updateConversationModel(conversationId, model)`.
-7. On success:
+3. ViewModel refuses the request if `modelUpdating` is already true.
+4. ViewModel sets `modelUpdating = true` and clears previous `modelUpdateError`.
+5. Composer chip keeps the previously confirmed model.
+6. Picker row shows a pending spinner and other rows are disabled.
+7. Mobile calls `updateConversationModel(conversationId, model)`.
+8. On success:
    - update active conversation from daemon response
-   - set `selectedModel` from `conversation.model`
-   - set `confirmedConversationModel`
+   - set `confirmedConversationModel = conversation.model`
    - clear `modelUpdating`
    - close picker
-8. On failure:
+9. On failure:
    - keep chip unchanged
    - clear `modelUpdating`
    - set `modelUpdateError`
-   - keep picker open when practical so the user can retry or choose another model
+   - keep picker open so the user can retry or choose another model
+
+No request cancellation token is required for this flow. The ViewModel serializes updates by refusing a second update while `modelUpdating` is true. The daemon `modelUpdateLock` protects the same conversation from concurrent updates coming from another client or code path.
 
 ### New Conversation Draft Selection
 
 For a not-yet-created conversation, model selection remains local and immediate because there is no remote conversation state to confirm.
+
+### Default Model Display
+
+`model == null` means "do not pass `--model`; let the CLI use its own default/configured model." It does not mean "use the first item in the discovered model list."
+
+Display rules:
+
+- Composer chip: use the localized `workbenchComposerDefaultModel` label.
+- Picker: include a localized "Default model" row that sends `model: null`.
+- If adapter capability includes `selectedModel`, the picker shows it as secondary text such as "CLI default: <id>", but the stored conversation value remains `null`.
+- If adapter capability has no `selectedModel`, the picker uses a generic secondary text such as "Uses the CLI configured default."
+- Reopening a conversation whose `conversation.model` is `null` selects the "Default model" row and shows the default label on the chip.
 
 ## UI Behavior
 
@@ -290,6 +315,7 @@ Mobile handling:
 - Do not change the composer chip on failure.
 - Show a clear picker error message.
 - For `403` and `404`, refresh conversation/session state.
+- For `404` or `405` from the model update endpoint specifically, treat the daemon as older than the model-update protocol: keep existing new-conversation model selection, disable existing-conversation model updates for the current daemon connection, and show an unsupported-daemon message.
 - For `409`, say the current turn must finish before changing model.
 - For `422`, refresh adapter capabilities and keep the previous confirmed model.
 - For `500/503`, show the existing operation error surface and include a trace id when the diagnostics repository returns one.
@@ -309,6 +335,8 @@ Payload:
 
 The event should be available in replay for diagnostics. It does not need to render as a visible chat transcript item in this change.
 
+`conversation.model_changed` is diagnostic, not the source of truth. If event append fails after `conversation.model` has been persisted, do not roll back the model and do not fail the request solely because the diagnostic event failed. Catch the event append failure and record it through `auditLog.record('conversation.model_change_event_error', ...)`. Conversation list/get responses remain authoritative.
+
 ## Testing Plan
 
 Daemon tests in `scripts/run-tests.js`:
@@ -319,33 +347,41 @@ Daemon tests in `scripts/run-tests.js`:
 - The endpoint rejects unsupported adapter model selection with `422`.
 - The endpoint rejects unknown models with `422`.
 - Updating an idle conversation with an existing handle disposes the handle, preserves `cliSessionId`, and next send starts the adapter with the new model.
-- Persistence failure restores the in-memory model and does not append `conversation.model_changed`.
+- Persistence failure restores the in-memory model, keeps any successfully disposed handle detached, preserves `cliSessionId`, and does not append `conversation.model_changed`.
+- Event append failure does not roll back a successfully persisted model.
+- Concurrent model updates on the same conversation return `409`.
+- Sending a prompt while a model update lock is held returns `409`.
 
 Mobile tests:
 
 - `ConversationSummary.fromJson()` parses `model`.
-- `WorkbenchViewModel` initializes existing conversation selected model from `ConversationSummary.model`.
-- Existing conversation model update waits for repository success before changing `selectedModel`.
-- Failure leaves `selectedModel` unchanged and exposes `modelUpdateError`.
+- `WorkbenchViewModel` initializes `confirmedConversationModel` from `ConversationSummary.model`.
+- New conversation model selection updates `draftModel` immediately.
+- Existing conversation model update waits for repository success before changing `confirmedConversationModel`.
+- Failure leaves `confirmedConversationModel` unchanged and exposes `modelUpdateError`.
 - Sending state refuses model update.
+- `modelUpdating` refuses concurrent update requests.
 - Composer/model picker widget shows pending update state and keeps confirmed chip label until success.
 
 Verification commands:
 
-- `cmd.exe /c npm test`
-- `cmd.exe /c npm run lint`
-- Flutter commands must use the China mirrors:
+- `npm test`
+- `npm run lint`
+- Mobile architecture and focused tests:
 
-```bat
-cmd.exe /c "cd /d D:\AIProject\vibe-coding\mobile && set PUB_HOSTED_URL=https://pub.flutter-io.cn&& set FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn&& dart run tool\check_architecture_imports.dart && flutter test test\adapter_model_test.dart test\widget_test.dart"
+```sh
+cd mobile
+PUB_HOSTED_URL=https://pub.flutter-io.cn FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn dart run tool/check_architecture_imports.dart
+PUB_HOSTED_URL=https://pub.flutter-io.cn FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn flutter test test/adapter_model_test.dart test/widget_test.dart
 ```
 
-If the first Flutter/Dart attempt times out, do not retry automatically. Report the timeout and provide the exact command for manual execution.
+On Windows/PowerShell, use the equivalent environment-variable syntax required by the local shell. If the first Flutter/Dart attempt times out, do not retry automatically. Report the timeout and provide the exact command for manual execution.
 
 ## Rollout Notes
 
 - This is additive for old clients. Existing create/send endpoints continue to work.
 - Old mobile clients will ignore `conversation.model` if they do not parse it.
+- New mobile clients talking to an old daemon should handle `404` or `405` on `PATCH /api/conversations/:id/model` by disabling existing-conversation model updates for that connection while keeping new-conversation draft model selection available.
 - The new endpoint should not be required for message sending.
 - If model discovery returns no model list, the daemon should not accept arbitrary free-form models through the update endpoint.
 
@@ -354,5 +390,3 @@ If the first Flutter/Dart attempt times out, do not retry automatically. Report 
 - GitHub Copilot Chat model selection: https://docs.github.com/en/copilot/how-tos/use-ai-models/change-the-chat-model?tool=vscode
 - Claude model switching behavior: https://support.claude.com/en/articles/8664678-how-can-i-change-the-model-version-that-i-m-chatting-with
 - Visual Studio Copilot model selection: https://learn.microsoft.com/en-us/visualstudio/ide/copilot-select-add-models?view=visualstudio
-- TanStack Query optimistic update guidance: https://tanstack.com/query/v3/docs/framework/react/guides/optimistic-updates
-- Apollo optimistic UI guidance: https://www.apollographql.com/docs/react/performance/optimistic-ui
