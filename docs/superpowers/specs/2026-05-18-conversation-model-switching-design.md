@@ -162,7 +162,7 @@ Flow:
    - If `models` is non-empty, a non-null model must match one `models[].id`.
 9. If the model is unchanged, return `publicConversation(conversation)` without writing an event. The lock is cleared in `finally` before returning.
 10. Save `previousModel`.
-11. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
+11. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`. On disposal failure, see Consistency guarantee: set `handle` to `null`, log, and return an error.
 12. Assign `conversation.model = requestedModel`.
 13. Touch and persist the conversation.
 14. Best-effort append `conversation.model_changed` event using the Eventing section rules.
@@ -311,7 +311,7 @@ Daemon status codes:
 
 - `400 Bad Request`: request body is malformed or `model` has an invalid type.
 - `403 Forbidden`: device cannot access the conversation.
-- `404 Not Found`: conversation does not exist or is not visible to the device on implemented conversation endpoints. A routing-level `404` from `PATCH /api/conversations/:id/model` is handled as old-daemon endpoint incompatibility unless the response body explicitly identifies a missing conversation.
+- `404 Not Found`: conversation does not exist or is not visible to the device on implemented conversation endpoints. The current daemon error envelope is `{ "error": { "code": "...", "message": "...", ... } }`; for `PATCH /api/conversations/:id/model`, `error.code === 'NOT_FOUND'` identifies a missing conversation, while any other `404` from this path is treated as old-daemon endpoint incompatibility.
 - `409 Conflict`: current state does not allow model changes, such as running, waiting for input, waiting for approval, or message already in flight.
 - `422 Unprocessable Entity`: adapter cannot select models, requested model is not in the model list, or the model capability is unavailable for the selected adapter.
 - `500/503`: persistence, handle disposal, or adapter capability infrastructure failed.
@@ -320,8 +320,9 @@ Mobile handling:
 
 - Do not change the composer chip on failure.
 - Show a clear picker error message.
-- For `404` or `405` from `PATCH /api/conversations/:id/model`, apply old-daemon compatibility handling before generic `404` handling: keep existing new-conversation model selection, disable existing-conversation model updates for the current daemon connection, and show an unsupported-daemon message.
-- For `403`, and for `404` from other conversation endpoints or from a model update response body that explicitly identifies a missing conversation, refresh conversation/session state.
+- For `404` from `PATCH /api/conversations/:id/model`, first inspect `error.code`; `NOT_FOUND` refreshes conversation/session state.
+- For any other `404` from `PATCH /api/conversations/:id/model`, or for `405` from that endpoint, apply old-daemon compatibility handling: keep existing new-conversation model selection, disable existing-conversation model updates for the current daemon connection, and show an unsupported-daemon message.
+- For `403`, and for `404` from other conversation endpoints, refresh conversation/session state.
 - For `409`, say the current turn must finish before changing model.
 - For `422`, refresh adapter capabilities and keep the previous confirmed model.
 - For `500/503`, show the existing operation error surface and include a trace id when the diagnostics repository returns one.
@@ -372,6 +373,7 @@ Mobile tests:
 - Failure leaves `confirmedConversationModel` unchanged and exposes `modelUpdateError`.
 - Sending state refuses model update.
 - `modelUpdating` refuses concurrent update requests.
+- Model update error handling treats `PATCH /api/conversations/:id/model` `404` with `error.code === 'NOT_FOUND'` as missing conversation state refresh, while other `404` or `405` responses from that endpoint disable existing-conversation model updates for an old daemon.
 - Composer/model picker widget shows pending update state and keeps confirmed chip label until success.
 
 Verification commands:
@@ -392,7 +394,7 @@ On Windows/PowerShell, use the equivalent environment-variable syntax required b
 
 - This is additive for old clients. Existing create/send endpoints continue to work.
 - Old mobile clients will ignore `conversation.model` if they do not parse it.
-- New mobile clients talking to an old daemon should handle `404` or `405` on `PATCH /api/conversations/:id/model` by disabling existing-conversation model updates for that connection while keeping new-conversation draft model selection available.
+- New mobile clients talking to an old daemon should handle `PATCH /api/conversations/:id/model` `404` responses without `error.code === 'NOT_FOUND'`, and `405` responses from that endpoint, by disabling existing-conversation model updates for that connection while keeping new-conversation draft model selection available.
 - The new endpoint should not be required for message sending.
 - If model discovery returns no model list, the daemon should not accept arbitrary free-form models through the update endpoint.
 
