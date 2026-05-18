@@ -28,7 +28,9 @@ class WorkbenchViewModel extends ChangeNotifier {
         _routeState = WorkspaceListRouteState(
           workspaces: List.unmodifiable(initialData.workspaces),
         ),
-        _selectedAdapter = _computePreferredAdapter(initialData.adapters);
+        _adapters = List<AdapterStatus>.unmodifiable(initialData.adapters),
+        _selectedAdapter = _computePreferredAdapter(initialData.adapters),
+        _selectedModel = _initialSelectedModel(initialData.adapters);
 
   WorkbenchRouteState _routeState;
   final Map<String, SessionItem> _optimisticSessions = <String, SessionItem>{};
@@ -37,7 +39,10 @@ class WorkbenchViewModel extends ChangeNotifier {
   final RunRepository? _runRepository;
   final WorkspaceRepository? _workspaceRepository;
   final Duration _workspaceCreationTimeout;
+  List<AdapterStatus> _adapters;
   String? _selectedAdapter;
+  String? _selectedModel;
+  String? _modelNotice;
   String? _activeRunId;
   String? _activeConversationId;
   ConversationSummary? _activeConversation;
@@ -54,6 +59,13 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<SessionItem> get optimisticSessions =>
       List.unmodifiable(_optimisticSessions.values);
   String? get selectedAdapter => _selectedAdapter;
+  AdapterStatus? get selectedAdapterStatus => _adapterStatusFor(
+        _selectedAdapter,
+      );
+  List<AdapterModelOption> get availableModels =>
+      selectedAdapterStatus?.models ?? const <AdapterModelOption>[];
+  String? get selectedModel => _selectedModel;
+  String? get modelNotice => _modelNotice;
   String? get activeRunId => _activeRunId;
   String? get activeConversationId => _activeConversationId;
   ConversationSummary? get activeConversation => _activeConversation;
@@ -335,11 +347,35 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_activeConversationId != null) return;
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
+    _selectedModel = _preferredModelFor(selectedAdapterStatus);
+    _modelNotice = null;
     notifyListeners();
+  }
+
+  void setSelectedModel(String? model) {
+    if (_activeConversationId != null) return;
+    final normalized = _normalizeModel(model);
+    final status = selectedAdapterStatus;
+    if (normalized != null &&
+        (status?.canSelectModel != true ||
+            !_modelStillAvailable(normalized, status))) {
+      return;
+    }
+    final changed = _selectedModel != normalized || _modelNotice != null;
+    _selectedModel = normalized;
+    _modelNotice = null;
+    if (changed) notifyListeners();
+  }
+
+  void clearModelNotice({bool notify = true}) {
+    if (_modelNotice == null) return;
+    _modelNotice = null;
+    if (notify) notifyListeners();
   }
 
   void updateFromSnapshot(AppSnapshot snapshot) {
     reconcile(snapshot, notify: false);
+    _adapters = List<AdapterStatus>.unmodifiable(snapshot.adapters);
     final workspaces = List<WorkspaceSummary>.unmodifiable(snapshot.workspaces);
     _routeState = _rebuildRouteState(workspaces);
     final activeConversation = _activeConversation;
@@ -347,6 +383,9 @@ class WorkbenchViewModel extends ChangeNotifier {
       _selectActiveConversationAdapter(activeConversation);
     } else if (!_selectedAdapterStillAvailable(snapshot.adapters)) {
       _selectedAdapter = _computePreferredAdapter(snapshot.adapters);
+    }
+    if (_activeConversationId == null) {
+      _reconcileSelectedModel();
     }
     notifyListeners();
   }
@@ -357,10 +396,38 @@ class WorkbenchViewModel extends ChangeNotifier {
     _selectedAdapter = adapter;
   }
 
+  AdapterStatus? _adapterStatusFor(String? adapter) =>
+      _adapterStatusForSelection(_adapters, adapter);
+
+  void _reconcileSelectedModel() {
+    final status = selectedAdapterStatus;
+    if (_selectedModel != null && _modelStillAvailable(_selectedModel, status)) {
+      return;
+    }
+    final previous = _selectedModel;
+    final fallback = _preferredModelFor(status);
+    if (previous == null && fallback == null) return;
+    _selectedModel = fallback;
+    if (previous != null && fallback != null && previous != fallback) {
+      _modelNotice = 'Model changed to an available option';
+    } else if (fallback == null) {
+      _modelNotice = null;
+    }
+  }
+
+  String? _modelForCreate({required String adapter, String? requested}) {
+    final status = _adapterStatusFor(adapter);
+    if (status?.canSelectModel != true) return null;
+    final normalized = _normalizeModel(requested) ?? _selectedModel;
+    return _modelStillAvailable(normalized, status) ? normalized : null;
+  }
+
   bool _selectedAdapterStillAvailable(List<AdapterStatus> adapters) =>
       _selectedAdapter != null &&
       adapters.any((a) =>
-          a.adapter == _selectedAdapter && a.available && _isSelectableAdapter(a));
+          a.adapter == _selectedAdapter &&
+          a.available &&
+          _isSelectableAdapter(a));
 
   void reconcile(AppSnapshot snapshot, {bool notify = true}) {
     var changed = false;
@@ -379,13 +446,17 @@ class WorkbenchViewModel extends ChangeNotifier {
     required String prompt,
     required String adapter,
     required String permissionMode,
+    String? model,
   }) async {
     final repository = _requireConversationRepository();
+    final modelToSend = _modelForCreate(adapter: adapter, requested: model);
     final conversation = await repository.createConversation(
       workspaceId: workspace.id,
       adapter: adapter,
       permissionMode: permissionMode,
+      model: modelToSend,
     );
+    _modelNotice = null;
     final runningConversation =
         _copyConversationStatus(conversation, 'sending');
     _optimisticSessions[conversation.id] = SessionItem(
@@ -659,6 +730,64 @@ class WorkbenchViewModel extends ChangeNotifier {
       if (w.id == fallback.id) return w;
     }
     return fallback;
+  }
+
+  static String? _initialSelectedModel(List<AdapterStatus> adapters) {
+    final selectedAdapter = _computePreferredAdapter(adapters);
+    return _preferredModelFor(
+      _adapterStatusForSelection(adapters, selectedAdapter),
+    );
+  }
+
+  static AdapterStatus? _adapterStatusForSelection(
+    List<AdapterStatus> adapters,
+    String? adapter,
+  ) {
+    final id = adapter?.trim();
+    if (id == null || id.isEmpty) return null;
+    for (final status in adapters) {
+      if (status.adapter == id &&
+          status.available &&
+          _isSelectableAdapter(status)) {
+        return status;
+      }
+    }
+    return null;
+  }
+
+  static String? _preferredModelFor(AdapterStatus? adapter) {
+    final models = adapter?.models ?? const <AdapterModelOption>[];
+    if (models.isEmpty) return null;
+    final selectedModel = _normalizeModel(adapter?.selectedModel);
+    if (selectedModel != null &&
+        models.any((model) => model.id == selectedModel)) {
+      return selectedModel;
+    }
+    for (final model in models) {
+      final id = _normalizeModel(model.id);
+      if (model.selected && id != null) return id;
+    }
+    for (final model in models) {
+      final id = _normalizeModel(model.id);
+      if (id != null) return id;
+    }
+    return null;
+  }
+
+  static bool _modelStillAvailable(
+    String? model,
+    AdapterStatus? adapter,
+  ) {
+    final id = _normalizeModel(model);
+    if (id == null) return true;
+    final models = adapter?.models ?? const <AdapterModelOption>[];
+    return models.any((model) => model.id == id);
+  }
+
+  static String? _normalizeModel(String? model) {
+    final trimmed = model?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
   }
 
   static String? _computePreferredAdapter(List<AdapterStatus> adapters) {
