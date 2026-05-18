@@ -154,13 +154,13 @@ Flow:
    - `sendLock` is truthy
 4. Reject if `conversation.modelUpdateLock` is truthy.
 5. Set `conversation.modelUpdateLock = true` for the duration of the update. Clear it in `finally`.
-6. Re-check active state and `sendLock` after acquiring the lock. This is defensive for a race where a send starts after the first active-state check but before the lock is set.
+6. Re-check active state and `sendLock` after acquiring the lock. This is defensive for a race where a send starts after the first active-state check but before the lock is set. If the re-check fails, return `409`; `modelUpdateLock` is cleared in `finally`.
 7. Load the adapter and its current model capability.
 8. Validate the requested model:
    - If `canSelectModel !== true`, reject non-null model selection.
    - If `models` is empty, allow only `null`.
    - If `models` is non-empty, a non-null model must match one `models[].id`.
-9. If the model is unchanged, return `publicConversation(conversation)` without writing an event.
+9. If the model is unchanged, return `publicConversation(conversation)` without writing an event. The lock is cleared in `finally` before returning.
 10. Save `previousModel`.
 11. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
 12. Assign `conversation.model = requestedModel`.
@@ -177,6 +177,8 @@ Consistency guarantee:
 - This is a best-effort compensation model, not a true cross-resource transaction. The client should rely only on the returned `publicConversation()` and later list/get responses.
 
 `sendMessage()` should also reject with `409` when `conversation.modelUpdateLock` is truthy, so a prompt cannot start while a model update is between validation and persistence.
+
+The `sendLock` lifecycle is still owned by the existing `sendMessage()` implementation. This design only reads it as an active-state signal and does not add new `sendLock` setup or cleanup responsibilities.
 
 If a send is already in flight, the first active-state check rejects model update before the lock is set. If a send wins a race after the first active-state check, the defensive re-check under `modelUpdateLock` rejects the model update and clears the lock in `finally`. That brief lock window is expected and prevents model update and prompt send from crossing in an undefined order.
 
@@ -309,7 +311,7 @@ Daemon status codes:
 
 - `400 Bad Request`: request body is malformed or `model` has an invalid type.
 - `403 Forbidden`: device cannot access the conversation.
-- `404 Not Found`: conversation does not exist or is not visible to the device.
+- `404 Not Found`: conversation does not exist or is not visible to the device on implemented conversation endpoints. A routing-level `404` from `PATCH /api/conversations/:id/model` is handled as old-daemon endpoint incompatibility unless the response body explicitly identifies a missing conversation.
 - `409 Conflict`: current state does not allow model changes, such as running, waiting for input, waiting for approval, or message already in flight.
 - `422 Unprocessable Entity`: adapter cannot select models, requested model is not in the model list, or the model capability is unavailable for the selected adapter.
 - `500/503`: persistence, handle disposal, or adapter capability infrastructure failed.
@@ -318,8 +320,8 @@ Mobile handling:
 
 - Do not change the composer chip on failure.
 - Show a clear picker error message.
-- For `403` and `404`, refresh conversation/session state.
-- For `404` or `405` from the model update endpoint specifically, treat the daemon as older than the model-update protocol: keep existing new-conversation model selection, disable existing-conversation model updates for the current daemon connection, and show an unsupported-daemon message.
+- For `404` or `405` from `PATCH /api/conversations/:id/model`, apply old-daemon compatibility handling before generic `404` handling: keep existing new-conversation model selection, disable existing-conversation model updates for the current daemon connection, and show an unsupported-daemon message.
+- For `403`, and for `404` from other conversation endpoints or from a model update response body that explicitly identifies a missing conversation, refresh conversation/session state.
 - For `409`, say the current turn must finish before changing model.
 - For `422`, refresh adapter capabilities and keep the previous confirmed model.
 - For `500/503`, show the existing operation error surface and include a trace id when the diagnostics repository returns one.
@@ -347,6 +349,8 @@ Daemon tests in `scripts/run-tests.js`:
 
 - `normalizeConversationModelUpdate()` accepts string, blank, and null values and rejects malformed payloads.
 - `PATCH /api/conversations/:id/model` updates and persists `conversation.model`.
+- On a successful update, the returned `publicConversation().model` equals the requested model and later list/get responses report the same model.
+- On a successful update, the `conversation.model_changed` event records `previousModel` as the value before the update and `model` as the requested model.
 - The endpoint rejects active states with `409`.
 - The endpoint rejects unsupported adapter model selection with `422`.
 - The endpoint rejects unknown models with `422`.
