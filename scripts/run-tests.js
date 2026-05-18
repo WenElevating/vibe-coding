@@ -118,6 +118,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.equal(isConversationTerminalStatus('cancelled'), false);
   assert.equal(conversationEventTypes.ASSISTANT_MESSAGE, 'assistant.message');
   assert.equal(conversationEventTypes.APPROVAL_REQUESTED, 'approval.requested');
+  assert.equal(conversationEventTypes.MODEL_CHANGED, 'conversation.model_changed');
 
   const defaultConversationCreate = normalizeConversationCreate({
     workspaceId: 'default',
@@ -164,6 +165,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.deepEqual(normalizeConversationModelUpdate({ model: '   ' }), { model: null });
   assert.deepEqual(normalizeConversationModelUpdate({ model: null }), { model: null });
   assert.throws(() => normalizeConversationModelUpdate(null), /payload must be an object/);
+  assert.throws(() => normalizeConversationModelUpdate({}), /model is required/);
   assert.throws(() => normalizeConversationModelUpdate({ model: 42 }), /model must be a string or null/);
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');

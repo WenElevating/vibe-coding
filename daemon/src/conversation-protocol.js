@@ -86,6 +86,9 @@ function normalizeConversationModelUpdate(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw badRequest('payload must be an object');
   }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'model')) {
+    throw badRequest('model is required');
+  }
   if (payload.model == null) return { model: null };
   if (typeof payload.model !== 'string') {
     throw badRequest('model must be a string or null');
