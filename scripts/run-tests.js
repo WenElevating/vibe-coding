@@ -2347,6 +2347,35 @@ test('model discovery ignores unsupported TOML syntax', () => {
   assert.deepEqual(parsed.shell_environment_policy.set, { ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-env' });
 });
 
+test('model discovery TOML parser rejects prototype pollution sections', () => {
+  try {
+    const parsed = parseTomlScalarConfig([
+      '[__proto__]',
+      'polluted = "yes"',
+      '[shell_environment_policy.set]',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL = "claude-opus"'
+    ].join('\n'));
+
+    assert.equal({}.polluted, undefined);
+    assert.equal(parsed.polluted, undefined);
+    assert.deepEqual(parsed.shell_environment_policy.set, { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus' });
+  } finally {
+    delete Object.prototype.polluted;
+  }
+});
+
+test('model discovery disable switch returns empty discovery case-insensitively', () => {
+  const discovered = discoverConfiguredModels({
+    adapter: 'claude',
+    env: {
+      VIBE_DISABLE_MODEL_DISCOVERY: 'TRUE',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus'
+    }
+  });
+
+  assert.deepEqual(discovered, { models: [], selectedModel: null, canSelectModel: false });
+});
+
 test('Codex model discovery ignores oversize catalog files', () => {
   const fs = require('node:fs');
   const os = require('node:os');

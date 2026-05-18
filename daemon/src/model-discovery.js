@@ -20,6 +20,10 @@ const CLAUDE_ENV_MODEL_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL'
 ];
 
+const TOP_LEVEL_CONFIG_KEYS = new Set(['model', 'model_provider', 'model_catalog_json']);
+const ALLOWED_SECTION_PATHS = new Set(['shell_environment_policy.set']);
+const DANGEROUS_CONFIG_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
 function discoverConfiguredModels(options = {}) {
   try {
     const env = options.env || process.env;
@@ -44,12 +48,13 @@ function parseTomlScalarConfig(text) {
 
     const sectionMatch = line.match(/^\[([A-Za-z0-9_.-]+)\]$/);
     if (sectionMatch) {
-      section = sectionMatch[1].split('.');
+      const nextSection = sectionMatch[1].split('.');
+      section = isAllowedSection(nextSection) ? nextSection : null;
       continue;
     }
 
     const assignment = line.match(/^([A-Za-z0-9_-]+)\s*=\s*("(?:\\["\\nrt]|[^"\\\n])*"|'[^'\n]*')\s*(?:#.*)?$/);
-    if (!assignment) continue;
+    if (!assignment || section === null) continue;
 
     const valueText = assignment[2];
     if (valueText.startsWith('"""') || valueText.startsWith("'''")) continue;
@@ -171,14 +176,33 @@ function parseQuotedScalar(valueText) {
 }
 
 function setConfigValue(config, section, key, value) {
+  if (!isAllowedConfigKey(section, key)) return;
   let target = config;
   for (const part of section) {
-    if (!target[part] || typeof target[part] !== 'object' || Array.isArray(target[part])) {
+    if (!Object.prototype.hasOwnProperty.call(target, part) || typeof target[part] !== 'object' || Array.isArray(target[part])) {
       target[part] = {};
     }
     target = target[part];
   }
   target[key] = value;
+}
+
+function isAllowedSection(section) {
+  if (!Array.isArray(section)) return false;
+  if (section.some(isDangerousConfigKey)) return false;
+  if (section.length === 0) return true;
+  return ALLOWED_SECTION_PATHS.has(section.join('.'));
+}
+
+function isAllowedConfigKey(section, key) {
+  if (isDangerousConfigKey(key)) return false;
+  if (!Array.isArray(section)) return false;
+  if (section.length === 0) return TOP_LEVEL_CONFIG_KEYS.has(key);
+  return isAllowedSection(section);
+}
+
+function isDangerousConfigKey(key) {
+  return DANGEROUS_CONFIG_KEYS.has(key);
 }
 
 function addModel(models, id, source, selected = false, label = id) {
@@ -203,7 +227,9 @@ function selectedModelFrom(models) {
 
 function isDiscoveryDisabled(env) {
   const value = env && env.VIBE_DISABLE_MODEL_DISCOVERY;
-  return value === '1' || value === 'true' || value === 'yes';
+  if (typeof value !== 'string') return false;
+  const normalized = value.toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 function isNonEmptyString(value) {
