@@ -108,6 +108,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.deepEqual(defaultConversationCreate, {
     workspaceId: 'default',
     adapter: 'claude',
+    model: null,
     permissionMode: 'default',
     requestedTools: [],
     requestedToolPolicy: { tools: [], allowedTools: [], disallowedTools: [] },
@@ -130,12 +131,15 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.deepEqual(extendedConversationCreate, {
     workspaceId: 'default',
     adapter: 'claude',
+    model: null,
     permissionMode: 'auto',
     requestedTools: ['Read', 'Glob'],
     requestedToolPolicy: { tools: ['Read', 'Glob', 'Grep'], allowedTools: ['Read'], disallowedTools: ['Bash'] },
     resumePolicy: { type: 'resume', sessionId: 'claude-session-1', name: 'bugfix' },
     systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
   });
+  assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: ' gpt-5.5 ' }).model, 'gpt-5.5');
+  assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: '   ' }).model, null);
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');
   assert.equal(normalizeApprovalDecision({ decision: 'allow' }).decision, 'allow');
@@ -613,6 +617,41 @@ test('conversation manager publishes user message before slow adapter startup', 
 
   releaseStart();
   await send;
+});
+
+test('conversation manager passes selected model into adapter startup', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const startCalls = [];
+  const adapter = {
+    capabilities: { resume: true },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        sendUserMessage() {},
+        cancel() {},
+        dispose() {}
+      };
+    }
+  };
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore({ now: () => new Date('2026-05-09T00:00:00.000Z') }),
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', adapter]]),
+    now: () => new Date('2026-05-09T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex', model: ' gpt-5.5 ' }, device);
+
+  assert.equal(conversation.model, 'gpt-5.5');
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+
+  assert.equal(manager.getConversation(conversation.id, device).model, 'gpt-5.5');
+  assert.equal(startCalls.length, 1);
+  assert.equal(startCalls[0].model, 'gpt-5.5');
 });
 
 test('conversation cancel preserves confirmed CLI session and resumes next message', async () => {
@@ -1201,6 +1240,42 @@ test('Claude conversation adapter starts long-lived CLI directly in workspace cw
   assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
+});
+
+test('Claude conversation adapter adds model flag only when supported', async () => {
+  const spawnArgsBySupport = [];
+  for (const supportsModel of [true, false]) {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { destroyed: false, write() {}, end() { this.destroyed = true; } };
+    child.kill = () => child.emit('exit', null, 'SIGTERM');
+    const adapter = new ClaudeConversationAdapter({
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn: (_cmd, args) => {
+        if (args.includes('--version')) return { status: 0, stdout: '2.1.119', stderr: '' };
+        if (args.includes('--help')) {
+          return {
+            status: 0,
+            stdout: supportsModel ? '-p --model <MODEL> --output-format stream-json' : '-p --output-format stream-json',
+            stderr: ''
+          };
+        }
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      spawnFn: (_cmd, args) => {
+        spawnArgsBySupport.push({ supportsModel, args });
+        return child;
+      }
+    });
+
+    await adapter.startConversation({ conversationId: `conv_claude_model_${supportsModel}`, workspacePath: '.', model: 'claude-sonnet-4.5', onEvent: () => {} });
+  }
+
+  const supportedArgs = spawnArgsBySupport.find((call) => call.supportsModel).args;
+  const unsupportedArgs = spawnArgsBySupport.find((call) => !call.supportsModel).args;
+  assert.deepEqual(supportedArgs.slice(supportedArgs.indexOf('--model'), supportedArgs.indexOf('--model') + 2), ['--model', 'claude-sonnet-4.5']);
+  assert.equal(unsupportedArgs.includes('--model'), false);
 });
 
 test('Claude conversation adapter waits for initialize response before sending messages', async () => {
@@ -2251,6 +2326,48 @@ test('Codex model selection capability follows exec help model flag', () => {
 
   assert.equal(withModel.getModelCapability().canSelectModel, true);
   assert.equal(withoutModel.getModelCapability().canSelectModel, false);
+});
+
+test('Codex conversation adapter adds model flag only when supported', async () => {
+  const spawnCalls = [];
+  const modelAwareSpawnSync = (_cmd, args) => {
+    if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+    if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json\n--model <MODEL>', stderr: '' };
+    if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const supported = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: modelAwareSpawnSync,
+    spawnFn: (_cmd, args, options) => {
+      const child = fakeCodexChild();
+      spawnCalls.push({ adapter: 'supported', args, options, child });
+      return child;
+    }
+  });
+  const unsupported = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: (_cmd, args, options) => {
+      const child = fakeCodexChild();
+      spawnCalls.push({ adapter: 'unsupported', args, options, child });
+      return child;
+    }
+  });
+
+  const execHandle = await supported.startConversation({ conversationId: 'conv_codex_model_exec', workspacePath: 'D:\\Repo', model: 'gpt-5.5', onEvent: () => {} });
+  await execHandle.sendUserMessage('first');
+  const resumeHandle = await supported.startConversation({ conversationId: 'conv_codex_model_resume', workspacePath: 'D:\\Repo', sessionId: 'thread_1', model: 'gpt-5.5', onEvent: () => {} });
+  await resumeHandle.sendUserMessage('second');
+  const unsupportedHandle = await unsupported.startConversation({ conversationId: 'conv_codex_model_unsupported', workspacePath: 'D:\\Repo', model: 'gpt-5.5', onEvent: () => {} });
+  await unsupportedHandle.sendUserMessage('third');
+
+  const supportedExecArgs = spawnCalls[0].args;
+  const supportedResumeArgs = spawnCalls[1].args;
+  const unsupportedArgs = spawnCalls[2].args;
+  assert.deepEqual(supportedExecArgs.slice(supportedExecArgs.indexOf('--model'), supportedExecArgs.indexOf('--model') + 2), ['--model', 'gpt-5.5']);
+  assert.deepEqual(supportedResumeArgs.slice(supportedResumeArgs.indexOf('--model'), supportedResumeArgs.indexOf('--model') + 2), ['--model', 'gpt-5.5']);
+  assert.equal(unsupportedArgs.includes('--model'), false);
 });
 
 test('Codex registry adapter exposes model selection capability from production path', async () => {

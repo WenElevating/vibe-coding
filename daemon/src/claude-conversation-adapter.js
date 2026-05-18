@@ -65,15 +65,17 @@ class ClaudeConversationAdapter {
     }
   }
 
-  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, onEvent }) {
+  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, onEvent }) {
     if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
     this.ensureAvailable();
+    const selectedModel = this.modelCapability?.canSelectModel === true ? model : null;
     const args = [
       '--output-format', 'stream-json',
       '--verbose',
       '--print',
       '--include-partial-messages',
       ...(sessionId ? ['--resume', sessionId] : []),
+      ...(selectedModel ? ['--model', selectedModel] : []),
       '--permission-mode', permissionMode === 'default' ? 'default' : 'auto',
       ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'

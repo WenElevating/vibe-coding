@@ -59,6 +59,7 @@ class ConversationManager {
       workspaceId: workspace.id,
       workspacePath: workspace.path,
       adapter: input.adapter,
+      model: input.model,
       permissionMode: input.permissionMode,
       requestedPermissionMode: input.permissionMode,
       effectivePermissionMode: input.permissionMode,
@@ -337,6 +338,7 @@ class ConversationManager {
       workspacePath: conversation.workspacePath,
       permissionMode: conversation.permissionMode,
       sessionId: conversation.cliSessionId,
+      model: conversation.model,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
     return conversation.handle;
@@ -404,6 +406,7 @@ function publicConversation(conversation) {
     id: conversation.id,
     workspaceId: conversation.workspaceId,
     adapter: conversation.adapter,
+    model: conversation.model || null,
     status: conversation.status,
     cliSessionId: conversation.cliSessionId || null,
     sessionBinding: conversation.sessionBinding || (conversation.cliSessionId ? conversationSessionBindings.CONFIRMED : conversationSessionBindings.UNKNOWN),

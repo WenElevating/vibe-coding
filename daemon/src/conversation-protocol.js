@@ -72,6 +72,7 @@ function normalizeConversationCreate(payload) {
   return {
     workspaceId,
     adapter,
+    model: optionalString(payload.model),
     permissionMode: normalizePermissionMode(payload.permissionMode),
     requestedTools: normalizeStringList(payload.requestedTools),
     requestedToolPolicy: normalizeToolPolicy(payload.requestedToolPolicy),
@@ -155,6 +156,11 @@ function normalizeSystemPromptPolicy(value) {
 
 function stringValue(value) {
   return typeof value === 'string' ? value : '';
+}
+
+function optionalString(value) {
+  const text = stringValue(value).trim();
+  return text || null;
 }
 
 function badRequest(message) {

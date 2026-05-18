@@ -96,7 +96,7 @@ class CodexConversationAdapter {
     }
   }
 
-  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, onEvent }) {
+  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, onEvent }) {
     if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
     this.ensureAvailable();
     return new CodexConversationHandle({
@@ -105,18 +105,20 @@ class CodexConversationAdapter {
       workspacePath,
       permissionMode,
       sessionId,
+      model,
       onEvent
     });
   }
 }
 
 class CodexConversationHandle {
-  constructor({ conversationId, adapter, workspacePath, permissionMode, sessionId, onEvent }) {
+  constructor({ conversationId, adapter, workspacePath, permissionMode, sessionId, model, onEvent }) {
     this.conversationId = conversationId;
     this.adapter = adapter;
     this.workspacePath = workspacePath;
     this.permissionMode = permissionMode;
     this.sessionId = sessionId || null;
+    this.model = model || null;
     this.onEvent = onEvent;
     this.activeChild = null;
     this.cancelling = false;
@@ -136,9 +138,10 @@ class CodexConversationHandle {
     this.validJsonStarted = false;
     this.stderrText = '';
     const resumeSupportsCd = this.adapter.capability?.capabilities?.resumeWorkspaceOverride === true;
+    const model = this.adapter.modelCapability?.canSelectModel === true ? this.model : null;
     const args = this.sessionId
-      ? buildCodexResumeArgs({ prompt: text, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd })
-      : buildCodexExecArgs({ prompt: text, workspacePath: this.workspacePath, permissionMode: this.permissionMode });
+      ? buildCodexResumeArgs({ prompt: text, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd, model })
+      : buildCodexExecArgs({ prompt: text, workspacePath: this.workspacePath, permissionMode: this.permissionMode, model });
     const child = this.adapter.spawnFn(this.adapter.invocation.command, [...this.adapter.invocation.argsPrefix, ...args], {
       cwd: this.workspacePath,
       windowsHide: true,
@@ -227,11 +230,12 @@ function helpHasModelFlag(helpText) {
   return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
-function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default' }) {
+function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default', model }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
     'exec',
     '--json',
+    ...(model ? ['--model', model] : []),
     '-C', workspacePath,
     '--skip-git-repo-check',
     '--sandbox', 'workspace-write',
@@ -239,12 +243,13 @@ function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default' 
   ];
 }
 
-function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false }) {
+function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false, model }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
     'exec',
     'resume',
     '--json',
+    ...(model ? ['--model', model] : []),
     '--skip-git-repo-check',
     ...(resumeSupportsCd ? ['--cd', workspacePath] : []),
     sessionId,
