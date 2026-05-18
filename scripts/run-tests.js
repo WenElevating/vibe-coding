@@ -140,6 +140,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   });
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: ' gpt-5.5 ' }).model, 'gpt-5.5');
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: '   ' }).model, null);
+  assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: 42 }).model, null);
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');
   assert.equal(normalizeApprovalDecision({ decision: 'allow' }).decision, 'allow');
@@ -412,13 +413,14 @@ test('app SQLite store persists session binding and user message count', () => {
     id: 'conv_binding', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
     permissionMode: 'default', deviceId: 'device_1', status: 'cancelled', cliSessionId: 'claude-session-1',
     sessionBinding: 'confirmed', userMessageCount: 3, blockingItem: null, idleExpiresAt: null,
-    createdAt: '2026-05-08T00:00:00.000Z', updatedAt: '2026-05-08T00:00:01.000Z', capabilities: { resume: true }, handle: null
+    createdAt: '2026-05-08T00:00:00.000Z', updatedAt: '2026-05-08T00:00:01.000Z', model: 'gpt-5.5', capabilities: { resume: true }, handle: null
   });
 
   const loaded = sqlite.loadConversations()[0];
   assert.equal(loaded.sessionBinding, 'confirmed');
   assert.equal(loaded.userMessageCount, 3);
   assert.equal(loaded.cliSessionId, 'claude-session-1');
+  assert.equal(loaded.model, 'gpt-5.5');
   sqlite.close();
 });
 
@@ -652,6 +654,58 @@ test('conversation manager passes selected model into adapter startup', async ()
   assert.equal(manager.getConversation(conversation.id, device).model, 'gpt-5.5');
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].model, 'gpt-5.5');
+});
+
+test('conversation manager preserves selected model after SQLite reload', async () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-model-reload-') });
+  const workspaces = new WorkspaceRegistry({ store: sqlite });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set() };
+  const workspace = workspaces.add({ name: 'Default', workspacePath: process.cwd() }, device);
+  const firstAdapter = {
+    capabilities: { resume: true },
+    async startConversation() {
+      throw new Error('first manager should not start adapter');
+    }
+  };
+  const first = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore({ persistentStore: sqlite }),
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', firstAdapter]]),
+    persistentStore: sqlite,
+    now: () => new Date('2026-05-09T00:00:00.000Z')
+  });
+  const conversation = first.createConversation({ workspaceId: workspace.id, adapter: 'codex', model: 'gpt-5.5' }, device);
+  const startCalls = [];
+  const secondAdapter = {
+    capabilities: { resume: true },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        sendUserMessage() {},
+        cancel() {},
+        dispose() {}
+      };
+    }
+  };
+  const second = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore({ persistentStore: sqlite }),
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', secondAdapter]]),
+    persistentStore: sqlite,
+    now: () => new Date('2026-05-09T00:00:01.000Z')
+  });
+
+  assert.equal(second.getConversation(conversation.id, device).model, 'gpt-5.5');
+  await second.sendMessage(conversation.id, { text: 'after reload' }, device);
+
+  assert.equal(startCalls.length, 1);
+  assert.equal(startCalls[0].model, 'gpt-5.5');
+  sqlite.close();
 });
 
 test('conversation cancel preserves confirmed CLI session and resumes next message', async () => {
@@ -2306,6 +2360,15 @@ test('Codex model selection capability follows exec help model flag', () => {
     cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => {
       if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+      if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json\n--model <MODEL>', stderr: '' };
+      if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  const withoutResumeModel = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
       if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json', stderr: '' };
       if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
@@ -2322,9 +2385,11 @@ test('Codex model selection capability follows exec help model flag', () => {
   });
 
   withModel.detectCapabilities();
+  withoutResumeModel.detectCapabilities();
   withoutModel.detectCapabilities();
 
   assert.equal(withModel.getModelCapability().canSelectModel, true);
+  assert.equal(withoutResumeModel.getModelCapability().canSelectModel, false);
   assert.equal(withoutModel.getModelCapability().canSelectModel, false);
 });
 
@@ -2333,6 +2398,12 @@ test('Codex conversation adapter adds model flag only when supported', async () 
   const modelAwareSpawnSync = (_cmd, args) => {
     if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
     if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json\n--model <MODEL>', stderr: '' };
+    if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const execOnlyModelSpawnSync = (_cmd, args) => {
+    if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+    if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json', stderr: '' };
     if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>', stderr: '' };
     return { status: 0, stdout: '', stderr: '' };
   };
@@ -2354,6 +2425,15 @@ test('Codex conversation adapter adds model flag only when supported', async () 
       return child;
     }
   });
+  const execOnlyModel = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: execOnlyModelSpawnSync,
+    spawnFn: (_cmd, args, options) => {
+      const child = fakeCodexChild();
+      spawnCalls.push({ adapter: 'execOnlyModel', args, options, child });
+      return child;
+    }
+  });
 
   const execHandle = await supported.startConversation({ conversationId: 'conv_codex_model_exec', workspacePath: 'D:\\Repo', model: 'gpt-5.5', onEvent: () => {} });
   await execHandle.sendUserMessage('first');
@@ -2361,13 +2441,17 @@ test('Codex conversation adapter adds model flag only when supported', async () 
   await resumeHandle.sendUserMessage('second');
   const unsupportedHandle = await unsupported.startConversation({ conversationId: 'conv_codex_model_unsupported', workspacePath: 'D:\\Repo', model: 'gpt-5.5', onEvent: () => {} });
   await unsupportedHandle.sendUserMessage('third');
+  const execOnlyResumeHandle = await execOnlyModel.startConversation({ conversationId: 'conv_codex_model_exec_only_resume', workspacePath: 'D:\\Repo', sessionId: 'thread_2', model: 'gpt-5.5', onEvent: () => {} });
+  await execOnlyResumeHandle.sendUserMessage('fourth');
 
   const supportedExecArgs = spawnCalls[0].args;
   const supportedResumeArgs = spawnCalls[1].args;
   const unsupportedArgs = spawnCalls[2].args;
+  const execOnlyResumeArgs = spawnCalls[3].args;
   assert.deepEqual(supportedExecArgs.slice(supportedExecArgs.indexOf('--model'), supportedExecArgs.indexOf('--model') + 2), ['--model', 'gpt-5.5']);
   assert.deepEqual(supportedResumeArgs.slice(supportedResumeArgs.indexOf('--model'), supportedResumeArgs.indexOf('--model') + 2), ['--model', 'gpt-5.5']);
   assert.equal(unsupportedArgs.includes('--model'), false);
+  assert.equal(execOnlyResumeArgs.includes('--model'), false);
 });
 
 test('Codex registry adapter exposes model selection capability from production path', async () => {

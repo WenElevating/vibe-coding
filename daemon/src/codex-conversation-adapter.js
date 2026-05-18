@@ -61,9 +61,11 @@ class CodexConversationAdapter {
       return this.capability;
     }
     const resumeHelpText = resultText(resumeHelp);
+    const execSupportsModel = helpHasModelFlag(execHelpText);
+    const resumeSupportsModel = helpHasModelFlag(resumeHelpText);
     this.modelCapability = {
       ...discoverConfiguredModels({ adapter: 'codex' }),
-      canSelectModel: helpHasModelFlag(execHelpText)
+      canSelectModel: execSupportsModel && resumeSupportsModel
     };
     this.capability = {
       adapter: 'codex',
@@ -75,6 +77,8 @@ class CodexConversationAdapter {
         ...this.capabilities,
         execJson: true,
         resumeJson: true,
+        execSupportsModelFlag: execSupportsModel,
+        resumeSupportsModelFlag: resumeSupportsModel,
         resumeWorkspaceOverride: /\b--cd\b|\s-C,\s*--cd|\s-C\s/.test(resumeHelpText)
       }
     };

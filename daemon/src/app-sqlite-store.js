@@ -28,6 +28,7 @@ class AppSqliteStore {
         workspace_id TEXT NOT NULL,
         workspace_path TEXT NOT NULL,
         adapter TEXT NOT NULL,
+        model TEXT,
         permission_mode TEXT NOT NULL,
         device_id TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -121,6 +122,7 @@ class AppSqliteStore {
     `);
     ensureColumn(this.db, 'conversations', 'session_binding', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn(this.db, 'conversations', 'model', 'TEXT');
     this.ensureWorkspaceDeleteSchema();
     this.ensureWorkspaceIndexes();
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
@@ -190,15 +192,16 @@ class AppSqliteStore {
     const row = serializeConversation(conversation);
     this.db.prepare(`
       INSERT INTO conversations (
-        id, workspace_id, workspace_path, adapter, permission_mode, device_id,
+        id, workspace_id, workspace_path, adapter, model, permission_mode, device_id,
         status, cli_session_id, session_binding, user_message_count,
         blocking_item_json, idle_expires_at,
         created_at, updated_at, capabilities_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         workspace_path = excluded.workspace_path,
         adapter = excluded.adapter,
+        model = excluded.model,
         permission_mode = excluded.permission_mode,
         device_id = excluded.device_id,
         status = excluded.status,
@@ -215,6 +218,7 @@ class AppSqliteStore {
       row.workspace_id,
       row.workspace_path,
       row.adapter,
+      row.model,
       row.permission_mode,
       row.device_id,
       row.status,
@@ -565,6 +569,7 @@ function serializeConversation(conversation) {
     workspace_id: conversation.workspaceId,
     workspace_path: conversation.workspacePath,
     adapter: conversation.adapter,
+    model: conversation.model || null,
     permission_mode: conversation.permissionMode,
     device_id: conversation.deviceId,
     status: conversation.status,
@@ -586,6 +591,7 @@ function deserializeConversation(row) {
     workspaceId: row.workspace_id,
     workspacePath: row.workspace_path,
     adapter: row.adapter,
+    model: row.model || null,
     permissionMode: row.permission_mode,
     deviceId: row.device_id,
     status: wasLive ? 'interrupted' : row.status,
