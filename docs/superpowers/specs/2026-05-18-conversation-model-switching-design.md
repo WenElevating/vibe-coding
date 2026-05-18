@@ -81,6 +81,7 @@ Trade-offs:
 - Error cases create confusing "selected but not really selected" states.
 
 Rejected. Mature chat products generally treat model selection as a confirmed request state or a new-chat boundary rather than a risky optimistic mutation.
+If this option is revisited later, it should first prove that model switching is low-risk, cheap to reverse, and independent of backend execution state; the current CLI model-selection path does not meet that bar.
 
 ## API Design
 
@@ -146,35 +147,38 @@ Flow:
 
 1. Load and authorize the conversation with `requireConversation(conversationId, device)`.
 2. Normalize the payload with `normalizeConversationModelUpdate()`.
-3. Reject if `conversation.modelUpdateLock` is truthy.
-4. Set `conversation.modelUpdateLock = true` for the duration of the update. Clear it in `finally`.
-5. Reject if the conversation is active:
+3. Reject if the conversation is active:
    - `running`
    - `waiting_input`
    - `waiting_approval`
    - `sendLock` is truthy
-6. Load the adapter and its current model capability.
-7. Validate the requested model:
+4. Reject if `conversation.modelUpdateLock` is truthy.
+5. Set `conversation.modelUpdateLock = true` for the duration of the update. Clear it in `finally`.
+6. Re-check active state and `sendLock` after acquiring the lock. This is defensive for a race where a send starts after the first active-state check but before the lock is set.
+7. Load the adapter and its current model capability.
+8. Validate the requested model:
    - If `canSelectModel !== true`, reject non-null model selection.
    - If `models` is empty, allow only `null`.
    - If `models` is non-empty, a non-null model must match one `models[].id`.
-8. If the model is unchanged, return `publicConversation(conversation)` without writing an event.
-9. Save `previousModel`.
-10. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
-11. Assign `conversation.model = requestedModel`.
-12. Touch and persist the conversation.
-13. Best-effort append `conversation.model_changed` event with `previousModel` and `model`.
-14. Return `publicConversation(conversation)`.
+9. If the model is unchanged, return `publicConversation(conversation)` without writing an event.
+10. Save `previousModel`.
+11. If an idle `conversation.handle` exists, dispose it before changing model and set it to `null`. Keep `cliSessionId`.
+12. Assign `conversation.model = requestedModel`.
+13. Touch and persist the conversation.
+14. Best-effort append `conversation.model_changed` event using the Eventing section rules.
+15. Return `publicConversation(conversation)`.
 
 Consistency guarantee:
 
 - If validation fails, do not mutate `conversation.model`.
-- If handle disposal fails, do not mutate `conversation.model`.
+- If handle disposal fails, do not mutate `conversation.model`. Treat the handle as state-unknown: set `conversation.handle = null`, preserve `cliSessionId`, record the disposal failure through `auditLog.record('conversation.model_handle_dispose_error', ...)`, and return an error. The next send can restart or resume instead of reusing a questionable handle reference.
 - If persistence fails after assigning the new model, restore the in-memory model to `previousModel`, leave no `model_changed` event, and return an error.
 - If handle disposal succeeds but persistence fails, do not try to reattach the disposed handle. Keep `conversation.handle = null`, restore `conversation.model = previousModel`, and preserve `cliSessionId`. This leaves the conversation idle and restartable; the next send resumes with the previous persisted model.
 - This is a best-effort compensation model, not a true cross-resource transaction. The client should rely only on the returned `publicConversation()` and later list/get responses.
 
 `sendMessage()` should also reject with `409` when `conversation.modelUpdateLock` is truthy, so a prompt cannot start while a model update is between validation and persistence.
+
+If a send is already in flight, the first active-state check rejects model update before the lock is set. If a send wins a race after the first active-state check, the defensive re-check under `modelUpdateLock` rejects the model update and clears the lock in `finally`. That brief lock window is expected and prevents model update and prompt send from crossing in an undefined order.
 
 ## CLI Lifecycle
 
@@ -347,10 +351,13 @@ Daemon tests in `scripts/run-tests.js`:
 - The endpoint rejects unsupported adapter model selection with `422`.
 - The endpoint rejects unknown models with `422`.
 - Updating an idle conversation with an existing handle disposes the handle, preserves `cliSessionId`, and next send starts the adapter with the new model.
+- Handle disposal failure leaves `conversation.model` unchanged, sets `conversation.handle = null`, preserves `cliSessionId`, returns an error, and allows the next send to restart or resume.
 - Persistence failure restores the in-memory model, keeps any successfully disposed handle detached, preserves `cliSessionId`, and does not append `conversation.model_changed`.
 - Event append failure does not roll back a successfully persisted model.
 - Concurrent model updates on the same conversation return `409`.
 - Sending a prompt while a model update lock is held returns `409`.
+- A model update request arriving while `sendLock` is already true rejects before setting `modelUpdateLock`.
+- A send racing after the first active-state check is caught by the post-lock active-state re-check.
 
 Mobile tests:
 
