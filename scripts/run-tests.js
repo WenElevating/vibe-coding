@@ -3962,6 +3962,21 @@ function attachmentConversationAdapter({ delaySend = false, failAfterSend = fals
   };
 }
 
+function codexNativeImageAttachmentAdapter(options = {}) {
+  return attachmentConversationAdapter({
+    ...options,
+    capabilities: options.capabilities || {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+}
+
 async function createAttachmentConversationApp(options = {}) {
   const adapter = options.adapter || attachmentConversationAdapter();
   const app = createApp({
@@ -3993,6 +4008,35 @@ function attachmentScratchEntries(app) {
   const fs = require('node:fs');
   const scratchRoot = app.conversations.attachmentScratchStore.root;
   return fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
+}
+
+async function waitForAttachmentScratchCleanup(app) {
+  for (let i = 0; i < 20; i += 1) {
+    if (attachmentScratchEntries(app).length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function sendCodexNativeImageTurnScratch({ app, port, token, conversationId, clientMessageId, text, boundary }) {
+  const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+  const body = multipartBody({
+    boundary,
+    payload: {
+      text,
+      clientMessageId,
+      capabilityVersion: attachmentImageCapabilityVersion(),
+      attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+    },
+    files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+  });
+  const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+    'content-type': `multipart/form-data; boundary=${boundary}`
+  });
+  const internal = app.conversations.conversations.get(conversationId);
+  assert.equal(response.status, 200);
+  assert.equal(internal.turnAttachmentScratches.length, 1);
+  assert.equal(attachmentScratchEntries(app).length, 1);
+  return { response, internal };
 }
 
 function sentMessageTexts(adapter) {
@@ -4922,35 +4966,18 @@ test('multipart conversation send dispatches attachment-aware messages and clean
 });
 
 test('multipart Codex native image scratch stays until terminal turn event', async () => {
-  const adapter = attachmentConversationAdapter({
-    capabilities: {
-      resume: true,
-      partialOutput: true,
-      attachments: {
-        image: 'native',
-        pdf: 'unsupported',
-        textDocument: 'text_extract'
-      }
-    }
-  });
-  const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+  const adapter = codexNativeImageAttachmentAdapter();
   const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-turn-scratch-' });
   try {
-    const boundary = '----attachments-turn-scratch';
-    const body = multipartBody({
-      boundary,
-      payload: {
-        text: 'inspect image',
-        clientMessageId: 'client_turn_scratch',
-        capabilityVersion: attachmentImageCapabilityVersion(),
-        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
-      },
-      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    const { response, internal } = await sendCodexNativeImageTurnScratch({
+      app,
+      port,
+      token,
+      conversationId,
+      clientMessageId: 'client_turn_scratch',
+      text: 'inspect image',
+      boundary: '----attachments-turn-scratch'
     });
-    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
-      'content-type': `multipart/form-data; boundary=${boundary}`
-    });
-    const internal = app.conversations.conversations.get(conversationId);
 
     assert.equal(response.status, 200);
     assert.equal(adapter.sent[0].attachments[0].kind, 'image');
@@ -4958,27 +4985,105 @@ test('multipart Codex native image scratch stays until terminal turn event', asy
     assert.equal(attachmentScratchEntries(app).length, 1);
 
     app.conversations.recordAdapterEvent(internal, { type: 'conversation.completed' });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForAttachmentScratchCleanup(app);
 
     assert.deepEqual(attachmentScratchEntries(app), []);
+    assert.deepEqual(internal.turnAttachmentScratches, []);
   } finally {
     await closeAttachmentConversationApp(app);
   }
 });
 
-test('attachment cleanup failures record the stable audit event type', async () => {
+test('multipart Codex native image scratch cleans on terminal assistant.message', async () => {
+  const adapter = codexNativeImageAttachmentAdapter();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-assistant-terminal-scratch-' });
+  try {
+    const { internal } = await sendCodexNativeImageTurnScratch({
+      app,
+      port,
+      token,
+      conversationId,
+      clientMessageId: 'client_assistant_terminal_scratch',
+      text: 'inspect terminal image',
+      boundary: '----attachments-assistant-terminal-scratch'
+    });
+
+    app.conversations.recordAdapterEvent(internal, { type: 'assistant.message', text: 'done' });
+    await waitForAttachmentScratchCleanup(app);
+
+    assert.deepEqual(attachmentScratchEntries(app), []);
+    assert.deepEqual(internal.turnAttachmentScratches, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart Codex native image scratch cleans on adapter run.error', async () => {
+  const adapter = codexNativeImageAttachmentAdapter();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-run-error-scratch-' });
+  try {
+    const { internal } = await sendCodexNativeImageTurnScratch({
+      app,
+      port,
+      token,
+      conversationId,
+      clientMessageId: 'client_run_error_scratch',
+      text: 'inspect failing image',
+      boundary: '----attachments-run-error-scratch'
+    });
+
+    app.conversations.recordAdapterEvent(internal, { type: 'run.error', message: 'adapter failed' });
+    await waitForAttachmentScratchCleanup(app);
+
+    assert.deepEqual(attachmentScratchEntries(app), []);
+    assert.deepEqual(internal.turnAttachmentScratches, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('manager cancellation cleans Codex native image turn scratch without adapter cancellation event', async () => {
+  const adapter = codexNativeImageAttachmentAdapter();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-cancel-turn-scratch-' });
+  try {
+    const { internal } = await sendCodexNativeImageTurnScratch({
+      app,
+      port,
+      token,
+      conversationId,
+      clientMessageId: 'client_cancel_turn_scratch',
+      text: 'inspect cancelled image',
+      boundary: '----attachments-cancel-turn-scratch'
+    });
+    const device = app.auth.authenticate(`Bearer ${token}`);
+
+    await app.conversations.cancelConversation(conversationId, device);
+
+    assert.deepEqual(attachmentScratchEntries(app), []);
+    assert.deepEqual(internal.turnAttachmentScratches, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('attachment cleanup failure audit redacts path-bearing error messages', async () => {
   const { manager, auditLog } = createConversationManagerForTest();
 
   await manager.cleanupAttachmentScratch({ id: 'conv_cleanup' }, {
     dir: 'D:\\scratch\\fake',
     async cleanup() {
-      throw new Error('cleanup denied');
+      throw new Error('unlink D:\\secret\\scratch\\msg_1 failed with raw bytes 89504e47');
     }
   });
 
   const record = auditLog.list().find((item) => item.type === 'conversation.attachment_cleanup_failed');
   assert.equal(record.conversationId, 'conv_cleanup');
-  assert.equal(record.error, 'cleanup denied');
+  assert.equal(record.error, 'cleanup_failed');
+  const auditRecordJson = JSON.stringify(record);
+  assert.equal(auditRecordJson.includes('D:'), false);
+  assert.equal(auditRecordJson.includes('secret'), false);
+  assert.equal(auditRecordJson.includes('msg_1'), false);
+  assert.equal(auditRecordJson.includes('89504e47'), false);
 });
 
 test('multipart committed clientMessageId retries idempotently and conflicts on different payloads', async () => {

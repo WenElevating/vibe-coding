@@ -487,6 +487,7 @@ class ConversationManager {
     });
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     this.auditLog.record('conversation.cancel', { conversationId: conversation.id, deviceId: device.id, status: conversation.status });
+    await this.cleanupTurnAttachmentScratch(conversation);
     return publicConversation(conversation);
   }
 
@@ -667,13 +668,11 @@ class ConversationManager {
     this.persistConversation(conversation);
   }
 
-  cleanupTurnAttachmentScratch(conversation) {
+  async cleanupTurnAttachmentScratch(conversation) {
     const scratches = Array.isArray(conversation.turnAttachmentScratches)
       ? conversation.turnAttachmentScratches.splice(0)
       : [];
-    for (const scratch of scratches) {
-      this.cleanupAttachmentScratch(conversation, scratch);
-    }
+    await Promise.all(scratches.map((scratch) => this.cleanupAttachmentScratch(conversation, scratch)));
   }
 }
 
@@ -821,7 +820,8 @@ function isAttachmentTurnActive(conversation) {
 }
 
 function cleanupFailureReason(error) {
-  return error?.code || error?.message || 'cleanup failed';
+  if (typeof error?.code === 'string' && error.code.trim()) return error.code;
+  return 'cleanup_failed';
 }
 
 function rememberMessageIdempotency(map, clientMessageId, payloadHash, maxEntries) {
