@@ -36,6 +36,9 @@ const allowedTextMimeTypes = new Set([
   'application/json',
   'text/csv'
 ]);
+const maxImageWidth = 16384;
+const maxImageHeight = 16384;
+const maxImagePixels = 40_000_000;
 
 function sanitizeAttachmentName(name) {
   if (typeof name !== 'string') {
@@ -134,13 +137,17 @@ async function validateTextAttachmentBytes(bytes, metadata = {}) {
 
 function validateImageAttachmentHeader(bytes, metadata = {}) {
   sanitizeAttachmentName(metadata.name || 'attachment');
-  const sniffed = sniffAttachmentBytes(bytes);
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  const sniffed = sniffAttachmentBytes(buffer);
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(sniffed.mimeType)) {
     throwUnsupportedMediaType({ reason: 'image attachment header is not supported', sniffed });
   }
+  const dimensions = imageDimensionsForSniffed(buffer, sniffed);
+  assertImageDimensions(dimensions, sniffed);
   return {
     mimeType: sniffed.mimeType,
-    knownType: sniffed.knownType
+    knownType: sniffed.knownType,
+    ...dimensions
   };
 }
 
@@ -229,6 +236,116 @@ function normalizeTextMimeType(mimeType) {
     throwUnsupportedMediaType({ reason: 'text MIME type is not supported', mimeType });
   }
   return normalized;
+}
+
+function imageDimensionsForSniffed(buffer, sniffed) {
+  if (sniffed.knownType === 'png') return pngDimensions(buffer);
+  if (sniffed.knownType === 'jpeg') return jpegDimensions(buffer);
+  if (sniffed.knownType === 'webp') return webpDimensions(buffer);
+  return null;
+}
+
+function pngDimensions(buffer) {
+  if (buffer.length < 33) return null;
+  if (buffer.readUInt32BE(8) !== 13) return null;
+  if (buffer.subarray(12, 16).toString('ascii') !== 'IHDR') return null;
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20)
+  };
+}
+
+function jpegDimensions(buffer) {
+  let offset = 2;
+  while (offset + 4 <= buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    let markerOffset = offset + 1;
+    while (markerOffset < buffer.length && buffer[markerOffset] === 0xff) markerOffset += 1;
+    if (markerOffset >= buffer.length) break;
+    const marker = buffer[markerOffset];
+    offset = markerOffset + 1;
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker >= 0xd0 && marker <= 0xd7) continue;
+    if (offset + 2 > buffer.length) break;
+    const segmentLength = buffer.readUInt16BE(offset);
+    if (segmentLength < 2) return null;
+    if (isJpegSofMarker(marker)) {
+      if (segmentLength < 7 || offset + segmentLength > buffer.length) return null;
+      return {
+        height: buffer.readUInt16BE(offset + 3),
+        width: buffer.readUInt16BE(offset + 5)
+      };
+    }
+    offset += segmentLength;
+  }
+  return null;
+}
+
+function isJpegSofMarker(marker) {
+  return [
+    0xc0, 0xc1, 0xc2, 0xc3,
+    0xc5, 0xc6, 0xc7,
+    0xc9, 0xca, 0xcb,
+    0xcd, 0xce, 0xcf
+  ].includes(marker);
+}
+
+function webpDimensions(buffer) {
+  if (buffer.length < 16) return null;
+  const chunkType = buffer.subarray(12, 16).toString('ascii');
+  if (chunkType === 'VP8X') {
+    if (buffer.length < 30) return null;
+    return {
+      width: readUInt24LE(buffer, 24) + 1,
+      height: readUInt24LE(buffer, 27) + 1
+    };
+  }
+  if (chunkType === 'VP8L') {
+    if (buffer.length < 25 || buffer[20] !== 0x2f) return null;
+    const bits = buffer.readUInt32LE(21);
+    return {
+      width: (bits & 0x3fff) + 1,
+      height: ((bits >> 14) & 0x3fff) + 1
+    };
+  }
+  if (chunkType === 'VP8 ') {
+    if (buffer.length < 30) return null;
+    if (buffer[23] !== 0x9d || buffer[24] !== 0x01 || buffer[25] !== 0x2a) return null;
+    return {
+      width: buffer.readUInt16LE(26) & 0x3fff,
+      height: buffer.readUInt16LE(28) & 0x3fff
+    };
+  }
+  return null;
+}
+
+function readUInt24LE(buffer, offset) {
+  return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+}
+
+function assertImageDimensions(dimensions, sniffed) {
+  if (
+    !dimensions ||
+    !Number.isSafeInteger(dimensions.width) ||
+    !Number.isSafeInteger(dimensions.height) ||
+    dimensions.width <= 0 ||
+    dimensions.height <= 0
+  ) {
+    throwUnsupportedMediaType({ reason: 'image dimensions could not be determined', sniffed });
+  }
+  const pixels = dimensions.width * dimensions.height;
+  if (dimensions.width > maxImageWidth || dimensions.height > maxImageHeight || pixels > maxImagePixels) {
+    throw attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'image dimensions exceed attachment limits', {
+      width: dimensions.width,
+      height: dimensions.height,
+      maxImageWidth,
+      maxImageHeight,
+      maxImagePixels
+    });
+  }
 }
 
 module.exports = {

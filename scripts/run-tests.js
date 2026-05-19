@@ -3709,6 +3709,56 @@ function multipartBodyFileFirst({ boundary, payload, file }) {
   ]);
 }
 
+function minimalPngBytes({ width = 1, height = 1, extraBytes = Buffer.alloc(0) } = {}) {
+  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 4, 'ascii');
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr[16] = 8;
+  ihdr[17] = 2;
+  ihdr[18] = 0;
+  ihdr[19] = 0;
+  ihdr[20] = 0;
+  const iend = Buffer.from('0000000049454e4400000000', 'hex');
+  return Buffer.concat([signature, ihdr, iend, extraBytes]);
+}
+
+function minimalJpegBytes({ width = 1, height = 1 } = {}) {
+  return Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xc0,
+    0x00, 0x11,
+    0x08,
+    (height >> 8) & 0xff, height & 0xff,
+    (width >> 8) & 0xff, width & 0xff,
+    0x03,
+    0x01, 0x11, 0x00,
+    0x02, 0x11, 0x00,
+    0x03, 0x11, 0x00,
+    0xff, 0xd9
+  ]);
+}
+
+function minimalWebpBytes({ width = 1, height = 1 } = {}) {
+  const bytes = Buffer.alloc(30);
+  bytes.write('RIFF', 0, 4, 'ascii');
+  bytes.writeUInt32LE(22, 4);
+  bytes.write('WEBP', 8, 4, 'ascii');
+  bytes.write('VP8X', 12, 4, 'ascii');
+  bytes.writeUInt32LE(10, 16);
+  writeUInt24LE(bytes, width - 1, 24);
+  writeUInt24LE(bytes, height - 1, 27);
+  return bytes;
+}
+
+function writeUInt24LE(buffer, value, offset) {
+  buffer[offset] = value & 0xff;
+  buffer[offset + 1] = (value >> 8) & 0xff;
+  buffer[offset + 2] = (value >> 16) & 0xff;
+}
+
 function malformedMultipartBody({ boundary, payload }) {
   return Buffer.from(`--${boundary}\r\ncontent-disposition: form-data; name="payload"\r\n\r\n${JSON.stringify(payload)}\r\n`, 'utf8');
 }
@@ -3823,7 +3873,7 @@ async function createAttachmentConversationApp(options = {}) {
     port: 0,
     mode: 'dev',
     devAdapters: true,
-    appDbPath: tempConversationDbPath(options.dbPrefix || 'app-db-attachments-'),
+    appDbPath: options.appDbPath || tempConversationDbPath(options.dbPrefix || 'app-db-attachments-'),
     conversationAdapters: new Map([['codex', adapter]])
   });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -4258,6 +4308,84 @@ test('multipart image validation failures return JSON errors and clean scratch b
   }
 });
 
+test('multipart oversized PNG dimensions reject before committing user.message', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-image-dimensions-' });
+  try {
+    const imageBytes = minimalPngBytes({ width: 20000, height: 1 });
+    const boundary = '----attachments-image-dimensions';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_image_dimensions',
+        capabilityVersion: attachmentImageCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'wide.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'wide.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_LIMIT_EXCEEDED');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart oversized image bytes reject before committing user.message', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-image-too-large-' });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1, extraBytes: Buffer.alloc((10 * 1024 * 1024) + 1) });
+    const boundary = '----attachments-image-too-large';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_image_too_large',
+        capabilityVersion: attachmentImageCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'large.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'large.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_LIMIT_EXCEEDED');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart pre-commit failure does not consume clientMessageId', async () => {
   const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-client-retry-' });
   try {
@@ -4299,6 +4427,130 @@ test('multipart pre-commit failure does not consume clientMessageId', async () =
   }
 });
 
+test('multipart touch persistence failure rolls back pre-commit state and cleans scratch', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-touch-rollback-' });
+  const internal = app.conversations.conversations.get(conversationId);
+  try {
+    internal.status = 'idle';
+    internal.blockingItem = { type: 'preexisting', value: 1 };
+    internal.idleExpiresAt = '2030-01-01T00:00:00.000Z';
+    internal.userMessageCount = 7;
+    internal.updatedAt = '2026-05-18T00:00:00.000Z';
+    app.conversationSqliteStore.saveConversation(internal);
+    const snapshot = {
+      status: internal.status,
+      blockingItem: internal.blockingItem,
+      idleExpiresAt: internal.idleExpiresAt,
+      userMessageCount: internal.userMessageCount,
+      updatedAt: internal.updatedAt
+    };
+    const originalSaveConversation = app.conversationSqliteStore.saveConversation.bind(app.conversationSqliteStore);
+    let failNextRunningSave = true;
+    app.conversationSqliteStore.saveConversation = (conversation) => {
+      if (failNextRunningSave && conversation.id === conversationId && conversation.status === 'running') {
+        failNextRunningSave = false;
+        throw new Error('simulated conversation save failure');
+      }
+      return originalSaveConversation(conversation);
+    };
+
+    const boundary = '----attachments-touch-rollback';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'rollback touch',
+        clientMessageId: 'client_touch_rollback',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 500);
+    assert.equal(parseRawJson(response).error.message, 'simulated conversation save failure');
+    assert.deepEqual({
+      status: internal.status,
+      blockingItem: internal.blockingItem,
+      idleExpiresAt: internal.idleExpiresAt,
+      userMessageCount: internal.userMessageCount,
+      updatedAt: internal.updatedAt
+    }, snapshot);
+    assert.equal(internal.messageInFlightIds.has('client_touch_rollback'), false);
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart user.message append failure rolls back persisted state and clears in-flight id', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-event-rollback-' });
+  const internal = app.conversations.conversations.get(conversationId);
+  try {
+    internal.status = 'idle';
+    internal.blockingItem = { type: 'preexisting', value: 2 };
+    internal.idleExpiresAt = '2030-02-01T00:00:00.000Z';
+    internal.userMessageCount = 0;
+    internal.updatedAt = '2026-05-18T01:00:00.000Z';
+    app.conversationSqliteStore.saveConversation(internal);
+    const snapshot = {
+      status: internal.status,
+      blockingItem: internal.blockingItem,
+      idleExpiresAt: internal.idleExpiresAt,
+      userMessageCount: internal.userMessageCount,
+      updatedAt: internal.updatedAt
+    };
+    const originalAppendEvent = app.conversationSqliteStore.appendEvent.bind(app.conversationSqliteStore);
+    app.conversationSqliteStore.appendEvent = (event) => {
+      if (event.conversationId === conversationId && event.type === 'user.message') {
+        throw new Error('simulated user.message append failure');
+      }
+      return originalAppendEvent(event);
+    };
+
+    const boundary = '----attachments-event-rollback';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'rollback event',
+        clientMessageId: 'client_event_rollback',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+    const persisted = app.conversationSqliteStore.loadConversations().find((conversation) => conversation.id === conversationId);
+
+    assert.equal(response.status, 500);
+    assert.equal(parseRawJson(response).error.message, 'simulated user.message append failure');
+    assert.deepEqual({
+      status: internal.status,
+      blockingItem: internal.blockingItem,
+      idleExpiresAt: internal.idleExpiresAt,
+      userMessageCount: internal.userMessageCount,
+      updatedAt: internal.updatedAt
+    }, snapshot);
+    assert.deepEqual({
+      status: persisted.status,
+      blockingItem: persisted.blockingItem,
+      idleExpiresAt: persisted.idleExpiresAt,
+      userMessageCount: persisted.userMessageCount,
+      updatedAt: persisted.updatedAt
+    }, snapshot);
+    assert.equal(internal.messageInFlightIds.has('client_event_rollback'), false);
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart send validates handling against effective selected model capabilities', async () => {
   const adapter = attachmentConversationAdapter({
     capabilities: {
@@ -4319,7 +4571,7 @@ test('multipart send validates handling against effective selected model capabil
   const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-model-capability-' });
   try {
     const boundary = '----attachments-model-capability';
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const pngHeader = minimalPngBytes({ width: 1, height: 1 });
     const body = multipartBody({
       boundary,
       payload: {
@@ -4593,6 +4845,141 @@ test('multipart committed clientMessageId retries idempotently and conflicts on 
   }
 });
 
+test('multipart running conversation permits same payload retry but rejects new attachment message', async () => {
+  const { app, adapter, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-running-guard-' });
+  try {
+    const payload = {
+      text: 'inspect running once',
+      clientMessageId: 'client_running_first',
+      capabilityVersion: attachmentTestCapabilityVersion(),
+      attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+    };
+    const firstBoundary = '----attachments-running-first';
+    const first = multipartBody({
+      boundary: firstBoundary,
+      payload,
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const firstResponse = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, first, token, {
+      'content-type': `multipart/form-data; boundary=${firstBoundary}`
+    });
+
+    const retryBoundary = '----attachments-running-retry';
+    const retry = multipartBody({
+      boundary: retryBoundary,
+      payload,
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const retryResponse = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, retry, token, {
+      'content-type': `multipart/form-data; boundary=${retryBoundary}`
+    });
+
+    const secondBoundary = '----attachments-running-second';
+    const second = multipartBody({
+      boundary: secondBoundary,
+      payload: {
+        text: 'inspect running twice',
+        clientMessageId: 'client_running_second',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'b.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'b.txt', mimeType: 'text/plain', bytes: Buffer.from('world', 'utf8') }]
+    });
+    const secondResponse = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, second, token, {
+      'content-type': `multipart/form-data; boundary=${secondBoundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    assert.equal(firstResponse.status, 200);
+    assert.equal(parseRawJson(firstResponse).conversation.status, 'running');
+    assert.equal(retryResponse.status, 200);
+    assert.equal(secondResponse.status, 409);
+    assert.equal(parseRawJson(secondResponse).error.code, 'conversation_running');
+    assert.deepEqual(adapter.sent, ['inspect running once']);
+    assert.equal(events.filter((event) => event.type === 'user.message').length, 1);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart idempotency rebuilds from persisted user.message events after restart', async () => {
+  const appDbPath = tempConversationDbPath('app-db-attachments-restart-idempotency-');
+  const firstAdapter = attachmentConversationAdapter();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter: firstAdapter, appDbPath });
+  try {
+    const payload = {
+      text: 'persisted idempotency',
+      clientMessageId: 'client_restart_idempotency',
+      capabilityVersion: attachmentTestCapabilityVersion(),
+      attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+    };
+    const firstBoundary = '----attachments-restart-idempotency-first';
+    const first = multipartBody({
+      boundary: firstBoundary,
+      payload,
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const firstResponse = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, first, token, {
+      'content-type': `multipart/form-data; boundary=${firstBoundary}`
+    });
+    assert.equal(firstResponse.status, 200);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+
+  const restartedAdapter = attachmentConversationAdapter();
+  const restarted = createApp({
+    port: 0,
+    mode: 'dev',
+    devAdapters: true,
+    appDbPath,
+    conversationAdapters: new Map([['codex', restartedAdapter]])
+  });
+  await restarted.attachmentScratchCleanup;
+  await new Promise((resolve) => restarted.server.listen(0, '127.0.0.1', resolve));
+  const restartedPort = restarted.server.address().port;
+  try {
+    const payload = {
+      text: 'persisted idempotency',
+      clientMessageId: 'client_restart_idempotency',
+      capabilityVersion: attachmentTestCapabilityVersion(),
+      attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+    };
+    const retryBoundary = '----attachments-restart-idempotency-retry';
+    const retry = multipartBody({
+      boundary: retryBoundary,
+      payload,
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const retryResponse = await requestRaw(restartedPort, 'POST', `/api/conversations/${conversationId}/messages`, retry, token, {
+      'content-type': `multipart/form-data; boundary=${retryBoundary}`
+    });
+
+    const conflictBoundary = '----attachments-restart-idempotency-conflict';
+    const conflict = multipartBody({
+      boundary: conflictBoundary,
+      payload: {
+        ...payload,
+        text: 'persisted idempotency changed'
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const conflictResponse = await requestRaw(restartedPort, 'POST', `/api/conversations/${conversationId}/messages`, conflict, token, {
+      'content-type': `multipart/form-data; boundary=${conflictBoundary}`
+    });
+
+    assert.equal(retryResponse.status, 200);
+    assert.equal(conflictResponse.status, 409);
+    assert.equal(parseRawJson(conflictResponse).error.code, 'message_idempotency_conflict');
+    assert.deepEqual(restartedAdapter.sent, []);
+    assert.equal(restarted.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
+    assert.deepEqual(attachmentScratchEntries(restarted), []);
+  } finally {
+    await closeAttachmentConversationApp(restarted);
+  }
+});
+
 test('multipart post-commit adapter failure records run error and consumes clientMessageId', async () => {
   const adapter = attachmentConversationAdapter({ failAfterSend: true });
   const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-post-commit-failure-' });
@@ -4796,6 +5183,76 @@ test('multipart conversation send rejects PDF kind with non-PDF bytes before com
 
     assert.equal(response.status, 415);
     assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'UNSUPPORTED_MEDIA_TYPE');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart oversized PDF bytes reject before committing user.message', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'unsupported',
+        pdf: 'staged_path',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-pdf-too-large-' });
+  try {
+    const pdfBytes = Buffer.concat([
+      Buffer.from('%PDF-1.7\n', 'utf8'),
+      Buffer.alloc((20 * 1024 * 1024) + 1)
+    ]);
+    const boundary = '----attachments-pdf-too-large';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect pdf',
+        clientMessageId: 'client_pdf_too_large',
+        capabilityVersion: attachmentPdfCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'large.pdf', mimeType: 'application/pdf', kind: 'pdf', sizeBytes: pdfBytes.length }]
+      },
+      files: [{ name: 'large.pdf', mimeType: 'application/pdf', bytes: pdfBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_LIMIT_EXCEEDED');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart text_extract context budget rejects before committing user.message', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-context-budget-' });
+  try {
+    const textBytes = Buffer.from('a'.repeat(20 * 1024), 'utf8');
+    const boundary = '----attachments-context-budget';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'summarize text',
+        clientMessageId: 'client_context_budget',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'large.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: textBytes.length }]
+      },
+      files: [{ name: 'large.txt', mimeType: 'text/plain', bytes: textBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_CONTEXT_BUDGET_EXCEEDED');
     assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
@@ -6047,9 +6504,24 @@ test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', 
 test('attachment image header validation accepts supported images and rejects non-images', () => {
   const { validateImageAttachmentHeader } = require('../daemon/src/attachment-validation');
 
-  assert.equal(validateImageAttachmentHeader(Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), { name: 'image.png' }).mimeType, 'image/png');
-  assert.equal(validateImageAttachmentHeader(Buffer.from('ffd8ffe000104a464946', 'hex'), { name: 'image.jpg' }).mimeType, 'image/jpeg');
-  assert.equal(validateImageAttachmentHeader(Buffer.from('524946460000000057454250', 'hex'), { name: 'image.webp' }).mimeType, 'image/webp');
+  assert.deepEqual(validateImageAttachmentHeader(minimalPngBytes({ width: 640, height: 480 }), { name: 'image.png' }), {
+    mimeType: 'image/png',
+    knownType: 'png',
+    width: 640,
+    height: 480
+  });
+  assert.deepEqual(validateImageAttachmentHeader(minimalJpegBytes({ width: 320, height: 240 }), { name: 'image.jpg' }), {
+    mimeType: 'image/jpeg',
+    knownType: 'jpeg',
+    width: 320,
+    height: 240
+  });
+  assert.deepEqual(validateImageAttachmentHeader(minimalWebpBytes({ width: 16, height: 9 }), { name: 'image.webp' }), {
+    mimeType: 'image/webp',
+    knownType: 'webp',
+    width: 16,
+    height: 9
+  });
   assert.throws(
     () => validateImageAttachmentHeader(Buffer.from('%PDF-1.7\nhello', 'utf8'), { name: 'report.pdf' }),
     /unsupported media type/
@@ -6057,6 +6529,14 @@ test('attachment image header validation accepts supported images and rejects no
   assert.throws(
     () => validateImageAttachmentHeader(Buffer.from('hello', 'utf8'), { name: 'notes.txt' }),
     /unsupported media type/
+  );
+  assert.throws(
+    () => validateImageAttachmentHeader(minimalPngBytes({ width: 20000, height: 1 }), { name: 'wide.png' }),
+    (error) => error.status === 413 && error.code === 'ATTACHMENT_LIMIT_EXCEEDED'
+  );
+  assert.throws(
+    () => validateImageAttachmentHeader(Buffer.from('89504e470d0a1a0a', 'hex'), { name: 'truncated.png' }),
+    (error) => error.status === 415 && error.code === 'UNSUPPORTED_MEDIA_TYPE'
   );
 });
 
@@ -6438,6 +6918,46 @@ test('attachment scratch cleanupExpired deletes marked scratch with missing or m
   assert.equal(fs.existsSync(missing.dir), false);
   assert.equal(fs.existsSync(malformed.dir), false);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('createApp starts attachment scratch cleanup without deleting conservative paths', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const appDbPath = tempConversationDbPath('app-db-attachment-scratch-startup-');
+  const scratchRoot = path.join(path.dirname(appDbPath), 'attachment-scratch');
+  const oldStore = new AttachmentScratchStore({
+    root: scratchRoot,
+    now: () => new Date('2020-01-01T00:00:00.000Z')
+  });
+  const expired = await oldStore.createMessageScratch({
+    conversationId: 'conv_expired',
+    clientMessageId: 'client_expired',
+    scratchLifetime: 'turn'
+  });
+  const currentStore = new AttachmentScratchStore({ root: scratchRoot });
+  const current = await currentStore.createMessageScratch({
+    conversationId: 'conv_current',
+    clientMessageId: 'client_current',
+    scratchLifetime: 'turn'
+  });
+  const unmarked = path.join(scratchRoot, 'msg_123_00000000-0000-4000-8000-000000000000');
+  const unrelated = path.join(scratchRoot, 'unrelated');
+  fs.mkdirSync(unmarked, { recursive: true });
+  fs.mkdirSync(unrelated, { recursive: true });
+
+  const app = createApp({ port: 0, devAdapters: false, appDbPath });
+  try {
+    await app.attachmentScratchCleanup;
+
+    assert.equal(fs.existsSync(expired.dir), false);
+    assert.equal(fs.existsSync(current.dir), true);
+    assert.equal(fs.existsSync(unmarked), true);
+    assert.equal(fs.existsSync(unrelated), true);
+  } finally {
+    app.appSqliteStore.close();
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
 });
 
 function attemptPublicMutation(mutator) {

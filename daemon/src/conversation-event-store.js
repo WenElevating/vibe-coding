@@ -21,9 +21,9 @@ class ConversationEventStore {
       createdAt: this.now().toISOString(),
       ...payload
     };
+    if (this.persistentStore) this.persistentStore.appendEvent(event);
     list.push(event);
     this.events.set(conversationId, list);
-    if (this.persistentStore) this.persistentStore.appendEvent(event);
     return event;
   }
 

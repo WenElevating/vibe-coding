@@ -20,6 +20,7 @@ const { AdapterRegistry } = require('./adapter-registry');
 const { RunManager } = require('./run-manager');
 const { ConversationManager } = require('./conversation-manager');
 const { AttachmentScratchStore } = require('./attachment-scratch-store');
+const { conversationStatuses } = require('./conversation-protocol');
 const { RunQueue } = require('./run-queue');
 const { ShortcutStore } = require('./shortcuts');
 const { CommandTemplateStore } = require('./command-templates');
@@ -98,10 +99,17 @@ function createApp({
     attachmentScratchStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
   });
+  const attachmentScratchCleanup = attachmentScratchStore.cleanupExpired({
+    activeConversationIds: activeConversationIdsForScratchCleanup(conversations)
+  }).catch((error) => {
+    auditLog.record('attachment_scratch.startup_cleanup_error', {
+      error: error.message
+    });
+  });
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset });
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version, asrModelAsset };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version, asrModelAsset, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand }) {
@@ -121,6 +129,17 @@ function notImplementedConversationAdapter(label) {
       throw error;
     }
   };
+}
+
+function activeConversationIdsForScratchCleanup(conversations) {
+  const activeStatuses = new Set([
+    conversationStatuses.RUNNING,
+    conversationStatuses.WAITING_INPUT,
+    conversationStatuses.WAITING_APPROVAL
+  ]);
+  return new Set(Array.from(conversations.conversations.values())
+    .filter((conversation) => activeStatuses.has(conversation.status))
+    .map((conversation) => conversation.id));
 }
 
 if (require.main === module) {

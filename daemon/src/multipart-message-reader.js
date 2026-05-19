@@ -9,14 +9,19 @@ const {
   validateTextAttachmentBytes,
   validateImageAttachmentHeader,
   validatePdfAttachmentHeader,
+  estimateAttachmentTextTokens,
+  assertWithinContextBudget,
   attachmentHttpError
 } = require('./attachment-validation');
 
 const maxPayloadBytes = 64 * 1024;
 const sniffBytes = 128 * 1024;
 const maxTextAttachmentBytes = 256 * 1024;
+const maxImageAttachmentBytes = 10 * 1024 * 1024;
+const maxPdfAttachmentBytes = 20 * 1024 * 1024;
 const maxFileCount = 16;
-const maxTotalBytes = 50 * 1024 * 1024;
+const maxTotalBytes = 20 * 1024 * 1024;
+const textExtractWrapperChars = 128;
 
 async function readMultipartConversationMessage(req, scratch) {
   const files = [];
@@ -207,6 +212,10 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
             throw attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'text attachment is too large', { maxTextAttachmentBytes });
           }
           textChunks.push(chunk);
+        } else if (kind === 'image' && sizeBytes > maxImageAttachmentBytes) {
+          throw attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'image attachment is too large', { maxImageAttachmentBytes });
+        } else if (kind === 'pdf' && sizeBytes > maxPdfAttachmentBytes) {
+          throw attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'PDF attachment is too large', { maxPdfAttachmentBytes });
         }
       } catch (error) {
         fail(error, { validationFailure: true });
@@ -225,6 +234,10 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
           const validated = await validateTextAttachmentBytes(Buffer.concat(textChunks), { name, mimeType });
           validatedMimeType = validated.mimeType;
           text = validated.text;
+          assertWithinContextBudget(estimateAttachmentTextTokens({
+            text,
+            wrapperChars: textExtractWrapperChars + name.length
+          }));
           handling = 'text_extract';
         } else if (kind === 'image') {
           const validated = validateImageAttachmentHeader(sniffBuffer, { name, mimeType });

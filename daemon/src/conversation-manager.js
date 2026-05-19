@@ -31,6 +31,7 @@ class ConversationManager {
     this.multipartDeviceLocks = new Map();
     this.multipartActiveCount = 0;
     this.multipartMaxPerDaemon = 4;
+    this.messageIdempotencyMaxEntries = 1000;
     this.conversations = new Map();
     this.loadPersistedConversations();
   }
@@ -50,6 +51,7 @@ class ConversationManager {
     const restored = { ...conversation, handle: null };
     restored.messageIdempotency = new Map();
     restored.messageInFlightIds = new Set();
+    this.rebuildMessageIdempotency(restored);
     if ([conversationStatuses.RUNNING, conversationStatuses.WAITING_INPUT, conversationStatuses.WAITING_APPROVAL].includes(restored.status)) {
       restored.status = conversationStatuses.INTERRUPTED;
       restored.blockingItem = null;
@@ -57,6 +59,14 @@ class ConversationManager {
       restored.updatedAt = this.now().toISOString();
     }
     return restored;
+  }
+
+  rebuildMessageIdempotency(conversation) {
+    for (const event of this.eventStore.list(conversation.id, 0)) {
+      if (event.type !== conversationEventTypes.USER_MESSAGE) continue;
+      if (!event.clientMessageId || !event.payloadHash) continue;
+      rememberMessageIdempotency(conversation.messageIdempotency, event.clientMessageId, event.payloadHash, this.messageIdempotencyMaxEntries);
+    }
   }
 
   persistConversation(conversation) {
@@ -261,6 +271,10 @@ class ConversationManager {
       throw attachmentError(409, 'message_idempotency_conflict', 'clientMessageId was already used with different content.');
     }
 
+    if (hasAttachments && conversation.status === conversationStatuses.RUNNING) {
+      throw attachmentError(409, 'conversation_running', 'Conversation is running; wait for the current turn before sending another attachment message.');
+    }
+
     if (hasAttachments) {
       validateAttachmentHandling(attachmentCapabilities.attachments, files);
       conversation.messageInFlightIds.add(message.clientMessageId);
@@ -272,6 +286,7 @@ class ConversationManager {
     }
     conversation.sendLock = true;
     let committed = false;
+    const preCommitSnapshot = snapshotPreCommitState(conversation);
     try {
       conversation.status = conversationStatuses.RUNNING;
       conversation.blockingItem = null;
@@ -284,7 +299,7 @@ class ConversationManager {
         ...(payloadHash ? { payloadHash } : {}),
         ...(hasAttachments ? { attachments: committedAttachmentMetadata(files) } : {})
       });
-      if (hasAttachments) conversation.messageIdempotency.set(message.clientMessageId, payloadHash);
+      if (hasAttachments) rememberMessageIdempotency(conversation.messageIdempotency, message.clientMessageId, payloadHash, this.messageIdempotencyMaxEntries);
       committed = true;
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await this.ensureStarted(conversation);
@@ -294,6 +309,7 @@ class ConversationManager {
     } catch (error) {
       if (!committed) {
         if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
+        this.rollbackPreCommitState(conversation, preCommitSnapshot, error);
         throw error;
       }
       conversation.status = conversationStatuses.FAILED;
@@ -307,6 +323,19 @@ class ConversationManager {
     } finally {
       conversation.sendLock = false;
       if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
+    }
+  }
+
+  rollbackPreCommitState(conversation, snapshot, originalError) {
+    restorePreCommitState(conversation, snapshot);
+    try {
+      this.persistConversation(conversation);
+    } catch (rollbackError) {
+      this.auditLog.record('conversation.pre_commit_rollback_persist_error', {
+        conversationId: conversation.id,
+        originalError: originalError.message,
+        rollbackError: rollbackError.message
+      });
     }
   }
 
@@ -688,6 +717,34 @@ function validateAttachmentHandling(capabilities, files) {
     }
     file.handling = handling;
   }
+}
+
+function rememberMessageIdempotency(map, clientMessageId, payloadHash, maxEntries) {
+  if (!clientMessageId || !payloadHash) return;
+  if (map.has(clientMessageId)) map.delete(clientMessageId);
+  map.set(clientMessageId, payloadHash);
+  while (map.size > maxEntries) {
+    const firstKey = map.keys().next().value;
+    map.delete(firstKey);
+  }
+}
+
+function snapshotPreCommitState(conversation) {
+  return {
+    status: conversation.status,
+    blockingItem: conversation.blockingItem,
+    idleExpiresAt: conversation.idleExpiresAt,
+    userMessageCount: conversation.userMessageCount,
+    updatedAt: conversation.updatedAt
+  };
+}
+
+function restorePreCommitState(conversation, snapshot) {
+  conversation.status = snapshot.status;
+  conversation.blockingItem = snapshot.blockingItem;
+  conversation.idleExpiresAt = snapshot.idleExpiresAt;
+  conversation.userMessageCount = snapshot.userMessageCount;
+  conversation.updatedAt = snapshot.updatedAt;
 }
 
 function modelCapabilityHashInput(model, adapterAttachments) {
