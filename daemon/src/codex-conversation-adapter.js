@@ -94,6 +94,17 @@ class CodexConversationAdapter {
     return this.modelCapability || defaultModelCapability();
   }
 
+  getCapabilities() {
+    return {
+      ...this.capabilities,
+      attachments: {
+        image: this.imageInputSupported ? 'native' : 'unsupported',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
+    };
+  }
+
   ensureAvailable() {
     const capability = this.capability || this.detectCapabilities();
     if (!capability.available) {

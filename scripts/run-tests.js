@@ -4263,6 +4263,65 @@ test('adapter capability listing exposes attachment capabilities and stable capa
   });
 });
 
+test('adapter capability listing merges partial model attachment overrides over adapter defaults', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return { adapter: 'codex', available: true, status: 'available', cliVersion: '0.21.0', cliPath: 'codex' };
+      },
+      getModelCapability() {
+        return {
+          canSelectModel: true,
+          selectedModel: 'gpt-5.3-codex',
+          models: [
+            {
+              id: 'gpt-5.3-codex',
+              inputModalities: ['image', 'text'],
+              attachments: {
+                textDocument: 'unsupported'
+              }
+            }
+          ]
+        };
+      },
+      getCapabilities() {
+        return {
+          attachments: {
+            image: 'native',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.deepEqual(codex.models[0].attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'unsupported'
+  });
+});
+
+test('conversation adapters expose explicit attachment capability contracts', () => {
+  const codex = new CodexConversationAdapter({ cliResolverOptions: { platform: 'linux' } });
+  const claude = new ClaudeConversationAdapter({ cliResolverOptions: { platform: 'linux' } });
+
+  assert.deepEqual(codex.getCapabilities().attachments, {
+    image: 'unsupported',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+  assert.deepEqual(claude.getCapabilities().attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
 test('adapter capability listing sorts multiple models by id before hashing', async () => {
   const registry = new AdapterRegistry([
     {
