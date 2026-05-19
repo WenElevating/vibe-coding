@@ -6,7 +6,7 @@ const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 
 class JsonLineProcessAdapter {
-  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], modelCapabilityHelpArgs = null, staticCapabilities = {}, spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
+  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], modelCapabilityHelpArgs = null, staticCapabilities = {}, capabilityProbe = null, spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
     this.name = name;
     this.command = command;
     this.capabilityArgs = capabilityArgs;
@@ -14,6 +14,8 @@ class JsonLineProcessAdapter {
     this.requiredHelp = requiredHelp;
     this.modelCapabilityHelpArgs = modelCapabilityHelpArgs;
     this.staticCapabilities = staticCapabilities;
+    this.dynamicCapabilities = {};
+    this.capabilityProbe = capabilityProbe;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
     this.explicitEnabled = explicitEnabled;
@@ -23,6 +25,7 @@ class JsonLineProcessAdapter {
   }
 
   detectCapabilities() {
+    this.dynamicCapabilities = {};
     if (!this.explicitEnabled) {
       this.capability = capability(this.name, false, 'disabled', `${this.name} requires explicit enablement in Settings.`);
       return this.capability;
@@ -49,6 +52,16 @@ class JsonLineProcessAdapter {
       ...discoverConfiguredModels({ adapter: this.name }),
       canSelectModel: helpHasModelFlag(modelHelpText)
     };
+    if (typeof this.capabilityProbe === 'function') {
+      this.dynamicCapabilities = this.capabilityProbe({
+        command: this.invocation.command,
+        argsPrefix: this.invocation.argsPrefix,
+        spawnSyncFn: this.spawnSyncFn,
+        helpText,
+        modelHelpText,
+        version
+      }) || {};
+    }
     this.capability = capability(this.name, true, 'available', null, version);
     return this.capability;
   }
@@ -58,7 +71,7 @@ class JsonLineProcessAdapter {
   }
 
   getCapabilities() {
-    return this.staticCapabilities || {};
+    return mergeCapabilities(this.staticCapabilities, this.dynamicCapabilities);
   }
 
   ensureAvailable() {
@@ -97,8 +110,48 @@ function helpHasModelFlag(helpText) {
   return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
+function helpHasImageFlag(helpText) {
+  return /(^|[\s[(,])--image(?=$|[\s=,\])])|(^|[\s[(,])-i(?=$|[\s=,\])])/m.test(helpText || '');
+}
+
 function resultText(result = {}) {
   return `${result.stdout || ''}\n${result.stderr || ''}`;
+}
+
+function mergeCapabilities(...sources) {
+  const merged = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const attachments = source.attachments && typeof source.attachments === 'object' && !Array.isArray(source.attachments)
+      ? source.attachments
+      : null;
+    const previousAttachments = merged.attachments && typeof merged.attachments === 'object' && !Array.isArray(merged.attachments)
+      ? merged.attachments
+      : {};
+    Object.assign(merged, source);
+    if (attachments) {
+      merged.attachments = {
+        ...previousAttachments,
+        ...attachments
+      };
+    }
+  }
+  return merged;
+}
+
+function codexCapabilityProbe({ command, argsPrefix = [], spawnSyncFn, modelHelpText }) {
+  const resumeHelp = spawnSyncFn(command, [...argsPrefix, 'exec', 'resume', '--help'], { encoding: 'utf8' });
+  const execSupportsImage = helpHasImageFlag(modelHelpText);
+  const resumeSupportsImage = !resumeHelp.error && resumeHelp.status === 0 && helpHasImageFlag(resultText(resumeHelp));
+  return {
+    execSupportsImageFlag: execSupportsImage,
+    resumeSupportsImageFlag: resumeSupportsImage,
+    attachments: {
+      image: execSupportsImage && resumeSupportsImage ? 'native' : 'unsupported',
+      textDocument: 'text_extract',
+      pdf: 'unsupported'
+    }
+  };
 }
 
 function createCodexAdapter(options = {}) {
@@ -108,6 +161,7 @@ function createCodexAdapter(options = {}) {
     capabilityArgs: ['--version'],
     requiredHelp: ['exec'],
     modelCapabilityHelpArgs: ['exec', '--help'],
+    capabilityProbe: codexCapabilityProbe,
     staticCapabilities: {
       attachments: {
         image: 'unsupported',

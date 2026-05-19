@@ -261,7 +261,7 @@ function helpHasModelFlag(helpText) {
 }
 
 function helpHasImageFlag(helpText) {
-  return /(^|[\s[(,])--image(?=$|[\s=,\])])/m.test(helpText || '');
+  return /(^|[\s[(,])--image(?=$|[\s=,\])])|(^|[\s[(,])-i(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
 function buildAdapterUserMessage({ text, attachments = [] } = {}) {

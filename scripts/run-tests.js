@@ -6493,30 +6493,108 @@ test('production Claude adapter listing exposes native image attachment support 
   });
 });
 
-test('production Codex adapter listing exposes attachment support and preserves detection metadata', async () => {
-  const codex = createCodexAdapter({
-    command: 'codex',
-    explicitEnabled: true,
-    cliResolverOptions: { platform: 'linux' },
-    spawnSyncFn: (_command, args) => {
-      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.21.0\n', stderr: '' };
-      if (args[0] === '--help') return { status: 0, stdout: 'Usage: codex exec\n', stderr: '' };
-      if (args[0] === 'exec' && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec --json --model <model>\n', stderr: '' };
-      return { status: 0, stdout: '', stderr: '' };
-    }
+function fakeProductionCodexSpawnSync({ execHelp, resumeHelp, version = 'codex-cli 0.21.0\n' }) {
+  return (_command, args) => {
+    if (args.includes('--version')) return { status: 0, stdout: version, stderr: '' };
+    if (args[0] === '--help') return { status: 0, stdout: 'Usage: codex exec\n', stderr: '' };
+    if (args[0] === 'exec' && args[1] === 'resume' && args.includes('--help')) return { status: 0, stdout: resumeHelp, stderr: '' };
+    if (args[0] === 'exec' && args.includes('--help')) return { status: 0, stdout: execHelp, stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+}
+
+function expectedProductionCodexCapabilityVersion(image) {
+  const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  return capabilityVersionForNormalizedInput({
+    adapterId: 'codex',
+    attachments: {
+      image,
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    },
+    cliPath: 'codex',
+    cliVersion: 'codex-cli 0.21.0',
+    models: [],
+    selectedModelId: null
   });
-  const registry = new AdapterRegistry([codex]);
+}
 
-  const [listed] = await registry.listCapabilities();
+async function withDisabledModelDiscovery(fn) {
+  const original = process.env.VIBE_DISABLE_MODEL_DISCOVERY;
+  process.env.VIBE_DISABLE_MODEL_DISCOVERY = 'true';
+  try {
+    return await fn();
+  } finally {
+    if (original === undefined) delete process.env.VIBE_DISABLE_MODEL_DISCOVERY;
+    else process.env.VIBE_DISABLE_MODEL_DISCOVERY = original;
+  }
+}
 
-  assert.equal(listed.available, true);
-  assert.equal(listed.status, 'available');
-  assert.equal(listed.version, 'codex-cli 0.21.0');
-  assert.equal(listed.canSelectModel, true);
-  assert.deepEqual(listed.capabilities.attachments, {
-    image: 'unsupported',
-    pdf: 'unsupported',
-    textDocument: 'text_extract'
+test('production Codex adapter listing exposes attachment support and preserves detection metadata', async () => {
+  await withDisabledModelDiscovery(async () => {
+    const spawnSyncFn = fakeProductionCodexSpawnSync({
+      execHelp: 'Usage: codex exec\n--json\n--model <model>\n-i <path>\n',
+      resumeHelp: 'Usage: codex exec resume\n--json\n-i, --image <path>\n'
+    });
+    const codex = createCodexAdapter({
+      command: 'codex',
+      explicitEnabled: true,
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn
+    });
+    const conversation = new CodexConversationAdapter({
+      command: 'codex',
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn
+    });
+    const registry = new AdapterRegistry([codex]);
+
+    const [listed] = await registry.listCapabilities();
+    conversation.detectCapabilities();
+
+    assert.equal(listed.available, true);
+    assert.equal(listed.status, 'available');
+    assert.equal(listed.version, 'codex-cli 0.21.0');
+    assert.equal(listed.canSelectModel, true);
+    assert.deepEqual(listed.capabilities.attachments, {
+      image: 'native',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    });
+    assert.deepEqual(listed.capabilities.attachments, conversation.getCapabilities().attachments);
+    assert.equal(listed.capabilityVersion, expectedProductionCodexCapabilityVersion('native'));
+  });
+});
+
+test('production Codex adapter listing keeps image unsupported when resume help lacks image flag', async () => {
+  await withDisabledModelDiscovery(async () => {
+    const spawnSyncFn = fakeProductionCodexSpawnSync({
+      execHelp: 'Usage: codex exec\n--json\n--model <model>\n--image <path>\n',
+      resumeHelp: 'Usage: codex exec resume\n--json\n'
+    });
+    const codex = createCodexAdapter({
+      command: 'codex',
+      explicitEnabled: true,
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn
+    });
+    const conversation = new CodexConversationAdapter({
+      command: 'codex',
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn
+    });
+    const registry = new AdapterRegistry([codex]);
+
+    const [listed] = await registry.listCapabilities();
+    conversation.detectCapabilities();
+
+    assert.deepEqual(listed.capabilities.attachments, {
+      image: 'unsupported',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    });
+    assert.deepEqual(listed.capabilities.attachments, conversation.getCapabilities().attachments);
+    assert.equal(listed.capabilityVersion, expectedProductionCodexCapabilityVersion('unsupported'));
   });
 });
 
