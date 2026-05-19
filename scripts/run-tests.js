@@ -5513,6 +5513,77 @@ test('multipart attachment dispatch failure redacts path-bearing errors in HTTP 
   }
 });
 
+test('multipart attachment dispatch failure redacts nested details paths in HTTP and run.error', async () => {
+  const adapterId = 'claude';
+  const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
+  const adapter = attachmentConversationAdapter({
+    sendError: () => {
+      const error = new Error('adapter write failed');
+      error.status = 500;
+      error.details = { path: leakedPath };
+      return error;
+    },
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-nested-details-redaction-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-nested-details-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect nested details failure',
+        clientMessageId: 'client_nested_details_redaction',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const failed = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const errorBody = parseRawJson(failed).error;
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const userMessage = events.find((event) => event.type === 'user.message');
+    const responseJson = JSON.stringify(errorBody);
+    const runErrorJson = JSON.stringify(runError);
+    const committedAttachmentJson = JSON.stringify(userMessage.attachments[0]);
+    assert.equal(failed.status, 502);
+    assert.equal(errorBody.code, 'attachment_dispatch_failed');
+    assert.equal(errorBody.message, 'Attachment dispatch failed');
+    assert.equal(responseJson.includes(leakedPath), false);
+    assert.equal(responseJson.includes('D:\\secret'), false);
+    assert.equal(responseJson.includes('file_0.bin'), false);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(runErrorJson.includes(leakedPath), false);
+    assert.equal(runErrorJson.includes('D:\\secret'), false);
+    assert.equal(runErrorJson.includes('file_0.bin'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'bytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
+    assert.equal(committedAttachmentJson.includes(leakedPath), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart attachment dispatch failure redacts raw payload errors without path-like strings', async () => {
   const adapterId = 'claude';
   const rawHex = '89504e470d0a1a0a0000000d4948445200000001000000010806000000';
@@ -5590,6 +5661,77 @@ test('multipart attachment dispatch failure redacts raw payload errors without p
   }
 });
 
+test('multipart text attachment dispatch failure redacts echoed wrapper and contents', async () => {
+  const privateText = 'private document contents';
+  const wrapper = '<attachment name="secret.txt" mime="text/plain">\nprivate document contents\n</attachment>';
+  const cases = [
+    {
+      suffix: 'message',
+      clientMessageId: 'client_text_dispatch_message_redaction',
+      sendError: () => new Error(wrapper)
+    },
+    {
+      suffix: 'details',
+      clientMessageId: 'client_text_dispatch_details_redaction',
+      sendError: () => {
+        const error = new Error('adapter write failed');
+        error.status = 500;
+        error.details = { echoed: privateText };
+        return error;
+      }
+    }
+  ];
+
+  for (const item of cases) {
+    const adapterId = 'codex';
+    const adapter = attachmentConversationAdapter({ sendError: item.sendError });
+    const { app, port, token, conversationId } = await createAttachmentConversationApp({
+      adapter,
+      adapterId,
+      dbPrefix: `app-db-attachments-text-dispatch-${item.suffix}-`
+    });
+    try {
+      const textBytes = Buffer.from(privateText, 'utf8');
+      const boundary = `----attachments-text-dispatch-${item.suffix}`;
+      const body = multipartBody({
+        boundary,
+        payload: {
+          text: 'summarize text',
+          clientMessageId: item.clientMessageId,
+          capabilityVersion: attachmentTestCapabilityVersion(adapterId),
+          attachments: [{ field: 'files[0]', name: 'secret.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: textBytes.length }]
+        },
+        files: [{ name: 'secret.txt', mimeType: 'text/plain', bytes: textBytes }]
+      });
+      const failed = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+        'content-type': `multipart/form-data; boundary=${boundary}`
+      });
+
+      const errorBody = parseRawJson(failed).error;
+      const events = app.conversationEventStore.list(conversationId, 0);
+      const runError = events.find((event) => event.type === 'run.error');
+      const responseJson = JSON.stringify(errorBody);
+      const runErrorJson = JSON.stringify(runError);
+      const eventsJson = JSON.stringify(events);
+      assert.equal(failed.status, 502);
+      assert.equal(errorBody.code, 'attachment_dispatch_failed');
+      assert.equal(errorBody.message, 'Attachment dispatch failed');
+      assert.equal(runError.message, 'Attachment dispatch failed');
+      assert.equal(runError.code, 'attachment_dispatch_failed');
+      assert.equal(runError.status, 502);
+      assert.equal(responseJson.includes('<attachment'), false);
+      assert.equal(responseJson.includes('secret.txt'), false);
+      assert.equal(responseJson.includes(privateText), false);
+      assert.equal(runErrorJson.includes('secret.txt'), false);
+      assert.equal(eventsJson.includes('<attachment'), false);
+      assert.equal(eventsJson.includes(privateText), false);
+      assert.deepEqual(attachmentScratchEntries(app), []);
+    } finally {
+      await closeAttachmentConversationApp(app);
+    }
+  }
+});
+
 test('multipart attachment adapter events redact path-bearing run errors and warnings', async () => {
   const adapterId = 'claude';
   const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
@@ -5656,6 +5798,65 @@ test('multipart attachment adapter events redact path-bearing run errors and war
     assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
     assert.equal(committedAttachmentJson.includes(leakedPath), false);
     assert.equal(committedAttachmentJson.includes('89504e47'), false);
+    await waitForAttachmentScratchCleanup(app);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart text attachment adapter events redact echoed wrapper and contents', async () => {
+  const adapterId = 'codex';
+  const privateText = 'private document contents';
+  const wrapper = '<attachment name="secret.txt" mime="text/plain">\nprivate document contents\n</attachment>';
+  const adapter = attachmentConversationAdapter({
+    onSendEvents: [
+      { type: 'protocol.warning', text: wrapper, message: wrapper, visible: true },
+      { type: 'run.error', message: 'provider rejected text', details: { echoed: privateText } }
+    ]
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-text-event-redaction-'
+  });
+  try {
+    const textBytes = Buffer.from(privateText, 'utf8');
+    const boundary = '----attachments-text-event-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'summarize text event failure',
+        clientMessageId: 'client_text_event_redaction',
+        capabilityVersion: attachmentTestCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'secret.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: textBytes.length }]
+      },
+      files: [{ name: 'secret.txt', mimeType: 'text/plain', bytes: textBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const protocolWarning = events.find((event) => event.type === 'protocol.warning');
+    const responseJson = JSON.stringify(parseRawJson(response));
+    const runErrorJson = JSON.stringify(runError);
+    const protocolWarningJson = JSON.stringify(protocolWarning);
+    const eventsJson = JSON.stringify(events);
+    assert.equal(response.status, 200);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(protocolWarning.text, 'Attachment dispatch failed');
+    assert.equal(protocolWarning.message, 'Attachment dispatch failed');
+    assert.equal(responseJson.includes('<attachment'), false);
+    assert.equal(responseJson.includes('secret.txt'), false);
+    assert.equal(responseJson.includes(privateText), false);
+    assert.equal(runErrorJson.includes('secret.txt'), false);
+    assert.equal(protocolWarningJson.includes('secret.txt'), false);
+    assert.equal(eventsJson.includes('<attachment'), false);
+    assert.equal(eventsJson.includes(privateText), false);
     await waitForAttachmentScratchCleanup(app);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {

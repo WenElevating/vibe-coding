@@ -18,6 +18,7 @@ const { readMultipartConversationMessage } = require('./multipart-message-reader
 const { AttachmentScratchStore } = require('./attachment-scratch-store');
 const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = require('./attachment-hashes');
 const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
+const { textAttachmentWrapper } = require('./attachment-validation');
 
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
 
@@ -826,7 +827,8 @@ function validateAdapterAttachmentLimits(conversation, files) {
 
 function sanitizeAdapterDispatchError(error, { hasAttachments, files = [] } = {}) {
   if (!hasAttachments) return error;
-  if (!isPathLikeAttachmentDispatchError(error, files) && !isRawAttachmentDispatchError(error)) return error;
+  const context = attachmentDispatchRedactionContext(files);
+  if (!isRedactableAttachmentDispatchValue(error, context)) return error;
   const safe = new Error('Attachment dispatch failed');
   safe.status = 502;
   safe.code = 'attachment_dispatch_failed';
@@ -838,13 +840,14 @@ function attachmentDispatchRedactionContext(files) {
     files: files.map((file) => ({
       name: file.name,
       scratchPath: file.scratchPath
-    }))
+    })),
+    textMarkers: files.flatMap(textAttachmentRedactionMarkers)
   };
 }
 
 function sanitizeAdapterEvent(event, context) {
   if (!context || ![conversationEventTypes.RUN_ERROR, conversationEventTypes.PROTOCOL_WARNING].includes(event.type)) return event;
-  if (!isRedactableAttachmentDispatchEvent(event, context.files)) return event;
+  if (!isRedactableAttachmentDispatchEvent(event, context)) return event;
   const safe = new Error('Attachment dispatch failed');
   safe.status = 502;
   safe.code = 'attachment_dispatch_failed';
@@ -859,8 +862,16 @@ function sanitizeAdapterEvent(event, context) {
   };
 }
 
-function isRedactableAttachmentDispatchEvent(event, files) {
-  return isPathLikeAttachmentDispatchEvent(event, files) || hasRawAttachmentDispatchPayload(event);
+function isRedactableAttachmentDispatchValue(value, context) {
+  return isPathLikeAttachmentDispatchError(value, context.files) ||
+    isRawAttachmentDispatchError(value) ||
+    hasTextAttachmentEcho(value, context);
+}
+
+function isRedactableAttachmentDispatchEvent(event, context) {
+  return isPathLikeAttachmentDispatchEvent(event, context.files) ||
+    hasRawAttachmentDispatchPayload(event) ||
+    hasTextAttachmentEcho(event, context);
 }
 
 function isRawAttachmentDispatchError(error) {
@@ -869,7 +880,7 @@ function isRawAttachmentDispatchError(error) {
 }
 
 function isPathLikeAttachmentDispatchEvent(event, files) {
-  const strings = collectStringValues(event);
+  const strings = collectDiagnosticStringValues(event);
   const code = typeof event.code === 'string' ? event.code : '';
   return isPathLikeAttachmentDispatchError({ message: strings.join(' '), code }, files);
 }
@@ -914,8 +925,17 @@ function collectStringValues(value, seen = new Set()) {
   return Object.values(value).flatMap((item) => collectStringValues(item, seen));
 }
 
+function collectDiagnosticStringValues(value) {
+  const strings = collectStringValues(value);
+  if (value && typeof value === 'object') {
+    if (typeof value.message === 'string') strings.push(value.message);
+    if (typeof value.code === 'string') strings.push(value.code);
+  }
+  return strings;
+}
+
 function isPathLikeAttachmentDispatchError(error, files) {
-  const message = typeof error?.message === 'string' ? error.message : '';
+  const message = collectDiagnosticStringValues(error).join(' ');
   const code = typeof error?.code === 'string' ? error.code : '';
   if (!message && !code) return false;
   for (const file of files) {
@@ -925,6 +945,23 @@ function isPathLikeAttachmentDispatchError(error, files) {
   if (/(^|[\s'"])\~?[\\/][^\s'")]+/.test(message) && /(?:ENOENT|EACCES|EPERM|ENOTDIR|EISDIR|open|read|stat|access|unlink)/i.test(`${code} ${message}`)) return true;
   if (/\braw bytes?\b/i.test(message)) return true;
   return false;
+}
+
+function textAttachmentRedactionMarkers(file) {
+  if (file?.kind !== 'textDocument' || file.text == null) return [];
+  const text = String(file.text);
+  const markers = [
+    textAttachmentWrapper({ name: file.name, mimeType: file.mimeType, text })
+  ];
+  if (text.trim().length >= 8) markers.push(text);
+  return markers;
+}
+
+function hasTextAttachmentEcho(value, context) {
+  const markers = Array.isArray(context?.textMarkers) ? context.textMarkers.filter(Boolean) : [];
+  if (markers.length === 0) return false;
+  const strings = collectDiagnosticStringValues(value);
+  return strings.some((item) => markers.some((marker) => item.includes(marker)));
 }
 
 function runErrorPayload(error) {
