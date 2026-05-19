@@ -12,6 +12,8 @@ The daemon treats uploaded bytes as short-lived per-message scratch input for CL
 - Let users attach small UTF-8 text documents such as `.txt`, `.md`, `.json`, `.log`, and `.csv`.
 - Expose adapter and model attachment capabilities through the existing adapter status flow.
 - Validate attachment type, size, and model support on the daemon before appending `user.message`.
+- Reject oversized images by both byte size and pixel dimensions before invoking a CLI.
+- Reject extracted text that is likely to exceed the selected model's context budget before committing the message.
 - Avoid a server-side draft attachment state that must be synchronized with the mobile composer.
 - Preserve old JSON text-only message sending for older clients and pure text sends.
 - Make unsupported files fail explicitly with clear daemon error codes and mobile UI feedback.
@@ -25,6 +27,8 @@ The daemon treats uploaded bytes as short-lived per-message scratch input for CL
 - No long-term file library.
 - No Office parsing for `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, or `.pptx`.
 - No OCR.
+- No image transcoding or resizing in the first version.
+- No lossy text encoding fallback for UTF-16, Latin-1, GBK, or other legacy encodings.
 - No PDF support unless adapter and model capability is explicit.
 - No original-file replay from old messages.
 - No silent downgrade from native image/PDF input to "read this local path" semantics.
@@ -71,7 +75,7 @@ Use a message-atomic multipart send:
 5. The daemon writes files to a per-message scratch directory only after validation.
 6. The daemon appends `user.message` with attachment metadata, not file bytes or scratch paths.
 7. The daemon passes normalized attachment inputs to the selected adapter.
-8. Scratch files are removed after the adapter has consumed them or after the turn reaches a terminal state.
+8. Scratch files are removed according to each adapter path's declared `scratchLifetime`.
 
 Rejected alternatives:
 
@@ -120,17 +124,16 @@ Recommended adapter-level fallback capability:
       "image": "native",
       "textDocument": "text_extract",
       "pdf": "unsupported"
-    },
-    "attachmentDetection": {
-      "image": "cli_help",
-      "model": "codex_debug_models",
-      "pdf": "not_detected"
     }
   }
 }
 ```
 
+Detection provenance such as `cli_help`, `codex_debug_models`, or `not_detected` is diagnostic data. Keep it out of the stable public capability contract unless the caller requests diagnostics explicitly, for example through a future diagnostics endpoint or dev-mode adapter status.
+
 Model-level capability takes precedence over adapter defaults. If the selected model has no known image or PDF modality, those kinds are unsupported. `textDocument` is the exception because it is converted into plain text before reaching the model.
+
+Adapter status responses should include an opaque `capabilityVersion`, computed from adapter id, CLI version/path, selected/default model metadata, and attachment capability metadata. Mobile should send the `capabilityVersion` used for draft validation with attachment sends. If the daemon sees a stale version at send time, return `409 capability_stale` so the client refreshes adapter capabilities instead of receiving a misleading `422` for a model that appeared supported moments earlier.
 
 ## Mobile Draft and UI
 
@@ -153,7 +156,7 @@ The composer layout should be:
 composer shell
   top: left-aligned attachment thumbnail tray
   middle: text input
-  bottom: CLI chip, model chip, attachment button, voice button, send button
+  bottom: CLI chip, model chip, attachment button, existing voice button, send button
 ```
 
 Thumbnail tray behavior:
@@ -175,17 +178,31 @@ Draft rules:
 - Sending is disabled while any attachment has a local validation error.
 - A successful send clears both the text field and draft attachments.
 - A pre-commit daemon error keeps both the text and draft attachments so the user can retry.
+- A committed send failure clears local draft state because the message has already been committed. The transcript should show the committed attachment metadata plus `run.error`; retrying the same content requires the user to attach the local file again and send with a new `clientMessageId`.
+- If a message has text documents but no user text, mobile should show a weak prompt suggestion such as "Add an instruction for these files." The daemon may still accept a text-document-only send by prepending a neutral instruction to inspect the attached text.
 
 Recommended first-version limits:
 
 - Maximum attachments per message: 4.
-- Maximum image size: 10 MB each.
+- Maximum Codex image size: 10 MB each.
+- Maximum Claude image size: 5 MB each because base64 over stream-json expands bytes by roughly one third and must fit on one JSONL stdin line.
 - Maximum text document size: 1 MB each.
 - Maximum total multipart payload: 20 MB.
+- Maximum image long edge: 8192 pixels.
+- Maximum image total pixels: 100 megapixels.
 - Allowed images: `.png`, `.jpg`, `.jpeg`, `.webp`.
 - Allowed text documents: `.txt`, `.md`, `.markdown`, `.json`, `.log`, `.csv`.
 - PDF is visible but enabled only when capability is explicit.
 - Office documents are unsupported in the first version.
+
+The first version rejects images that exceed byte or pixel limits with `413 payload_too_large`. It does not resize, transcode, or recompress uploads. A later image preprocessing feature can be designed separately if model rejection rates justify it.
+
+Upload progress:
+
+- Mobile should show a local uploading/sending progress indicator for multipart sends when the platform HTTP stack exposes upload progress.
+- If progress callbacks are not available in the first implementation, show a sending state that is distinct from "CLI is running" so weak-network upload time is not confused with model execution time.
+- Cancelling during upload should abort the HTTP request and keep the local draft attachments. The daemon must delete any partially written scratch directory in the multipart error/finally path.
+- A transport timeout before commit keeps draft state and must not auto-retry multipart upload.
 
 ## Daemon API
 
@@ -213,6 +230,7 @@ fields:
 {
   "text": "Please inspect this screenshot.",
   "clientMessageId": "mobile-generated-uuid",
+  "capabilityVersion": "adapter-capability-version-used-by-mobile",
   "attachments": [
     {
       "field": "files[0]",
@@ -232,16 +250,54 @@ Daemon processing order:
 3. Check active state, `sendLock`, and `modelUpdateLock`.
 4. Validate `clientMessageId` idempotency.
 5. Validate file count, file size, extension, client MIME hint, and sniffed MIME/magic bytes.
-6. Resolve adapter and selected/default model attachment capability.
-7. Reject unsupported attachments before appending any event.
-8. Create a per-message scratch directory.
-9. Write uploaded parts to scratch using daemon-generated safe names.
-10. Append `user.message` with text and attachment metadata.
-11. Append `conversation.status_changed` with `running`.
-12. Ensure the adapter is started.
-13. Send adapter message with normalized attachments.
-14. Clean scratch after adapter consumption or terminal turn state.
-15. On daemon startup, remove expired scratch directories.
+6. Resolve adapter and selected/default model attachment capability, applying model-level capability before adapter-level fallback.
+7. Reject stale `capabilityVersion` with `409 capability_stale` before appending any event.
+8. Reject unsupported attachments before appending any event.
+9. For text extraction, estimate rough context budget against the selected model before committing.
+10. Create a per-message scratch directory.
+11. Write uploaded parts to scratch using daemon-generated safe names.
+12. Append `user.message` with text and attachment metadata.
+13. Append `conversation.status_changed` with `running`.
+14. Ensure the adapter is started.
+15. Send adapter message with normalized attachments.
+16. Clean scratch according to the adapter-declared `scratchLifetime`.
+17. On daemon startup, remove expired scratch directories that are not marked active.
+
+## File Type Validation
+
+The daemon must treat client MIME, filename, and declared kind as hints only. The accepted kind is derived from extension plus server-side sniffing.
+
+Decision table:
+
+| Case | Result |
+| --- | --- |
+| Extension is not in the allowlist | `415 unsupported_media_type` |
+| Image extension and image magic bytes agree | Accept as `image` if size and pixel limits pass |
+| Image extension but magic bytes are missing or another known type | `415 unsupported_media_type` |
+| PDF extension and PDF magic bytes agree | Accept only when capability allows PDF |
+| Office extension or ZIP/container signature for document upload | `415 unsupported_media_type` in v1 |
+| Text extension with valid UTF-8 and low binary/control-byte ratio | Accept as `textDocument` |
+| Text extension with UTF-16, Latin-1, GBK, invalid UTF-8, NUL bytes, or high binary-byte ratio | `415 unsupported_media_type` |
+| Client MIME disagrees with extension/sniff but extension/sniff are accepted | Accept and normalize to sniffed MIME, recording no audit unless needed for diagnostics |
+| Client MIME says image/PDF but extension/sniff says text | Use extension/sniff result or reject if ambiguous |
+
+The first implementation should avoid adding a file-type dependency unless the built-in sniffing becomes insufficient. It can recognize PNG, JPEG, WebP, PDF, UTF-8 text, and obvious ZIP/Office/container signatures with small header reads. PNG, JPEG, and WebP dimension parsing is required for the pixel limits before dispatch.
+
+Text encoding rules:
+
+- Accept UTF-8.
+- Accept UTF-8 with BOM and strip the BOM before text extraction.
+- Preserve original line endings; do not normalize CRLF to LF.
+- Reject UTF-16 LE/BE, Latin-1, GBK, and other legacy encodings in v1.
+- Reject text files with NUL bytes or invalid UTF-8.
+- Do not use a Latin-1 fallback for CSV in v1. If real CSV usage needs legacy encodings later, add an explicit encoding selector instead of guessing.
+
+Text context budget rules:
+
+- Before appending `user.message`, estimate text extraction cost using a conservative character-to-token heuristic and the selected model's known context window when available.
+- Include user prompt text, extracted text, attachment wrapper overhead, and a reserve for system/CLI context.
+- If the estimate exceeds the budget, return `422 context_budget_exceeded` before committing the message.
+- If the model context window is unknown, use a conservative default budget rather than assuming the largest model.
 
 ## Scratch Files
 
@@ -260,7 +316,23 @@ att_1_<sha256-prefix>.txt
 
 Original filenames are stored only as metadata. The daemon must never send scratch absolute paths back to mobile and must not record them in conversation events.
 
-Default scratch TTL is 24 hours and should be configurable through an environment variable. Startup cleanup removes expired scratch directories left by crashes or terminated processes.
+Adapters must declare scratch lifetime for each dispatch path:
+
+```text
+send_time
+  Daemon can delete scratch after it has transformed bytes into adapter input.
+  Examples: Claude base64 image content block, text_extract document content.
+
+turn
+  Daemon must keep scratch until the active CLI turn reaches a terminal state.
+  Example: Codex --image <scratchPath>, because the spawned process must be able to read the path during the turn.
+
+conversation
+  Reserved for future staged_path support where an adapter explicitly promises that a path can be referenced after the current turn.
+  Not used in v1.
+```
+
+Default scratch TTL is 24 hours and should be configurable through an environment variable. Each scratch directory should include metadata that marks `conversationId`, `clientMessageId`, `scratchLifetime`, `createdAt`, and active owner information such as process id or handle id when applicable. Startup cleanup removes expired scratch directories left by crashes, but it must skip directories associated with currently running conversations or live process ids.
 
 ## Conversation Events
 
@@ -278,7 +350,7 @@ Default scratch TTL is 24 hours and should be configurable through an environmen
       "kind": "image",
       "mimeType": "image/png",
       "sizeBytes": 120034,
-      "status": "accepted"
+      "handling": "native"
     }
   ]
 }
@@ -290,6 +362,8 @@ Event replay displays metadata only:
 - Text documents show file name, type, and size chips.
 - If dispatch fails after the message is committed, the message metadata remains visible and the transcript also shows `run.error`.
 
+Attachment metadata should not include a generic `status` field in v1 if every committed attachment is already accepted. Use `handling` instead to explain how the attachment was dispatched: `native`, `text_extract`, or future `staged_path`.
+
 ## Idempotency
 
 `conversationId + clientMessageId` is the idempotency key.
@@ -299,7 +373,12 @@ Rules:
 - If the same `clientMessageId` has already appended `user.message` with the same payload hash, return the current public conversation and do not call the adapter again.
 - If the same `clientMessageId` is currently under `sendLock`, return `409 message_already_in_flight`.
 - If the same `clientMessageId` is reused with a different payload hash, return `409 idempotency_conflict`.
-- Mobile should generate a new `clientMessageId` only when the user intentionally retries after an idempotency conflict.
+- Pre-commit failures do not consume the `clientMessageId`. Mobile may keep the same `clientMessageId` while the user fixes validation errors, and a changed payload hash is not an idempotency conflict because no committed event exists.
+- Committed failures consume the `clientMessageId`. If adapter dispatch later writes `run.error`, retrying the same human intent must use a new `clientMessageId` and requires the user to reattach local files because scratch bytes are not long-lived.
+- Network timeouts must be resolved by polling conversation events for the same `clientMessageId`. If a `user.message` event with that id appears, the message is committed and the client must not auto-resend the multipart request.
+- Mobile should generate a new `clientMessageId` only after an idempotency conflict, after a committed failure that the user chooses to retry, or after the user meaningfully starts a new send attempt.
+
+The daemon should avoid scanning the full event log on every send. Maintain a persisted or restored per-conversation index from `clientMessageId` to event sequence plus payload hash. Rebuild the index from persisted events on startup if no dedicated database table exists yet.
 
 ## Adapter Conversion
 
@@ -312,6 +391,7 @@ Codex image support:
 - The selected model must have `input_modalities` containing `image`.
 - New conversations pass images with `codex exec --json --image <scratchPath>`.
 - Resumed conversations pass images with `codex exec resume --json --image <scratchPath>`.
+- Codex image scratch lifetime is `turn`.
 
 Codex text documents:
 
@@ -337,6 +417,9 @@ Claude image support:
 - A local static/config fallback may mark known Claude models as image/PDF capable.
 - Unknown model image/PDF capability is unsupported.
 - Images should be sent as stream-json image content blocks, not as local file paths for the model to read.
+- Claude image scratch lifetime is `send_time` after the daemon has encoded the bytes into the stream-json content block.
+- Claude native image input uses the stricter 5 MB per-image limit unless testing proves a local-path image reference or chunked file API that avoids one large JSONL stdin line.
+- Do not implement `staged_path` for Claude image input until the CLI contract explicitly documents local path image references with the same semantics as native image content.
 
 Recommended image content shape:
 
@@ -363,6 +446,7 @@ Recommended image content shape:
 Claude text documents:
 
 - The daemon can extract UTF-8 text and include it as text content.
+- Claude text document scratch lifetime is `send_time`.
 
 Claude PDF:
 
@@ -398,9 +482,13 @@ Error codes:
 - `413 payload_too_large`: file count, single-file size, or total payload exceeds limits.
 - `415 unsupported_media_type`: extension, MIME, magic bytes, or text encoding is not allowed.
 - `422 attachment_kind_unsupported`: adapter or model does not support the attachment kind.
+- `422 context_budget_exceeded`: extracted text would exceed the selected model's conservative context budget.
 - `409 message_already_in_flight`: send is already running.
 - `409 idempotency_conflict`: same `clientMessageId` with different payload.
-- `500 attachment_dispatch_failed`: validation passed but adapter conversion or dispatch failed.
+- `409 capability_stale`: mobile validated against an older adapter/model capability version.
+- `502 attachment_dispatch_failed`: validation passed but the adapter conversion or CLI dispatch failed.
+
+The existing API style uses `409` for lock/conflict states, so this design keeps `message_already_in_flight` as `409` rather than introducing `423 Locked`. Adapter dispatch failures should use `502` because the daemon accepted the request but the downstream CLI boundary failed.
 
 ## Diagnostics and Audit
 
@@ -434,6 +522,7 @@ Diagnostic bundle:
 - Local validation errors mark the thumbnail red and disable send.
 - Daemon `413`, `415`, and `422` keep the composer text and attachments.
 - Capability failures should refresh adapter capabilities after the error.
+- `409 capability_stale` must refresh adapter capabilities and revalidate local draft attachments.
 - `409 message_already_in_flight` keeps draft state and asks the user to wait for the active send.
 - Acknowledgement timeout should not automatically resend multipart payloads. Existing event polling should determine whether the message committed.
 
@@ -444,24 +533,35 @@ Daemon API tests:
 - JSON text-only send still works.
 - Multipart text plus image appends `user.message` metadata.
 - Multipart text document extracts UTF-8 content and passes it to the adapter.
+- UTF-8 BOM text is accepted and BOM is stripped.
+- UTF-16 and Latin-1 text documents return `415`.
+- Text extraction over context budget returns `422 context_budget_exceeded` before `user.message`.
 - Unsupported PDF returns `422` and does not append `user.message`.
 - Unsupported Office document returns `415` or `422` and does not append `user.message`.
 - Too many files returns `413`.
 - Oversized image returns `413`.
+- Over-pixel-limit image returns `413`.
 - MIME/extension mismatch returns `415`.
+- Stale capability version returns `409 capability_stale`.
+- Pre-commit failures do not consume `clientMessageId`.
 - Duplicate `clientMessageId` with same payload does not call adapter twice.
 - Duplicate `clientMessageId` with different payload returns `409`.
 - Adapter dispatch failure writes `run.error` and failed status.
+- Adapter dispatch failure consumes `clientMessageId`; retry requires a new id.
 - Scratch cleanup failure records audit but does not change the conversation result.
 - Startup cleanup removes expired scratch directories.
+- Startup cleanup skips active scratch directories for running conversations.
 
 Adapter tests:
 
 - Codex detects `--image` from both exec and resume help.
 - Codex parses `debug models` `input_modalities`.
 - Codex image dispatch includes `--image <scratchPath>`.
+- Codex image scratch lifetime is `turn`.
 - Codex text document dispatch injects attachment blocks.
 - Claude stream-json image content block shape is correct.
+- Claude image size limit is stricter than Codex to account for base64 JSONL expansion.
+- Claude image scratch lifetime is `send_time`.
 - Claude unknown model rejects image.
 - OpenCode attachment capability remains unsupported.
 
@@ -473,8 +573,12 @@ Mobile tests:
 - Thumbnail delete removes local draft state.
 - Unsupported attachment shows an error and disables send.
 - Multipart send includes text, `clientMessageId`, files, and metadata.
+- Multipart send includes the last validated `capabilityVersion`.
+- Upload timeout keeps draft attachments and does not auto-resend.
 - Daemon `422` keeps draft attachments and text.
+- Daemon `409 capability_stale` refreshes capabilities and keeps draft attachments.
 - Successful send clears draft attachments and text.
+- Committed adapter failure does not restore draft attachments and prompts the user to reattach files before retrying.
 - Compact width does not overflow.
 
 ## Rollout Notes
@@ -483,6 +587,8 @@ Mobile tests:
 - New mobile clients talking to old daemons should treat `404`, `405`, or non-multipart failures on attachment send as "daemon does not support attachments" and keep draft state.
 - The first implementation should keep attachment code on the conversation path only. Legacy `/api/runs` support is out of scope.
 - If CLI detection is unstable, disable image/PDF attachment capability and keep text-only sends working.
+- Short term, use the existing `POST /api/conversations/:id/messages` route with content-type negotiation for JSON and multipart compatibility.
+- Medium term, consider moving multipart sends to an explicit endpoint such as `POST /api/conversations/:id/messages/multipart` or `POST /api/conversations/:id/messages:multipart`, leaving the JSON route as the stable text-only path.
 
 ## References
 
@@ -491,9 +597,9 @@ Mobile tests:
 - Google Drive resumable uploads: https://developers.google.com/workspace/drive/api/guides/manage-uploads
 - Amazon S3 multipart upload cleanup: https://docs.aws.amazon.com/AmazonS3/latest/userguide/abort-mpu.html
 - OpenAI model input modalities: https://developers.openai.com/api/docs/models
-- OpenAI image inputs: https://platform.openai.com/docs/guides/images-vision
+- OpenAI image inputs: https://developers.openai.com/api/docs/guides/images-vision
 - OpenAI Files API: https://developers.openai.com/api/reference/resources/files
 - Codex CLI reference: https://developers.openai.com/codex/cli/reference
-- Claude Code TypeScript SDK: https://docs.claude.com/en/docs/claude-code/sdk/sdk-typescript
-- Anthropic Models API: https://docs.claude.com/en/api/models
-- Anthropic Files API: https://docs.claude.com/en/docs/build-with-claude/files
+- Claude Code TypeScript SDK: https://platform.claude.com/docs/en/agent-sdk/typescript
+- Anthropic Models API: https://platform.claude.com/docs/en/api/models
+- Anthropic Files API: https://platform.claude.com/docs/en/build-with-claude/files
