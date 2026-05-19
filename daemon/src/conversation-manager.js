@@ -820,7 +820,8 @@ function isAttachmentTurnActive(conversation) {
 }
 
 function cleanupFailureReason(error) {
-  if (typeof error?.code === 'string' && error.code.trim()) return error.code;
+  const code = typeof error?.code === 'string' ? error.code.trim() : '';
+  if (/^[A-Z][A-Z0-9_]*$/.test(code)) return code;
   return 'cleanup_failed';
 }
 

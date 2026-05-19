@@ -2617,6 +2617,55 @@ test('Codex capability detection allows slow Windows npm shim startup', () => {
   assert.equal(capability.version, 'codex-cli 0.130.0');
 });
 
+test('Codex image capability detection requires image flags for exec and resume', () => {
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+      if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume\n--json\n--model <MODEL>\n--image <PATH>', stderr: '' };
+      if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec\n--json\n--model <MODEL>\n--image <PATH>', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(capability.available, true);
+  assert.equal(capability.canSelectModel, true);
+  assert.equal(capability.capabilities.attachments.image, 'native');
+  assert.equal(adapter.getCapabilities().attachments.image, 'native');
+});
+
+test('Codex image capability detection keeps image unsupported when exec or resume lacks image flag', () => {
+  function adapterWithHelp({ execHelp, resumeHelp }) {
+    return new CodexConversationAdapter({
+      cliResolverOptions: { platform: 'linux' },
+      spawnSyncFn: (_cmd, args) => {
+        if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
+        if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: resumeHelp, stderr: '' };
+        if (args.includes('exec') && args.includes('--help')) return { status: 0, stdout: execHelp, stderr: '' };
+        return { status: 0, stdout: '', stderr: '' };
+      }
+    });
+  }
+  const execSupportsImage = adapterWithHelp({
+    execHelp: 'Usage: codex exec\n--json\n--model <MODEL>\n--image <PATH>',
+    resumeHelp: 'Usage: codex exec resume\n--json\n--model <MODEL>'
+  });
+  const resumeSupportsImage = adapterWithHelp({
+    execHelp: 'Usage: codex exec\n--json\n--model <MODEL>',
+    resumeHelp: 'Usage: codex exec resume\n--json\n--model <MODEL>\n--image <PATH>'
+  });
+
+  const execOnlyCapability = execSupportsImage.detectCapabilities();
+  const resumeOnlyCapability = resumeSupportsImage.detectCapabilities();
+
+  assert.equal(execOnlyCapability.capabilities.attachments.image, 'unsupported');
+  assert.equal(execSupportsImage.getCapabilities().attachments.image, 'unsupported');
+  assert.equal(resumeOnlyCapability.capabilities.attachments.image, 'unsupported');
+  assert.equal(resumeSupportsImage.getCapabilities().attachments.image, 'unsupported');
+});
+
 test('Codex model selection capability follows exec help model flag', () => {
   const withModel = new CodexConversationAdapter({
     cliResolverOptions: { platform: 'linux' },
@@ -5084,6 +5133,22 @@ test('attachment cleanup failure audit redacts path-bearing error messages', asy
   assert.equal(auditRecordJson.includes('secret'), false);
   assert.equal(auditRecordJson.includes('msg_1'), false);
   assert.equal(auditRecordJson.includes('89504e47'), false);
+
+  await manager.cleanupAttachmentScratch({ id: 'conv_cleanup_code' }, {
+    dir: 'D:\\scratch\\fake',
+    async cleanup() {
+      const error = new Error('unlink failed');
+      error.code = 'EACCES D:\\secret\\scratch\\msg_2';
+      throw error;
+    }
+  });
+
+  const codeRecord = auditLog.list().find((item) => item.conversationId === 'conv_cleanup_code');
+  assert.equal(codeRecord.error, 'cleanup_failed');
+  const codeRecordJson = JSON.stringify(codeRecord);
+  assert.equal(codeRecordJson.includes('D:'), false);
+  assert.equal(codeRecordJson.includes('secret'), false);
+  assert.equal(codeRecordJson.includes('msg_2'), false);
 });
 
 test('multipart committed clientMessageId retries idempotently and conflicts on different payloads', async () => {

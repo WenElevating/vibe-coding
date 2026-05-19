@@ -30,6 +30,7 @@ class CodexConversationAdapter {
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.modelCapability = defaultModelCapability();
+    this.imageInputSupported = false;
     this.capabilities = {
       longLivedProcess: false,
       waitingInput: false,
@@ -69,6 +70,9 @@ class CodexConversationAdapter {
     const resumeHelpText = resultText(resumeHelp);
     const execSupportsModel = helpHasModelFlag(execHelpText);
     const resumeSupportsModel = helpHasModelFlag(resumeHelpText);
+    const execSupportsImage = helpHasImageFlag(execHelpText);
+    const resumeSupportsImage = helpHasImageFlag(resumeHelpText);
+    this.imageInputSupported = execSupportsImage && resumeSupportsImage;
     this.modelCapability = {
       ...discoverConfiguredModels({ adapter: 'codex' }),
       canSelectModel: execSupportsModel && resumeSupportsModel
@@ -80,11 +84,13 @@ class CodexConversationAdapter {
       command: this.command,
       ...this.modelCapability,
       capabilities: {
-        ...this.capabilities,
+        ...this.getCapabilities(),
         execJson: true,
         resumeJson: true,
         execSupportsModelFlag: execSupportsModel,
         resumeSupportsModelFlag: resumeSupportsModel,
+        execSupportsImageFlag: execSupportsImage,
+        resumeSupportsImageFlag: resumeSupportsImage,
         resumeWorkspaceOverride: /\b--cd\b|\s-C,\s*--cd|\s-C\s/.test(resumeHelpText)
       }
     };
@@ -252,6 +258,10 @@ function defaultModelCapability() {
 
 function helpHasModelFlag(helpText) {
   return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
+}
+
+function helpHasImageFlag(helpText) {
+  return /(^|[\s[(,])--image(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
 function buildAdapterUserMessage({ text, attachments = [] } = {}) {
