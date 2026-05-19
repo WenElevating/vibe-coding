@@ -27,14 +27,18 @@ async function readMultipartConversationMessage(req, scratch) {
   let aborted = false;
   let parser = null;
   let nextFileIndex = 0;
+  const fileAttachmentIndexes = [];
 
-  function abort(error) {
+  function abort(error, { validationFailure = false } = {}) {
     aborted = true;
     if (parser) {
       req.unpipe(parser);
-      parser.removeAllListeners();
+      if (validationFailure) {
+        parser.removeAllListeners();
+        if (typeof parser.destroy === 'function') parser.destroy();
+      }
     }
-    req.resume();
+    stopRequestAfterAbort(req, error, { validationFailure });
     return error;
   }
 
@@ -100,8 +104,21 @@ async function readMultipartConversationMessage(req, scratch) {
         return;
       }
       nextFileIndex += 1;
-      const requested = attachmentForFile(payload, index);
-      const filePromise = writeAndValidateFile({ file, info, requested, scratch, index, addBytes(bytes) {
+      let match;
+      try {
+        match = attachmentMatchForFile(payload, index);
+      } catch (error) {
+        file.resume();
+        reject(abort(error));
+        return;
+      }
+      if (!match) {
+        file.resume();
+        reject(abort(badRequest('multipart file part has no matching attachment metadata')));
+        return;
+      }
+      fileAttachmentIndexes[index] = match.attachmentIndex;
+      const filePromise = writeAndValidateFile({ file, info, requested: match.attachment, scratch, index, addBytes(bytes) {
         totalBytes += bytes;
         if (totalBytes > maxTotalBytes) throw attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'attachment upload is too large', { maxTotalBytes });
       } }).then((committed) => {
@@ -109,7 +126,7 @@ async function readMultipartConversationMessage(req, scratch) {
       });
       fileWrites.push(filePromise);
       filePromise.catch((error) => {
-        if (!aborted) reject(abort(error));
+        if (!aborted) reject(abort(error, { validationFailure: error.uploadValidationFailure === true }));
       });
     });
 
@@ -130,6 +147,7 @@ async function readMultipartConversationMessage(req, scratch) {
       try {
         if (!payloadSeen || !payload) throw badRequest('multipart payload field is required');
         await Promise.all(fileWrites);
+        validateDeclaredAttachmentsMatchFiles(payload, files, fileAttachmentIndexes);
         resolve();
       } catch (error) {
         reject(error);
@@ -143,9 +161,18 @@ async function readMultipartConversationMessage(req, scratch) {
 
 function writeAndValidateFile({ file, info, requested, scratch, index, addBytes }) {
   return new Promise((resolve, reject) => {
-    const name = sanitizeAttachmentName(requested.name || info.filename || `attachment-${index}`);
-    const kind = normalizeKind(requested.kind);
-    const mimeType = normalizeMimeType(requested.mimeType || info.mimeType);
+    let name;
+    let kind;
+    let mimeType;
+    try {
+      name = sanitizeAttachmentName(requested.name || info.filename || `attachment-${index}`);
+      kind = normalizeKind(requested.kind);
+      mimeType = normalizeMimeType(requested.mimeType || info.mimeType);
+    } catch (error) {
+      file.resume();
+      reject(error);
+      return;
+    }
     const scratchName = `file_${index}.bin`;
     const scratchPath = path.join(scratch.dir, scratchName);
     const output = fs.createWriteStream(scratchPath, { flags: 'wx' });
@@ -155,9 +182,12 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
     let sizeBytes = 0;
     let failed = false;
 
-    function fail(error) {
+    function fail(error, { validationFailure = true } = {}) {
       if (failed) return;
       failed = true;
+      if (validationFailure && error && typeof error === 'object') {
+        error.uploadValidationFailure = true;
+      }
       output.destroy();
       file.destroy(error);
       reject(error);
@@ -179,11 +209,11 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
           textChunks.push(chunk);
         }
       } catch (error) {
-        fail(error);
+        fail(error, { validationFailure: true });
       }
     });
-    file.on('error', fail);
-    output.on('error', fail);
+    file.on('error', (error) => fail(error, { validationFailure: false }));
+    output.on('error', (error) => fail(error, { validationFailure: false }));
     output.on('finish', async () => {
       if (failed) return;
       try {
@@ -218,17 +248,90 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
           ...(text == null ? {} : { text })
         });
       } catch (error) {
-        fail(error);
+        fail(error, { validationFailure: true });
       }
     });
     file.pipe(output);
   });
 }
 
-function attachmentForFile(payload, index) {
-  const attachments = Array.isArray(payload?.attachments) ? payload.attachments : [];
-  const byField = attachments.find((attachment) => attachment?.field === `files[${index}]`);
-  return byField || attachments[index] || {};
+function attachmentMatchForFile(payload, index) {
+  const attachments = declaredAttachments(payload);
+  const expectedField = `files[${index}]`;
+  const byField = [];
+  for (let attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex += 1) {
+    if (attachments[attachmentIndex]?.field === expectedField) byField.push(attachmentIndex);
+  }
+  if (byField.length > 1) throw badRequest('multipart attachment metadata has duplicate file fields');
+  if (byField.length === 1) {
+    return {
+      attachment: attachments[byField[0]],
+      attachmentIndex: byField[0]
+    };
+  }
+  const positional = attachments[index];
+  if (positional && !hasExplicitAttachmentField(positional)) {
+    return {
+      attachment: positional,
+      attachmentIndex: index
+    };
+  }
+  return null;
+}
+
+function validateDeclaredAttachmentsMatchFiles(payload, files, fileAttachmentIndexes) {
+  const attachments = declaredAttachments(payload);
+  if (attachments.length !== files.length) {
+    throw badRequest('multipart attachments metadata must match file parts');
+  }
+  const matchedAttachmentIndexes = new Set(fileAttachmentIndexes);
+  if (matchedAttachmentIndexes.size !== files.length || matchedAttachmentIndexes.has(undefined)) {
+    throw badRequest('multipart file parts must have unique attachment metadata');
+  }
+  for (let attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex += 1) {
+    const fileIndex = expectedFileIndexForAttachment(attachments[attachmentIndex], attachmentIndex);
+    if (fileIndex < 0 || fileIndex >= files.length || fileAttachmentIndexes[fileIndex] !== attachmentIndex) {
+      throw badRequest('multipart attachment metadata has no matching file part');
+    }
+  }
+}
+
+function declaredAttachments(payload) {
+  if (!payload || typeof payload !== 'object') return [];
+  if (!Object.prototype.hasOwnProperty.call(payload, 'attachments')) return [];
+  if (!Array.isArray(payload.attachments)) throw badRequest('multipart attachments metadata must be an array');
+  return payload.attachments;
+}
+
+function expectedFileIndexForAttachment(attachment, fallbackIndex) {
+  if (!hasExplicitAttachmentField(attachment)) return fallbackIndex;
+  const match = String(attachment.field).match(/^files\[(\d+)]$/);
+  if (!match) throw badRequest('multipart attachment field is invalid');
+  const index = Number(match[1]);
+  if (!Number.isSafeInteger(index)) throw badRequest('multipart attachment field is invalid');
+  return index;
+}
+
+function hasExplicitAttachmentField(attachment) {
+  return Object.prototype.hasOwnProperty.call(attachment || {}, 'field') && attachment.field != null && attachment.field !== '';
+}
+
+function stopRequestAfterAbort(req, error, { validationFailure }) {
+  // Destroying Node's HTTP IncomingMessage during route handling can reset the
+  // socket before the server writes its JSON error. For validation failures we
+  // still destroy non-HTTP/explicitly abortable request streams; HTTP requests
+  // get the parser/file streams destroyed and the remaining body discarded.
+  if (validationFailure && shouldDestroyRequestOnValidationFailure(req)) {
+    req.destroy(error);
+    return;
+  }
+  req.resume();
+}
+
+function shouldDestroyRequestOnValidationFailure(req) {
+  if (!req || typeof req.destroy !== 'function') return false;
+  if (req.destroyOnValidationFailure === true) return true;
+  return req.constructor?.name !== 'IncomingMessage' && !req.socket;
 }
 
 function normalizeKind(kind) {
