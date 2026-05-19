@@ -50,7 +50,8 @@ class AttachmentScratchStore {
 
 class MessageScratch {
   constructor({ root, dir, baseMetadata }) {
-    this.root = root;
+    this.root = path.resolve(root);
+    this._root = this.root;
     this.dir = dir;
     this.baseMetadata = baseMetadata;
   }
@@ -65,13 +66,15 @@ class MessageScratch {
   async writeMetadata(metadata) {
     await fs.writeFile(
       path.join(this.dir, 'metadata.json'),
-      `${JSON.stringify({ ...this.baseMetadata, ...metadata }, null, 2)}\n`,
+      `${JSON.stringify({ ...metadata, ...this.baseMetadata }, null, 2)}\n`,
       'utf8'
     );
   }
 
   async cleanup() {
-    await fs.rm(this.dir, { recursive: true, force: true });
+    const resolved = path.resolve(this.dir);
+    if (!isChildUnderRoot(resolved, this._root)) throw new Error('scratch cleanup path escaped root');
+    await fs.rm(resolved, { recursive: true, force: true });
   }
 }
 
@@ -86,6 +89,11 @@ async function readJson(filePath) {
 function isUnderRoot(target, root) {
   const relative = path.relative(path.resolve(root), path.resolve(target));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function isChildUnderRoot(target, root) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 module.exports = { AttachmentScratchStore, MessageScratch, isUnderRoot };

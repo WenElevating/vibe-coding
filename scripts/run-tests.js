@@ -4847,7 +4847,11 @@ test('attachment filename validation rejects unsafe display names', () => {
 
   assert.equal(sanitizeAttachmentName(' screenshot.png '), 'screenshot.png');
   assert.throws(() => sanitizeAttachmentName('../secret.png'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('safe.txt:evil'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('bad<name>.txt'), /unsupported media type/);
   assert.throws(() => sanitizeAttachmentName('con.txt'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('CONIN$.txt'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('CONOUT$.txt'), /unsupported media type/);
   assert.throws(() => sanitizeAttachmentName('report.'), /unsupported media type/);
   assert.throws(() => sanitizeAttachmentName('photo\u202Egpj.exe'), /unsupported media type/);
 });
@@ -4882,6 +4886,21 @@ test('attachment validation rejects UTF-16 text and binary-looking text', async 
     () => validateTextAttachmentBytes(Buffer.from([0x61, 0x00, 0x62]), { name: 'notes.txt', mimeType: 'text/plain' }),
     /unsupported media type/
   );
+});
+
+test('attachment validation rejects non-text MIME hints for text bytes', async () => {
+  const { validateTextAttachmentBytes } = require('../daemon/src/attachment-validation');
+
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from('hello', 'utf8'), { name: 'notes.txt', mimeType: 'image/png' }),
+    /unsupported media type/
+  );
+  const result = await validateTextAttachmentBytes(Buffer.from('hello', 'utf8'), {
+    name: 'notes.txt',
+    mimeType: 'Text/Markdown; charset=utf-8'
+  });
+
+  assert.equal(result.mimeType, 'text/markdown');
 });
 
 test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', () => {
@@ -4922,6 +4941,72 @@ test('attachment scratch store writes scoped metadata and cleanup stays under ro
   await scratch.cleanup();
 
   assert.equal(fs.existsSync(scratch.dir), false);
+});
+
+test('attachment scratch metadata keeps base lifecycle fields authoritative', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-metadata-'));
+  const store = new AttachmentScratchStore({ root, now: () => new Date('2026-05-19T00:00:00.000Z') });
+
+  const scratch = await store.createMessageScratch({
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+  try {
+    await scratch.writeMetadata({
+      active: true,
+      conversationId: 'conv_evil',
+      createdAt: '1999-01-01T00:00:00.000Z'
+    });
+
+    const metadata = JSON.parse(fs.readFileSync(path.join(scratch.dir, 'metadata.json'), 'utf8'));
+    assert.equal(metadata.active, true);
+    assert.equal(metadata.conversationId, 'conv_1');
+    assert.equal(metadata.clientMessageId, 'client_1');
+    assert.equal(metadata.scratchLifetime, 'turn');
+    assert.equal(metadata.createdAt, '2026-05-19T00:00:00.000Z');
+  } finally {
+    await scratch.cleanup();
+  }
+});
+
+test('attachment scratch cleanup rejects mutated directories outside or equal to root', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-cleanup-'));
+  const store = new AttachmentScratchStore({ root, now: () => new Date('2026-05-19T00:00:00.000Z') });
+
+  const escaped = await store.createMessageScratch({
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+  const escapedOriginalDir = escaped.dir;
+  escaped.dir = path.dirname(root);
+  await assert.rejects(() => escaped.cleanup(), /scratch cleanup path escaped root/);
+  assert.equal(fs.existsSync(root), true);
+
+  const equalRoot = await store.createMessageScratch({
+    conversationId: 'conv_1',
+    clientMessageId: 'client_2',
+    scratchLifetime: 'turn'
+  });
+  const equalRootOriginalDir = equalRoot.dir;
+  equalRoot.dir = root;
+  await assert.rejects(() => equalRoot.cleanup(), /scratch cleanup path escaped root/);
+  assert.equal(fs.existsSync(root), true);
+
+  escaped.dir = escapedOriginalDir;
+  equalRoot.dir = equalRootOriginalDir;
+  await escaped.cleanup();
+  await equalRoot.cleanup();
+  fs.rmSync(root, { recursive: true, force: true });
 });
 (async () => {
   let passed = 0;

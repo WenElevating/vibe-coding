@@ -26,7 +26,15 @@ const windowsReservedBaseNames = new Set([
   'lpt6',
   'lpt7',
   'lpt8',
-  'lpt9'
+  'lpt9',
+  'conin$',
+  'conout$'
+]);
+const allowedTextMimeTypes = new Set([
+  'text/plain',
+  'text/markdown',
+  'application/json',
+  'text/csv'
 ]);
 
 function sanitizeAttachmentName(name) {
@@ -42,6 +50,9 @@ function sanitizeAttachmentName(name) {
   }
   if (/[\\/]/.test(normalized)) {
     throwUnsupportedMediaType({ reason: 'name contains a path separator' });
+  }
+  if (/[<>:"|?*]/.test(normalized)) {
+    throwUnsupportedMediaType({ reason: 'name contains a Windows-invalid character' });
   }
   if (/[\u0000-\u001f\u007f]/.test(normalized)) {
     throwUnsupportedMediaType({ reason: 'name contains a control character' });
@@ -85,6 +96,7 @@ function sniffAttachmentBytes(bytes) {
 async function validateTextAttachmentBytes(bytes, metadata = {}) {
   const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   sanitizeAttachmentName(metadata.name || 'attachment.txt');
+  const mimeType = normalizeTextMimeType(metadata.mimeType);
   if (buffer.length === 0) {
     throwUnsupportedMediaType({ reason: 'text attachment is empty' });
   }
@@ -112,7 +124,7 @@ async function validateTextAttachmentBytes(bytes, metadata = {}) {
   }
   return {
     text,
-    mimeType: metadata.mimeType || 'text/plain'
+    mimeType
   };
 }
 
@@ -189,6 +201,18 @@ function binaryControlRatio(buffer) {
     }
   }
   return controls / buffer.length;
+}
+
+function normalizeTextMimeType(mimeType) {
+  if (mimeType == null || mimeType === '') return 'text/plain';
+  if (typeof mimeType !== 'string') {
+    throwUnsupportedMediaType({ reason: 'text MIME type must be a string' });
+  }
+  const normalized = mimeType.split(';')[0].trim().toLowerCase();
+  if (!allowedTextMimeTypes.has(normalized)) {
+    throwUnsupportedMediaType({ reason: 'text MIME type is not supported', mimeType });
+  }
+  return normalized;
 }
 
 module.exports = {
