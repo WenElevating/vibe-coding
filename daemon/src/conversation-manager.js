@@ -946,10 +946,15 @@ function isPathLikeAttachmentDispatchError(error, files) {
   for (const file of files) {
     if (file?.scratchPath && message.includes(String(file.scratchPath))) return true;
   }
-  if (/[A-Za-z]:[\\/][^\s'")]+/.test(message)) return true;
-  if (/(^|[\s'"])\~?[\\/][^\s'")]+/.test(message) && /(?:ENOENT|EACCES|EPERM|ENOTDIR|EISDIR|open|read|stat|access|unlink)/i.test(`${code} ${message}`)) return true;
+  if (looksLikeAttachmentScratchPath(message)) return true;
   if (/\braw bytes?\b/i.test(message)) return true;
   return false;
+}
+
+function looksLikeAttachmentScratchPath(message) {
+  const normalized = String(message || '').replace(/\\/g, '/');
+  return /(?:^|[\s'"])(?:[A-Za-z]:)?\/?[^\s'"]*\/(?:vibe-coding-)?attachment-scratch(?:-[^/\s'"]*)?\/[^\s'"]+/i.test(normalized) ||
+    /(?:^|[\s'"])(?:[A-Za-z]:)?\/?[^\s'"]*\/scratch\/(?:msg_\d+(?:_[0-9a-f-]{36})?|file_\d+\.[A-Za-z0-9]+)\b/i.test(normalized);
 }
 
 function textAttachmentRedactionMarkers(file) {

@@ -6058,6 +6058,126 @@ test('multipart attachment adapter events redact raw payloads without path-like 
   }
 });
 
+test('multipart attachment adapter events preserve unrelated Windows repo paths', async () => {
+  const adapterId = 'claude';
+  const repoPath = 'D:\\Repo\\src\\main.js';
+  const warningMessage = `provider warning while reading ${repoPath}`;
+  const runErrorMessage = `provider failed while reading ${repoPath}`;
+  const adapter = attachmentConversationAdapter({
+    onSendEvents: [
+      { type: 'protocol.warning', text: warningMessage, message: warningMessage, visible: true },
+      { type: 'run.error', message: runErrorMessage, code: 'ADAPTER_FAILURE' }
+    ],
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-repo-path-event-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-repo-path-event';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect repo path event',
+        clientMessageId: 'client_repo_path_event',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const protocolWarning = events.find((event) => event.type === 'protocol.warning');
+    assert.equal(response.status, 200);
+    assert.equal(protocolWarning.text, warningMessage);
+    assert.equal(protocolWarning.message, warningMessage);
+    assert.equal(runError.message, runErrorMessage);
+    assert.equal(runError.code, 'ADAPTER_FAILURE');
+    assert.equal(protocolWarning.text.includes(repoPath), true);
+    assert.equal(runError.message.includes(repoPath), true);
+    assert.equal(events.some((event) => event.code === 'attachment_dispatch_failed'), false);
+    await waitForAttachmentScratchCleanup(app);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart attachment dispatch errors preserve unrelated Windows repo paths', async () => {
+  const adapterId = 'claude';
+  const repoPath = 'D:\\Repo\\src\\main.js';
+  const errorMessage = `adapter failed while loading ${repoPath}`;
+  const adapter = attachmentConversationAdapter({
+    sendError: () => {
+      const error = new Error(errorMessage);
+      error.status = 500;
+      error.code = 'ADAPTER_FAILURE';
+      return error;
+    },
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-repo-path-dispatch-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-repo-path-dispatch';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect repo path dispatch',
+        clientMessageId: 'client_repo_path_dispatch',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const errorBody = parseRawJson(response).error;
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    assert.equal(response.status, 500);
+    assert.equal(errorBody.code, 'ADAPTER_FAILURE');
+    assert.equal(errorBody.message, errorMessage);
+    assert.notEqual(errorBody.code, 'attachment_dispatch_failed');
+    assert.equal(runError.message, errorMessage);
+    assert.equal(errorBody.message.includes(repoPath), true);
+    assert.equal(runError.message.includes(repoPath), true);
+    assert.equal(events.some((event) => event.code === 'attachment_dispatch_failed'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart attachment system notices redact attachment diagnostics', async () => {
   const adapterId = 'codex';
   const privateText = 'private document contents with customer credentials';
