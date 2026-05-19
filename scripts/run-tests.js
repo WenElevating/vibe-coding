@@ -4077,6 +4077,41 @@ test('attachment hash inputs reject sparse arrays', () => {
   assert.throws(() => canonicalizeForHash([, 'x']), TypeError);
 });
 
+test('attachment hash inputs reject arrays with JavaScript-only own properties', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  const symbolKeyed = ['x'];
+  symbolKeyed[Symbol('hidden')] = 'secret';
+  const nonEnumerableIndex = ['x'];
+  Object.defineProperty(nonEnumerableIndex, '0', { value: 'x', enumerable: false });
+  const accessorIndex = ['x'];
+  Object.defineProperty(accessorIndex, '0', {
+    enumerable: true,
+    get() {
+      return 'computed';
+    }
+  });
+  const extraStringKey = ['x'];
+  extraStringKey.extra = 'y';
+  const nonCanonicalIndexKey = ['x'];
+  nonCanonicalIndexKey['01'] = 'y';
+
+  assert.throws(() => canonicalizeForHash(symbolKeyed), TypeError);
+  assert.throws(() => canonicalizeForHash(nonEnumerableIndex), TypeError);
+  assert.throws(() => canonicalizeForHash(accessorIndex), TypeError);
+  assert.throws(() => canonicalizeForHash(extraStringKey), TypeError);
+  assert.throws(() => canonicalizeForHash(nonCanonicalIndexKey), TypeError);
+});
+
+test('attachment hash inputs reject sparse arrays even with prototype pollution', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  Array.prototype[0] = 'polluted';
+  try {
+    assert.throws(() => canonicalizeForHash(Array(1)), TypeError);
+  } finally {
+    delete Array.prototype[0];
+  }
+});
+
 test('attachment hash inputs reject non-JSON object property shapes', () => {
   const { canonicalizeForHash } = require('../daemon/src/canonical-json');
   const symbolKeyed = { text: 'value' };

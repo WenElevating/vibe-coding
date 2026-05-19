@@ -63,14 +63,44 @@ function normalizeHashValue(value) {
 }
 
 function normalizeHashArray(value) {
+  validateArrayShape(value);
   const output = [];
   for (let index = 0; index < value.length; index++) {
-    if (!(index in value)) {
+    const key = String(index);
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
       throw new TypeError('hash inputs may not contain sparse arrays');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor.enumerable || descriptor.get || descriptor.set) {
+      throw new TypeError(`hash array index must be an enumerable data property: ${key}`);
     }
     output.push(normalizeHashValue(value[index]));
   }
   return output;
+}
+
+function validateArrayShape(value) {
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    throw new TypeError('hash arrays may not contain symbol properties');
+  }
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (key === 'length') continue;
+    if (!isDenseArrayIndexKey(key, value.length)) {
+      throw new TypeError(`hash arrays may not contain extra properties: ${key}`);
+    }
+    if (!descriptor.enumerable) {
+      throw new TypeError(`hash array index must be enumerable: ${key}`);
+    }
+    if (descriptor.get || descriptor.set) {
+      throw new TypeError(`hash array index must be a data property: ${key}`);
+    }
+  }
+}
+
+function isDenseArrayIndexKey(key, length) {
+  if (key === '') return false;
+  const index = Number(key);
+  return Number.isSafeInteger(index) && index >= 0 && index < length && String(index) === key;
 }
 
 function validatePlainObjectShape(value) {
