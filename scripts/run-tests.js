@@ -4070,6 +4070,48 @@ test('attachment hash inputs reject duplicate object keys after NFC normalizatio
   );
 });
 
+test('attachment hash inputs reject sparse arrays', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+
+  assert.throws(() => canonicalizeForHash(Array(1)), TypeError);
+  assert.throws(() => canonicalizeForHash([, 'x']), TypeError);
+});
+
+test('attachment hash inputs reject non-JSON object property shapes', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  const symbolKeyed = { text: 'value' };
+  symbolKeyed[Symbol('hidden')] = 'secret';
+  const nonEnumerable = { text: 'value' };
+  Object.defineProperty(nonEnumerable, 'hidden', { value: 'secret', enumerable: false });
+  const accessor = {};
+  Object.defineProperty(accessor, 'text', {
+    enumerable: true,
+    get() {
+      return 'computed';
+    }
+  });
+
+  assert.throws(() => canonicalizeForHash(symbolKeyed), TypeError);
+  assert.throws(() => canonicalizeForHash(nonEnumerable), TypeError);
+  assert.throws(() => canonicalizeForHash(accessor), TypeError);
+});
+
+test('attachment hash inputs accept null-prototype plain objects', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  const input = Object.create(null);
+  input.text = 'value';
+
+  assert.equal(canonicalizeForHash(input), '{"text":"value"}');
+});
+
+test('attachment hash inputs preserve own enumerable __proto__ data keys', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  const input = {};
+  Object.defineProperty(input, '__proto__', { value: 1, enumerable: true });
+
+  assert.equal(canonicalizeForHash(input), '{"__proto__":1}');
+});
+
 test('adapter capability listing merges model capability metadata', async () => {
   const registry = new AdapterRegistry([
     {

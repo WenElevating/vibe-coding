@@ -42,12 +42,13 @@ function normalizeHashValue(value) {
     }
     return value;
   }
-  if (Array.isArray(value)) return value.map(normalizeHashValue);
+  if (Array.isArray(value)) return normalizeHashArray(value);
   if (typeof value === 'object') {
     if (!isPlainObject(value)) {
       throw new TypeError('hash inputs may contain only plain objects');
     }
-    const output = {};
+    validatePlainObjectShape(value);
+    const output = Object.create(null);
     for (const key of Object.keys(value)) {
       const normalized = normalizeHashValue(value[key]);
       const normalizedKey = key.normalize('NFC');
@@ -59,6 +60,31 @@ function normalizeHashValue(value) {
     return output;
   }
   throw new TypeError(`unsupported hash value type: ${typeof value}`);
+}
+
+function normalizeHashArray(value) {
+  const output = [];
+  for (let index = 0; index < value.length; index++) {
+    if (!(index in value)) {
+      throw new TypeError('hash inputs may not contain sparse arrays');
+    }
+    output.push(normalizeHashValue(value[index]));
+  }
+  return output;
+}
+
+function validatePlainObjectShape(value) {
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    throw new TypeError('hash inputs may not contain symbol properties');
+  }
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!descriptor.enumerable) {
+      throw new TypeError(`hash inputs may not contain non-enumerable properties: ${key}`);
+    }
+    if (descriptor.get || descriptor.set) {
+      throw new TypeError(`hash inputs may not contain accessor properties: ${key}`);
+    }
+  }
 }
 
 function isPlainObject(value) {
