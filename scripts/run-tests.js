@@ -3701,6 +3701,14 @@ function multipartBody({ boundary, payload, files }) {
   return Buffer.concat(chunks);
 }
 
+function multipartBodyFileFirst({ boundary, payload, file }) {
+  return Buffer.concat([
+    Buffer.from(`--${boundary}\r\ncontent-disposition: form-data; name="files[]"; filename="${file.name}"\r\ncontent-type: ${file.mimeType}\r\n\r\n`, 'utf8'),
+    file.bytes,
+    Buffer.from(`\r\n--${boundary}\r\ncontent-disposition: form-data; name="payload"\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--\r\n`, 'utf8')
+  ]);
+}
+
 function attachmentTestCapabilityVersion() {
   const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
   return capabilityVersionForNormalizedInput({
@@ -3865,6 +3873,32 @@ test('multipart conversation send rejects missing clientMessageId before committ
     assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'BAD_REQUEST');
     assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
     assert.equal(app.conversations.getConversation(conversationId, app.auth.authenticate(`Bearer ${token}`)).status, 'idle');
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation send rejects files before payload with JSON error response', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-file-first-' });
+  try {
+    const boundary = '----attachments-file-first';
+    const body = multipartBodyFileFirst({
+      boundary,
+      payload: {
+        text: 'inspect',
+        clientMessageId: 'client_file_first',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      file: { name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'BAD_REQUEST');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
   } finally {
     await closeAttachmentConversationApp(app);
   }

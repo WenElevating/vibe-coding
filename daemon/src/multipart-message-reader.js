@@ -24,10 +24,15 @@ async function readMultipartConversationMessage(req, scratch) {
   let payloadSeen = false;
   let totalBytes = 0;
   let aborted = false;
+  let parser = null;
 
   function abort(error) {
     aborted = true;
-    req.destroy(error);
+    if (parser) {
+      req.unpipe(parser);
+      parser.removeAllListeners();
+    }
+    req.resume();
     return error;
   }
 
@@ -47,6 +52,7 @@ async function readMultipartConversationMessage(req, scratch) {
       reject(badRequest(error.message));
       return;
     }
+    parser = busboy;
 
     busboy.on('field', (name, value, info) => {
       if (aborted) return;
