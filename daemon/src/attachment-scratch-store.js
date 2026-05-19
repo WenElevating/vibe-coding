@@ -6,6 +6,34 @@ const crypto = require('node:crypto');
 
 const messageScratchDirNamePattern = /^msg_\d+_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const messageScratchConstructionToken = Symbol('messageScratchConstructionToken');
+const scratchMarkerFileName = '.attachment-scratch';
+const scratchMetadataFileName = 'metadata.json';
+const windowsReservedBaseNames = new Set([
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
+  'conin$',
+  'conout$'
+]);
 
 class AttachmentScratchStore {
   constructor({ root, ttlMs = 86_400_000, now = () => new Date() }) {
@@ -20,6 +48,7 @@ class AttachmentScratchStore {
     const resolved = path.resolve(dir);
     if (!isUnderRoot(resolved, this.root)) throw new Error('scratch path escaped root');
     await fs.mkdir(resolved, { recursive: false });
+    await fs.writeFile(path.join(resolved, scratchMarkerFileName), 'attachment-scratch\n', 'utf8');
     const scratch = new MessageScratch({
       root: this.root,
       dir: resolved,
@@ -43,7 +72,8 @@ class AttachmentScratchStore {
       if (!isMessageScratchDirName(entry.name)) continue;
       const dir = path.resolve(path.join(this.root, entry.name));
       if (!isUnderRoot(dir, this.root)) continue;
-      const metadata = await readJson(path.join(dir, 'metadata.json'));
+      if (!await fileExists(path.join(dir, scratchMarkerFileName))) continue;
+      const metadata = await readJson(path.join(dir, scratchMetadataFileName));
       if (metadata?.conversationId && activeConversationIds.has(metadata.conversationId)) continue;
       const createdAt = Date.parse(metadata?.createdAt || '');
       if (!Number.isFinite(createdAt) || createdAt < cutoff) {
@@ -87,7 +117,7 @@ class MessageScratch {
 
   async writeMetadata(metadata) {
     await fs.writeFile(
-      path.join(this.#dir, 'metadata.json'),
+      path.join(this.#dir, scratchMetadataFileName),
       `${JSON.stringify({ ...metadata, ...this.#baseMetadata }, null, 2)}\n`,
       'utf8'
     );
@@ -123,11 +153,28 @@ function isMessageScratchDirName(name) {
 
 function assertSafeScratchFileName(fileName) {
   if (typeof fileName !== 'string') throw new Error('scratch file name is invalid');
-  if (!fileName) throw new Error('scratch file name is invalid');
-  if (fileName.toLowerCase() === 'metadata.json') throw new Error('scratch file name is invalid');
-  if (path.isAbsolute(fileName)) throw new Error('scratch file name is invalid');
-  if (fileName.includes('/') || fileName.includes('\\')) throw new Error('scratch file name is invalid');
-  if (fileName === '.' || fileName === '..') throw new Error('scratch file name is invalid');
+  const name = fileName.normalize('NFC');
+  if (!name) throw new Error('scratch file name is invalid');
+  const lowerName = name.toLowerCase();
+  if (lowerName === scratchMetadataFileName || lowerName === scratchMarkerFileName) throw new Error('scratch file name is invalid');
+  if (path.isAbsolute(name)) throw new Error('scratch file name is invalid');
+  if (name.includes('/') || name.includes('\\')) throw new Error('scratch file name is invalid');
+  if (name === '.' || name === '..') throw new Error('scratch file name is invalid');
+  if (/[<>:"|?*]/.test(name)) throw new Error('scratch file name is invalid');
+  if (/[\u0000-\u001f\u007f]/.test(name)) throw new Error('scratch file name is invalid');
+  if (/[\u202a-\u202e\u2066-\u2069]/iu.test(name)) throw new Error('scratch file name is invalid');
+  if (/[ .]$/.test(name)) throw new Error('scratch file name is invalid');
+  const baseName = name.split('.')[0].toLowerCase();
+  if (windowsReservedBaseNames.has(baseName)) throw new Error('scratch file name is invalid');
+}
+
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 module.exports = { AttachmentScratchStore, MessageScratch, isUnderRoot };

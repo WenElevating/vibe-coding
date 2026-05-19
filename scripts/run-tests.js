@@ -4910,6 +4910,14 @@ test('attachment validation rejects known non-text signatures in text bytes', as
     () => validateTextAttachmentBytes(Buffer.from('%PDF-1.7\nhello', 'utf8'), { name: 'notes.txt', mimeType: 'text/plain' }),
     /unsupported media type/
   );
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), { name: 'notes.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from('504b0304616263', 'hex'), { name: 'notes.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
 });
 
 test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', () => {
@@ -4921,11 +4929,62 @@ test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', 
   assert.equal(sniffAttachmentBytes(Buffer.from('524946460000000057415645', 'hex')).knownType, 'riff-other');
 });
 
+test('attachment image header validation accepts supported images and rejects non-images', () => {
+  const { validateImageAttachmentHeader } = require('../daemon/src/attachment-validation');
+
+  assert.equal(validateImageAttachmentHeader(Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), { name: 'image.png' }).mimeType, 'image/png');
+  assert.equal(validateImageAttachmentHeader(Buffer.from('ffd8ffe000104a464946', 'hex'), { name: 'image.jpg' }).mimeType, 'image/jpeg');
+  assert.equal(validateImageAttachmentHeader(Buffer.from('524946460000000057454250', 'hex'), { name: 'image.webp' }).mimeType, 'image/webp');
+  assert.throws(
+    () => validateImageAttachmentHeader(Buffer.from('%PDF-1.7\nhello', 'utf8'), { name: 'report.pdf' }),
+    /unsupported media type/
+  );
+  assert.throws(
+    () => validateImageAttachmentHeader(Buffer.from('hello', 'utf8'), { name: 'notes.txt' }),
+    /unsupported media type/
+  );
+});
+
 test('context budget estimate counts code points and wrapper ascii conservatively', () => {
   const { estimateAttachmentTextTokens } = require('../daemon/src/attachment-validation');
 
   assert.equal(estimateAttachmentTextTokens({ asciiChars: 30, wrapperChars: 12, nonAsciiChars: 2 }), 16);
   assert.equal(estimateAttachmentTextTokens({ text: 'abc你好😀', wrapperChars: 0 }), 4);
+});
+
+test('attachment context budget reports successful and exceeded estimates', () => {
+  const { assertWithinContextBudget } = require('../daemon/src/attachment-validation');
+
+  assert.deepEqual(assertWithinContextBudget(100, 4096), {
+    estimatedTokens: 100,
+    contextWindow: 4096,
+    reserve: 2048,
+    available: 2048
+  });
+  assert.throws(() => assertWithinContextBudget(2049, 4096), (error) => {
+    assert.equal(error.status, 413);
+    assert.equal(error.code, 'ATTACHMENT_CONTEXT_BUDGET_EXCEEDED');
+    assert.equal(error.message, 'attachment context budget exceeded');
+    assert.deepEqual(error.details, {
+      estimatedTokens: 2049,
+      contextWindow: 4096,
+      reserve: 2048,
+      available: 2048
+    });
+    return true;
+  });
+});
+
+test('attachment HTTP errors expose stable status code details and message', () => {
+  const { attachmentHttpError } = require('../daemon/src/attachment-validation');
+  const details = { field: 'name' };
+
+  const error = attachmentHttpError(415, 'UNSUPPORTED_MEDIA_TYPE', 'unsupported media type', details);
+
+  assert.equal(error.status, 415);
+  assert.equal(error.code, 'UNSUPPORTED_MEDIA_TYPE');
+  assert.equal(error.message, 'unsupported media type');
+  assert.equal(error.details, details);
 });
 
 test('attachment scratch store writes scoped metadata and cleanup stays under root', async () => {
@@ -4967,6 +5026,13 @@ test('attachment scratch writeFile rejects reserved and non-flat file names', as
 
   try {
     await assert.rejects(() => scratch.writeFile('metadata.json', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('.attachment-scratch', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('metadata.json:ads', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('CON.txt', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('bad\u0001name.txt', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('photo\u202Egpj.txt', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('trailing.', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('trailing ', Buffer.from('abc')), /scratch file name is invalid/);
     await assert.rejects(() => scratch.writeFile('nested/file.txt', Buffer.from('abc')), /scratch file name is invalid/);
     await assert.rejects(() => scratch.writeFile(path.join(root, 'absolute.txt'), Buffer.from('abc')), /scratch file name is invalid/);
     await assert.rejects(() => scratch.writeFile('../escape.txt', Buffer.from('abc')), /scratch file name is invalid/);
@@ -5194,6 +5260,58 @@ test('attachment scratch cleanupExpired ignores unrelated child directories', as
   await store.cleanupExpired();
 
   assert.equal(fs.existsSync(unrelatedDir), true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch cleanupExpired ignores scratch-shaped dirs without marker', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-unmarked-'));
+  const unmarkedDir = path.join(root, 'msg_123_00000000-0000-4000-8000-000000000000');
+  fs.mkdirSync(unmarkedDir);
+  const store = new AttachmentScratchStore({
+    root,
+    ttlMs: 1000,
+    now: () => new Date('2026-05-19T00:00:02.000Z')
+  });
+
+  await store.cleanupExpired();
+
+  assert.equal(fs.existsSync(unmarkedDir), true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch cleanupExpired deletes marked scratch with missing or malformed metadata', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-bad-metadata-'));
+  const store = new AttachmentScratchStore({
+    root,
+    ttlMs: 1000,
+    now: () => new Date('2026-05-19T00:00:02.000Z')
+  });
+
+  const missing = await store.createMessageScratch({
+    conversationId: 'conv_missing',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+  fs.rmSync(path.join(missing.dir, 'metadata.json'), { force: true });
+  const malformed = await store.createMessageScratch({
+    conversationId: 'conv_malformed',
+    clientMessageId: 'client_2',
+    scratchLifetime: 'turn'
+  });
+  fs.writeFileSync(path.join(malformed.dir, 'metadata.json'), '{not-json', 'utf8');
+
+  await store.cleanupExpired();
+
+  assert.equal(fs.existsSync(missing.dir), false);
+  assert.equal(fs.existsSync(malformed.dir), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
