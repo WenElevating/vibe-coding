@@ -4030,6 +4030,46 @@ test('attachment hash inputs normalize strings to NFC before canonicalization', 
   assert.equal(sha256Hex(composed), sha256Hex(decomposed));
 });
 
+test('attachment hash inputs normalize object keys to NFC before canonicalization', () => {
+  const { canonicalizeForHash, sha256Hex } = require('../daemon/src/canonical-json');
+  const composed = canonicalizeForHash({ café: 'value' });
+  const decomposed = canonicalizeForHash({ 'cafe\u0301': 'value' });
+
+  assert.equal(composed, decomposed);
+  assert.equal(composed, '{"café":"value"}');
+  assert.equal(sha256Hex(composed), sha256Hex(decomposed));
+});
+
+test('attachment hash inputs reject unsupported numbers and values', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  const unsupported = [
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    undefined,
+    { value: undefined },
+    [undefined],
+    new Date('2026-05-19T00:00:00.000Z'),
+    /hash/,
+    Buffer.from('hash'),
+    new Map([['key', 'value']])
+  ];
+
+  for (const value of unsupported) {
+    assert.throws(() => canonicalizeForHash(value), TypeError);
+  }
+});
+
+test('attachment hash inputs reject duplicate object keys after NFC normalization', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+
+  assert.throws(
+    () => canonicalizeForHash({ café: 'composed', 'cafe\u0301': 'decomposed' }),
+    TypeError
+  );
+});
+
 test('adapter capability listing merges model capability metadata', async () => {
   const registry = new AdapterRegistry([
     {

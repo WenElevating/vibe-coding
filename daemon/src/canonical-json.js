@@ -30,7 +30,10 @@ function sha256PrefixHex(canonicalJson, byteCount) {
 }
 
 function normalizeHashValue(value) {
-  if (value == null) return null;
+  if (value === null) return null;
+  if (value === undefined) {
+    throw new TypeError('hash inputs may not contain undefined');
+  }
   if (typeof value === 'string') return value.normalize('NFC');
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') {
@@ -41,15 +44,26 @@ function normalizeHashValue(value) {
   }
   if (Array.isArray(value)) return value.map(normalizeHashValue);
   if (typeof value === 'object') {
+    if (!isPlainObject(value)) {
+      throw new TypeError('hash inputs may contain only plain objects');
+    }
     const output = {};
     for (const key of Object.keys(value)) {
       const normalized = normalizeHashValue(value[key]);
-      if (normalized !== undefined) output[key.normalize('NFC')] = normalized;
+      const normalizedKey = key.normalize('NFC');
+      if (Object.prototype.hasOwnProperty.call(output, normalizedKey)) {
+        throw new TypeError('hash inputs may not contain duplicate object keys after NFC normalization');
+      }
+      output[normalizedKey] = normalized;
     }
     return output;
   }
-  if (value === undefined) return undefined;
   throw new TypeError(`unsupported hash value type: ${typeof value}`);
+}
+
+function isPlainObject(value) {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 module.exports = {
