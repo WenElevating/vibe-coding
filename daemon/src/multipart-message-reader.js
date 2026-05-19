@@ -8,6 +8,7 @@ const {
   sanitizeAttachmentName,
   validateTextAttachmentBytes,
   validateImageAttachmentHeader,
+  validatePdfAttachmentHeader,
   attachmentHttpError
 } = require('./attachment-validation');
 
@@ -25,6 +26,7 @@ async function readMultipartConversationMessage(req, scratch) {
   let totalBytes = 0;
   let aborted = false;
   let parser = null;
+  let nextFileIndex = 0;
 
   function abort(error) {
     aborted = true;
@@ -91,12 +93,13 @@ async function readMultipartConversationMessage(req, scratch) {
         reject(abort(badRequest('multipart files must use files[] field')));
         return;
       }
-      const index = files.length;
+      const index = nextFileIndex;
       if (index >= maxFileCount) {
         file.resume();
         reject(abort(attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'too many attachments', { maxFileCount })));
         return;
       }
+      nextFileIndex += 1;
       const requested = attachmentForFile(payload, index);
       const filePromise = writeAndValidateFile({ file, info, requested, scratch, index, addBytes(bytes) {
         totalBytes += bytes;
@@ -197,8 +200,10 @@ function writeAndValidateFile({ file, info, requested, scratch, index, addBytes 
           const validated = validateImageAttachmentHeader(sniffBuffer, { name, mimeType });
           validatedMimeType = validated.mimeType;
           handling = 'native';
-        } else {
-          throw attachmentHttpError(415, 'UNSUPPORTED_MEDIA_TYPE', 'unsupported media type', { reason: 'PDF attachments are not supported yet' });
+        } else if (kind === 'pdf') {
+          const validated = validatePdfAttachmentHeader(sniffBuffer, { name, mimeType });
+          validatedMimeType = validated.mimeType;
+          handling = 'staged_path';
         }
         const contentSha256 = hash.digest('hex');
         resolve({

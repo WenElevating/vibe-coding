@@ -3748,6 +3748,22 @@ function attachmentTextOnlyModelCapabilityVersion() {
   });
 }
 
+function attachmentPdfCapabilityVersion() {
+  const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  return capabilityVersionForNormalizedInput({
+    adapterId: 'codex',
+    attachments: {
+      image: 'unsupported',
+      pdf: 'staged_path',
+      textDocument: 'text_extract'
+    },
+    cliPath: 'codex',
+    cliVersion: null,
+    models: [],
+    selectedModelId: null
+  });
+}
+
 function attachmentConversationAdapter({ delaySend = false, capabilities = null, modelCapability = null } = {}) {
   const sent = [];
   let releaseSend;
@@ -3833,6 +3849,31 @@ test('JSON conversation send rejects attachment metadata before committing user.
     assert.equal(response.status, 400);
     assert.equal(response.body.error.code, 'BAD_REQUEST');
     assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('JSON conversation send rejects any attachments key presence before committing user.message', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-json-reserved-metadata-' });
+  try {
+    const cases = [
+      { label: 'object', attachments: { name: 'a.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: 5 } },
+      { label: 'null', attachments: null },
+      { label: 'string', attachments: 'metadata' },
+      { label: 'empty array', attachments: [] }
+    ];
+
+    for (const item of cases) {
+      const response = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+        text: `hello json ${item.label}`,
+        attachments: item.attachments
+      }, token);
+
+      assert.equal(response.status, 400, item.label);
+      assert.equal(response.body.error.code, 'BAD_REQUEST');
+      assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    }
   } finally {
     await closeAttachmentConversationApp(app);
   }
@@ -3955,6 +3996,32 @@ test('multipart parser errors return JSON response without committing user.messa
         capabilityVersion: attachmentTestCapabilityVersion(),
         attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
       }
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'BAD_REQUEST');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation send rejects payload fields larger than 64KB before committing user.message', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-payload-too-large-' });
+  try {
+    const boundary = '----attachments-payload-too-large';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'x'.repeat((64 * 1024) + 1),
+        clientMessageId: 'client_payload_too_large',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
     });
     const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
       'content-type': `multipart/form-data; boundary=${boundary}`
@@ -4104,6 +4171,63 @@ test('multipart upload concurrency gate responds with retry-after', async () => 
   }
 });
 
+test('multipart daemon-wide upload concurrency gate rejects the fifth active upload', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-daemon-rate-limit-' });
+  try {
+    app.conversations.multipartActiveCount = 4;
+    const boundary = '----attachments-daemon-rate-limit';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect',
+        clientMessageId: 'client_daemon_rate',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 429);
+    assert.equal(response.headers['retry-after'], '5');
+    assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'upload_rate_limited');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+  } finally {
+    app.conversations.multipartActiveCount = 0;
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart upload allows different devices until the daemon-wide limit', async () => {
+  const { app, adapter, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-rate-limit-allowed-' });
+  try {
+    app.conversations.multipartActiveCount = 3;
+    const boundary = '----attachments-rate-limit-allowed';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect',
+        clientMessageId: 'client_rate_allowed',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(adapter.sent, ['inspect']);
+    assert.equal(app.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
+  } finally {
+    app.conversations.multipartActiveCount = 0;
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart conversation send commits attachment metadata without raw scratch bytes', async () => {
   const { app, adapter, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-success-' });
   try {
@@ -4151,6 +4275,168 @@ test('multipart conversation send commits attachment metadata without raw scratc
     const scratchRoot = app.conversations.attachmentScratchStore.root;
     const scratchEntries = fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
     assert.deepEqual(scratchEntries, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation send commits multiple attachment metadata entries in order', async () => {
+  const { payloadHashForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  const crypto = require('node:crypto');
+  const fs = require('node:fs');
+  const firstBytes = Buffer.from('first attachment', 'utf8');
+  const secondBytes = Buffer.from('second attachment', 'utf8');
+  const { app, adapter, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-multi-success-' });
+  try {
+    const boundary = '----attachments-multi-success';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect both',
+        clientMessageId: 'client_multi_success',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [
+          { field: 'files[0]', name: 'first.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: firstBytes.length },
+          { field: 'files[1]', name: 'second.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: secondBytes.length }
+        ]
+      },
+      files: [
+        { name: 'first.txt', mimeType: 'text/plain', bytes: firstBytes },
+        { name: 'second.txt', mimeType: 'text/plain', bytes: secondBytes }
+      ]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(adapter.sent, ['inspect both']);
+    const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
+    assert.deepEqual(userMessage.attachments.map((attachment) => ({
+      name: attachment.name,
+      kind: attachment.kind,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      handling: attachment.handling
+    })), [
+      { name: 'first.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: firstBytes.length, handling: 'text_extract' },
+      { name: 'second.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: secondBytes.length, handling: 'text_extract' }
+    ]);
+    const expectedHash = payloadHashForNormalizedInput({
+      text: 'inspect both',
+      attachments: [
+        {
+          contentSha256Prefix: crypto.createHash('sha256').update(firstBytes).digest('hex').slice(0, 32),
+          index: 0,
+          kind: 'textDocument',
+          mimeType: 'text/plain',
+          name: 'first.txt',
+          sizeBytes: firstBytes.length
+        },
+        {
+          contentSha256Prefix: crypto.createHash('sha256').update(secondBytes).digest('hex').slice(0, 32),
+          index: 1,
+          kind: 'textDocument',
+          mimeType: 'text/plain',
+          name: 'second.txt',
+          sizeBytes: secondBytes.length
+        }
+      ]
+    });
+    assert.equal(userMessage.payloadHash, expectedHash);
+    const scratchRoot = app.conversations.attachmentScratchStore.root;
+    const scratchEntries = fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
+    assert.deepEqual(scratchEntries, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation send accepts PDF bytes when selected capabilities stage PDFs', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'unsupported',
+        pdf: 'staged_path',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const pdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n', 'utf8');
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-pdf-success-' });
+  try {
+    const boundary = '----attachments-pdf-success';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect pdf',
+        clientMessageId: 'client_pdf_success',
+        capabilityVersion: attachmentPdfCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'report.pdf', mimeType: 'application/pdf', kind: 'pdf', sizeBytes: pdfBytes.length }]
+      },
+      files: [{ name: 'report.pdf', mimeType: 'application/pdf', bytes: pdfBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
+    assert.deepEqual({
+      name: userMessage.attachments[0].name,
+      kind: userMessage.attachments[0].kind,
+      mimeType: userMessage.attachments[0].mimeType,
+      sizeBytes: userMessage.attachments[0].sizeBytes,
+      handling: userMessage.attachments[0].handling
+    }, {
+      name: 'report.pdf',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: pdfBytes.length,
+      handling: 'staged_path'
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'text'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation send rejects PDF kind with non-PDF bytes before committing user.message', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'unsupported',
+        pdf: 'staged_path',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-pdf-invalid-' });
+  try {
+    const boundary = '----attachments-pdf-invalid';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect pdf',
+        clientMessageId: 'client_pdf_invalid',
+        capabilityVersion: attachmentPdfCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'report.pdf', mimeType: 'application/pdf', kind: 'pdf', sizeBytes: 9 }]
+      },
+      files: [{ name: 'report.pdf', mimeType: 'application/pdf', bytes: Buffer.from('not a pdf', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 415);
+    assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'UNSUPPORTED_MEDIA_TYPE');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
   } finally {
     await closeAttachmentConversationApp(app);
   }
@@ -5410,6 +5696,16 @@ test('attachment image header validation accepts supported images and rejects no
   assert.throws(
     () => validateImageAttachmentHeader(Buffer.from('hello', 'utf8'), { name: 'notes.txt' }),
     /unsupported media type/
+  );
+});
+
+test('attachment PDF header validation accepts PDFs and rejects non-PDF bytes', () => {
+  const { validatePdfAttachmentHeader } = require('../daemon/src/attachment-validation');
+
+  assert.equal(validatePdfAttachmentHeader(Buffer.from('%PDF-1.7\nhello', 'utf8'), { name: 'report.pdf' }).mimeType, 'application/pdf');
+  assert.throws(
+    () => validatePdfAttachmentHeader(Buffer.from('not a pdf', 'utf8'), { name: 'report.pdf' }),
+    (error) => error.status === 415 && error.code === 'UNSUPPORTED_MEDIA_TYPE'
   );
 });
 

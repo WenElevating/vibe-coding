@@ -144,6 +144,18 @@ function validateImageAttachmentHeader(bytes, metadata = {}) {
   };
 }
 
+function validatePdfAttachmentHeader(bytes, metadata = {}) {
+  sanitizeAttachmentName(metadata.name || 'attachment.pdf');
+  const sniffed = sniffAttachmentBytes(bytes);
+  if (sniffed.mimeType !== 'application/pdf') {
+    throwUnsupportedMediaType({ reason: 'PDF attachment header is not supported', sniffed });
+  }
+  return {
+    mimeType: sniffed.mimeType,
+    knownType: sniffed.knownType
+  };
+}
+
 function estimateAttachmentTextTokens({ text, asciiChars, wrapperChars = 0, nonAsciiChars } = {}) {
   let asciiCount = asciiChars;
   let nonAsciiCount = nonAsciiChars;
@@ -224,6 +236,7 @@ module.exports = {
   sniffAttachmentBytes,
   validateTextAttachmentBytes,
   validateImageAttachmentHeader,
+  validatePdfAttachmentHeader,
   estimateAttachmentTextTokens,
   assertWithinContextBudget,
   attachmentHttpError

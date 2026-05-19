@@ -195,8 +195,10 @@ class ConversationManager {
 
   async sendMessage(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
+    if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'attachments')) {
+      throw badRequest('JSON attachment sends are not supported; use multipart/form-data');
+    }
     const message = normalizeMessagePayload(payload);
-    if (message.attachments.length > 0) throw badRequest('JSON attachment sends are not supported; use multipart/form-data');
     return this.commitAndDispatchMessage(conversation, message, device);
   }
 
