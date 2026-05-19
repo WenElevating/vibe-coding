@@ -36,9 +36,10 @@ class AdapterRegistry {
 
 async function enrich(adapter, status) {
   const modelCapability = await loadModelCapability(adapter, status);
-  const rawCapabilities = typeof adapter.getCapabilities === 'function'
-    ? adapter.getCapabilities()
-    : status.capabilities;
+  const rawCapabilities = {
+    ...(status.capabilities || {}),
+    ...(typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : {})
+  };
   const attachments = normalizeAttachmentCapabilities(rawCapabilities?.attachments);
   const models = normalizeModels(modelCapability.models, attachments);
   const selectedModel = typeof modelCapability.selectedModel === 'string'

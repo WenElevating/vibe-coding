@@ -4322,6 +4322,50 @@ test('conversation adapters expose explicit attachment capability contracts', ()
   });
 });
 
+test('adapter capability listing preserves dynamic status capabilities with static adapter defaults', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          cliVersion: '0.21.0',
+          cliPath: 'codex',
+          capabilities: {
+            execJson: true,
+            resumeJson: true,
+            resumeWorkspaceOverride: true
+          }
+        };
+      },
+      getCapabilities() {
+        return {
+          resume: true,
+          attachments: {
+            image: 'unsupported',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.capabilities.execJson, true);
+  assert.equal(codex.capabilities.resumeJson, true);
+  assert.equal(codex.capabilities.resumeWorkspaceOverride, true);
+  assert.equal(codex.capabilities.resume, true);
+  assert.deepEqual(codex.capabilities.attachments, {
+    image: 'unsupported',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
 test('adapter capability listing sorts multiple models by id before hashing', async () => {
   const registry = new AdapterRegistry([
     {
