@@ -144,6 +144,30 @@ Adapter status responses should include an opaque `capabilityVersion`, computed 
 - If a multipart attachment send omits `capabilityVersion`, return `409 capability_stale` and require the client to fetch `/api/adapters` before retrying.
 - If the daemon sees a stale version at send time, return `409 capability_stale` so the client refreshes adapter capabilities instead of receiving a misleading `422` for a model that appeared supported moments earlier.
 
+Example normalized capability input:
+
+```json
+{
+  "adapterId": "codex",
+  "attachments": {
+    "image": "native",
+    "pdf": "unsupported",
+    "textDocument": "text_extract"
+  },
+  "cliPath": "codex",
+  "cliVersion": "0.21.0",
+  "models": [
+    {
+      "id": "gpt-5.3-codex",
+      "inputModalities": ["image", "text"]
+    }
+  ],
+  "selectedModelId": "gpt-5.3-codex"
+}
+```
+
+With sorted JSON object keys and the arrays already in canonical order, the example hash prefix is `4bcf6aa44f7e2e074229f9cd`.
+
 ## Mobile Draft and UI
 
 Mobile should introduce a local `DraftAttachment` model in the workbench feature:
@@ -198,6 +222,7 @@ Recommended first-version limits:
 - Maximum Claude image size: 5 MB each because base64 over stream-json expands bytes by roughly one third and must fit on one JSONL stdin line.
 - Maximum text document size: 1 MB each.
 - Maximum total multipart payload: 20 MB.
+- Minimum file size: 1 byte.
 - Maximum image long edge: 8192 pixels.
 - Maximum image total pixels: 100 megapixels.
 - Allowed images: `.png`, `.jpg`, `.jpeg`, `.webp`.
@@ -259,7 +284,7 @@ Daemon processing order:
 2. Normalize multipart payload metadata without buffering full file bodies in memory.
 3. Check active state, `sendLock`, and `modelUpdateLock`.
 4. Validate `clientMessageId` idempotency.
-5. Validate declared file count, declared size, filename, extension, and client MIME hint.
+5. Validate declared file count, declared size when present, filename, extension, and client MIME hint. Multipart parts without declared per-file size are allowed, but the stream counter must still enforce single-file and total payload limits.
 6. Resolve adapter and selected/default model attachment capability, applying model-level capability before adapter-level fallback.
 7. Reject stale or missing `capabilityVersion` with `409 capability_stale` before appending any event.
 8. Reject unsupported attachments before appending any event.
@@ -276,6 +301,8 @@ Daemon processing order:
 
 Multipart parsing must stream file parts directly to scratch instead of buffering complete request bodies or complete files in memory. The first implementation should add a small concurrency gate for multipart uploads, for example one active multipart upload per authenticated device and four active multipart uploads per daemon process, returning `429 upload_rate_limited` when the gate is saturated.
 
+If validation fails during streaming, the daemon should stop reading the request body and abort or close the upload stream as soon as the HTTP framework permits. It should not intentionally drain the remaining multipart bytes just to return a clean error response. This applies to byte-limit overflow, early magic-byte rejection, and late UTF-8 validation failures.
+
 ## File Type Validation
 
 The daemon must treat client MIME, filename, and declared kind as hints only. Validation order is extension allowlist, then server-side sniffing, then client MIME as a diagnostic hint. The accepted kind and MIME are derived from extension class plus sniffed bytes.
@@ -285,9 +312,11 @@ Decision table:
 | Case | Result |
 | --- | --- |
 | Extension is not in the allowlist | `415 unsupported_media_type` |
+| File has zero bytes | `415 unsupported_media_type` |
 | Image extension and sniffed bytes are an allowed image subtype | Accept as `image` using the sniffed MIME if size and pixel limits pass |
 | Image extension says one allowed subtype but sniff says another allowed subtype | Accept as `image`, normalize `mimeType` to the sniffed MIME, and keep the original display name |
 | Image extension but magic bytes are missing or sniff says a non-image known type | `415 unsupported_media_type` |
+| Image dimensions cannot be determined | `415 unsupported_media_type` |
 | PDF extension and PDF magic bytes agree | Accept only when capability allows PDF |
 | Office extension or ZIP/container signature for document upload | `415 unsupported_media_type` in v1 |
 | Text extension with valid UTF-8 and low binary/control-byte ratio | Accept as `textDocument` |
@@ -296,6 +325,8 @@ Decision table:
 | Client MIME says image/PDF but extension/sniff says text | Use extension/sniff result or reject if ambiguous |
 
 The first implementation should avoid adding a file-type dependency unless the built-in sniffing becomes insufficient. It can recognize PNG, JPEG, WebP, PDF, UTF-8 text, and obvious ZIP/Office/container signatures with small header reads. WebP sniffing must read at least the 12-byte RIFF container header: bytes 0-3 are `RIFF`, bytes 4-7 are size, and bytes 8-11 must be `WEBP`; `RIFF` alone is not enough because WAV and AVI also use it. PNG, JPEG, and WebP dimension parsing is required for the pixel limits before dispatch.
+
+PNG dimensions are available in the IHDR chunk near the start of the file. WebP dimensions are available in the VP8, VP8L, or VP8X headers. JPEG dimensions require scanning for a SOF marker, which can appear after large EXIF or ICC segments. The daemon may keep a 128 KB sniff buffer while streaming and may scan the scratch file once after streaming, but it must not load the whole image into memory. If dimensions still cannot be determined, reject with `415 unsupported_media_type` before committing the message.
 
 Text encoding rules:
 
@@ -309,7 +340,8 @@ Text encoding rules:
 Text context budget rules:
 
 - Before appending `user.message`, estimate text extraction cost using a tokenizer when an approved tokenizer is already available for the adapter. Do not block v1 on adding a provider-specific tokenizer dependency.
-- Fallback estimate: `estimatedTokens = ceil(asciiChars / 3.0 + nonAsciiChars / 1.0 + wrapperChars / 4.0)`.
+- Fallback estimate: `estimatedTokens = ceil((asciiChars + wrapperChars) / 3.0 + nonAsciiChars / 1.0)`.
+- Count Unicode code points, not UTF-16 code units. Surrogate pairs and 4-byte UTF-8 sequences must count as one non-ASCII character for this estimate.
 - Include user prompt text, extracted text, attachment wrapper overhead, and a reserve for system/CLI context.
 - If the model context window is known, reserve `max(2048, ceil(contextWindow * 0.20))` tokens for system prompt, adapter scaffolding, and response headroom.
 - If the model context window is unknown, use a conservative default context window of 8192 tokens.
@@ -433,13 +465,7 @@ Codex image support:
 Codex text documents:
 
 - Codex CLI has no generic file parameter in the verified help text.
-- The daemon extracts UTF-8 text and appends it as attachment wrapper blocks in the prompt:
-
-```text
-<attachment name="foo.md" mime="text/markdown">
-...
-</attachment>
-```
+- The daemon extracts UTF-8 text and appends it as attachment wrapper blocks in the prompt. See "Text extraction wrapper" for the canonical wrapper format.
 
 Codex PDF:
 
@@ -482,7 +508,7 @@ Recommended image content shape:
 
 Claude text documents:
 
-- The daemon can extract UTF-8 text and include it as a stream-json text content block using the same `<attachment ...>` wrapper format as Codex text extraction.
+- The daemon can extract UTF-8 text and include it as a stream-json text content block using the canonical "Text extraction wrapper" format.
 - Claude text document scratch lifetime is `send_time`.
 
 Claude PDF:
@@ -523,7 +549,7 @@ Error codes:
 - `409 message_already_in_flight`: send is already running.
 - `409 idempotency_conflict`: same `clientMessageId` with different payload.
 - `409 capability_stale`: mobile validated against an older adapter/model capability version.
-- `429 upload_rate_limited`: multipart upload concurrency or per-device send rate limit is saturated.
+- `429 upload_rate_limited`: multipart upload concurrency or per-device send rate limit is saturated. The response should include `Retry-After: 5` unless a more accurate value is available.
 - `502 attachment_dispatch_failed`: validation passed but the adapter conversion or CLI dispatch failed.
 - `500 internal_error`: daemon-local infrastructure failed before or during dispatch, for example scratch root is not writable, disk is full, or an optional tokenizer initialization failed.
 
@@ -559,7 +585,7 @@ Diagnostic bundle:
 - Normalize display names to Unicode NFC before storing metadata.
 - Reject Unicode bidirectional override/control characters such as U+202A through U+202E and U+2066 through U+2069.
 - Reject display names longer than 255 UTF-8 bytes after normalization.
-- Reject Windows reserved base names such as `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`, even though scratch filenames are daemon-generated.
+- Reject Windows reserved base names such as `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`, even though scratch filenames are daemon-generated. This check is case-insensitive and applies after removing the extension, so `con.txt`, `Con.txt`, and `CON.TXT` are all rejected.
 - Reject trailing spaces or dots in display names.
 - Resolve all scratch paths under the configured scratch root before writing or deleting.
 - Use per-message directories to make cleanup scoped and auditable.
@@ -571,7 +597,7 @@ Diagnostic bundle:
 - Capability failures should refresh adapter capabilities after the error.
 - `409 capability_stale` must refresh adapter capabilities and revalidate local draft attachments.
 - `409 message_already_in_flight` keeps draft state and asks the user to wait for the active send.
-- `429 upload_rate_limited` keeps draft state and asks the user to wait before retrying.
+- `429 upload_rate_limited` keeps draft state and uses the `Retry-After` response header for retry UI timing.
 - Acknowledgement timeout should not automatically resend multipart payloads. Existing event polling should determine whether the message committed.
 
 ## Testing Plan
@@ -586,12 +612,15 @@ Daemon API tests:
 - Text extraction over context budget returns `422 context_budget_exceeded` before `user.message`.
 - Unsupported PDF returns `422` and does not append `user.message`.
 - Unsupported Office document returns `415` or `422` and does not append `user.message`.
+- Zero-byte files return `415` and do not append `user.message`.
 - Too many files returns `413`.
 - Oversized image returns `413`.
 - Over-pixel-limit image returns `413`.
+- Multipart file parts without declared per-part size are accepted only if stream counters stay within configured limits.
 - MIME/extension mismatch returns `415`.
 - Allowed image extension with a different allowed sniffed image subtype is accepted and normalized to the sniffed MIME.
 - WebP sniffing requires `RIFF` plus `WEBP`, and a non-WebP RIFF file returns `415`.
+- JPEG dimension parsing scans SOF markers past large metadata, and dimension parse failure returns `415`.
 - Invalid display names with path separators, bidi controls, reserved Windows names, trailing dots/spaces, or overlong UTF-8 byte length return `415`.
 - Stale capability version returns `409 capability_stale`.
 - Missing capability version on multipart attachment send returns `409 capability_stale`.
@@ -601,7 +630,8 @@ Daemon API tests:
 - Duplicate `clientMessageId` with same text but different attachment bytes returns `409`.
 - Duplicate `clientMessageId` with different payload returns `409`.
 - Multipart parser streams file parts to scratch and enforces concurrency gates without buffering full files in memory.
-- Saturated multipart concurrency gate returns `429 upload_rate_limited`.
+- Early streaming validation failure aborts request-body reading and cleans scratch.
+- Saturated multipart concurrency gate returns `429 upload_rate_limited` with `Retry-After`.
 - Adapter dispatch failure writes `run.error` and failed status.
 - Adapter dispatch failure consumes `clientMessageId`; retry requires a new id.
 - Scratch cleanup failure records audit but does not change the conversation result.
