@@ -16,7 +16,18 @@ class ClaudeConversationAdapter {
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.modelCapability = defaultModelCapability();
-    this.capabilities = { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true };
+    this.capabilities = {
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
+    };
   }
 
   detectCapabilities() {

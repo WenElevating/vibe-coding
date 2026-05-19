@@ -4194,10 +4194,104 @@ test('adapter capability listing merges model capability metadata', async () => 
   assert.deepEqual(codex.models.map((model) => model.id), ['gpt-5']);
   assert.equal(codex.selectedModel, 'gpt-5');
   assert.equal(codex.canSelectModel, true);
-  assert.deepEqual(codex.capabilities, { resume: true });
+  assert.deepEqual(codex.capabilities, {
+    resume: true,
+    attachments: {
+      image: 'unsupported',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    }
+  });
   assert.deepEqual(claude.models, []);
   assert.equal(claude.selectedModel, null);
   assert.equal(claude.canSelectModel, false);
+});
+
+test('adapter capability listing exposes attachment capabilities and stable capabilityVersion', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      displayName: 'Codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          cliVersion: '0.21.0',
+          cliPath: 'codex'
+        };
+      },
+      getModelCapability() {
+        return {
+          canSelectModel: true,
+          selectedModel: 'gpt-5.3-codex',
+          models: [
+            {
+              id: 'gpt-5.3-codex',
+              label: 'gpt-5.3-codex',
+              inputModalities: ['text', 'image']
+            }
+          ]
+        };
+      },
+      getCapabilities() {
+        return {
+          resume: true,
+          attachments: {
+            image: 'native',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
+  assert.deepEqual(codex.capabilities.attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+  assert.deepEqual(codex.models[0].inputModalities, ['image', 'text']);
+  assert.deepEqual(codex.models[0].attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
+test('adapter capability listing sorts multiple models by id before hashing', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return { adapter: 'codex', available: true, status: 'available', cliVersion: '0.21.0', cliPath: 'codex' };
+      },
+      getModelCapability() {
+        return {
+          canSelectModel: true,
+          selectedModel: 'a-model',
+          models: [
+            { id: 'z-model', inputModalities: ['text'] },
+            { id: 'a-model', inputModalities: ['image', 'text'] }
+          ]
+        };
+      },
+      getCapabilities() {
+        return { attachments: { image: 'native', textDocument: 'text_extract', pdf: 'unsupported' } };
+      }
+    }
+  ]);
+
+  const first = await registry.listCapabilities();
+  const second = await registry.listCapabilities();
+
+  assert.equal(first[0].models[0].id, 'a-model');
+  assert.equal(first[0].models[1].id, 'z-model');
+  assert.equal(first[0].capabilityVersion, second[0].capabilityVersion);
 });
 
 test('adapter capability listing falls back when model capability hooks fail', async () => {

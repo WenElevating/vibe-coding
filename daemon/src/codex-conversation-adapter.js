@@ -37,7 +37,12 @@ class CodexConversationAdapter {
       partialOutput: true,
       toolEvents: true,
       approvalPolicy: 'cli-policy',
-      mobileApprovalCallbacks: false
+      mobileApprovalCallbacks: false,
+      attachments: {
+        image: 'unsupported',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
     };
   }
 
@@ -456,7 +461,12 @@ function unavailableCapability(command, error) {
     actionable: error,
     capabilities: {
       approvalPolicy: 'cli-policy',
-      mobileApprovalCallbacks: false
+      mobileApprovalCallbacks: false,
+      attachments: {
+        image: 'unsupported',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
     }
   };
 }

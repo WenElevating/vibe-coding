@@ -68,7 +68,21 @@ class OpenCodeAdapter {
 }
 
 function capability(available, status, error, serverUrl) {
-  return { adapter: 'opencode', available, status, serverUrl, error, actionable: error };
+  return {
+    adapter: 'opencode',
+    available,
+    status,
+    serverUrl,
+    error,
+    actionable: error,
+    capabilities: {
+      attachments: {
+        image: 'unsupported',
+        textDocument: 'unsupported',
+        pdf: 'unsupported'
+      }
+    }
+  };
 }
 
 function defaultFetchJson(url, options = {}) {
