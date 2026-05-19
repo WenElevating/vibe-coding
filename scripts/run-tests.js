@@ -5062,6 +5062,30 @@ test('attachment scratch cleanup rejects constructor root equality and escaped d
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('attachment scratch constructor rejects arbitrary child directories', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { MessageScratch } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-child-'));
+  const unrelatedDir = path.join(root, 'unrelated-existing-dir');
+  fs.mkdirSync(unrelatedDir);
+  const baseMetadata = {
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn',
+    createdAt: '2026-05-19T00:00:00.000Z'
+  };
+
+  assert.throws(
+    () => new MessageScratch({ root, dir: unrelatedDir, baseMetadata }),
+    /scratch path escaped root/
+  );
+  assert.equal(fs.existsSync(unrelatedDir), true);
+  assert.equal(fs.existsSync(path.join(unrelatedDir, 'file_0.txt')), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('attachment scratch cleanupExpired deletes expired inactive scratches only', async () => {
   const fs = require('node:fs');
   const os = require('node:os');

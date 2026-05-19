@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+const messageScratchDirNamePattern = /^msg_\d+_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 class AttachmentScratchStore {
   constructor({ root, ttlMs = 86_400_000, now = () => new Date() }) {
     this.root = path.resolve(root);
@@ -57,6 +59,7 @@ class MessageScratch {
     const resolvedRoot = path.resolve(root);
     const resolvedDir = path.resolve(dir);
     if (!isChildUnderRoot(resolvedDir, resolvedRoot)) throw new Error('scratch path escaped root');
+    if (!isMessageScratchDirName(path.basename(resolvedDir))) throw new Error('scratch path escaped root');
     this.#root = resolvedRoot;
     this.#dir = resolvedDir;
     this.#baseMetadata = Object.freeze({ ...baseMetadata });
@@ -107,6 +110,10 @@ function isUnderRoot(target, root) {
 function isChildUnderRoot(target, root) {
   const relative = path.relative(path.resolve(root), path.resolve(target));
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function isMessageScratchDirName(name) {
+  return messageScratchDirNamePattern.test(name);
 }
 
 module.exports = { AttachmentScratchStore, MessageScratch, isUnderRoot };
