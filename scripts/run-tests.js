@@ -3957,23 +3957,23 @@ function attachmentPdfCapabilityVersion() {
   });
 }
 
-function attachmentImageCapabilityVersion() {
+function attachmentImageCapabilityVersion(adapterId = 'codex') {
   const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
   return capabilityVersionForNormalizedInput({
-    adapterId: 'codex',
+    adapterId,
     attachments: {
       image: 'native',
       pdf: 'unsupported',
       textDocument: 'text_extract'
     },
-    cliPath: 'codex',
+    cliPath: adapterId,
     cliVersion: null,
     models: [],
     selectedModelId: null
   });
 }
 
-function attachmentConversationAdapter({ delaySend = false, failAfterSend = false, capabilities = null, modelCapability = null, onSendEvent = null } = {}) {
+function attachmentConversationAdapter({ delaySend = false, failAfterSend = false, sendError = null, capabilities = null, modelCapability = null, onSendEvent = null } = {}) {
   const sent = [];
   let releaseSend;
   return {
@@ -4000,6 +4000,7 @@ function attachmentConversationAdapter({ delaySend = false, failAfterSend = fals
       return {
         async sendUserMessage(message) {
           sent.push(message);
+          if (sendError) throw (typeof sendError === 'function' ? sendError(message) : sendError);
           if (failAfterSend) throw new Error('adapter failed after commit');
           if (delaySend) await new Promise((resolve) => { releaseSend = resolve; });
           if (onSendEvent) onEvent(onSendEvent);
@@ -4027,21 +4028,22 @@ function codexNativeImageAttachmentAdapter(options = {}) {
 }
 
 async function createAttachmentConversationApp(options = {}) {
+  const adapterId = options.adapterId || 'codex';
   const adapter = options.adapter || attachmentConversationAdapter();
   const app = createApp({
     port: 0,
     mode: 'dev',
     devAdapters: true,
     appDbPath: options.appDbPath || tempConversationDbPath(options.dbPrefix || 'app-db-attachments-'),
-    conversationAdapters: new Map([['codex', adapter]])
+    conversationAdapters: new Map([[adapterId, adapter]])
   });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
   const pairing = await request(port, 'POST', '/api/pairing-code', {});
   const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: options.label || 'test' });
   const workspace = await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Attachments' }, paired.body.token);
-  const created = await request(port, 'POST', '/api/conversations', { workspaceId: workspace.body.id, adapter: 'codex' }, paired.body.token);
-  return { app, adapter, port, token: paired.body.token, deviceId: paired.body.deviceId, conversationId: created.body.conversation.id };
+  const created = await request(port, 'POST', '/api/conversations', { workspaceId: workspace.body.id, adapter: adapterId }, paired.body.token);
+  return { app, adapter, adapterId, port, token: paired.body.token, deviceId: paired.body.deviceId, conversationId: created.body.conversation.id };
 }
 
 async function closeAttachmentConversationApp(app) {
@@ -4572,6 +4574,60 @@ test('multipart oversized image bytes reject before committing user.message', as
     assert.equal(response.status, 413);
     assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_LIMIT_EXCEEDED');
     assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart Claude native image over 5MB rejects before committing user.message', async () => {
+  const adapterId = 'claude';
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-claude-image-too-large-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1, extraBytes: Buffer.alloc(6 * 1024 * 1024) });
+    const boundary = '----attachments-claude-image-too-large';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_claude_image_too_large',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'large.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'large.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const internal = app.conversations.conversations.get(conversationId);
+    assert.equal(response.status, 413);
+    assert.equal(parseRawJson(response).error.code, 'ATTACHMENT_LIMIT_EXCEEDED');
+    assert.equal(events.some((event) => event.type === 'user.message'), false);
+    assert.equal(events.some((event) => event.type === 'run.error'), false);
+    assert.equal(events.some((event) => Object.prototype.hasOwnProperty.call(event, 'payloadHash')), false);
+    assert.equal(events.some((event) => event.type === 'conversation.status_changed'), false);
+    assert.equal(internal.status, 'idle');
+    assert.equal(internal.userMessageCount, 0);
+    assert.equal(internal.messageIdempotency.has('client_claude_image_too_large'), false);
+    assert.equal(internal.messageInFlightIds.has('client_claude_image_too_large'), false);
+    assert.deepEqual(adapter.sent, []);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
     await closeAttachmentConversationApp(app);
@@ -5381,6 +5437,75 @@ test('multipart post-commit adapter failure records run error and consumes clien
     assert.equal(parseRawJson(retried).conversation.status, 'failed');
     assert.deepEqual(sentMessageTexts(adapter), ['inspect failure']);
     assert.equal(app.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart attachment dispatch failure redacts path-bearing errors in HTTP and run.error', async () => {
+  const adapterId = 'claude';
+  const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
+  const adapter = attachmentConversationAdapter({
+    sendError: () => new Error(`ENOENT: open ${leakedPath} failed with raw bytes 89504e47`),
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-dispatch-redaction-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-dispatch-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect failure',
+        clientMessageId: 'client_dispatch_redaction',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const failed = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const errorBody = parseRawJson(failed).error;
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const userMessage = events.find((event) => event.type === 'user.message');
+    const responseJson = JSON.stringify(errorBody);
+    const runErrorJson = JSON.stringify(runError);
+    const committedAttachmentJson = JSON.stringify(userMessage.attachments[0]);
+    assert.equal(failed.status, 502);
+    assert.equal(errorBody.code, 'attachment_dispatch_failed');
+    assert.equal(errorBody.message, 'Attachment dispatch failed');
+    assert.equal(responseJson.includes(leakedPath), false);
+    assert.equal(responseJson.includes('D:\\secret'), false);
+    assert.equal(responseJson.includes('file_0.bin'), false);
+    assert.equal(responseJson.includes('89504e47'), false);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(runErrorJson.includes(leakedPath), false);
+    assert.equal(runErrorJson.includes('D:\\secret'), false);
+    assert.equal(runErrorJson.includes('file_0.bin'), false);
+    assert.equal(runErrorJson.includes('89504e47'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'bytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
+    assert.equal(committedAttachmentJson.includes(leakedPath), false);
+    assert.equal(committedAttachmentJson.includes('89504e47'), false);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
     await closeAttachmentConversationApp(app);

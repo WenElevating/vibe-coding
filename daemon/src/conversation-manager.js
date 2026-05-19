@@ -19,6 +19,8 @@ const { AttachmentScratchStore } = require('./attachment-scratch-store');
 const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = require('./attachment-hashes');
 const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
 
+const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
+
 class ConversationManager {
   constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null }) {
     this.workspaces = workspaces;
@@ -286,6 +288,7 @@ class ConversationManager {
 
     if (hasAttachments) {
       validateAttachmentHandling(attachmentCapabilities.attachments, files);
+      validateAdapterAttachmentLimits(conversation, files);
       assignAttachmentScratchLifetimes(conversation, files);
       conversation.messageInFlightIds.add(message.clientMessageId);
     }
@@ -328,9 +331,10 @@ class ConversationManager {
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
-      this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, { message: error.message });
+      const dispatchError = sanitizeAdapterDispatchError(error, { hasAttachments, files });
+      this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, dispatchError === error ? { message: error.message } : runErrorPayload(dispatchError));
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-      throw error;
+      throw dispatchError;
     } finally {
       conversation.sendLock = false;
       if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
@@ -798,6 +802,47 @@ function validateAttachmentHandling(capabilities, files) {
     }
     file.handling = handling;
   }
+}
+
+function validateAdapterAttachmentLimits(conversation, files) {
+  if (conversation.adapter !== 'claude') return;
+  for (const file of files) {
+    if (file.kind === 'image' && file.handling === 'native' && file.sizeBytes > claudeMaxNativeImageBytes) {
+      throw attachmentError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'Claude image attachment exceeds 5 MB limit', {
+        adapter: 'claude',
+        maxImageAttachmentBytes: claudeMaxNativeImageBytes
+      });
+    }
+  }
+}
+
+function sanitizeAdapterDispatchError(error, { hasAttachments, files = [] } = {}) {
+  if (!hasAttachments || !isPathLikeAttachmentDispatchError(error, files)) return error;
+  const safe = new Error('Attachment dispatch failed');
+  safe.status = 502;
+  safe.code = 'attachment_dispatch_failed';
+  return safe;
+}
+
+function isPathLikeAttachmentDispatchError(error, files) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const code = typeof error?.code === 'string' ? error.code : '';
+  if (!message && !code) return false;
+  for (const file of files) {
+    if (file?.scratchPath && message.includes(String(file.scratchPath))) return true;
+  }
+  if (/[A-Za-z]:[\\/][^\s'")]+/.test(message)) return true;
+  if (/(^|[\s'"])\~?[\\/][^\s'")]+/.test(message) && /(?:ENOENT|EACCES|EPERM|ENOTDIR|EISDIR|open|read|stat|access|unlink)/i.test(`${code} ${message}`)) return true;
+  if (/\braw bytes?\b/i.test(message)) return true;
+  return false;
+}
+
+function runErrorPayload(error) {
+  return {
+    message: error.message,
+    ...(error.code ? { code: error.code } : {}),
+    ...(error.status ? { status: error.status } : {})
+  };
 }
 
 function rememberTurnAttachmentScratch(conversation, scratch) {
