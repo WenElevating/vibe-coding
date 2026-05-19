@@ -825,7 +825,8 @@ function validateAdapterAttachmentLimits(conversation, files) {
 }
 
 function sanitizeAdapterDispatchError(error, { hasAttachments, files = [] } = {}) {
-  if (!hasAttachments || !isPathLikeAttachmentDispatchError(error, files)) return error;
+  if (!hasAttachments) return error;
+  if (!isPathLikeAttachmentDispatchError(error, files) && !isRawAttachmentDispatchError(error)) return error;
   const safe = new Error('Attachment dispatch failed');
   safe.status = 502;
   safe.code = 'attachment_dispatch_failed';
@@ -862,6 +863,11 @@ function isRedactableAttachmentDispatchEvent(event, files) {
   return isPathLikeAttachmentDispatchEvent(event, files) || hasRawAttachmentDispatchPayload(event);
 }
 
+function isRawAttachmentDispatchError(error) {
+  if (hasRawAttachmentDispatchPayload(error)) return true;
+  return hasRawAttachmentDispatchPayload(typeof error?.message === 'string' ? error.message : '');
+}
+
 function isPathLikeAttachmentDispatchEvent(event, files) {
   const strings = collectStringValues(event);
   const code = typeof event.code === 'string' ? event.code : '';
@@ -892,11 +898,11 @@ function isSuspiciousRawAttachmentKey(key) {
 }
 
 function imageMagicHexPattern() {
-  return /^(?:89504e470d0a1a0a|ffd8ff|52494646[0-9a-fA-F]{8}57454250)/i;
+  return /(?:89504e470d0a1a0a|ffd8ff|52494646[0-9a-fA-F]{8}57454250)/i;
 }
 
 function imageMagicBase64Pattern() {
-  return /^(?:iVBORw0KGgo|\/9j\/|UklGR)/;
+  return /(?:iVBORw0KGgo|\/9j\/|UklGR)/;
 }
 
 function collectStringValues(value, seen = new Set()) {

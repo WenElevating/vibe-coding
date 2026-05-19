@@ -5513,6 +5513,83 @@ test('multipart attachment dispatch failure redacts path-bearing errors in HTTP 
   }
 });
 
+test('multipart attachment dispatch failure redacts raw payload errors without path-like strings', async () => {
+  const adapterId = 'claude';
+  const rawHex = '89504e470d0a1a0a0000000d4948445200000001000000010806000000';
+  const base64Image = Buffer.concat([
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 })
+  ]).toString('base64');
+  const base64Marker = base64Image.slice(0, 24);
+  const adapter = attachmentConversationAdapter({
+    sendError: () => {
+      const error = new Error(`provider rejected image: ${base64Image}`);
+      error.rawBytes = `${rawHex}abcdef1234567890`;
+      return error;
+    },
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-raw-dispatch-redaction-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-raw-dispatch-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect raw dispatch failure',
+        clientMessageId: 'client_raw_dispatch_redaction',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const failed = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const errorBody = parseRawJson(failed).error;
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const userMessage = events.find((event) => event.type === 'user.message');
+    const responseJson = JSON.stringify(errorBody);
+    const eventsJson = JSON.stringify(events);
+    const committedAttachmentJson = JSON.stringify(userMessage.attachments[0]);
+    assert.equal(failed.status, 502);
+    assert.equal(errorBody.code, 'attachment_dispatch_failed');
+    assert.equal(errorBody.message, 'Attachment dispatch failed');
+    assert.equal(responseJson.includes(base64Marker), false);
+    assert.equal(responseJson.includes(rawHex), false);
+    assert.equal(responseJson.includes('rawBytes'), false);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(eventsJson.includes(base64Marker), false);
+    assert.equal(eventsJson.includes(rawHex), false);
+    assert.equal(eventsJson.includes('rawBytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'bytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
+    assert.equal(committedAttachmentJson.includes(base64Marker), false);
+    assert.equal(committedAttachmentJson.includes(rawHex), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart attachment adapter events redact path-bearing run errors and warnings', async () => {
   const adapterId = 'claude';
   const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
@@ -5692,6 +5769,40 @@ test('conversation adapter events preserve raw-looking payloads without attachme
     assert.equal(protocolWarning.text, 'provider warning');
     assert.equal(protocolWarning.payload.image, base64Image);
     assert.equal(eventsJson.includes(rawHex), true);
+    assert.equal(eventsJson.includes(base64Marker), true);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('conversation dispatch errors preserve raw-looking payloads without attachment context', async () => {
+  const base64Image = Buffer.concat([
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 })
+  ]).toString('base64');
+  const base64Marker = base64Image.slice(0, 24);
+  const adapter = attachmentConversationAdapter({
+    sendError: () => new Error(`provider rejected image: ${base64Image}`)
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    dbPrefix: 'app-db-no-attachment-raw-dispatch-'
+  });
+  try {
+    const response = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+      text: 'ordinary provider failure'
+    }, token);
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const responseJson = JSON.stringify(response.body);
+    const eventsJson = JSON.stringify(events);
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'ERROR');
+    assert.equal(response.body.error.message.includes(base64Marker), true);
+    assert.equal(runError.message.includes(base64Marker), true);
+    assert.equal(responseJson.includes(base64Marker), true);
     assert.equal(eventsJson.includes(base64Marker), true);
   } finally {
     await closeAttachmentConversationApp(app);
