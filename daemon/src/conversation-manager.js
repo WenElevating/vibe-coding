@@ -55,6 +55,7 @@ class ConversationManager {
     restored.messageIdempotency = new Map();
     restored.messageInFlightIds = new Set();
     restored.turnAttachmentScratches = [];
+    restored.attachmentDispatchRedactionContext = null;
     this.rebuildMessageIdempotency(restored);
     if ([conversationStatuses.RUNNING, conversationStatuses.WAITING_INPUT, conversationStatuses.WAITING_APPROVAL].includes(restored.status)) {
       restored.status = conversationStatuses.INTERRUPTED;
@@ -110,7 +111,8 @@ class ConversationManager {
       handle: null,
       messageIdempotency: new Map(),
       messageInFlightIds: new Set(),
-      turnAttachmentScratches: []
+      turnAttachmentScratches: [],
+      attachmentDispatchRedactionContext: null
     };
     this.conversations.set(conversation.id, conversation);
     this.persistConversation(conversation);
@@ -316,6 +318,7 @@ class ConversationManager {
       committed = true;
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await this.ensureStarted(conversation);
+      if (hasAttachments) conversation.attachmentDispatchRedactionContext = attachmentDispatchRedactionContext(files);
       await conversation.handle.sendUserMessage(hasAttachments ? adapterUserMessage(message, files) : message.text);
       if (hasAttachments && scratch) await this.cleanupDispatchedAttachmentScratch(conversation, scratch, files);
       this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
@@ -334,6 +337,7 @@ class ConversationManager {
       const dispatchError = sanitizeAdapterDispatchError(error, { hasAttachments, files });
       this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, dispatchError === error ? { message: error.message } : runErrorPayload(dispatchError));
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+      if (hasAttachments) conversation.attachmentDispatchRedactionContext = null;
       throw dispatchError;
     } finally {
       conversation.sendLock = false;
@@ -492,6 +496,7 @@ class ConversationManager {
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     this.auditLog.record('conversation.cancel', { conversationId: conversation.id, deviceId: device.id, status: conversation.status });
     await this.cleanupTurnAttachmentScratch(conversation);
+    conversation.attachmentDispatchRedactionContext = null;
     return publicConversation(conversation);
   }
 
@@ -533,36 +538,39 @@ class ConversationManager {
       this.eventStore.append(conversation.id, type, payload);
       return;
     }
-    if (eventCompletesTurn(event)) {
+    const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    if (eventCompletesTurn(eventToAppend)) {
       conversation.status = conversationStatuses.IDLE;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = addMs(this.now(), this.idleTtlMs).toISOString();
-      if (event.type === conversationEventTypes.CONVERSATION_COMPLETED) conversation.handle = null;
+      if (eventToAppend.type === conversationEventTypes.CONVERSATION_COMPLETED) conversation.handle = null;
       this.touch(conversation);
     }
-    if (event.type === conversationEventTypes.CONVERSATION_CANCELLED) {
+    if (eventToAppend.type === conversationEventTypes.CONVERSATION_CANCELLED) {
       conversation.status = conversationStatuses.CANCELLED;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
     }
-    if (event.type === conversationEventTypes.RUN_ERROR) {
+    if (eventToAppend.type === conversationEventTypes.RUN_ERROR) {
       conversation.status = conversationStatuses.FAILED;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
     }
-    if (eventCompletesTurn(event) || event.type === conversationEventTypes.CONVERSATION_CANCELLED || event.type === conversationEventTypes.RUN_ERROR) {
+    const terminalEvent = eventCompletesTurn(eventToAppend) || eventToAppend.type === conversationEventTypes.CONVERSATION_CANCELLED || eventToAppend.type === conversationEventTypes.RUN_ERROR;
+    if (terminalEvent) {
       this.cleanupTurnAttachmentScratch(conversation);
     }
-    const { type, ...payload } = event;
+    const { type, ...payload } = eventToAppend;
     this.eventStore.append(conversation.id, type || conversationEventTypes.PROTOCOL_WARNING, payload);
-    if (eventCompletesTurn(event)) {
+    if (terminalEvent) conversation.attachmentDispatchRedactionContext = null;
+    if (eventCompletesTurn(eventToAppend)) {
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     }
-    if (event.type === conversationEventTypes.RUN_ERROR) {
+    if (eventToAppend.type === conversationEventTypes.RUN_ERROR) {
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
     }
   }
@@ -822,6 +830,47 @@ function sanitizeAdapterDispatchError(error, { hasAttachments, files = [] } = {}
   safe.status = 502;
   safe.code = 'attachment_dispatch_failed';
   return safe;
+}
+
+function attachmentDispatchRedactionContext(files) {
+  return {
+    files: files.map((file) => ({
+      name: file.name,
+      scratchPath: file.scratchPath
+    }))
+  };
+}
+
+function sanitizeAdapterEvent(event, context) {
+  if (!context || ![conversationEventTypes.RUN_ERROR, conversationEventTypes.PROTOCOL_WARNING].includes(event.type)) return event;
+  if (!isPathLikeAttachmentDispatchEvent(event, context.files)) return event;
+  const safe = new Error('Attachment dispatch failed');
+  safe.status = 502;
+  safe.code = 'attachment_dispatch_failed';
+  if (event.type === conversationEventTypes.RUN_ERROR) {
+    return { type: conversationEventTypes.RUN_ERROR, ...runErrorPayload(safe) };
+  }
+  return {
+    type: conversationEventTypes.PROTOCOL_WARNING,
+    text: safe.message,
+    message: safe.message,
+    ...(Object.prototype.hasOwnProperty.call(event, 'visible') ? { visible: event.visible } : {})
+  };
+}
+
+function isPathLikeAttachmentDispatchEvent(event, files) {
+  const strings = collectStringValues(event);
+  const code = typeof event.code === 'string' ? event.code : '';
+  return isPathLikeAttachmentDispatchError({ message: strings.join(' '), code }, files);
+}
+
+function collectStringValues(value, seen = new Set()) {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object') return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+  if (Array.isArray(value)) return value.flatMap((item) => collectStringValues(item, seen));
+  return Object.values(value).flatMap((item) => collectStringValues(item, seen));
 }
 
 function isPathLikeAttachmentDispatchError(error, files) {
