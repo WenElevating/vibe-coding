@@ -274,16 +274,17 @@ class _ComposerCliPill extends StatelessWidget {
         Icon(Icons.terminal_rounded,
             color: locked ? theme.faint : theme.muted, size: 14),
         const SizedBox(width: 7),
-        ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 126),
-            child: Text(adapter ?? 'CLI',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: locked ? theme.muted : theme.text,
-                    fontSize: 11.5,
-                    fontFamily: 'Consolas',
-                    fontWeight: FontWeight.w800))),
+        Flexible(
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 126),
+                child: Text(adapter ?? 'CLI',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: locked ? theme.muted : theme.text,
+                        fontSize: 11.5,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w800)))),
       ]));
 }
 
@@ -302,15 +303,16 @@ class _ComposerModelPill extends StatelessWidget {
           Icon(Icons.memory_rounded,
               color: locked ? theme.faint : theme.muted, size: 14),
           const SizedBox(width: 7),
-          ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 126),
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: locked ? theme.muted : theme.text,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700))),
+          Flexible(
+              child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 126),
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: locked ? theme.muted : theme.text,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700)))),
         ]));
   }
 }

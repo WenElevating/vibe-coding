@@ -290,7 +290,8 @@ void main() {
       expect(viewModel.conversationModelUpdatesUnsupported, isFalse);
     });
 
-    test('stale model update failure does not mark new conversation unsupported',
+    test(
+        'stale model update failure does not mark new conversation unsupported',
         () async {
       final repository = _FakeConversationRepository();
       final updateCompleter = Completer<ConversationSummary>();
@@ -328,6 +329,7 @@ void main() {
         ),
       );
 
+      viewModel.setSelectedAdapter('codex');
       viewModel.beginOperation();
       viewModel.setSelectedAdapter('claude');
       final selected = await viewModel.selectModel('gpt-5-mini');
