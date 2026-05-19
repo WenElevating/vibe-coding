@@ -10,5 +10,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "busboy": "1.6.0",
+    "canonicalize": "2.1.0"
   }
 }

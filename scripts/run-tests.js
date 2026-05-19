@@ -3949,6 +3949,87 @@ test('adapter capability loading shares concurrent probes', async () => {
   assert.equal(secondCalls, 2);
 });
 
+test('attachment capability fixture hashes to the documented capabilityVersion', () => {
+  const {
+    canonicalizeForHash,
+    sha256Hex,
+    sha256PrefixHex
+  } = require('../daemon/src/canonical-json');
+  const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  const fixture = {
+    adapterId: 'codex',
+    attachments: {
+      image: 'native',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    },
+    cliPath: 'codex',
+    cliVersion: '0.21.0',
+    models: [
+      {
+        id: 'gpt-5.3-codex',
+        inputModalities: ['image', 'text']
+      }
+    ],
+    selectedModelId: 'gpt-5.3-codex'
+  };
+  const canonical = canonicalizeForHash(fixture);
+  assert.equal(
+    canonical,
+    '{"adapterId":"codex","attachments":{"image":"native","pdf":"unsupported","textDocument":"text_extract"},"cliPath":"codex","cliVersion":"0.21.0","models":[{"id":"gpt-5.3-codex","inputModalities":["image","text"]}],"selectedModelId":"gpt-5.3-codex"}'
+  );
+  const fullHash = sha256Hex(canonical);
+  assert.equal(
+    fullHash,
+    '4bcf6aa44f7e2e074229f9cd64880e8dc42fa727917b9ef732209a3f0f776973'
+  );
+  assert.equal(sha256PrefixHex(canonical, 12), '4bcf6aa44f7e2e074229f9cd');
+  assert.equal(
+    capabilityVersionForNormalizedInput(fixture),
+    '4bcf6aa44f7e2e074229f9cd'
+  );
+});
+
+test('attachment payload fixture hashes to the documented payloadHash', () => {
+  const { canonicalizeForHash, sha256Hex } = require('../daemon/src/canonical-json');
+  const { payloadHashForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  const fixture = {
+    attachments: [
+      {
+        contentSha256Prefix: '0123456789abcdeffedcba9876543210',
+        index: 0,
+        kind: 'image',
+        mimeType: 'image/png',
+        name: 'screenshot.png',
+        sizeBytes: 120034
+      }
+    ],
+    text: 'Please inspect this screenshot.'
+  };
+  const canonical = canonicalizeForHash(fixture);
+  assert.equal(
+    canonical,
+    '{"attachments":[{"contentSha256Prefix":"0123456789abcdeffedcba9876543210","index":0,"kind":"image","mimeType":"image/png","name":"screenshot.png","sizeBytes":120034}],"text":"Please inspect this screenshot."}'
+  );
+  assert.equal(
+    sha256Hex(canonical),
+    '760cab258596d09e0ca1f9b9a8821a03ad4da63461e1ead383a790123f153f26'
+  );
+  assert.equal(
+    payloadHashForNormalizedInput(fixture),
+    '760cab258596d09e0ca1f9b9a8821a03ad4da63461e1ead383a790123f153f26'
+  );
+});
+
+test('attachment hash inputs normalize strings to NFC before canonicalization', () => {
+  const { canonicalizeForHash, sha256Hex } = require('../daemon/src/canonical-json');
+  const composed = canonicalizeForHash({ text: 'café' });
+  const decomposed = canonicalizeForHash({ text: 'cafe\u0301' });
+
+  assert.equal(composed, decomposed);
+  assert.equal(sha256Hex(composed), sha256Hex(decomposed));
+});
+
 test('adapter capability listing merges model capability metadata', async () => {
   const registry = new AdapterRegistry([
     {
