@@ -133,7 +133,14 @@ function estimateAttachmentTextTokens({ text, asciiChars, wrapperChars = 0, nonA
   let nonAsciiCount = nonAsciiChars;
   if (typeof text === 'string') {
     asciiCount = 0;
-    nonAsciiCount = Array.from(text).length;
+    nonAsciiCount = 0;
+    for (const char of Array.from(text)) {
+      if (/^[\u0000-\u007f]$/u.test(char)) {
+        asciiCount += 1;
+      } else {
+        nonAsciiCount += 1;
+      }
+    }
   }
   return Math.ceil(((asciiCount || 0) + wrapperChars) / 3.0 + (nonAsciiCount || 0) / 1.0);
 }

@@ -4897,7 +4897,7 @@ test('context budget estimate counts code points and wrapper ascii conservativel
   const { estimateAttachmentTextTokens } = require('../daemon/src/attachment-validation');
 
   assert.equal(estimateAttachmentTextTokens({ asciiChars: 30, wrapperChars: 12, nonAsciiChars: 2 }), 16);
-  assert.equal(estimateAttachmentTextTokens({ text: 'abc你好😀', wrapperChars: 0 }), 6);
+  assert.equal(estimateAttachmentTextTokens({ text: 'abc你好😀', wrapperChars: 0 }), 4);
 });
 
 test('attachment scratch store writes scoped metadata and cleanup stays under root', async () => {
