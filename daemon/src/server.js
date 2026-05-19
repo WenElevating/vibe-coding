@@ -110,7 +110,17 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         return json(res, 200, { events: conversations.listEvents(conversationEvents[1], afterSeq, device) });
       }
       const conversationMessages = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
-      if (method === 'POST' && conversationMessages) return json(res, 200, { conversation: await conversations.sendMessage(conversationMessages[1], await readJson(req), device) });
+      if (method === 'POST' && conversationMessages) {
+        const contentType = String(req.headers['content-type'] || '').toLowerCase();
+        if (contentType.startsWith('multipart/form-data')) {
+          return json(res, 200, {
+            conversation: await conversations.sendMultipartMessage(conversationMessages[1], req, device)
+          });
+        }
+        return json(res, 200, {
+          conversation: await conversations.sendMessage(conversationMessages[1], await readJson(req), device)
+        });
+      }
       const conversationQuestion = url.pathname.match(/^\/api\/conversations\/([^/]+)\/questions\/respond$/);
       if (method === 'POST' && conversationQuestion) return json(res, 200, { conversation: await conversations.answerQuestion(conversationQuestion[1], await readJson(req), device) });
       const conversationApproval = url.pathname.match(/^\/api\/conversations\/([^/]+)\/approvals\/([^/]+)\/respond$/);
@@ -149,7 +159,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         deviceId: safeDeviceId(error),
         metadata: { code: error.code || 'ERROR', status: error.status || 500 }
       });
-      json(res, error.status || 500, { error: { code: error.code || 'ERROR', message: error.message, details: error.details, actionable: error.actionable, userAction: error.userAction, recoverable: error.recoverable, traceId: trace.traceId } });
+      json(res, error.status || 500, { error: { code: error.code || 'ERROR', message: error.message, details: error.details, actionable: error.actionable, userAction: error.userAction, recoverable: error.recoverable, traceId: trace.traceId } }, error.headers || {});
     }
   });
 }
@@ -223,7 +233,7 @@ async function listDirectory(targetPath, allowedRoots) {
     .sort((a, b) => a.name.localeCompare(b.name));
   return { path: resolved, parent: path.dirname(resolved) === resolved ? null : path.dirname(resolved), directories };
 }
-function json(res, status, body) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); }
+function json(res, status, body, headers = {}) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(body)); }
 async function readJson(req) {
   const chunks = [];
   let total = 0;

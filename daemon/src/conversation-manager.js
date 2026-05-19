@@ -1,6 +1,8 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const path = require('node:path');
+const os = require('node:os');
 const {
   conversationStatuses,
   conversationSessionBindings,
@@ -11,9 +13,13 @@ const {
   normalizeQuestionResponse,
   normalizeApprovalDecision
 } = require('./conversation-protocol');
+const { readMultipartConversationMessage } = require('./multipart-message-reader');
+const { AttachmentScratchStore } = require('./attachment-scratch-store');
+const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = require('./attachment-hashes');
+const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
 
 class ConversationManager {
-  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date() }) {
+  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null }) {
     this.workspaces = workspaces;
     this.eventStore = eventStore;
     this.auditLog = auditLog;
@@ -21,6 +27,10 @@ class ConversationManager {
     this.persistentStore = persistentStore;
     this.idleTtlMs = idleTtlMs;
     this.now = now;
+    this.attachmentScratchStore = attachmentScratchStore || new AttachmentScratchStore({ root: path.join(os.tmpdir(), 'vibe-coding-attachment-scratch') });
+    this.multipartDeviceLocks = new Map();
+    this.multipartActiveCount = 0;
+    this.multipartMaxPerDaemon = 4;
     this.conversations = new Map();
     this.loadPersistedConversations();
   }
@@ -38,6 +48,8 @@ class ConversationManager {
 
   normalizeRestoredConversation(conversation) {
     const restored = { ...conversation, handle: null };
+    restored.messageIdempotency = new Map();
+    restored.messageInFlightIds = new Set();
     if ([conversationStatuses.RUNNING, conversationStatuses.WAITING_INPUT, conversationStatuses.WAITING_APPROVAL].includes(restored.status)) {
       restored.status = conversationStatuses.INTERRUPTED;
       restored.blockingItem = null;
@@ -81,7 +93,9 @@ class ConversationManager {
       createdAt: this.now().toISOString(),
       updatedAt: this.now().toISOString(),
       capabilities: adapter.capabilities || {},
-      handle: null
+      handle: null,
+      messageIdempotency: new Map(),
+      messageInFlightIds: new Set()
     };
     this.conversations.set(conversation.id, conversation);
     this.persistConversation(conversation);
@@ -182,24 +196,108 @@ class ConversationManager {
   async sendMessage(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const message = normalizeMessagePayload(payload);
-    if (conversation.status === conversationStatuses.WAITING_INPUT) throw conflict('conversation is waiting for input response');
-    if (conversation.status === conversationStatuses.WAITING_APPROVAL) throw conflict('conversation is waiting for approval response');
-    if (conversation.modelUpdateLock) throw conflict('model update already in flight');
-    if (conversation.sendLock) throw conflict('message already in flight');
-    conversation.sendLock = true;
-    conversation.status = conversationStatuses.RUNNING;
-    conversation.blockingItem = null;
-    conversation.idleExpiresAt = null;
-    conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
-    this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: message.text });
-    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+    return this.commitAndDispatchMessage(conversation, message, device, { files: normalizeDirectAttachmentFiles(message.attachments) });
+  }
+
+  async sendMultipartMessage(conversationId, req, device) {
+    const conversation = this.requireConversation(conversationId, device);
+    this.assertConversationCanStartMessage(conversation);
+    if (this.multipartDeviceLocks.has(device.id) || this.multipartActiveCount >= this.multipartMaxPerDaemon) {
+      const error = attachmentError(429, 'upload_rate_limited', 'Too many attachment uploads are active. Try again shortly.');
+      error.headers = { 'retry-after': '5' };
+      throw error;
+    }
+
+    this.multipartDeviceLocks.set(device.id, true);
+    this.multipartActiveCount += 1;
+    let scratch = null;
     try {
+      scratch = await this.attachmentScratchStore.createMessageScratch({
+        conversationId: conversation.id,
+        clientMessageId: null,
+        scratchLifetime: 'message'
+      });
+      const multipart = await readMultipartConversationMessage(req, scratch);
+      const message = normalizeMessagePayload({
+        ...multipart.payload,
+        attachments: multipart.files
+      });
+      return await this.commitAndDispatchMessage(conversation, message, device, { files: multipart.files });
+    } catch (error) {
+      if (scratch) await scratch.cleanup().catch((cleanupError) => {
+        this.auditLog.record('conversation.attachment_scratch_cleanup_error', {
+          conversationId: conversation.id,
+          error: cleanupError.message
+        });
+      });
+      throw error;
+    } finally {
+      this.multipartDeviceLocks.delete(device.id);
+      this.multipartActiveCount -= 1;
+    }
+  }
+
+  async commitAndDispatchMessage(conversation, message, device, { files = [] } = {}) {
+    this.assertConversationCanStartMessage(conversation);
+    const hasAttachments = files.length > 0 || message.attachments.length > 0;
+    if (hasAttachments) {
+      if (!message.clientMessageId) throw badRequest('clientMessageId is required for attachment messages');
+      const currentCapabilityVersion = await this.currentCapabilityVersion(conversation);
+      if (!message.capabilityVersion || message.capabilityVersion !== currentCapabilityVersion) {
+        throw attachmentError(409, 'capability_stale', 'Attachment capabilities changed. Refresh adapter capabilities and retry.', {
+          currentCapabilityVersion
+        });
+      }
+      if (conversation.messageInFlightIds.has(message.clientMessageId)) {
+        throw attachmentError(409, 'message_already_in_flight', 'Message is already in flight.');
+      }
+    }
+
+    const payloadHash = hasAttachments ? payloadHashForNormalizedInput({
+      text: message.text,
+      attachments: files.map((file, index) => attachmentPayloadHashInput(file, index))
+    }) : null;
+    if (hasAttachments && conversation.messageIdempotency.has(message.clientMessageId)) {
+      const previousHash = conversation.messageIdempotency.get(message.clientMessageId);
+      if (previousHash === payloadHash) return publicConversation(conversation);
+      throw attachmentError(409, 'message_idempotency_conflict', 'clientMessageId was already used with different content.');
+    }
+
+    if (hasAttachments) {
+      validateAttachmentHandling(conversation.capabilities?.attachments, files);
+      conversation.messageInFlightIds.add(message.clientMessageId);
+    }
+
+    if (conversation.sendLock) {
+      if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
+      throw conflict('message already in flight');
+    }
+    conversation.sendLock = true;
+    let committed = false;
+    try {
+      conversation.status = conversationStatuses.RUNNING;
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+      conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, {
+        text: message.text,
+        ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+        ...(payloadHash ? { payloadHash } : {}),
+        ...(hasAttachments ? { attachments: committedAttachmentMetadata(files) } : {})
+      });
+      if (hasAttachments) conversation.messageIdempotency.set(message.clientMessageId, payloadHash);
+      committed = true;
+      this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await this.ensureStarted(conversation);
       await conversation.handle.sendUserMessage(message.text);
       this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
       return publicConversation(conversation);
     } catch (error) {
+      if (!committed) {
+        if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
+        throw error;
+      }
       conversation.status = conversationStatuses.FAILED;
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
@@ -210,7 +308,35 @@ class ConversationManager {
       throw error;
     } finally {
       conversation.sendLock = false;
+      if (hasAttachments) conversation.messageInFlightIds.delete(message.clientMessageId);
     }
+  }
+
+  assertConversationCanStartMessage(conversation) {
+    if (conversation.status === conversationStatuses.WAITING_INPUT) throw conflict('conversation is waiting for input response');
+    if (conversation.status === conversationStatuses.WAITING_APPROVAL) throw conflict('conversation is waiting for approval response');
+    if (conversation.modelUpdateLock) throw conflict('model update already in flight');
+    if (conversation.sendLock) throw conflict('message already in flight');
+  }
+
+  async currentCapabilityVersion(conversation) {
+    const adapter = this.getAdapter(conversation.adapter);
+    const modelCapability = await modelCapabilityFor(adapter);
+    const status = adapter.capability || {};
+    const rawCapabilities = status.capabilities || (typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : (adapter.capabilities || {}));
+    const attachments = normalizeAttachmentCapabilities(rawCapabilities?.attachments);
+    const models = Array.isArray(modelCapability.models)
+      ? modelCapability.models.map((model) => applyModelAttachmentCapabilities(model, attachments)).sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      : [];
+    const selectedModel = typeof modelCapability.selectedModel === 'string' ? modelCapability.selectedModel.trim() || null : null;
+    return capabilityVersionForNormalizedInput({
+      adapterId: conversation.adapter,
+      attachments,
+      cliPath: status.cliPath || status.path || adapter.cliPath || adapter.path || adapter.name || status.command || adapter.command || conversation.adapter,
+      cliVersion: status.cliVersion || status.version || adapter.cliVersion || adapter.version || null,
+      models: models.map((model) => modelCapabilityHashInput(model, attachments)),
+      selectedModelId: selectedModel
+    });
   }
 
   async answerQuestion(conversationId, payload, device) {
@@ -503,6 +629,90 @@ function assertRequestedModelAllowed(requestedModel, capability) {
   }
 }
 
+function attachmentError(status, code, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  error.details = details;
+  return error;
+}
+
+function committedAttachmentMetadata(files) {
+  return files.map((file, index) => ({
+    id: `att_${index}_${crypto.randomBytes(4).toString('hex')}`,
+    name: file.name,
+    kind: file.kind,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+    handling: file.handling
+  }));
+}
+
+function attachmentPayloadHashInput(file, index) {
+  return {
+    contentSha256Prefix: file.contentSha256Prefix || String(file.contentSha256 || '').slice(0, 32),
+    index,
+    kind: file.kind,
+    mimeType: file.mimeType,
+    name: file.name,
+    sizeBytes: file.sizeBytes
+  };
+}
+
+function normalizeDirectAttachmentFiles(attachments) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments.map((attachment) => ({
+    name: attachment.name,
+    kind: attachment.kind,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    contentSha256: attachment.contentSha256,
+    contentSha256Prefix: attachment.contentSha256Prefix || String(attachment.contentSha256 || '').slice(0, 32),
+    handling: attachment.handling || handlingForKind(attachment.kind)
+  }));
+}
+
+function validateAttachmentHandling(capabilities, files) {
+  const normalized = normalizeAttachmentCapabilities(capabilities);
+  for (const file of files) {
+    if (!file.name || !file.kind || !file.mimeType || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) {
+      throw badRequest('attachment metadata is invalid');
+    }
+    if (!file.contentSha256Prefix) throw badRequest('attachment content hash is required');
+    const handling = normalized[file.kind];
+    if (!handling || handling === 'unsupported') {
+      throw attachmentError(415, 'UNSUPPORTED_MEDIA_TYPE', 'unsupported media type', { kind: file.kind });
+    }
+    file.handling = file.handling || handlingForKind(file.kind);
+  }
+}
+
+function handlingForKind(kind) {
+  if (kind === 'textDocument') return 'text_extract';
+  if (kind === 'image') return 'native';
+  if (kind === 'pdf') return 'staged_path';
+  return 'unsupported';
+}
+
+function modelCapabilityHashInput(model, adapterAttachments) {
+  const input = {
+    id: model.id,
+    inputModalities: model.inputModalities
+  };
+  const defaultProjection = applyModelAttachmentCapabilities({
+    id: model.id,
+    inputModalities: model.inputModalities
+  }, adapterAttachments);
+  if (!sameAttachments(model.attachments, defaultProjection.attachments)) {
+    input.attachments = model.attachments;
+  }
+  return input;
+}
+
+function sameAttachments(left, right) {
+  return left?.image === right?.image && left?.pdf === right?.pdf && left?.textDocument === right?.textDocument;
+}
+
 function publicConversation(conversation) {
   return {
     id: conversation.id,
@@ -547,6 +757,13 @@ function conflict(message) {
   const error = new Error(message);
   error.status = 409;
   error.code = 'CONVERSATION_CONFLICT';
+  return error;
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  error.code = 'BAD_REQUEST';
   return error;
 }
 

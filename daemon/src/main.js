@@ -19,6 +19,7 @@ const { SyntheticAdapter } = require('./synthetic-adapter');
 const { AdapterRegistry } = require('./adapter-registry');
 const { RunManager } = require('./run-manager');
 const { ConversationManager } = require('./conversation-manager');
+const { AttachmentScratchStore } = require('./attachment-scratch-store');
 const { RunQueue } = require('./run-queue');
 const { ShortcutStore } = require('./shortcuts');
 const { CommandTemplateStore } = require('./command-templates');
@@ -83,6 +84,7 @@ function createApp({
   const gitService = new GitService();
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
+  const attachmentScratchStore = new AttachmentScratchStore({ root: path.join(path.dirname(appDbPath), 'attachment-scratch') });
   const config = { host, port, mode };
   const version = versionInfo({ mode });
   const migrationService = new MigrationService();
@@ -93,6 +95,7 @@ function createApp({
     auditLog,
     adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand }),
     persistentStore: conversationSqliteStore,
+    attachmentScratchStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
   });
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });

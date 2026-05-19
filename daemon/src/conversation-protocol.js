@@ -100,8 +100,12 @@ function normalizeConversationModelUpdate(payload) {
 function normalizeMessagePayload(payload) {
   if (!payload || typeof payload !== 'object') throw badRequest('payload must be an object');
   const text = stringValue(payload.text || payload.prompt).trim();
-  if (!text) throw badRequest('text is required');
-  return { text };
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const clientMessageId = optionalString(payload.clientMessageId);
+  const capabilityVersion = optionalString(payload.capabilityVersion);
+  if (!text && attachments.length === 0) throw badRequest('text or attachments are required');
+  if (attachments.length === 0 && !text) throw badRequest('text is required');
+  return { text, clientMessageId, capabilityVersion, attachments };
 }
 
 function normalizeQuestionResponse(payload) {
