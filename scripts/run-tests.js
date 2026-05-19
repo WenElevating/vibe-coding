@@ -4407,6 +4407,62 @@ test('conversation adapters expose explicit attachment capability contracts', ()
   });
 });
 
+test('production Claude adapter listing exposes native image attachment support and dynamic flags', async () => {
+  const claude = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_command, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.112\n', stderr: '' };
+      if (args.includes('--help')) {
+        return {
+          status: 0,
+          stdout: '--print --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --model --permission-mode [default,auto]\n',
+          stderr: ''
+        };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  const registry = new AdapterRegistry([claude]);
+
+  const [listed] = await registry.listCapabilities();
+
+  assert.equal(listed.capabilities.supportsModelFlag, true);
+  assert.equal(listed.capabilities.streamJson, true);
+  assert.deepEqual(listed.capabilities.attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
+test('production Codex adapter listing exposes attachment support and preserves detection metadata', async () => {
+  const codex = createCodexAdapter({
+    command: 'codex',
+    explicitEnabled: true,
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_command, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.21.0\n', stderr: '' };
+      if (args[0] === '--help') return { status: 0, stdout: 'Usage: codex exec\n', stderr: '' };
+      if (args[0] === 'exec' && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec --json --model <model>\n', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+  const registry = new AdapterRegistry([codex]);
+
+  const [listed] = await registry.listCapabilities();
+
+  assert.equal(listed.available, true);
+  assert.equal(listed.status, 'available');
+  assert.equal(listed.version, 'codex-cli 0.21.0');
+  assert.equal(listed.canSelectModel, true);
+  assert.deepEqual(listed.capabilities.attachments, {
+    image: 'unsupported',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
 test('adapter capability listing preserves dynamic status capabilities with static adapter defaults', async () => {
   const registry = new AdapterRegistry([
     {

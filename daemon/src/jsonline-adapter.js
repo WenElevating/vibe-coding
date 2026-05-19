@@ -6,13 +6,14 @@ const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 
 class JsonLineProcessAdapter {
-  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], modelCapabilityHelpArgs = null, spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
+  constructor({ name, command, capabilityArgs = ['--version'], runArgs, requiredHelp = [], modelCapabilityHelpArgs = null, staticCapabilities = {}, spawnFn = spawn, spawnSyncFn = spawnSync, explicitEnabled = true, cliResolverOptions = {} } = {}) {
     this.name = name;
     this.command = command;
     this.capabilityArgs = capabilityArgs;
     this.runArgs = runArgs;
     this.requiredHelp = requiredHelp;
     this.modelCapabilityHelpArgs = modelCapabilityHelpArgs;
+    this.staticCapabilities = staticCapabilities;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
     this.explicitEnabled = explicitEnabled;
@@ -54,6 +55,10 @@ class JsonLineProcessAdapter {
 
   getModelCapability() {
     return this.modelCapability || defaultModelCapability();
+  }
+
+  getCapabilities() {
+    return this.staticCapabilities || {};
   }
 
   ensureAvailable() {
@@ -103,6 +108,13 @@ function createCodexAdapter(options = {}) {
     capabilityArgs: ['--version'],
     requiredHelp: ['exec'],
     modelCapabilityHelpArgs: ['exec', '--help'],
+    staticCapabilities: {
+      attachments: {
+        image: 'unsupported',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
+    },
     runArgs: (prompt, workspacePath, sessionId, resume, permissionMode) => sessionId ? [
       'exec',
       'resume',

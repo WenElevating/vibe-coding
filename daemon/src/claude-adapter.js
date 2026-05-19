@@ -75,6 +75,16 @@ class ClaudeAdapter {
     return this.modelCapability || defaultModelCapability();
   }
 
+  getCapabilities() {
+    return {
+      attachments: {
+        image: 'native',
+        textDocument: 'text_extract',
+        pdf: 'unsupported'
+      }
+    };
+  }
+
   ensureAvailable() {
     const capability = this.capability || this.detectCapabilities();
     if (!capability.available) {
