@@ -534,12 +534,12 @@ class ConversationManager {
       }, conversationStatuses.WAITING_APPROVAL, event);
       return;
     }
-    if (event.type === 'system.notice') {
-      const { type, ...payload } = event;
+    const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    if (eventToAppend.type === 'system.notice') {
+      const { type, ...payload } = eventToAppend;
       this.eventStore.append(conversation.id, type, payload);
       return;
     }
-    const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
     if (eventCompletesTurn(eventToAppend)) {
       conversation.status = conversationStatuses.IDLE;
       conversation.blockingItem = null;
@@ -846,7 +846,12 @@ function attachmentDispatchRedactionContext(files) {
 }
 
 function sanitizeAdapterEvent(event, context) {
-  if (!context || ![conversationEventTypes.RUN_ERROR, conversationEventTypes.PROTOCOL_WARNING].includes(event.type)) return event;
+  const sanitizableTypes = [
+    conversationEventTypes.RUN_ERROR,
+    conversationEventTypes.PROTOCOL_WARNING,
+    'system.notice'
+  ];
+  if (!context || !sanitizableTypes.includes(event.type)) return event;
   if (!isRedactableAttachmentDispatchEvent(event, context)) return event;
   const safe = new Error('Attachment dispatch failed');
   safe.status = 502;
@@ -950,18 +955,57 @@ function isPathLikeAttachmentDispatchError(error, files) {
 function textAttachmentRedactionMarkers(file) {
   if (file?.kind !== 'textDocument' || file.text == null) return [];
   const text = String(file.text);
-  const markers = [
-    textAttachmentWrapper({ name: file.name, mimeType: file.mimeType, text })
-  ];
-  if (text.trim().length >= 8) markers.push(text);
-  return markers;
+  const wrapper = textAttachmentWrapper({ name: file.name, mimeType: file.mimeType, text });
+  return uniqueRedactionMarkers([
+    wrapper,
+    ...prefixRedactionMarkers(wrapper),
+    ...textContentRedactionMarkers(text)
+  ]);
 }
 
 function hasTextAttachmentEcho(value, context) {
   const markers = Array.isArray(context?.textMarkers) ? context.textMarkers.filter(Boolean) : [];
   if (markers.length === 0) return false;
   const strings = collectDiagnosticStringValues(value);
-  return strings.some((item) => markers.some((marker) => item.includes(marker)));
+  return strings.some((item) => markers.some((marker) => includesMarker(item, marker)));
+}
+
+function includesMarker(value, marker) {
+  if (value.includes(marker)) return true;
+  const normalizedValue = normalizeRedactionMarker(value);
+  const normalizedMarker = normalizeRedactionMarker(marker);
+  return normalizedMarker.length >= 12 && normalizedValue.includes(normalizedMarker);
+}
+
+function prefixRedactionMarkers(value) {
+  const markers = [];
+  for (const length of [32, 48, 64, 96]) {
+    if (value.length >= length) markers.push(value.slice(0, length));
+  }
+  return markers;
+}
+
+function textContentRedactionMarkers(text) {
+  const normalized = normalizeRedactionMarker(text);
+  if (normalized.length < 12) return [];
+  const markers = [normalized];
+  const words = normalized.match(/[^\s]+/g) || [];
+  for (let index = 0; index < words.length; index += 1) {
+    let snippet = '';
+    for (let end = index; end < words.length && snippet.length < 48; end += 1) {
+      snippet = snippet ? `${snippet} ${words[end]}` : words[end];
+      if (snippet.length >= 12) markers.push(snippet);
+    }
+  }
+  return markers;
+}
+
+function normalizeRedactionMarker(value) {
+  return String(value).replace(/\s+/g, ' ').trim();
+}
+
+function uniqueRedactionMarkers(markers) {
+  return [...new Set(markers.filter((marker) => normalizeRedactionMarker(marker).length >= 12))];
 }
 
 function runErrorPayload(error) {
