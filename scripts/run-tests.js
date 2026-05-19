@@ -4841,6 +4841,88 @@ test('V1.3 smoke endpoint is dev-only and release mode hides it', async () => {
     await new Promise((resolve) => release.server.close(resolve));
   }
 });
+
+test('attachment filename validation rejects unsafe display names', () => {
+  const { sanitizeAttachmentName } = require('../daemon/src/attachment-validation');
+
+  assert.equal(sanitizeAttachmentName(' screenshot.png '), 'screenshot.png');
+  assert.throws(() => sanitizeAttachmentName('../secret.png'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('con.txt'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('report.'), /unsupported media type/);
+  assert.throws(() => sanitizeAttachmentName('photo\u202Egpj.exe'), /unsupported media type/);
+});
+
+test('attachment validation rejects zero-byte text files', async () => {
+  const { validateTextAttachmentBytes } = require('../daemon/src/attachment-validation');
+
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.alloc(0), { name: 'empty.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
+});
+
+test('attachment validation accepts UTF-8 BOM and strips it without normalizing line endings', async () => {
+  const { validateTextAttachmentBytes } = require('../daemon/src/attachment-validation');
+  const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('a\r\nb', 'utf8')]);
+
+  const result = await validateTextAttachmentBytes(bytes, { name: 'notes.txt', mimeType: 'text/plain' });
+
+  assert.equal(result.text, 'a\r\nb');
+  assert.equal(result.mimeType, 'text/plain');
+});
+
+test('attachment validation rejects UTF-16 text and binary-looking text', async () => {
+  const { validateTextAttachmentBytes } = require('../daemon/src/attachment-validation');
+
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from([0xff, 0xfe, 0x61, 0x00]), { name: 'notes.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from([0x61, 0x00, 0x62]), { name: 'notes.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
+});
+
+test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', () => {
+  const { sniffAttachmentBytes } = require('../daemon/src/attachment-validation');
+
+  assert.equal(sniffAttachmentBytes(Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')).mimeType, 'image/png');
+  assert.equal(sniffAttachmentBytes(Buffer.from('ffd8ffe000104a464946', 'hex')).mimeType, 'image/jpeg');
+  assert.equal(sniffAttachmentBytes(Buffer.from('524946460000000057454250', 'hex')).mimeType, 'image/webp');
+  assert.equal(sniffAttachmentBytes(Buffer.from('524946460000000057415645', 'hex')).knownType, 'riff-other');
+});
+
+test('context budget estimate counts code points and wrapper ascii conservatively', () => {
+  const { estimateAttachmentTextTokens } = require('../daemon/src/attachment-validation');
+
+  assert.equal(estimateAttachmentTextTokens({ asciiChars: 30, wrapperChars: 12, nonAsciiChars: 2 }), 16);
+  assert.equal(estimateAttachmentTextTokens({ text: 'abc你好😀', wrapperChars: 0 }), 6);
+});
+
+test('attachment scratch store writes scoped metadata and cleanup stays under root', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-'));
+  const store = new AttachmentScratchStore({ root, now: () => new Date('2026-05-19T00:00:00.000Z') });
+
+  const scratch = await store.createMessageScratch({
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+  await scratch.writeFile('file_0.png', Buffer.from('abc'));
+  await scratch.writeMetadata({ active: true, pid: process.pid });
+
+  assert.equal(fs.existsSync(path.join(scratch.dir, 'metadata.json')), true);
+  assert.equal(fs.existsSync(path.join(scratch.dir, 'file_0.png')), true);
+
+  await scratch.cleanup();
+
+  assert.equal(fs.existsSync(scratch.dir), false);
+});
 (async () => {
   let passed = 0;
   for (const item of tests) {
