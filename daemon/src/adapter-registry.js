@@ -37,12 +37,13 @@ class AdapterRegistry {
 async function enrich(adapter, status) {
   const modelCapability = await loadModelCapability(adapter, status);
   const rawCapabilities = {
-    ...(status.capabilities || {}),
-    ...(typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : {})
+    ...(typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : {}),
+    ...(status.capabilities || {})
   };
   const attachments = normalizeAttachmentCapabilities(rawCapabilities?.attachments);
-  const models = normalizeModels(modelCapability.models, attachments);
-  const selectedModel = normalizeSelectedModelId(modelCapability.selectedModel);
+  const rawModels = selectRawModels(modelCapability, status);
+  const models = normalizeModels(rawModels, attachments);
+  const selectedModel = normalizeSelectedModelId(modelCapability.selectedModel) || normalizeSelectedModelId(status.selectedModel);
   const enriched = {
     ...defaultModelCapability(),
     ...status,
@@ -61,10 +62,7 @@ async function enrich(adapter, status) {
     attachments,
     cliPath: status.cliPath || status.path || adapter.cliPath || adapter.name || status.command,
     cliVersion: status.cliVersion || status.version || null,
-    models: models.map((model) => ({
-      id: model.id,
-      inputModalities: model.inputModalities
-    })),
+    models: models.map((model) => modelCapabilityHashInput(model, attachments)),
     selectedModelId: selectedModel
   });
   return enriched;
@@ -93,10 +91,36 @@ function normalizeModels(models, attachments) {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function selectRawModels(modelCapability, status) {
+  if (Array.isArray(modelCapability.models) && modelCapability.models.length > 0) return modelCapability.models;
+  return status.models;
+}
+
 function normalizeSelectedModelId(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function modelCapabilityHashInput(model, adapterAttachments) {
+  const input = {
+    id: model.id,
+    inputModalities: model.inputModalities
+  };
+  const defaultProjection = applyModelAttachmentCapabilities({
+    id: model.id,
+    inputModalities: model.inputModalities
+  }, adapterAttachments);
+  if (!sameAttachments(model.attachments, defaultProjection.attachments)) {
+    input.attachments = model.attachments;
+  }
+  return input;
+}
+
+function sameAttachments(left, right) {
+  return left?.image === right?.image &&
+    left?.pdf === right?.pdf &&
+    left?.textDocument === right?.textDocument;
 }
 
 module.exports = { AdapterRegistry };

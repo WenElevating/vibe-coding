@@ -4348,6 +4348,56 @@ test('adapter capability listing trims selected model before exposing and hashin
   assert.equal(codex.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
 });
 
+test('adapter capability listing changes capabilityVersion for effective model attachment overrides', async () => {
+  function registryForModel(model) {
+    return new AdapterRegistry([
+      {
+        name: 'codex',
+        async detectCapabilities() {
+          return {
+            adapter: 'codex',
+            available: true,
+            status: 'available',
+            cliVersion: '0.21.0',
+            cliPath: 'codex'
+          };
+        },
+        getModelCapability() {
+          return {
+            canSelectModel: true,
+            selectedModel: 'gpt-5.3-codex',
+            models: [model]
+          };
+        },
+        getCapabilities() {
+          return {
+            attachments: {
+              image: 'native',
+              textDocument: 'text_extract',
+              pdf: 'unsupported'
+            }
+          };
+        }
+      }
+    ]);
+  }
+
+  const [defaultProjection] = await registryForModel({
+    id: 'gpt-5.3-codex',
+    inputModalities: ['text', 'image']
+  }).listCapabilities();
+  const [overrideProjection] = await registryForModel({
+    id: 'gpt-5.3-codex',
+    inputModalities: ['text', 'image'],
+    attachments: {
+      textDocument: 'unsupported'
+    }
+  }).listCapabilities();
+
+  assert.equal(defaultProjection.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
+  assert.notEqual(defaultProjection.capabilityVersion, overrideProjection.capabilityVersion);
+});
+
 test('adapter capability listing merges partial model attachment overrides over adapter defaults', async () => {
   const registry = new AdapterRegistry([
     {
@@ -4389,6 +4439,81 @@ test('adapter capability listing merges partial model attachment overrides over 
     pdf: 'unsupported',
     textDocument: 'unsupported'
   });
+});
+
+test('adapter capability listing lets dynamic status capabilities win static conflicts', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          capabilities: {
+            resume: false,
+            attachments: {
+              image: 'native'
+            }
+          }
+        };
+      },
+      getCapabilities() {
+        return {
+          resume: true,
+          attachments: {
+            image: 'unsupported',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.capabilities.resume, false);
+  assert.deepEqual(codex.capabilities.attachments, {
+    image: 'native',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+});
+
+test('adapter capability listing preserves status model metadata without model hook', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          selectedModel: ' status-model ',
+          models: [
+            {
+              id: ' status-model ',
+              inputModalities: ['image', 'text']
+            }
+          ],
+          capabilities: {
+            attachments: {
+              image: 'native',
+              textDocument: 'text_extract',
+              pdf: 'unsupported'
+            }
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.selectedModel, 'status-model');
+  assert.deepEqual(codex.models.map((model) => model.id), ['status-model']);
+  assert.deepEqual(codex.models[0].inputModalities, ['image', 'text']);
 });
 
 test('conversation adapters expose explicit attachment capability contracts', () => {
