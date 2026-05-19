@@ -5586,6 +5586,118 @@ test('multipart attachment adapter events redact path-bearing run errors and war
   }
 });
 
+test('multipart attachment adapter events redact raw payloads without path-like strings', async () => {
+  const adapterId = 'claude';
+  const rawHex = '89504e470d0a1a0a0000000d4948445200000001000000010806000000';
+  const base64Image = Buffer.concat([
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 })
+  ]).toString('base64');
+  const base64Marker = base64Image.slice(0, 24);
+  const adapter = attachmentConversationAdapter({
+    onSendEvents: [
+      { type: 'protocol.warning', text: 'provider warning', payload: { image: base64Image }, visible: true },
+      { type: 'run.error', message: 'provider rejected image', detail: { rawBytes: `${rawHex}abcdef1234567890` } }
+    ],
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-raw-event-redaction-'
+  });
+  try {
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const boundary = '----attachments-raw-event-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect raw event failure',
+        clientMessageId: 'client_raw_event_redaction',
+        capabilityVersion: attachmentImageCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const protocolWarning = events.find((event) => event.type === 'protocol.warning');
+    const userMessage = events.find((event) => event.type === 'user.message');
+    const eventsJson = JSON.stringify(events);
+    const committedAttachmentJson = JSON.stringify(userMessage.attachments[0]);
+    assert.equal(response.status, 200);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(protocolWarning.text, 'Attachment dispatch failed');
+    assert.equal(protocolWarning.message, 'Attachment dispatch failed');
+    assert.equal(eventsJson.includes(rawHex), false);
+    assert.equal(eventsJson.includes(base64Marker), false);
+    assert.equal(eventsJson.includes('rawBytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'bytes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
+    assert.equal(committedAttachmentJson.includes(rawHex), false);
+    assert.equal(committedAttachmentJson.includes(base64Marker), false);
+    await waitForAttachmentScratchCleanup(app);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('conversation adapter events preserve raw-looking payloads without attachment context', async () => {
+  const rawHex = '89504e470d0a1a0a0000000d4948445200000001000000010806000000';
+  const base64Image = Buffer.concat([
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 }),
+    minimalPngBytes({ width: 1, height: 1 })
+  ]).toString('base64');
+  const base64Marker = base64Image.slice(0, 24);
+  const adapter = attachmentConversationAdapter({
+    onSendEvents: [
+      { type: 'protocol.warning', text: 'provider warning', payload: { image: base64Image }, visible: true },
+      { type: 'run.error', message: 'provider rejected image', detail: { rawBytes: `${rawHex}abcdef1234567890` } }
+    ]
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    dbPrefix: 'app-db-no-attachment-raw-event-'
+  });
+  try {
+    const response = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+      text: 'ordinary provider event'
+    }, token);
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const protocolWarning = events.find((event) => event.type === 'protocol.warning');
+    const eventsJson = JSON.stringify(events);
+    assert.equal(response.status, 200);
+    assert.equal(runError.message, 'provider rejected image');
+    assert.equal(runError.detail.rawBytes, `${rawHex}abcdef1234567890`);
+    assert.equal(protocolWarning.text, 'provider warning');
+    assert.equal(protocolWarning.payload.image, base64Image);
+    assert.equal(eventsJson.includes(rawHex), true);
+    assert.equal(eventsJson.includes(base64Marker), true);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart conversation send commits multiple attachment metadata entries in order', async () => {
   const { payloadHashForNormalizedInput } = require('../daemon/src/attachment-hashes');
   const crypto = require('node:crypto');

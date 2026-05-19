@@ -843,7 +843,7 @@ function attachmentDispatchRedactionContext(files) {
 
 function sanitizeAdapterEvent(event, context) {
   if (!context || ![conversationEventTypes.RUN_ERROR, conversationEventTypes.PROTOCOL_WARNING].includes(event.type)) return event;
-  if (!isPathLikeAttachmentDispatchEvent(event, context.files)) return event;
+  if (!isRedactableAttachmentDispatchEvent(event, context.files)) return event;
   const safe = new Error('Attachment dispatch failed');
   safe.status = 502;
   safe.code = 'attachment_dispatch_failed';
@@ -858,10 +858,45 @@ function sanitizeAdapterEvent(event, context) {
   };
 }
 
+function isRedactableAttachmentDispatchEvent(event, files) {
+  return isPathLikeAttachmentDispatchEvent(event, files) || hasRawAttachmentDispatchPayload(event);
+}
+
 function isPathLikeAttachmentDispatchEvent(event, files) {
   const strings = collectStringValues(event);
   const code = typeof event.code === 'string' ? event.code : '';
   return isPathLikeAttachmentDispatchError({ message: strings.join(' '), code }, files);
+}
+
+function hasRawAttachmentDispatchPayload(value, key = '', seen = new Set()) {
+  if (typeof value === 'string') return looksLikeRawAttachmentContent(value, key);
+  if (!value || typeof value !== 'object') return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Buffer.isBuffer(value)) return isSuspiciousRawAttachmentKey(key) && value.length >= 16;
+  if (Array.isArray(value)) return value.some((item) => hasRawAttachmentDispatchPayload(item, key, seen));
+  return Object.entries(value).some(([childKey, childValue]) => hasRawAttachmentDispatchPayload(childValue, childKey, seen));
+}
+
+function looksLikeRawAttachmentContent(value, key) {
+  const compact = value.replace(/\s+/g, '');
+  if (imageMagicHexPattern().test(compact)) return true;
+  if (imageMagicBase64Pattern().test(compact)) return true;
+  if (!isSuspiciousRawAttachmentKey(key)) return false;
+  if (/^[0-9a-fA-F]{48,}$/.test(compact)) return true;
+  return compact.length >= 80 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+}
+
+function isSuspiciousRawAttachmentKey(key) {
+  return /^(?:rawbytes|bytes|buffer|base64|image|data)$/i.test(String(key || ''));
+}
+
+function imageMagicHexPattern() {
+  return /^(?:89504e470d0a1a0a|ffd8ff|52494646[0-9a-fA-F]{8}57454250)/i;
+}
+
+function imageMagicBase64Pattern() {
+  return /^(?:iVBORw0KGgo|\/9j\/|UklGR)/;
 }
 
 function collectStringValues(value, seen = new Set()) {
