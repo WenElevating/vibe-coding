@@ -138,11 +138,19 @@ Adapter status responses should include an opaque `capabilityVersion`, computed 
 `capabilityVersion` calculation:
 
 - Build it from normalized capability data, not raw CLI probe output or raw help text.
-- Normalize by sorting object keys, sorting unordered capability arrays, stripping diagnostic provenance, and preserving only fields that affect send compatibility.
-- Use a stable hash, for example `sha256(canonicalCapabilityJson)` truncated to the first 12 bytes and encoded as 24 lowercase hex characters.
+- Normalize the semantic data first: sort unordered capability arrays, strip diagnostic provenance, preserve only fields that affect send compatibility, and then serialize with RFC 8785 JSON Canonicalization Scheme (JCS).
+- Hash the exact UTF-8 bytes of the JCS output with SHA-256, truncate to the first 12 bytes, and encode as 24 lowercase hex characters.
 - Do not use a timestamp or monotonic counter. Daemon restart must not invalidate mobile capability caches when the normalized capability data is unchanged.
+- `cliPath` is included intentionally as the resolved executable identity, not raw user input. This is conservative: moving from one resolved binary path to another forces a capability refresh even when the visible version string is the same.
 - If a multipart attachment send omits `capabilityVersion`, return `409 capability_stale` and require the client to fetch `/api/adapters` before retrying.
 - If the daemon sees a stale version at send time, return `409 capability_stale` so the client refreshes adapter capabilities instead of receiving a misleading `422` for a model that appeared supported moments earlier.
+
+Canonical JSON rules:
+
+- Use RFC 8785 JCS for byte-level serialization after semantic normalization.
+- JCS output has no insignificant whitespace and no trailing newline.
+- Hash the UTF-8 encoded JCS byte string exactly as emitted.
+- Object property ordering, string escaping, number rendering, and primitive rendering follow JCS. Do not use language-default pretty printers or ad hoc `JSON.stringify` wrappers unless tests prove byte-for-byte JCS output for the fixture cases.
 
 Example normalized capability input:
 
@@ -166,7 +174,23 @@ Example normalized capability input:
 }
 ```
 
-With sorted JSON object keys and the arrays already in canonical order, the example hash prefix is `4bcf6aa44f7e2e074229f9cd`.
+Expected JCS byte string:
+
+```json
+{"adapterId":"codex","attachments":{"image":"native","pdf":"unsupported","textDocument":"text_extract"},"cliPath":"codex","cliVersion":"0.21.0","models":[{"id":"gpt-5.3-codex","inputModalities":["image","text"]}],"selectedModelId":"gpt-5.3-codex"}
+```
+
+Expected SHA-256 hex:
+
+```text
+4bcf6aa44f7e2e074229f9cd64880e8dc42fa727917b9ef732209a3f0f776973
+```
+
+Expected `capabilityVersion` prefix:
+
+```text
+4bcf6aa44f7e2e074229f9cd
+```
 
 ## Mobile Draft and UI
 
@@ -441,11 +465,41 @@ Rules:
 Payload hash:
 
 - Compute `payloadHash` on the daemon after validation and scratch streaming, not from client-declared metadata alone.
-- Use `sha256(canonicalPayloadJson)`.
+- Use the same semantic normalization plus RFC 8785 JCS serialization rules as `capabilityVersion`, then compute `sha256(canonicalPayloadJsonUtf8Bytes)`.
 - `canonicalPayloadJson` contains normalized `text` and an `attachments` array in the user-declared attachment order.
 - Each attachment hash entry contains `index`, sanitized `name`, normalized `mimeType`, normalized `kind`, validated `sizeBytes`, and `contentSha256Prefix`.
 - `contentSha256Prefix` is the first 16 bytes of the daemon-computed content SHA-256 encoded as 32 lowercase hex characters. The full hash may be stored internally if useful, but it should not appear in user-visible events.
-- JSON object keys must be sorted before hashing so equivalent daemon serialization code produces the same hash.
+- Keep attachment arrays in user-declared order because order is semantically visible to prompt construction.
+
+Example canonical payload input:
+
+```json
+{
+  "attachments": [
+    {
+      "contentSha256Prefix": "0123456789abcdeffedcba9876543210",
+      "index": 0,
+      "kind": "image",
+      "mimeType": "image/png",
+      "name": "screenshot.png",
+      "sizeBytes": 120034
+    }
+  ],
+  "text": "Please inspect this screenshot."
+}
+```
+
+Expected JCS byte string:
+
+```json
+{"attachments":[{"contentSha256Prefix":"0123456789abcdeffedcba9876543210","index":0,"kind":"image","mimeType":"image/png","name":"screenshot.png","sizeBytes":120034}],"text":"Please inspect this screenshot."}
+```
+
+Expected payload SHA-256 hex:
+
+```text
+760cab258596d09e0ca1f9b9a8821a03ad4da63461e1ead383a790123f153f26
+```
 
 The daemon should avoid scanning the full event log on every send. Maintain a persisted or restored per-conversation index from `clientMessageId` to event sequence plus payload hash. Rebuild the index from persisted events on startup if no dedicated database table exists yet.
 
@@ -549,7 +603,7 @@ Error codes:
 - `409 message_already_in_flight`: send is already running.
 - `409 idempotency_conflict`: same `clientMessageId` with different payload.
 - `409 capability_stale`: mobile validated against an older adapter/model capability version.
-- `429 upload_rate_limited`: multipart upload concurrency or per-device send rate limit is saturated. The response should include `Retry-After: 5` unless a more accurate value is available.
+- `429 upload_rate_limited`: multipart upload concurrency or per-device send rate limit is saturated. The daemon should return a `Retry-After` hint based on which gate fired and the expected release time; absent better information, use `Retry-After: 5`.
 - `502 attachment_dispatch_failed`: validation passed but the adapter conversion or CLI dispatch failed.
 - `500 internal_error`: daemon-local infrastructure failed before or during dispatch, for example scratch root is not writable, disk is full, or an optional tokenizer initialization failed.
 
@@ -605,6 +659,8 @@ Diagnostic bundle:
 Daemon API tests:
 
 - JSON text-only send still works.
+- RFC 8785/JCS fixture for `capabilityVersion` produces `4bcf6aa44f7e2e074229f9cd`.
+- RFC 8785/JCS fixture for `payloadHash` produces `760cab258596d09e0ca1f9b9a8821a03ad4da63461e1ead383a790123f153f26`.
 - Multipart text plus image appends `user.message` metadata.
 - Multipart text document extracts UTF-8 content and passes it to the adapter.
 - UTF-8 BOM text is accepted and BOM is stripped.
@@ -613,6 +669,7 @@ Daemon API tests:
 - Unsupported PDF returns `422` and does not append `user.message`.
 - Unsupported Office document returns `415` or `422` and does not append `user.message`.
 - Zero-byte files return `415` and do not append `user.message`.
+- Zero-byte text extension files return `415` and do not pass as empty valid UTF-8.
 - Too many files returns `413`.
 - Oversized image returns `413`.
 - Over-pixel-limit image returns `413`.
@@ -693,3 +750,4 @@ Mobile tests:
 - Claude Code TypeScript SDK: https://platform.claude.com/docs/en/agent-sdk/typescript
 - Anthropic Models API: https://platform.claude.com/docs/en/api/models
 - Anthropic Files API: https://platform.claude.com/docs/en/build-with-claude/files
+- JSON Canonicalization Scheme: https://www.rfc-editor.org/rfc/rfc8785
