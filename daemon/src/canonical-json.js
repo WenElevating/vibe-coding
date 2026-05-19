@@ -76,6 +76,12 @@ function normalizeHashArray(value) {
     }
     output.push(normalizeHashValue(value[index]));
   }
+  Object.defineProperty(output, 'toJSON', {
+    value: null,
+    enumerable: false,
+    configurable: true,
+    writable: false
+  });
   return output;
 }
 

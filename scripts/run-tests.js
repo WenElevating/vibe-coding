@@ -4112,6 +4112,18 @@ test('attachment hash inputs reject sparse arrays even with prototype pollution'
   }
 });
 
+test('attachment hash arrays ignore inherited toJSON serialization hooks', () => {
+  const { canonicalizeForHash } = require('../daemon/src/canonical-json');
+  Array.prototype.toJSON = function toJSON() {
+    return { polluted: true };
+  };
+  try {
+    assert.equal(canonicalizeForHash(['x']), '["x"]');
+  } finally {
+    delete Array.prototype.toJSON;
+  }
+});
+
 test('attachment hash inputs reject non-JSON object property shapes', () => {
   const { canonicalizeForHash } = require('../daemon/src/canonical-json');
   const symbolKeyed = { text: 'value' };
