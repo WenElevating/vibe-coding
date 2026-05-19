@@ -944,17 +944,22 @@ function isPathLikeAttachmentDispatchError(error, files) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (!message && !code) return false;
   for (const file of files) {
-    if (file?.scratchPath && message.includes(String(file.scratchPath))) return true;
+    if (file?.scratchPath && includesScratchPath(message, file.scratchPath)) return true;
   }
   if (looksLikeAttachmentScratchPath(message)) return true;
   if (/\braw bytes?\b/i.test(message)) return true;
   return false;
 }
 
+function includesScratchPath(message, scratchPath) {
+  const rawPath = String(scratchPath);
+  if (message.includes(rawPath)) return true;
+  return String(message).replace(/\\/g, '/').includes(rawPath.replace(/\\/g, '/'));
+}
+
 function looksLikeAttachmentScratchPath(message) {
   const normalized = String(message || '').replace(/\\/g, '/');
-  return /(?:^|[\s'"])(?:[A-Za-z]:)?\/?[^\s'"]*\/(?:vibe-coding-)?attachment-scratch(?:-[^/\s'"]*)?\/[^\s'"]+/i.test(normalized) ||
-    /(?:^|[\s'"])(?:[A-Za-z]:)?\/?[^\s'"]*\/scratch\/(?:msg_\d+(?:_[0-9a-f-]{36})?|file_\d+\.[A-Za-z0-9]+)\b/i.test(normalized);
+  return /(?:^|[\s'"])(?:[A-Za-z]:)?\/?[^\s'"]*\/(?:vibe-coding-)?attachment-scratch(?:-[^/\s'"]*)?\/[^\s'"]+/i.test(normalized);
 }
 
 function textAttachmentRedactionMarkers(file) {
@@ -992,8 +997,9 @@ function prefixRedactionMarkers(value) {
 
 function textContentRedactionMarkers(text) {
   const normalized = normalizeRedactionMarker(text);
-  if (normalized.length < 12) return [];
+  if (!normalized) return [];
   const markers = [normalized];
+  if (normalized.length < 12) return markers;
   const words = normalized.match(/[^\s]+/g) || [];
   for (let index = 0; index < words.length; index += 1) {
     let snippet = '';
@@ -1010,7 +1016,7 @@ function normalizeRedactionMarker(value) {
 }
 
 function uniqueRedactionMarkers(markers) {
-  return [...new Set(markers.filter((marker) => normalizeRedactionMarker(marker).length >= 12))];
+  return [...new Set(markers.filter((marker) => normalizeRedactionMarker(marker).length > 0))];
 }
 
 function runErrorPayload(error) {

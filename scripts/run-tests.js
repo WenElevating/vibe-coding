@@ -5446,9 +5446,12 @@ test('multipart post-commit adapter failure records run error and consumes clien
 
 test('multipart attachment dispatch failure redacts path-bearing errors in HTTP and run.error', async () => {
   const adapterId = 'claude';
-  const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
+  let leakedPath = null;
   const adapter = attachmentConversationAdapter({
-    sendError: () => new Error(`ENOENT: open ${leakedPath} failed with raw bytes 89504e47`),
+    sendError: (message) => {
+      leakedPath = message.attachments[0].scratchPath;
+      return new Error(`ENOENT: open ${leakedPath} failed with raw bytes 89504e47`);
+    },
     capabilities: {
       resume: true,
       partialOutput: true,
@@ -5515,9 +5518,10 @@ test('multipart attachment dispatch failure redacts path-bearing errors in HTTP 
 
 test('multipart attachment dispatch failure redacts nested details paths in HTTP and run.error', async () => {
   const adapterId = 'claude';
-  const leakedPath = 'D:\\secret\\scratch\\file_0.bin';
+  let leakedPath = null;
   const adapter = attachmentConversationAdapter({
-    sendError: () => {
+    sendError: (message) => {
+      leakedPath = message.attachments[0].scratchPath;
       const error = new Error('adapter write failed');
       error.status = 500;
       error.details = { path: leakedPath };
@@ -5732,6 +5736,58 @@ test('multipart text attachment dispatch failure redacts echoed wrapper and cont
   }
 });
 
+test('multipart text attachment dispatch failure redacts short exact text echoes', async () => {
+  const adapterId = 'codex';
+  const privateText = 'token=xyz';
+  const adapter = attachmentConversationAdapter({
+    sendError: () => {
+      const error = new Error(privateText);
+      error.status = 500;
+      error.details = { echoed: privateText };
+      return error;
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-short-text-dispatch-redaction-'
+  });
+  try {
+    const textBytes = Buffer.from(privateText, 'utf8');
+    const boundary = '----attachments-short-text-dispatch-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'summarize short text',
+        clientMessageId: 'client_short_text_dispatch_redaction',
+        capabilityVersion: attachmentTestCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'secret.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: textBytes.length }]
+      },
+      files: [{ name: 'secret.txt', mimeType: 'text/plain', bytes: textBytes }]
+    });
+    const failed = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const errorBody = parseRawJson(failed).error;
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const responseJson = JSON.stringify(errorBody);
+    const eventsJson = JSON.stringify(events);
+    assert.equal(failed.status, 502);
+    assert.equal(errorBody.code, 'attachment_dispatch_failed');
+    assert.equal(errorBody.message, 'Attachment dispatch failed');
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(responseJson.includes(privateText), false);
+    assert.equal(eventsJson.includes(privateText), false);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart text attachment dispatch failure redacts partial private text echoes', async () => {
   const adapterId = 'codex';
   const privateText = 'private document contents with customer credentials';
@@ -5924,6 +5980,59 @@ test('multipart text attachment adapter events redact echoed wrapper and content
   }
 });
 
+test('multipart text attachment adapter events redact short exact text echoes', async () => {
+  const adapterId = 'codex';
+  const privateText = 'token=xyz';
+  const adapter = attachmentConversationAdapter({
+    onSendEvents: [
+      { type: 'protocol.warning', text: privateText, message: privateText, visible: true },
+      { type: 'system.notice', text: privateText, details: { echoed: privateText }, visible: true },
+      { type: 'run.error', message: 'provider rejected text', details: { echoed: privateText } }
+    ]
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-short-text-event-redaction-'
+  });
+  try {
+    const textBytes = Buffer.from(privateText, 'utf8');
+    const boundary = '----attachments-short-text-event-redaction';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'summarize short text event failure',
+        clientMessageId: 'client_short_text_event_redaction',
+        capabilityVersion: attachmentTestCapabilityVersion(adapterId),
+        attachments: [{ field: 'files[0]', name: 'secret.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: textBytes.length }]
+      },
+      files: [{ name: 'secret.txt', mimeType: 'text/plain', bytes: textBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    const events = app.conversationEventStore.list(conversationId, 0);
+    const runError = events.find((event) => event.type === 'run.error');
+    const protocolWarnings = events.filter((event) => event.type === 'protocol.warning');
+    const eventsJson = JSON.stringify(events);
+    assert.equal(response.status, 200);
+    assert.equal(runError.message, 'Attachment dispatch failed');
+    assert.equal(runError.code, 'attachment_dispatch_failed');
+    assert.equal(runError.status, 502);
+    assert.equal(protocolWarnings.length, 2);
+    for (const warning of protocolWarnings) {
+      assert.equal(warning.text, 'Attachment dispatch failed');
+      assert.equal(warning.message, 'Attachment dispatch failed');
+    }
+    assert.equal(eventsJson.includes(privateText), false);
+    await waitForAttachmentScratchCleanup(app);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart text attachment adapter events redact partial private text echoes', async () => {
   const adapterId = 'codex';
   const privateText = 'private document contents with customer credentials';
@@ -6058,9 +6167,9 @@ test('multipart attachment adapter events redact raw payloads without path-like 
   }
 });
 
-test('multipart attachment adapter events preserve unrelated Windows repo paths', async () => {
+test('multipart attachment adapter events preserve ordinary Windows repo scratch paths', async () => {
   const adapterId = 'claude';
-  const repoPath = 'D:\\Repo\\src\\main.js';
+  const repoPath = 'D:\\Repo\\scratch\\file_0.bin';
   const warningMessage = `provider warning while reading ${repoPath}`;
   const runErrorMessage = `provider failed while reading ${repoPath}`;
   const adapter = attachmentConversationAdapter({
@@ -6118,9 +6227,9 @@ test('multipart attachment adapter events preserve unrelated Windows repo paths'
   }
 });
 
-test('multipart attachment dispatch errors preserve unrelated Windows repo paths', async () => {
+test('multipart attachment dispatch errors preserve ordinary Windows repo scratch paths', async () => {
   const adapterId = 'claude';
-  const repoPath = 'D:\\Repo\\src\\main.js';
+  const repoPath = 'D:\\Repo\\scratch\\file_0.bin';
   const errorMessage = `adapter failed while loading ${repoPath}`;
   const adapter = attachmentConversationAdapter({
     sendError: () => {
