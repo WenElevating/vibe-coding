@@ -42,9 +42,7 @@ async function enrich(adapter, status) {
   };
   const attachments = normalizeAttachmentCapabilities(rawCapabilities?.attachments);
   const models = normalizeModels(modelCapability.models, attachments);
-  const selectedModel = typeof modelCapability.selectedModel === 'string'
-    ? modelCapability.selectedModel
-    : null;
+  const selectedModel = normalizeSelectedModelId(modelCapability.selectedModel);
   const enriched = {
     ...defaultModelCapability(),
     ...status,
@@ -93,6 +91,12 @@ function normalizeModels(models, attachments) {
       id: model.id.trim()
     }, attachments))
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function normalizeSelectedModelId(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 module.exports = { AdapterRegistry };

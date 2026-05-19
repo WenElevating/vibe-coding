@@ -83,7 +83,7 @@ function discoverCodexModels(options, env) {
   }
 
   for (const model of readCatalogModels(config.model_catalog_json, workspacePath)) {
-    addModel(models, model.id, MODEL_SOURCES.CODEX_CATALOG, model.id === config.model, model.label);
+    addModel(models, model.id, MODEL_SOURCES.CODEX_CATALOG, model.id === config.model, model.label, model);
   }
 
   markSelected(models, config.model);
@@ -216,10 +216,19 @@ function normalizeCatalogModel(entry) {
   if (!entry || typeof entry !== 'object') return null;
   const id = entry.id || entry.model || entry.name;
   if (!isNonEmptyString(id)) return null;
-  return {
+  const model = {
     id,
     label: isNonEmptyString(entry.label) ? entry.label : id
   };
+  if (Array.isArray(entry.inputModalities)) {
+    model.inputModalities = entry.inputModalities;
+  } else if (Array.isArray(entry.input_modalities)) {
+    model.inputModalities = entry.input_modalities;
+  }
+  if (entry.attachments && typeof entry.attachments === 'object' && !Array.isArray(entry.attachments)) {
+    model.attachments = entry.attachments;
+  }
+  return model;
 }
 
 function readTextFileIfSafe(filePath) {
@@ -276,10 +285,15 @@ function isDangerousConfigKey(key) {
   return DANGEROUS_CONFIG_KEYS.has(key);
 }
 
-function addModel(models, id, source, selected = false, label = id) {
+function addModel(models, id, source, selected = false, label = id, metadata = {}) {
   if (!isNonEmptyString(id)) return;
   if (models.some((model) => model.id === id)) return;
-  models.push({ id, label: isNonEmptyString(label) ? label : id, source, selected: Boolean(selected) });
+  const model = { id, label: isNonEmptyString(label) ? label : id, source, selected: Boolean(selected) };
+  if (Array.isArray(metadata.inputModalities)) model.inputModalities = metadata.inputModalities;
+  if (metadata.attachments && typeof metadata.attachments === 'object' && !Array.isArray(metadata.attachments)) {
+    model.attachments = metadata.attachments;
+  }
+  models.push(model);
 }
 
 function markSelected(models, selectedId) {

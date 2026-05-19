@@ -2783,6 +2783,47 @@ test('Codex model discovery prefers project config over user config and catalog 
   assert.equal(discovered.models[0].selected, true);
 });
 
+test('Codex model discovery preserves catalog capability metadata', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-model-capability-catalog-'));
+  const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(workspacePath, '.codex'), { recursive: true });
+  const catalogPath = path.join(workspacePath, '.codex', 'models.json');
+  fs.writeFileSync(catalogPath, JSON.stringify({
+    models: [
+      {
+        id: 'gpt-image',
+        label: 'GPT image',
+        input_modalities: ['text', 'image'],
+        attachments: {
+          image: 'native',
+          textDocument: 'unsupported'
+        }
+      }
+    ]
+  }));
+  fs.writeFileSync(path.join(workspacePath, '.codex', 'config.toml'), `model_catalog_json = "${catalogPath.replace(/\\/g, '\\\\')}"\n`);
+
+  const discovered = discoverConfiguredModels({ adapter: 'codex', homeDir, workspacePath, env: {} });
+
+  assert.deepEqual(discovered.models, [
+    {
+      id: 'gpt-image',
+      label: 'GPT image',
+      source: 'codex_catalog',
+      selected: true,
+      inputModalities: ['text', 'image'],
+      attachments: {
+        image: 'native',
+        textDocument: 'unsupported'
+      }
+    }
+  ]);
+});
+
 test('model discovery ignores unsupported TOML syntax', () => {
   const parsed = parseTomlScalarConfig([
     'model = "gpt-supported"',
@@ -4261,6 +4302,50 @@ test('adapter capability listing exposes attachment capabilities and stable capa
     pdf: 'unsupported',
     textDocument: 'text_extract'
   });
+});
+
+test('adapter capability listing trims selected model before exposing and hashing', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          cliVersion: '0.21.0',
+          cliPath: 'codex'
+        };
+      },
+      getModelCapability() {
+        return {
+          canSelectModel: true,
+          selectedModel: ' gpt-5.3-codex ',
+          models: [
+            {
+              id: ' gpt-5.3-codex ',
+              inputModalities: ['text', 'image']
+            }
+          ]
+        };
+      },
+      getCapabilities() {
+        return {
+          attachments: {
+            image: 'native',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+
+  assert.equal(codex.selectedModel, 'gpt-5.3-codex');
+  assert.equal(codex.models[0].id, 'gpt-5.3-codex');
+  assert.equal(codex.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
 });
 
 test('adapter capability listing merges partial model attachment overrides over adapter defaults', async () => {
