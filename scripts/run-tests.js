@@ -5047,12 +5047,16 @@ test('attachment scratch cleanup rejects constructor root equality and escaped d
     createdAt: '2026-05-19T00:00:00.000Z'
   };
 
-  const equalRoot = new MessageScratch({ root, dir: root, baseMetadata });
-  await assert.rejects(() => equalRoot.cleanup(), /scratch cleanup path escaped root/);
+  assert.throws(
+    () => new MessageScratch({ root, dir: root, baseMetadata }),
+    /scratch path escaped root/
+  );
 
   const escapedDir = path.dirname(root);
-  const escaped = new MessageScratch({ root, dir: escapedDir, baseMetadata });
-  await assert.rejects(() => escaped.cleanup(), /scratch cleanup path escaped root/);
+  assert.throws(
+    () => new MessageScratch({ root, dir: escapedDir, baseMetadata }),
+    /scratch path escaped root/
+  );
 
   assert.equal(fs.existsSync(root), true);
   fs.rmSync(root, { recursive: true, force: true });

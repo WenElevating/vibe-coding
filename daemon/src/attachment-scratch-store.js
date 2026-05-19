@@ -54,8 +54,11 @@ class MessageScratch {
   #baseMetadata;
 
   constructor({ root, dir, baseMetadata }) {
-    this.#root = path.resolve(root);
-    this.#dir = path.resolve(dir);
+    const resolvedRoot = path.resolve(root);
+    const resolvedDir = path.resolve(dir);
+    if (!isChildUnderRoot(resolvedDir, resolvedRoot)) throw new Error('scratch path escaped root');
+    this.#root = resolvedRoot;
+    this.#dir = resolvedDir;
     this.#baseMetadata = Object.freeze({ ...baseMetadata });
   }
 
