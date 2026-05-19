@@ -49,32 +49,42 @@ class AttachmentScratchStore {
 }
 
 class MessageScratch {
+  #root;
+  #dir;
+  #baseMetadata;
+
   constructor({ root, dir, baseMetadata }) {
-    this.root = path.resolve(root);
-    this._root = this.root;
-    this.dir = dir;
-    this.baseMetadata = baseMetadata;
+    this.#root = path.resolve(root);
+    this.#dir = path.resolve(dir);
+    this.#baseMetadata = Object.freeze({ ...baseMetadata });
+  }
+
+  get root() {
+    return this.#root;
+  }
+
+  get dir() {
+    return this.#dir;
   }
 
   async writeFile(fileName, bytes) {
-    const target = path.resolve(path.join(this.dir, fileName));
-    if (!isUnderRoot(target, this.dir)) throw new Error('scratch file path escaped message directory');
+    const target = path.resolve(path.join(this.#dir, fileName));
+    if (!isUnderRoot(target, this.#dir)) throw new Error('scratch file path escaped message directory');
     await fs.writeFile(target, bytes);
     return target;
   }
 
   async writeMetadata(metadata) {
     await fs.writeFile(
-      path.join(this.dir, 'metadata.json'),
-      `${JSON.stringify({ ...metadata, ...this.baseMetadata }, null, 2)}\n`,
+      path.join(this.#dir, 'metadata.json'),
+      `${JSON.stringify({ ...metadata, ...this.#baseMetadata }, null, 2)}\n`,
       'utf8'
     );
   }
 
   async cleanup() {
-    const resolved = path.resolve(this.dir);
-    if (!isChildUnderRoot(resolved, this._root)) throw new Error('scratch cleanup path escaped root');
-    await fs.rm(resolved, { recursive: true, force: true });
+    if (!isChildUnderRoot(this.#dir, this.#root)) throw new Error('scratch cleanup path escaped root');
+    await fs.rm(this.#dir, { recursive: true, force: true });
   }
 }
 

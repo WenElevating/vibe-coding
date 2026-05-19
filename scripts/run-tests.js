@@ -4974,40 +4974,126 @@ test('attachment scratch metadata keeps base lifecycle fields authoritative', as
   }
 });
 
-test('attachment scratch cleanup rejects mutated directories outside or equal to root', async () => {
+test('attachment scratch ignores public field mutation for writes and cleanup', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
   const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-cleanup-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-mutation-'));
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-fake-root-'));
+  const fakeDir = path.join(fakeRoot, 'fake-message');
+  fs.mkdirSync(fakeDir);
   const store = new AttachmentScratchStore({ root, now: () => new Date('2026-05-19T00:00:00.000Z') });
 
-  const escaped = await store.createMessageScratch({
+  const scratch = await store.createMessageScratch({
     conversationId: 'conv_1',
     clientMessageId: 'client_1',
     scratchLifetime: 'turn'
   });
-  const escapedOriginalDir = escaped.dir;
-  escaped.dir = path.dirname(root);
-  await assert.rejects(() => escaped.cleanup(), /scratch cleanup path escaped root/);
-  assert.equal(fs.existsSync(root), true);
+  const originalDir = scratch.dir;
+  attemptPublicMutation(() => { scratch.dir = fakeDir; });
+  attemptPublicMutation(() => { scratch.root = fakeRoot; });
+  attemptPublicMutation(() => { scratch._root = fakeRoot; });
+  attemptPublicMutation(() => {
+    scratch.baseMetadata = {
+      conversationId: 'conv_evil',
+      clientMessageId: 'client_evil',
+      scratchLifetime: 'forever',
+      createdAt: '1999-01-01T00:00:00.000Z'
+    };
+  });
+  attemptPublicMutation(() => {
+    scratch.baseMetadata.conversationId = 'conv_evil_nested';
+  });
+  scratch._root = fakeRoot;
+  scratch.baseMetadata = {
+    conversationId: 'conv_evil',
+    clientMessageId: 'client_evil',
+    scratchLifetime: 'forever',
+    createdAt: '1999-01-01T00:00:00.000Z'
+  };
 
-  const equalRoot = await store.createMessageScratch({
+  const written = await scratch.writeFile('file_0.txt', Buffer.from('abc'));
+  await scratch.writeMetadata({ active: true });
+
+  assert.equal(written, path.join(originalDir, 'file_0.txt'));
+  assert.equal(fs.existsSync(path.join(originalDir, 'file_0.txt')), true);
+  assert.equal(fs.existsSync(path.join(fakeDir, 'file_0.txt')), false);
+  const metadata = JSON.parse(fs.readFileSync(path.join(originalDir, 'metadata.json'), 'utf8'));
+  assert.equal(metadata.active, true);
+  assert.equal(metadata.conversationId, 'conv_1');
+  assert.equal(metadata.clientMessageId, 'client_1');
+  assert.equal(metadata.scratchLifetime, 'turn');
+  assert.equal(metadata.createdAt, '2026-05-19T00:00:00.000Z');
+
+  await scratch.cleanup();
+  assert.equal(fs.existsSync(originalDir), false);
+  assert.equal(fs.existsSync(fakeDir), true);
+  fs.rmSync(fakeRoot, { recursive: true, force: true });
+  assert.equal(fs.existsSync(root), true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch cleanup rejects constructor root equality and escaped dirs', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { MessageScratch } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-constructor-'));
+  const baseMetadata = {
     conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn',
+    createdAt: '2026-05-19T00:00:00.000Z'
+  };
+
+  const equalRoot = new MessageScratch({ root, dir: root, baseMetadata });
+  await assert.rejects(() => equalRoot.cleanup(), /scratch cleanup path escaped root/);
+
+  const escapedDir = path.dirname(root);
+  const escaped = new MessageScratch({ root, dir: escapedDir, baseMetadata });
+  await assert.rejects(() => escaped.cleanup(), /scratch cleanup path escaped root/);
+
+  assert.equal(fs.existsSync(root), true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch cleanupExpired deletes expired inactive scratches only', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-expired-'));
+  let now = new Date('2026-05-19T00:00:00.000Z');
+  const store = new AttachmentScratchStore({ root, ttlMs: 1000, now: () => now });
+
+  const expired = await store.createMessageScratch({
+    conversationId: 'conv_expired',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+  const active = await store.createMessageScratch({
+    conversationId: 'conv_active',
     clientMessageId: 'client_2',
     scratchLifetime: 'turn'
   });
-  const equalRootOriginalDir = equalRoot.dir;
-  equalRoot.dir = root;
-  await assert.rejects(() => equalRoot.cleanup(), /scratch cleanup path escaped root/);
-  assert.equal(fs.existsSync(root), true);
 
-  escaped.dir = escapedOriginalDir;
-  equalRoot.dir = equalRootOriginalDir;
-  await escaped.cleanup();
-  await equalRoot.cleanup();
+  now = new Date('2026-05-19T00:00:02.000Z');
+  await store.cleanupExpired({ activeConversationIds: new Set(['conv_active']) });
+
+  assert.equal(fs.existsSync(expired.dir), false);
+  assert.equal(fs.existsSync(active.dir), true);
+  await active.cleanup();
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+function attemptPublicMutation(mutator) {
+  try {
+    mutator();
+  } catch {
+    // Getter-only properties throw in this strict test file; non-strict callers may see ignored writes.
+  }
+}
 (async () => {
   let passed = 0;
   for (const item of tests) {
