@@ -120,7 +120,7 @@ async function readMultipartConversationMessage(req, scratch) {
       if (!aborted) reject(abort(attachmentHttpError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'too many multipart parts', { maxFileCount })));
     });
     busboy.on('error', (error) => {
-      if (!aborted) reject(badRequest(error.message));
+      if (!aborted) reject(abort(badRequest(error.message)));
     });
     busboy.on('close', async () => {
       if (aborted) return;

@@ -3709,6 +3709,10 @@ function multipartBodyFileFirst({ boundary, payload, file }) {
   ]);
 }
 
+function malformedMultipartBody({ boundary, payload }) {
+  return Buffer.from(`--${boundary}\r\ncontent-disposition: form-data; name="payload"\r\n\r\n${JSON.stringify(payload)}\r\n`, 'utf8');
+}
+
 function attachmentTestCapabilityVersion() {
   const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
   return capabilityVersionForNormalizedInput({
@@ -3725,12 +3729,31 @@ function attachmentTestCapabilityVersion() {
   });
 }
 
-function attachmentConversationAdapter({ delaySend = false } = {}) {
+function attachmentTextOnlyModelCapabilityVersion() {
+  const { capabilityVersionForNormalizedInput } = require('../daemon/src/attachment-hashes');
+  return capabilityVersionForNormalizedInput({
+    adapterId: 'codex',
+    attachments: {
+      image: 'native',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    },
+    cliPath: 'codex',
+    cliVersion: null,
+    models: [{
+      id: 'text-only',
+      inputModalities: ['text']
+    }],
+    selectedModelId: 'text-only'
+  });
+}
+
+function attachmentConversationAdapter({ delaySend = false, capabilities = null, modelCapability = null } = {}) {
   const sent = [];
   let releaseSend;
   return {
     sent,
-    capabilities: {
+    capabilities: capabilities || {
       resume: true,
       partialOutput: true,
       attachments: {
@@ -3743,7 +3766,7 @@ function attachmentConversationAdapter({ delaySend = false } = {}) {
       return this.capabilities;
     },
     getModelCapability() {
-      return { models: [], selectedModel: null, canSelectModel: false };
+      return modelCapability || { models: [], selectedModel: null, canSelectModel: false };
     },
     releaseSend() {
       if (releaseSend) releaseSend();
@@ -3794,6 +3817,22 @@ test('JSON conversation send still accepts text payloads', async () => {
     const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
     assert.equal(userMessage.text, 'hello json');
     assert.equal(Object.prototype.hasOwnProperty.call(userMessage, 'attachments'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('JSON conversation send rejects attachment metadata before committing user.message', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-json-metadata-' });
+  try {
+    const response = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+      text: 'hello json',
+      attachments: [{ name: 'a.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: 5 }]
+    }, token);
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'BAD_REQUEST');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
   } finally {
     await closeAttachmentConversationApp(app);
   }
@@ -3904,6 +3943,31 @@ test('multipart conversation send rejects files before payload with JSON error r
   }
 });
 
+test('multipart parser errors return JSON response without committing user.message', async () => {
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-parser-error-' });
+  try {
+    const boundary = '----attachments-parser-error';
+    const body = malformedMultipartBody({
+      boundary,
+      payload: {
+        text: 'inspect',
+        clientMessageId: 'client_parser_error',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      }
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(JSON.parse(response.body.toString('utf8')).error.code, 'BAD_REQUEST');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart pre-commit failure does not consume clientMessageId', async () => {
   const { app, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-client-retry-' });
   try {
@@ -3945,6 +4009,50 @@ test('multipart pre-commit failure does not consume clientMessageId', async () =
   }
 });
 
+test('multipart send validates handling against effective selected model capabilities', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    },
+    modelCapability: {
+      canSelectModel: true,
+      selectedModel: 'text-only',
+      models: [{ id: 'text-only', inputModalities: ['text'] }]
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-model-capability-' });
+  try {
+    const boundary = '----attachments-model-capability';
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_model_capability',
+        capabilityVersion: attachmentTextOnlyModelCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: pngHeader.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: pngHeader }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+    const parsed = JSON.parse(response.body.toString('utf8'));
+
+    assert.equal(response.status, 415);
+    assert.equal(parsed.error.code, 'UNSUPPORTED_MEDIA_TYPE');
+    assert.equal(app.conversationEventStore.list(conversationId, 0).some((event) => event.type === 'user.message'), false);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart duplicate in-flight clientMessageId rejects with stable conflict code', async () => {
   const { manager, device, eventStore } = createConversationManagerForTest({
     adapters: new Map([['codex', attachmentConversationAdapter()]])
@@ -3954,12 +4062,14 @@ test('multipart duplicate in-flight clientMessageId rejects with stable conflict
   internal.messageInFlightIds.add('client_inflight');
 
   await assert.rejects(
-    () => manager.sendMessage(conversation.id, {
+    () => manager.commitAndDispatchMessage(internal, {
       text: 'inspect',
       clientMessageId: 'client_inflight',
       capabilityVersion: attachmentTestCapabilityVersion(),
-      attachments: [{ name: 'a.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: 5, contentSha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', contentSha256Prefix: '2cf24dba5fb0a30e26e83b2ac5b9e29e' }]
-    }, device),
+      attachments: []
+    }, device, {
+      files: [{ name: 'a.txt', kind: 'textDocument', mimeType: 'text/plain', sizeBytes: 5, contentSha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', contentSha256Prefix: '2cf24dba5fb0a30e26e83b2ac5b9e29e' }]
+    }),
     (error) => error.status === 409 && error.code === 'message_already_in_flight'
   );
   assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === 'user.message'), false);
@@ -4037,6 +4147,10 @@ test('multipart conversation send commits attachment metadata without raw scratc
     assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'scratchPath'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'contentSha256'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(userMessage.attachments[0], 'text'), false);
+    const fs = require('node:fs');
+    const scratchRoot = app.conversations.attachmentScratchStore.root;
+    const scratchEntries = fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
+    assert.deepEqual(scratchEntries, []);
   } finally {
     await closeAttachmentConversationApp(app);
   }

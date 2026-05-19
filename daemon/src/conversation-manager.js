@@ -196,7 +196,8 @@ class ConversationManager {
   async sendMessage(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const message = normalizeMessagePayload(payload);
-    return this.commitAndDispatchMessage(conversation, message, device, { files: normalizeDirectAttachmentFiles(message.attachments) });
+    if (message.attachments.length > 0) throw badRequest('JSON attachment sends are not supported; use multipart/form-data');
+    return this.commitAndDispatchMessage(conversation, message, device);
   }
 
   async sendMultipartMessage(conversationId, req, device) {
@@ -223,15 +224,8 @@ class ConversationManager {
         attachments: multipart.files
       });
       return await this.commitAndDispatchMessage(conversation, message, device, { files: multipart.files });
-    } catch (error) {
-      if (scratch) await scratch.cleanup().catch((cleanupError) => {
-        this.auditLog.record('conversation.attachment_scratch_cleanup_error', {
-          conversationId: conversation.id,
-          error: cleanupError.message
-        });
-      });
-      throw error;
     } finally {
+      if (scratch) await this.cleanupAttachmentScratch(conversation, scratch);
       this.multipartDeviceLocks.delete(device.id);
       this.multipartActiveCount -= 1;
     }
@@ -240,9 +234,11 @@ class ConversationManager {
   async commitAndDispatchMessage(conversation, message, device, { files = [] } = {}) {
     this.assertConversationCanStartMessage(conversation);
     const hasAttachments = files.length > 0 || message.attachments.length > 0;
+    let attachmentCapabilities = null;
     if (hasAttachments) {
       if (!message.clientMessageId) throw badRequest('clientMessageId is required for attachment messages');
-      const currentCapabilityVersion = await this.currentCapabilityVersion(conversation);
+      attachmentCapabilities = await this.attachmentCapabilitiesForConversation(conversation);
+      const currentCapabilityVersion = attachmentCapabilities.capabilityVersion;
       if (!message.capabilityVersion || message.capabilityVersion !== currentCapabilityVersion) {
         throw attachmentError(409, 'capability_stale', 'Attachment capabilities changed. Refresh adapter capabilities and retry.', {
           currentCapabilityVersion
@@ -264,7 +260,7 @@ class ConversationManager {
     }
 
     if (hasAttachments) {
-      validateAttachmentHandling(conversation.capabilities?.attachments, files);
+      validateAttachmentHandling(attachmentCapabilities.attachments, files);
       conversation.messageInFlightIds.add(message.clientMessageId);
     }
 
@@ -320,6 +316,10 @@ class ConversationManager {
   }
 
   async currentCapabilityVersion(conversation) {
+    return (await this.attachmentCapabilitiesForConversation(conversation)).capabilityVersion;
+  }
+
+  async attachmentCapabilitiesForConversation(conversation) {
     const adapter = this.getAdapter(conversation.adapter);
     const modelCapability = await modelCapabilityFor(adapter);
     const status = adapter.capability || {};
@@ -329,13 +329,27 @@ class ConversationManager {
       ? modelCapability.models.map((model) => applyModelAttachmentCapabilities(model, attachments)).sort((a, b) => String(a.id).localeCompare(String(b.id)))
       : [];
     const selectedModel = typeof modelCapability.selectedModel === 'string' ? modelCapability.selectedModel.trim() || null : null;
-    return capabilityVersionForNormalizedInput({
-      adapterId: conversation.adapter,
-      attachments,
-      cliPath: status.cliPath || status.path || adapter.cliPath || adapter.path || adapter.name || status.command || adapter.command || conversation.adapter,
-      cliVersion: status.cliVersion || status.version || adapter.cliVersion || adapter.version || null,
-      models: models.map((model) => modelCapabilityHashInput(model, attachments)),
-      selectedModelId: selectedModel
+    const effectiveModelId = conversation.model || selectedModel;
+    const effectiveModel = models.find((model) => model.id === effectiveModelId) || models.find((model) => model.id === selectedModel) || null;
+    return {
+      capabilityVersion: capabilityVersionForNormalizedInput({
+        adapterId: conversation.adapter,
+        attachments,
+        cliPath: status.cliPath || status.path || adapter.cliPath || adapter.path || adapter.name || status.command || adapter.command || conversation.adapter,
+        cliVersion: status.cliVersion || status.version || adapter.cliVersion || adapter.version || null,
+        models: models.map((model) => modelCapabilityHashInput(model, attachments)),
+        selectedModelId: selectedModel
+      }),
+      attachments: effectiveModel ? effectiveModel.attachments : attachments
+    };
+  }
+
+  async cleanupAttachmentScratch(conversation, scratch) {
+    await scratch.cleanup().catch((cleanupError) => {
+      this.auditLog.record('conversation.attachment_scratch_cleanup_error', {
+        conversationId: conversation.id,
+        error: cleanupError.message
+      });
     });
   }
 
@@ -659,19 +673,6 @@ function attachmentPayloadHashInput(file, index) {
   };
 }
 
-function normalizeDirectAttachmentFiles(attachments) {
-  if (!Array.isArray(attachments)) return [];
-  return attachments.map((attachment) => ({
-    name: attachment.name,
-    kind: attachment.kind,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    contentSha256: attachment.contentSha256,
-    contentSha256Prefix: attachment.contentSha256Prefix || String(attachment.contentSha256 || '').slice(0, 32),
-    handling: attachment.handling || handlingForKind(attachment.kind)
-  }));
-}
-
 function validateAttachmentHandling(capabilities, files) {
   const normalized = normalizeAttachmentCapabilities(capabilities);
   for (const file of files) {
@@ -683,15 +684,8 @@ function validateAttachmentHandling(capabilities, files) {
     if (!handling || handling === 'unsupported') {
       throw attachmentError(415, 'UNSUPPORTED_MEDIA_TYPE', 'unsupported media type', { kind: file.kind });
     }
-    file.handling = file.handling || handlingForKind(file.kind);
+    file.handling = handling;
   }
-}
-
-function handlingForKind(kind) {
-  if (kind === 'textDocument') return 'text_extract';
-  if (kind === 'image') return 'native';
-  if (kind === 'pdf') return 'staged_path';
-  return 'unsupported';
 }
 
 function modelCapabilityHashInput(model, adapterAttachments) {
