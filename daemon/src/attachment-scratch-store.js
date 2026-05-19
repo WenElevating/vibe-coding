@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const messageScratchDirNamePattern = /^msg_\d+_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const messageScratchConstructionToken = Symbol('messageScratchConstructionToken');
 
 class AttachmentScratchStore {
   constructor({ root, ttlMs = 86_400_000, now = () => new Date() }) {
@@ -27,7 +28,8 @@ class AttachmentScratchStore {
         clientMessageId,
         scratchLifetime,
         createdAt: this.now().toISOString()
-      }
+      },
+      token: messageScratchConstructionToken
     });
     await scratch.writeMetadata({});
     return scratch;
@@ -38,6 +40,7 @@ class AttachmentScratchStore {
     const cutoff = this.now().getTime() - this.ttlMs;
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+      if (!isMessageScratchDirName(entry.name)) continue;
       const dir = path.resolve(path.join(this.root, entry.name));
       if (!isUnderRoot(dir, this.root)) continue;
       const metadata = await readJson(path.join(dir, 'metadata.json'));
@@ -55,7 +58,8 @@ class MessageScratch {
   #dir;
   #baseMetadata;
 
-  constructor({ root, dir, baseMetadata }) {
+  constructor({ root, dir, baseMetadata, token }) {
+    if (token !== messageScratchConstructionToken) throw new Error('scratch constructor is private');
     const resolvedRoot = path.resolve(root);
     const resolvedDir = path.resolve(dir);
     if (!isChildUnderRoot(resolvedDir, resolvedRoot)) throw new Error('scratch path escaped root');
@@ -74,6 +78,7 @@ class MessageScratch {
   }
 
   async writeFile(fileName, bytes) {
+    assertSafeScratchFileName(fileName);
     const target = path.resolve(path.join(this.#dir, fileName));
     if (!isUnderRoot(target, this.#dir)) throw new Error('scratch file path escaped message directory');
     await fs.writeFile(target, bytes);
@@ -114,6 +119,15 @@ function isChildUnderRoot(target, root) {
 
 function isMessageScratchDirName(name) {
   return messageScratchDirNamePattern.test(name);
+}
+
+function assertSafeScratchFileName(fileName) {
+  if (typeof fileName !== 'string') throw new Error('scratch file name is invalid');
+  if (!fileName) throw new Error('scratch file name is invalid');
+  if (fileName.toLowerCase() === 'metadata.json') throw new Error('scratch file name is invalid');
+  if (path.isAbsolute(fileName)) throw new Error('scratch file name is invalid');
+  if (fileName.includes('/') || fileName.includes('\\')) throw new Error('scratch file name is invalid');
+  if (fileName === '.' || fileName === '..') throw new Error('scratch file name is invalid');
 }
 
 module.exports = { AttachmentScratchStore, MessageScratch, isUnderRoot };

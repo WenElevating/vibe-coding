@@ -100,6 +100,10 @@ async function validateTextAttachmentBytes(bytes, metadata = {}) {
   if (buffer.length === 0) {
     throwUnsupportedMediaType({ reason: 'text attachment is empty' });
   }
+  const sniffed = sniffAttachmentBytes(buffer);
+  if (sniffed.knownType !== 'unknown') {
+    throwUnsupportedMediaType({ reason: 'text attachment has a non-text signature', sniffed });
+  }
   if (
     hasPrefix(buffer, [0xff, 0xfe]) ||
     hasPrefix(buffer, [0xfe, 0xff]) ||

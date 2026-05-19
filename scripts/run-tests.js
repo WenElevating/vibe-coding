@@ -4903,6 +4903,15 @@ test('attachment validation rejects non-text MIME hints for text bytes', async (
   assert.equal(result.mimeType, 'text/markdown');
 });
 
+test('attachment validation rejects known non-text signatures in text bytes', async () => {
+  const { validateTextAttachmentBytes } = require('../daemon/src/attachment-validation');
+
+  await assert.rejects(
+    () => validateTextAttachmentBytes(Buffer.from('%PDF-1.7\nhello', 'utf8'), { name: 'notes.txt', mimeType: 'text/plain' }),
+    /unsupported media type/
+  );
+});
+
 test('attachment validation sniffs PNG, JPEG, WebP, and rejects non-WebP RIFF', () => {
   const { sniffAttachmentBytes } = require('../daemon/src/attachment-validation');
 
@@ -4941,6 +4950,35 @@ test('attachment scratch store writes scoped metadata and cleanup stays under ro
   await scratch.cleanup();
 
   assert.equal(fs.existsSync(scratch.dir), false);
+});
+
+test('attachment scratch writeFile rejects reserved and non-flat file names', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-file-name-'));
+  const store = new AttachmentScratchStore({ root, now: () => new Date('2026-05-19T00:00:00.000Z') });
+  const scratch = await store.createMessageScratch({
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn'
+  });
+
+  try {
+    await assert.rejects(() => scratch.writeFile('metadata.json', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('nested/file.txt', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile(path.join(root, 'absolute.txt'), Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('../escape.txt', Buffer.from('abc')), /scratch file name is invalid/);
+    await assert.rejects(() => scratch.writeFile('', Buffer.from('abc')), /scratch file name is invalid/);
+
+    assert.equal(fs.existsSync(path.join(scratch.dir, 'metadata.json')), true);
+    assert.equal(fs.existsSync(path.join(scratch.dir, 'nested')), false);
+    assert.equal(fs.existsSync(path.join(root, 'absolute.txt')), false);
+  } finally {
+    await scratch.cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('attachment scratch metadata keeps base lifecycle fields authoritative', async () => {
@@ -5049,13 +5087,13 @@ test('attachment scratch cleanup rejects constructor root equality and escaped d
 
   assert.throws(
     () => new MessageScratch({ root, dir: root, baseMetadata }),
-    /scratch path escaped root/
+    /scratch constructor is private/
   );
 
   const escapedDir = path.dirname(root);
   assert.throws(
     () => new MessageScratch({ root, dir: escapedDir, baseMetadata }),
-    /scratch path escaped root/
+    /scratch constructor is private/
   );
 
   assert.equal(fs.existsSync(root), true);
@@ -5079,10 +5117,34 @@ test('attachment scratch constructor rejects arbitrary child directories', async
 
   assert.throws(
     () => new MessageScratch({ root, dir: unrelatedDir, baseMetadata }),
-    /scratch path escaped root/
+    /scratch constructor is private/
   );
   assert.equal(fs.existsSync(unrelatedDir), true);
   assert.equal(fs.existsSync(path.join(unrelatedDir, 'file_0.txt')), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch constructor rejects forged message directory names', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { MessageScratch } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-forged-'));
+  const forgedDir = path.join(root, 'msg_123_00000000-0000-4000-8000-000000000000');
+  fs.mkdirSync(forgedDir);
+  const baseMetadata = {
+    conversationId: 'conv_1',
+    clientMessageId: 'client_1',
+    scratchLifetime: 'turn',
+    createdAt: '2026-05-19T00:00:00.000Z'
+  };
+
+  assert.throws(
+    () => new MessageScratch({ root, dir: forgedDir, baseMetadata }),
+    /scratch constructor is private/
+  );
+  assert.equal(fs.existsSync(forgedDir), true);
+  assert.equal(fs.existsSync(path.join(forgedDir, 'file_0.txt')), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -5112,6 +5174,26 @@ test('attachment scratch cleanupExpired deletes expired inactive scratches only'
   assert.equal(fs.existsSync(expired.dir), false);
   assert.equal(fs.existsSync(active.dir), true);
   await active.cleanup();
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('attachment scratch cleanupExpired ignores unrelated child directories', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AttachmentScratchStore } = require('../daemon/src/attachment-scratch-store');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'attachment-scratch-unrelated-'));
+  const unrelatedDir = path.join(root, 'unrelated-existing-dir');
+  fs.mkdirSync(unrelatedDir);
+  const store = new AttachmentScratchStore({
+    root,
+    ttlMs: 1000,
+    now: () => new Date('2026-05-19T00:00:02.000Z')
+  });
+
+  await store.cleanupExpired();
+
+  assert.equal(fs.existsSync(unrelatedDir), true);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
