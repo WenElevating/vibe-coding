@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const {
@@ -51,6 +52,7 @@ class ConversationManager {
     const restored = { ...conversation, handle: null };
     restored.messageIdempotency = new Map();
     restored.messageInFlightIds = new Set();
+    restored.turnAttachmentScratches = [];
     this.rebuildMessageIdempotency(restored);
     if ([conversationStatuses.RUNNING, conversationStatuses.WAITING_INPUT, conversationStatuses.WAITING_APPROVAL].includes(restored.status)) {
       restored.status = conversationStatuses.INTERRUPTED;
@@ -105,7 +107,8 @@ class ConversationManager {
       capabilities: adapter.capabilities || {},
       handle: null,
       messageIdempotency: new Map(),
-      messageInFlightIds: new Set()
+      messageInFlightIds: new Set(),
+      turnAttachmentScratches: []
     };
     this.conversations.set(conversation.id, conversation);
     this.persistConversation(conversation);
@@ -224,6 +227,7 @@ class ConversationManager {
     this.multipartDeviceLocks.set(device.id, true);
     this.multipartActiveCount += 1;
     let scratch = null;
+    let scratchHandled = false;
     try {
       scratch = await this.attachmentScratchStore.createMessageScratch({
         conversationId: conversation.id,
@@ -235,15 +239,17 @@ class ConversationManager {
         ...multipart.payload,
         attachments: multipart.files
       });
-      return await this.commitAndDispatchMessage(conversation, message, device, { files: multipart.files });
+      const result = await this.commitAndDispatchMessage(conversation, message, device, { files: multipart.files, scratch });
+      scratchHandled = true;
+      return result;
     } finally {
-      if (scratch) await this.cleanupAttachmentScratch(conversation, scratch);
+      if (scratch && !scratchHandled) await this.cleanupAttachmentScratch(conversation, scratch);
       this.multipartDeviceLocks.delete(device.id);
       this.multipartActiveCount -= 1;
     }
   }
 
-  async commitAndDispatchMessage(conversation, message, device, { files = [] } = {}) {
+  async commitAndDispatchMessage(conversation, message, device, { files = [], scratch = null } = {}) {
     this.assertConversationCanStartMessage(conversation);
     const hasAttachments = files.length > 0 || message.attachments.length > 0;
     let attachmentCapabilities = null;
@@ -267,7 +273,10 @@ class ConversationManager {
     }) : null;
     if (hasAttachments && conversation.messageIdempotency.has(message.clientMessageId)) {
       const previousHash = conversation.messageIdempotency.get(message.clientMessageId);
-      if (previousHash === payloadHash) return publicConversation(conversation);
+      if (previousHash === payloadHash) {
+        if (scratch) await this.cleanupAttachmentScratch(conversation, scratch);
+        return publicConversation(conversation);
+      }
       throw attachmentError(409, 'message_idempotency_conflict', 'clientMessageId was already used with different content.');
     }
 
@@ -277,6 +286,7 @@ class ConversationManager {
 
     if (hasAttachments) {
       validateAttachmentHandling(attachmentCapabilities.attachments, files);
+      assignAttachmentScratchLifetimes(conversation, files);
       conversation.messageInFlightIds.add(message.clientMessageId);
     }
 
@@ -303,7 +313,8 @@ class ConversationManager {
       committed = true;
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await this.ensureStarted(conversation);
-      await conversation.handle.sendUserMessage(message.text);
+      await conversation.handle.sendUserMessage(hasAttachments ? adapterUserMessage(message, files) : message.text);
+      if (hasAttachments && scratch) await this.cleanupDispatchedAttachmentScratch(conversation, scratch, files);
       this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
       return publicConversation(conversation);
     } catch (error) {
@@ -375,11 +386,43 @@ class ConversationManager {
     };
   }
 
-  async cleanupAttachmentScratch(conversation, scratch) {
-    await scratch.cleanup().catch((cleanupError) => {
-      this.auditLog.record('conversation.attachment_scratch_cleanup_error', {
+  async cleanupDispatchedAttachmentScratch(conversation, scratch, files) {
+    const hasTurnScratch = files.some((file) => file.scratchLifetime === 'turn');
+    if (!hasTurnScratch) {
+      await this.cleanupAttachmentScratch(conversation, scratch);
+      return;
+    }
+    const sendTimeFiles = files.filter((file) => file.scratchLifetime === 'send_time');
+    await Promise.all(sendTimeFiles.map((file) => this.cleanupAttachmentFile(conversation, file)));
+    if (isAttachmentTurnActive(conversation)) {
+      rememberTurnAttachmentScratch(conversation, scratch);
+      await scratch.writeMetadata({ active: true }).catch((cleanupError) => {
+        this.auditLog.record('conversation.attachment_cleanup_failed', {
+          conversationId: conversation.id,
+          error: cleanupFailureReason(cleanupError)
+        });
+      });
+      return;
+    }
+    await this.cleanupAttachmentScratch(conversation, scratch);
+  }
+
+  async cleanupAttachmentFile(conversation, file) {
+    if (!file?.scratchPath) return;
+    await fs.rm(file.scratchPath, { force: true }).catch((cleanupError) => {
+      this.auditLog.record('conversation.attachment_cleanup_failed', {
         conversationId: conversation.id,
-        error: cleanupError.message
+        error: cleanupFailureReason(cleanupError)
+      });
+    });
+  }
+
+  async cleanupAttachmentScratch(conversation, scratch) {
+    forgetTurnAttachmentScratch(conversation, scratch);
+    await scratch.cleanup().catch((cleanupError) => {
+      this.auditLog.record('conversation.attachment_cleanup_failed', {
+        conversationId: conversation.id,
+        error: cleanupFailureReason(cleanupError)
       });
     });
   }
@@ -506,6 +549,9 @@ class ConversationManager {
       conversation.handle = null;
       this.touch(conversation);
     }
+    if (eventCompletesTurn(event) || event.type === conversationEventTypes.CONVERSATION_CANCELLED || event.type === conversationEventTypes.RUN_ERROR) {
+      this.cleanupTurnAttachmentScratch(conversation);
+    }
     const { type, ...payload } = event;
     this.eventStore.append(conversation.id, type || conversationEventTypes.PROTOCOL_WARNING, payload);
     if (eventCompletesTurn(event)) {
@@ -620,6 +666,15 @@ class ConversationManager {
     conversation.updatedAt = this.now().toISOString();
     this.persistConversation(conversation);
   }
+
+  cleanupTurnAttachmentScratch(conversation) {
+    const scratches = Array.isArray(conversation.turnAttachmentScratches)
+      ? conversation.turnAttachmentScratches.splice(0)
+      : [];
+    for (const scratch of scratches) {
+      this.cleanupAttachmentScratch(conversation, scratch);
+    }
+  }
 }
 
 function eventCompletesTurn(event) {
@@ -704,6 +759,33 @@ function attachmentPayloadHashInput(file, index) {
   };
 }
 
+function assignAttachmentScratchLifetimes(conversation, files) {
+  for (const file of files) {
+    file.scratchLifetime = attachmentScratchLifetime(conversation, file);
+  }
+}
+
+function attachmentScratchLifetime(conversation, file) {
+  if (conversation.adapter === 'codex' && file.kind === 'image' && file.handling === 'native') return 'turn';
+  return 'send_time';
+}
+
+function adapterUserMessage(message, files) {
+  return {
+    text: message.text,
+    attachments: files.map((file) => ({
+      name: file.name,
+      kind: file.kind,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      handling: file.handling,
+      scratchPath: file.scratchPath,
+      scratchLifetime: file.scratchLifetime,
+      ...(file.text == null ? {} : { text: file.text })
+    }))
+  };
+}
+
 function validateAttachmentHandling(capabilities, files) {
   const normalized = normalizeAttachmentCapabilities(capabilities);
   for (const file of files) {
@@ -717,6 +799,29 @@ function validateAttachmentHandling(capabilities, files) {
     }
     file.handling = handling;
   }
+}
+
+function rememberTurnAttachmentScratch(conversation, scratch) {
+  if (!Array.isArray(conversation.turnAttachmentScratches)) conversation.turnAttachmentScratches = [];
+  if (!conversation.turnAttachmentScratches.includes(scratch)) conversation.turnAttachmentScratches.push(scratch);
+}
+
+function forgetTurnAttachmentScratch(conversation, scratch) {
+  if (!Array.isArray(conversation.turnAttachmentScratches)) return;
+  const index = conversation.turnAttachmentScratches.indexOf(scratch);
+  if (index !== -1) conversation.turnAttachmentScratches.splice(index, 1);
+}
+
+function isAttachmentTurnActive(conversation) {
+  return [
+    conversationStatuses.RUNNING,
+    conversationStatuses.WAITING_INPUT,
+    conversationStatuses.WAITING_APPROVAL
+  ].includes(conversation.status);
+}
+
+function cleanupFailureReason(error) {
+  return error?.code || error?.message || 'cleanup failed';
 }
 
 function rememberMessageIdempotency(map, clientMessageId, payloadHash, maxEntries) {

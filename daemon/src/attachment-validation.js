@@ -203,6 +203,18 @@ function attachmentHttpError(status, code, message, details) {
   return error;
 }
 
+function textAttachmentWrapper({ name, mimeType, text }) {
+  return `<attachment name="${escapeAttachmentAttribute(name)}" mime="${escapeAttachmentAttribute(mimeType)}">\n${String(text || '')}\n</attachment>`;
+}
+
+function escapeAttachmentAttribute(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function throwUnsupportedMediaType(details) {
   throw attachmentHttpError(415, unsupportedMediaTypeCode, unsupportedMediaTypeMessage, details);
 }
@@ -356,5 +368,7 @@ module.exports = {
   validatePdfAttachmentHeader,
   estimateAttachmentTextTokens,
   assertWithinContextBudget,
-  attachmentHttpError
+  attachmentHttpError,
+  textAttachmentWrapper,
+  escapeAttachmentAttribute
 };

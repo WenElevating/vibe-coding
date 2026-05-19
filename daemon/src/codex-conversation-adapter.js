@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
+const { textAttachmentWrapper } = require('./attachment-validation');
 
 const DEFAULT_MAX_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES = 64 * 1024;
@@ -147,12 +148,15 @@ class CodexConversationHandle {
     this.stderrText = '';
   }
 
-  async sendUserMessage(text) {
+  async sendUserMessage(message) {
     if (this.activeChild) {
       const error = new Error('Codex turn is already running');
       error.status = 409;
       throw error;
     }
+    const userMessage = typeof message === 'string'
+      ? { prompt: message, imagePaths: [] }
+      : buildAdapterUserMessage(message);
     this.cancelling = false;
     this.turnCompleted = false;
     this.validJsonStarted = false;
@@ -160,8 +164,8 @@ class CodexConversationHandle {
     const resumeSupportsCd = this.adapter.capability?.capabilities?.resumeWorkspaceOverride === true;
     const model = this.adapter.modelCapability?.canSelectModel === true ? this.model : null;
     const args = this.sessionId
-      ? buildCodexResumeArgs({ prompt: text, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd, model })
-      : buildCodexExecArgs({ prompt: text, workspacePath: this.workspacePath, permissionMode: this.permissionMode, model });
+      ? buildCodexResumeArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd, model })
+      : buildCodexExecArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, workspacePath: this.workspacePath, permissionMode: this.permissionMode, model });
     const child = this.adapter.spawnFn(this.adapter.invocation.command, [...this.adapter.invocation.argsPrefix, ...args], {
       cwd: this.workspacePath,
       windowsHide: true,
@@ -250,7 +254,40 @@ function helpHasModelFlag(helpText) {
   return /(^|[\s[(,])--model(?=$|[\s=,\])])/m.test(helpText || '');
 }
 
-function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default', model }) {
+function buildAdapterUserMessage({ text, attachments = [] } = {}) {
+  const parts = [];
+  const prompt = String(text || '');
+  if (prompt) parts.push(prompt);
+  const imagePaths = [];
+  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+    if (!attachment || typeof attachment !== 'object') continue;
+    if (attachment.kind === 'image' && attachment.handling === 'native' && attachment.scratchPath) {
+      imagePaths.push(String(attachment.scratchPath));
+      continue;
+    }
+    if (attachment.kind === 'textDocument' && attachment.handling === 'text_extract') {
+      parts.push(textAttachmentWrapper({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        text: attachment.text
+      }));
+    }
+  }
+  return {
+    prompt: parts.join('\n\n'),
+    imagePaths
+  };
+}
+
+function buildImageArgs(imagePaths) {
+  const args = [];
+  for (const imagePath of Array.isArray(imagePaths) ? imagePaths : []) {
+    if (typeof imagePath === 'string' && imagePath.trim()) args.push('--image', imagePath);
+  }
+  return args;
+}
+
+function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default', model, imagePaths = [] }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
     'exec',
@@ -259,11 +296,12 @@ function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default',
     '-C', workspacePath,
     '--skip-git-repo-check',
     '--sandbox', 'workspace-write',
+    ...buildImageArgs(imagePaths),
     prompt
   ];
 }
 
-function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false, model }) {
+function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false, model, imagePaths = [] }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
     'exec',
@@ -272,6 +310,7 @@ function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', w
     ...(model ? ['--model', model] : []),
     '--skip-git-repo-check',
     ...(resumeSupportsCd ? ['--cd', workspacePath] : []),
+    ...buildImageArgs(imagePaths),
     sessionId,
     prompt
   ];
@@ -507,6 +546,7 @@ function processEnvForWorkspace(sourceEnv, workspacePath) {
 module.exports = {
   CodexConversationAdapter,
   CodexConversationHandle,
+  buildAdapterUserMessage,
   buildCodexExecArgs,
   buildCodexResumeArgs,
   mapCodexEvent,

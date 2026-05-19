@@ -1,10 +1,14 @@
 'use strict';
 
+const fs = require('node:fs');
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { detectClaudeCodeInstallation, unavailableCapability } = require('./claude-adapter');
 const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
+const { textAttachmentWrapper } = require('./attachment-validation');
+
+const CLAUDE_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 class ClaudeConversationAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile } = {}) {
@@ -534,8 +538,64 @@ function createJsonLineParser(onJson) {
   };
 }
 
-function writeUserMessage(child, text) {
-  writeJsonLine(child, { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' });
+function buildClaudeUserContent({ text, attachments = [] } = {}) {
+  const content = [];
+  const prompt = String(text || '');
+  if (prompt) content.push({ type: 'text', text: prompt });
+  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+    if (!attachment || typeof attachment !== 'object') continue;
+    if (attachment.kind === 'image' && attachment.handling === 'native') {
+      content.push(buildClaudeImageBlock(attachment));
+      continue;
+    }
+    if (attachment.kind === 'textDocument' && attachment.handling === 'text_extract') {
+      content.push({
+        type: 'text',
+        text: textAttachmentWrapper({
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          text: attachment.text
+        })
+      });
+    }
+  }
+  return content;
+}
+
+function buildClaudeImageBlock(attachment) {
+  const declaredSize = Number.isSafeInteger(attachment.sizeBytes) ? attachment.sizeBytes : null;
+  if (declaredSize != null && declaredSize > CLAUDE_MAX_IMAGE_BYTES) throwClaudeImageTooLarge();
+  const bytes = bytesForAttachment(attachment);
+  if (bytes.length > CLAUDE_MAX_IMAGE_BYTES) throwClaudeImageTooLarge();
+  return {
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: attachment.mimeType || 'application/octet-stream',
+      data: bytes.toString('base64')
+    }
+  };
+}
+
+function bytesForAttachment(attachment) {
+  if (Buffer.isBuffer(attachment.bytes)) return attachment.bytes;
+  if (attachment.bytes) return Buffer.from(attachment.bytes);
+  if (attachment.scratchPath) return fs.readFileSync(attachment.scratchPath);
+  return Buffer.alloc(0);
+}
+
+function throwClaudeImageTooLarge() {
+  const error = new Error('Claude image attachment exceeds 5 MB limit');
+  error.status = 413;
+  error.code = 'ATTACHMENT_LIMIT_EXCEEDED';
+  throw error;
+}
+
+function writeUserMessage(child, message) {
+  const content = typeof message === 'string'
+    ? buildClaudeUserContent({ text: message })
+    : buildClaudeUserContent(message);
+  writeJsonLine(child, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: '' });
 }
 
 function writeToolResultMessage(child, toolUseId, text) {
@@ -725,4 +785,4 @@ function sdkProcessEnvForWorkspace(sourceEnv, workspacePath) {
   return env;
 }
 
-module.exports = { ClaudeConversationAdapter, ClaudeConversationHandle };
+module.exports = { ClaudeConversationAdapter, ClaudeConversationHandle, buildClaudeUserContent };

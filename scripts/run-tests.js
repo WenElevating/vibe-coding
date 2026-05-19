@@ -1526,6 +1526,41 @@ test('Claude conversation adapter waits for initialize response before sending m
   assert.equal(writes.some((line) => line.includes('after init')), true);
 });
 
+test('Claude attachment dispatch builds stream-json content blocks', () => {
+  const { buildClaudeUserContent } = require('../daemon/src/claude-conversation-adapter');
+
+  const content = buildClaudeUserContent({
+    text: 'Inspect this.',
+    attachments: [
+      { kind: 'image', handling: 'native', bytes: Buffer.from('abc'), mimeType: 'image/png', name: 'a.png', sizeBytes: 3 },
+      { kind: 'textDocument', handling: 'text_extract', text: 'alpha', mimeType: 'text/plain', name: 'a.txt' }
+    ]
+  });
+
+  assert.deepEqual(content[0], { type: 'text', text: 'Inspect this.' });
+  assert.equal(content[1].type, 'image');
+  assert.equal(content[1].source.type, 'base64');
+  assert.equal(content[1].source.media_type, 'image/png');
+  assert.equal(content[1].source.data, Buffer.from('abc').toString('base64'));
+  assert.equal(content[2].type, 'text');
+  assert.match(content[2].text, /<attachment name="a.txt" mime="text\/plain">/);
+  assert.match(content[2].text, /alpha/);
+});
+
+test('Claude attachment dispatch rejects images over 5MB before base64 conversion', () => {
+  const { buildClaudeUserContent } = require('../daemon/src/claude-conversation-adapter');
+
+  assert.throws(
+    () => buildClaudeUserContent({
+      text: 'Inspect this.',
+      attachments: [
+        { kind: 'image', handling: 'native', bytes: Buffer.alloc(0), mimeType: 'image/png', name: 'large.png', sizeBytes: (5 * 1024 * 1024) + 1 }
+      ]
+    }),
+    (error) => error.status === 413 && error.code === 'ATTACHMENT_LIMIT_EXCEEDED'
+  );
+});
+
 test('Claude conversation adapter emits completion when long-lived process exits cleanly', async () => {
   const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
   const events = [];
@@ -2505,6 +2540,65 @@ test('Codex conversation adapter starts first turn with global approval before e
   assert.equal(spawnOptions.cwd, 'D:\\AiProject\\vibe-coding');
   assert.equal(stdinEnded, true);
   child.emit('exit', 0, null);
+});
+
+test('Codex attachment dispatch includes image paths and text wrapper blocks', () => {
+  const { buildAdapterUserMessage } = require('../daemon/src/codex-conversation-adapter');
+
+  const message = buildAdapterUserMessage({
+    text: 'Inspect this.',
+    attachments: [
+      { kind: 'image', handling: 'native', scratchPath: 'D:\\scratch\\a.png', mimeType: 'image/png', name: 'a.png' },
+      { kind: 'textDocument', handling: 'text_extract', text: 'alpha', mimeType: 'text/plain', name: 'a.txt' }
+    ]
+  });
+
+  assert.deepEqual(message.imagePaths, ['D:\\scratch\\a.png']);
+  assert.match(message.prompt, /^Inspect this\./);
+  assert.match(message.prompt, /<attachment name="a.txt" mime="text\/plain">/);
+  assert.match(message.prompt, /alpha/);
+});
+
+test('attachment text wrapper escapes XML-ish attributes', () => {
+  const { buildAdapterUserMessage } = require('../daemon/src/codex-conversation-adapter');
+
+  const message = buildAdapterUserMessage({
+    text: '',
+    attachments: [
+      {
+        kind: 'textDocument',
+        handling: 'text_extract',
+        text: 'body',
+        mimeType: 'text/plain; note="<tag>&"',
+        name: 'a"&<>.txt'
+      }
+    ]
+  });
+
+  assert.match(message.prompt, /name="a&quot;&amp;&lt;&gt;.txt"/);
+  assert.match(message.prompt, /mime="text\/plain; note=&quot;&lt;tag&gt;&amp;&quot;"/);
+});
+
+test('Codex attachment dispatch adds image flags to exec and resume argv', () => {
+  const { buildCodexExecArgs, buildCodexResumeArgs } = require('../daemon/src/codex-conversation-adapter');
+
+  const execArgs = buildCodexExecArgs({
+    prompt: 'Inspect image.',
+    workspacePath: 'D:\\Repo',
+    imagePaths: ['D:\\scratch\\a.png', 'D:\\scratch\\b.png']
+  });
+  const resumeArgs = buildCodexResumeArgs({
+    prompt: 'Inspect again.',
+    sessionId: 'thread_1',
+    workspacePath: 'D:\\Repo',
+    imagePaths: ['D:\\scratch\\a.png']
+  });
+
+  assert.deepEqual(execArgs.slice(execArgs.indexOf('--image'), execArgs.indexOf('--image') + 4), ['--image', 'D:\\scratch\\a.png', '--image', 'D:\\scratch\\b.png']);
+  assert.equal(execArgs[execArgs.length - 1], 'Inspect image.');
+  assert.deepEqual(resumeArgs.slice(resumeArgs.indexOf('--image'), resumeArgs.indexOf('--image') + 2), ['--image', 'D:\\scratch\\a.png']);
+  assert.equal(resumeArgs[resumeArgs.length - 2], 'thread_1');
+  assert.equal(resumeArgs[resumeArgs.length - 1], 'Inspect again.');
 });
 
 test('Codex capability detection allows slow Windows npm shim startup', () => {
@@ -3830,7 +3924,7 @@ function attachmentImageCapabilityVersion() {
   });
 }
 
-function attachmentConversationAdapter({ delaySend = false, failAfterSend = false, capabilities = null, modelCapability = null } = {}) {
+function attachmentConversationAdapter({ delaySend = false, failAfterSend = false, capabilities = null, modelCapability = null, onSendEvent = null } = {}) {
   const sent = [];
   let releaseSend;
   return {
@@ -3853,12 +3947,13 @@ function attachmentConversationAdapter({ delaySend = false, failAfterSend = fals
     releaseSend() {
       if (releaseSend) releaseSend();
     },
-    async startConversation() {
+    async startConversation({ onEvent } = {}) {
       return {
-        async sendUserMessage(text) {
-          sent.push(text);
+        async sendUserMessage(message) {
+          sent.push(message);
           if (failAfterSend) throw new Error('adapter failed after commit');
           if (delaySend) await new Promise((resolve) => { releaseSend = resolve; });
+          if (onSendEvent) onEvent(onSendEvent);
         },
         async cancel() {},
         async dispose() {}
@@ -3898,6 +3993,10 @@ function attachmentScratchEntries(app) {
   const fs = require('node:fs');
   const scratchRoot = app.conversations.attachmentScratchStore.root;
   return fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
+}
+
+function sentMessageTexts(adapter) {
+  return adapter.sent.map((message) => (typeof message === 'string' ? message : message.text));
 }
 
 test('JSON conversation send still accepts text payloads', async () => {
@@ -4731,7 +4830,7 @@ test('multipart upload allows different devices until the daemon-wide limit', as
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(adapter.sent, ['inspect']);
+    assert.deepEqual(sentMessageTexts(adapter), ['inspect']);
     assert.equal(app.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
   } finally {
     app.conversations.multipartActiveCount = 0;
@@ -4758,7 +4857,7 @@ test('multipart conversation send commits attachment metadata without raw scratc
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(adapter.sent, ['']);
+    assert.deepEqual(sentMessageTexts(adapter), ['']);
     const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
     assert.equal(userMessage.text, '');
     assert.equal(userMessage.clientMessageId, 'client_success');
@@ -4789,6 +4888,97 @@ test('multipart conversation send commits attachment metadata without raw scratc
   } finally {
     await closeAttachmentConversationApp(app);
   }
+});
+
+test('multipart conversation send dispatches attachment-aware messages and cleans send_time scratch', async () => {
+  const { app, adapter, port, token, conversationId } = await createAttachmentConversationApp({ dbPrefix: 'app-db-attachments-dispatch-shape-' });
+  try {
+    const boundary = '----attachments-dispatch-shape';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect dispatch',
+        clientMessageId: 'client_dispatch_shape',
+        capabilityVersion: attachmentTestCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.txt', mimeType: 'text/plain', kind: 'textDocument', sizeBytes: 5 }]
+      },
+      files: [{ name: 'a.txt', mimeType: 'text/plain', bytes: Buffer.from('hello', 'utf8') }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(adapter.sent.length, 1);
+    assert.equal(adapter.sent[0].text, 'inspect dispatch');
+    assert.equal(adapter.sent[0].attachments.length, 1);
+    assert.equal(adapter.sent[0].attachments[0].name, 'a.txt');
+    assert.equal(adapter.sent[0].attachments[0].text, 'hello');
+    assert.equal(typeof adapter.sent[0].attachments[0].scratchPath, 'string');
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart Codex native image scratch stays until terminal turn event', async () => {
+  const adapter = attachmentConversationAdapter({
+    capabilities: {
+      resume: true,
+      partialOutput: true,
+      attachments: {
+        image: 'native',
+        pdf: 'unsupported',
+        textDocument: 'text_extract'
+      }
+    }
+  });
+  const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-turn-scratch-' });
+  try {
+    const boundary = '----attachments-turn-scratch';
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_turn_scratch',
+        capabilityVersion: attachmentImageCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+    const internal = app.conversations.conversations.get(conversationId);
+
+    assert.equal(response.status, 200);
+    assert.equal(adapter.sent[0].attachments[0].kind, 'image');
+    assert.equal(adapter.sent[0].attachments[0].scratchLifetime, 'turn');
+    assert.equal(attachmentScratchEntries(app).length, 1);
+
+    app.conversations.recordAdapterEvent(internal, { type: 'conversation.completed' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(attachmentScratchEntries(app), []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('attachment cleanup failures record the stable audit event type', async () => {
+  const { manager, auditLog } = createConversationManagerForTest();
+
+  await manager.cleanupAttachmentScratch({ id: 'conv_cleanup' }, {
+    dir: 'D:\\scratch\\fake',
+    async cleanup() {
+      throw new Error('cleanup denied');
+    }
+  });
+
+  const record = auditLog.list().find((item) => item.type === 'conversation.attachment_cleanup_failed');
+  assert.equal(record.conversationId, 'conv_cleanup');
+  assert.equal(record.error, 'cleanup denied');
 });
 
 test('multipart committed clientMessageId retries idempotently and conflicts on different payloads', async () => {
@@ -4837,7 +5027,7 @@ test('multipart committed clientMessageId retries idempotently and conflicts on 
     assert.equal(retryResponse.status, 200);
     assert.equal(conflictResponse.status, 409);
     assert.equal(parseRawJson(conflictResponse).error.code, 'message_idempotency_conflict');
-    assert.deepEqual(adapter.sent, ['inspect once']);
+    assert.deepEqual(sentMessageTexts(adapter), ['inspect once']);
     assert.equal(app.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
@@ -4895,7 +5085,7 @@ test('multipart running conversation permits same payload retry but rejects new 
     assert.equal(retryResponse.status, 200);
     assert.equal(secondResponse.status, 409);
     assert.equal(parseRawJson(secondResponse).error.code, 'conversation_running');
-    assert.deepEqual(adapter.sent, ['inspect running once']);
+    assert.deepEqual(sentMessageTexts(adapter), ['inspect running once']);
     assert.equal(events.filter((event) => event.type === 'user.message').length, 1);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
@@ -5019,7 +5209,7 @@ test('multipart post-commit adapter failure records run error and consumes clien
     assert.equal(publicConversation.status, 'failed');
     assert.equal(retried.status, 200);
     assert.equal(parseRawJson(retried).conversation.status, 'failed');
-    assert.deepEqual(adapter.sent, ['inspect failure']);
+    assert.deepEqual(sentMessageTexts(adapter), ['inspect failure']);
     assert.equal(app.conversationEventStore.list(conversationId, 0).filter((event) => event.type === 'user.message').length, 1);
     assert.deepEqual(attachmentScratchEntries(app), []);
   } finally {
@@ -5057,7 +5247,7 @@ test('multipart conversation send commits multiple attachment metadata entries i
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(adapter.sent, ['inspect both']);
+    assert.deepEqual(sentMessageTexts(adapter), ['inspect both']);
     const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
     assert.deepEqual(userMessage.attachments.map((attachment) => ({
       name: attachment.name,
