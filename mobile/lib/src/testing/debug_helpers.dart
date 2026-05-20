@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/protocol.dart';
+import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
@@ -501,6 +502,7 @@ Widget buildCodingWorkbenchEntryPreview() {
               expandThinking: false,
               permissionMode: 'default',
               dependencies: WorkbenchDependencies(
+                adapterRepository: DaemonAdapterRepository(client: client),
                 asrModelManager:
                     AsrModelManager(client: client.createAsrModelClient()),
                 conversationRepository:

@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../workspace_picker/workspace_picker.dart';
+import 'attachments/draft_attachment.dart';
 import 'voice_input.dart';
 
 class CodingComposer extends StatelessWidget {
@@ -22,6 +25,9 @@ class CodingComposer extends StatelessWidget {
       required this.modelLocked,
       this.model,
       this.modelNotice,
+      this.draftAttachments = const <DraftAttachment>[],
+      this.onAttachmentTap,
+      this.onRemoveAttachment,
       required this.onCliTap,
       required this.onModelTap,
       required this.onVoiceStart,
@@ -43,6 +49,9 @@ class CodingComposer extends StatelessWidget {
   final bool modelLocked;
   final String? model;
   final String? modelNotice;
+  final List<DraftAttachment> draftAttachments;
+  final VoidCallback? onAttachmentTap;
+  final ValueChanged<int>? onRemoveAttachment;
   final VoidCallback onCliTap;
   final VoidCallback onModelTap;
   final VoidCallback onVoiceStart;
@@ -75,6 +84,12 @@ class CodingComposer extends StatelessWidget {
                   border:
                       Border.all(color: Colors.white.withValues(alpha: .085))),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (draftAttachments.isNotEmpty) ...[
+                  _AttachmentTray(
+                      attachments: draftAttachments,
+                      onRemove: onRemoveAttachment),
+                  const SizedBox(height: 8),
+                ],
                 TextField(
                   controller: controller,
                   minLines: 1,
@@ -94,7 +109,10 @@ class CodingComposer extends StatelessWidget {
                           : running
                               ? AppLocalizations.of(context)
                                   .workbenchComposerFollowUpHint
-                              : 'Add feedback...',
+                              : draftAttachments.isNotEmpty
+                                  ? AppLocalizations.of(context)
+                                      .workbenchAttachmentAddInstruction
+                                  : 'Add feedback...',
                       hintStyle: theme.appTextStyle.copyWith(
                           color: theme.faint,
                           fontSize: 14.5,
@@ -141,7 +159,16 @@ class CodingComposer extends StatelessWidget {
                   ])),
                   const SizedBox(width: 8),
                   Row(mainAxisSize: MainAxisSize.min, children: [
-                    const _ComposerIcon(Icons.add_rounded),
+                    Tooltip(
+                        message: 'Add attachment',
+                        child: InkWell(
+                            onTap: running || sending ? null : onAttachmentTap,
+                            borderRadius: BorderRadius.circular(16),
+                            child: const SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: Center(
+                                    child: _ComposerIcon(Icons.add_rounded))))),
                     const SizedBox(width: 12),
                     _VoiceInputButton(
                         state: voiceState,
@@ -158,6 +185,124 @@ class CodingComposer extends StatelessWidget {
                   ]),
                 ])
               ]))));
+}
+
+class _AttachmentTray extends StatelessWidget {
+  const _AttachmentTray({required this.attachments, required this.onRemove});
+
+  final List<DraftAttachment> attachments;
+  final ValueChanged<int>? onRemove;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+      height: 56,
+      width: double.infinity,
+      child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: EdgeInsets.zero,
+          itemBuilder: (context, index) => _AttachmentTile(
+              attachment: attachments[index],
+              onRemove: onRemove == null ? null : () => onRemove?.call(index)),
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
+          itemCount: attachments.length));
+}
+
+class _AttachmentTile extends StatelessWidget {
+  const _AttachmentTile({required this.attachment, required this.onRemove});
+
+  final DraftAttachment attachment;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final invalid = !attachment.isValid;
+    final errorMessage = _localizedAttachmentError(context, attachment);
+    return Tooltip(
+        message: errorMessage ?? attachment.name,
+        child: Container(
+            width: 154,
+            height: 56,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+                color: const Color(0xFF111214),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: invalid
+                        ? theme.red.withValues(alpha: .72)
+                        : Colors.white.withValues(alpha: .085))),
+            child: Row(children: [
+              _AttachmentPreview(attachment),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(attachment.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: invalid ? theme.red : theme.text,
+                          fontSize: 11.5,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0))),
+              const SizedBox(width: 4),
+              Tooltip(
+                  message: 'Remove ${attachment.name}',
+                  child: InkWell(
+                      onTap: onRemove,
+                      borderRadius: BorderRadius.circular(999),
+                      child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: Icon(Icons.close_rounded,
+                              color: invalid ? theme.red : theme.muted,
+                              size: 15)))),
+            ])));
+  }
+}
+
+String? _localizedAttachmentError(
+  BuildContext context,
+  DraftAttachment attachment,
+) {
+  final code = attachment.errorCode;
+  if (code == null) return null;
+  final l10n = AppLocalizations.of(context);
+  return switch (code) {
+    'attachment_kind_unsupported' => l10n.workbenchAttachmentUnsupported,
+    'attachment_too_large' ||
+    'attachment_total_too_large' =>
+      l10n.workbenchAttachmentTooLarge,
+    _ => attachment.errorMessage,
+  };
+}
+
+class _AttachmentPreview extends StatelessWidget {
+  const _AttachmentPreview(this.attachment);
+
+  final DraftAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+          width: 42,
+          height: 42,
+          color: Colors.white.withValues(alpha: .045),
+          child: _previewChild()));
+
+  Widget _previewChild() {
+    if (attachment.kind == AttachmentKind.image) {
+      return Image.file(
+        File(attachment.localPath),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            const Icon(Icons.image_outlined, color: theme.muted, size: 20),
+      );
+    }
+    final icon = attachment.kind == AttachmentKind.pdf
+        ? Icons.picture_as_pdf_outlined
+        : Icons.description_outlined;
+    return Icon(icon, color: theme.muted, size: 20);
+  }
 }
 
 class ComposerWorkspaceCloud extends StatelessWidget {

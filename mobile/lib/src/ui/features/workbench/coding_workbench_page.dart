@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../l10n/app_localizations.dart';
+import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
 import '../../../shell/shell.dart';
@@ -15,6 +16,7 @@ import '../../../workflows/workspace/create_workspace_workflow.dart'
         CreateWorkspaceNotConfirmed,
         CreateWorkspaceSuccess,
         CreateWorkspaceTimeout;
+import 'attachments/attachment_picker.dart';
 import 'coding_composer.dart';
 import 'voice_input.dart';
 import 'workbench_event_cards.dart';
@@ -63,6 +65,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   final _scrollController = ScrollController();
   late final VoiceInputViewModel _voiceInput;
   late final AsrModelManager _asrModelManager;
+  late final WorkbenchAttachmentPicker _attachmentPicker;
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
@@ -216,6 +219,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       runRepository: widget.dependencies.runRepository,
       workspaceRepository: widget.dependencies.workspaceRepository,
     )..addListener(_syncWorkbenchViewModel);
+    _attachmentPicker = const WorkbenchAttachmentPicker();
     _asrModelManager = widget.dependencies.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
@@ -351,6 +355,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (mounted) setState(() {});
   }
 
+  void _handleComposerTextChanged(String text) {
+    unawaited(_finishVoiceInputForTextEdit());
+    if (mounted) setState(() {});
+  }
+
   Future<void> _finishVoiceInputForSend() async {
     final merged = await _voiceInput.finishForSend(currentPrompt: _prompt.text);
     if (merged != null && mounted) {
@@ -450,6 +459,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _showWorkspacePicker() => _openWorkspaceList();
+
+  Future<void> _pickAttachments() async {
+    if (_isRunningCli || _sending) return;
+    final attachments = await _attachmentPicker.pickAttachments();
+    if (!mounted || attachments.isEmpty) return;
+    _workbenchViewModel.addDraftAttachments(attachments);
+  }
+
+  Future<void> _refreshAdapterCapabilities() async {
+    final adapters = await widget.dependencies.adapterRepository.listAdapters();
+    if (!mounted) return;
+    _workbenchViewModel.updateAdapters(adapters);
+  }
 
   Future<void> _showCreateWorkspaceFromWorkspaceList() async {
     final request = await showModalBottomSheet<WorkspaceCreationRequest>(
@@ -629,8 +651,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final prompt = _prompt.text.trim();
     final draft = _prompt.text;
     final adapter = _workbenchViewModel.selectedAdapter;
-    if (prompt.isEmpty || adapter == null || _sending) return;
     final pendingQuestionId = _workbenchViewModel.pendingQuestionId;
+    if (adapter == null ||
+        _sending ||
+        !_workbenchViewModel.canSendComposer(text: prompt) ||
+        (pendingQuestionId != null &&
+            pendingQuestionId.isNotEmpty &&
+            _workbenchViewModel.draftAttachments.isNotEmpty)) {
+      return;
+    }
     final routeWorkspace = _routeWorkspace;
     if (_activeRunId == null && routeWorkspace == null) {
       _goToWorkspaces();
@@ -638,7 +667,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
     setState(() {
       _workbenchViewModel.beginOperation(notify: false);
-      _workbenchViewModel.addUserMessage(prompt, notify: false);
+      if (prompt.isNotEmpty) {
+        _workbenchViewModel.addUserMessage(prompt, notify: false);
+      }
       _prompt.clear();
     });
     _scrollToBottom();
@@ -701,6 +732,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       }
       _scrollToBottom();
     } catch (err, stack) {
+      if (err is ConversationRepositoryException &&
+          err.code == 'capability_stale') {
+        try {
+          await _refreshAdapterCapabilities();
+        } catch (_) {
+          // Preserve the original send error; retry uses any refreshed data.
+        }
+      }
       final sendAcknowledgementTimedOut = isSendAcknowledgementTimeout(
         err,
         activeConversationId: _activeConversationId,
@@ -988,8 +1027,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final error = _workbenchViewModel.modelUpdateError?.trim();
     if (error == null || error.isEmpty) return null;
     final normalized = error.toLowerCase();
-    if (normalized.contains('current turn') ||
-        normalized.contains('active')) {
+    if (normalized.contains('current turn') || normalized.contains('active')) {
       return _modelPickerBusyText(context);
     }
     return error;
@@ -1001,10 +1039,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (workspace == null) return _buildWorkspaceList();
     final adapter = _workbenchViewModel.selectedAdapter;
     final modelLabel = _selectedModelLabel();
+    final pendingQuestionId = _workbenchViewModel.pendingQuestionId;
+    final pendingQuestionCanSendAttachments =
+        pendingQuestionId == null || pendingQuestionId.isEmpty;
     final canSend = adapter != null &&
         !_sending &&
         canSendInConversationStatus(
-            _workbenchViewModel.effectiveConversationStatus);
+            _workbenchViewModel.effectiveConversationStatus) &&
+        (pendingQuestionCanSendAttachments ||
+            _workbenchViewModel.draftAttachments.isEmpty) &&
+        _workbenchViewModel.canSendComposer(text: _prompt.text);
     return Column(key: const ValueKey('coding-workbench-detail'), children: [
       Container(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),
@@ -1036,12 +1080,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           voiceEnabled: widget.speechInputService != null ||
               isVoiceInputPlatformSupported,
           voiceError: null,
+          draftAttachments: _workbenchViewModel.draftAttachments,
+          onAttachmentTap: () => unawaited(_pickAttachments()),
+          onRemoveAttachment: _workbenchViewModel.removeDraftAttachment,
           onCliTap: _showAdapterPicker,
           onModelTap: _showModelPicker,
           onVoiceStart: () => unawaited(_startVoiceInput()),
           onVoiceStop: () => unawaited(_stopVoiceInput()),
           onVoiceCancel: () => unawaited(_cancelVoiceInput()),
-          onTextChanged: (_) => unawaited(_finishVoiceInputForTextEdit()),
+          onTextChanged: _handleComposerTextChanged,
           onSend: _sendPrompt,
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(
@@ -1523,8 +1570,7 @@ class ModelPickerSheet extends StatelessWidget {
                           Expanded(
                               child: Text(normalizedError,
                                   style: TextStyle(
-                                      color:
-                                          theme.red.withValues(alpha: .95),
+                                      color: theme.red.withValues(alpha: .95),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700)))
                         ])),
@@ -1538,9 +1584,8 @@ class ModelPickerSheet extends StatelessWidget {
                                       key: const ValueKey(
                                           'model-option-default'),
                                       title: l10n.modelPickerDefaultModel,
-                                      source:
-                                          _modelPickerCliDefaultDetailText(
-                                              context),
+                                      source: _modelPickerCliDefaultDetailText(
+                                          context),
                                       selected: selected == null,
                                       onTap: choicesDisabled
                                           ? null
@@ -1583,69 +1628,69 @@ class _ModelChoiceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final enabled = onTap != null;
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-          decoration: BoxDecoration(
-              color: selected
-                  ? const Color(0xFF1A212A)
-                  : Colors.white.withValues(alpha: .03),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                  color: selected
-                      ? theme.activeStroke.withValues(alpha: .75)
-                      : theme.stroke)),
-          child: Row(children: [
-            Container(
-                width: 24,
-                height: 24,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .045),
-                    borderRadius: BorderRadius.circular(8),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: .08))),
-                child: const Icon(Icons.memory_rounded,
-                    color: theme.muted, size: 14)),
-            const SizedBox(width: 10),
-            Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: enabled
-                              ? theme.text
-                              : theme.text.withValues(alpha: .45),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0)),
-                  const SizedBox(height: 2),
-                  Text(source,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: enabled
-                              ? theme.muted
-                              : theme.muted.withValues(alpha: .45),
-                          fontSize: 11.5))
-                ])),
-            if (selected)
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+            decoration: BoxDecoration(
+                color: selected
+                    ? const Color(0xFF1A212A)
+                    : Colors.white.withValues(alpha: .03),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: selected
+                        ? theme.activeStroke.withValues(alpha: .75)
+                        : theme.stroke)),
+            child: Row(children: [
               Container(
-                  width: 18,
-                  height: 18,
+                  width: 24,
+                  height: 24,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .06),
-                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: .045),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                          color: theme.activeStroke.withValues(alpha: .7))),
-                  child: const Icon(Icons.check_rounded,
-                      color: theme.active, size: 12))
-          ])));
+                          color: Colors.white.withValues(alpha: .08))),
+                  child: const Icon(Icons.memory_rounded,
+                      color: theme.muted, size: 14)),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: enabled
+                                ? theme.text
+                                : theme.text.withValues(alpha: .45),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0)),
+                    const SizedBox(height: 2),
+                    Text(source,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: enabled
+                                ? theme.muted
+                                : theme.muted.withValues(alpha: .45),
+                            fontSize: 11.5))
+                  ])),
+              if (selected)
+                Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .06),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: theme.activeStroke.withValues(alpha: .7))),
+                    child: const Icon(Icons.check_rounded,
+                        color: theme.active, size: 12))
+            ])));
   }
 }
 
@@ -1670,21 +1715,18 @@ String _modelPickerUnsupportedDaemonText(BuildContext context) =>
         context: context,
         en: 'Update the desktop daemon to change models in existing '
             'conversations.',
-        zh:
-            '\u8bf7\u66f4\u65b0\u684c\u9762\u7aef daemon \u540e\u518d\u4fee\u6539\u5df2\u6709\u5bf9\u8bdd\u7684\u6a21\u578b\u3002');
+        zh: '\u8bf7\u66f4\u65b0\u684c\u9762\u7aef daemon \u540e\u518d\u4fee\u6539\u5df2\u6709\u5bf9\u8bdd\u7684\u6a21\u578b\u3002');
 
 String _modelPickerBusyText(BuildContext context) => _modelPickerFallbackText(
     context: context,
     en: 'Wait for the current turn to finish before changing model.',
-    zh:
-        '\u5f53\u524d\u8f6e\u6b21\u7ed3\u675f\u540e\u624d\u80fd\u5207\u6362\u6a21\u578b\u3002');
+    zh: '\u5f53\u524d\u8f6e\u6b21\u7ed3\u675f\u540e\u624d\u80fd\u5207\u6362\u6a21\u578b\u3002');
 
 String _modelPickerCliDefaultDetailText(BuildContext context) =>
     _modelPickerFallbackText(
         context: context,
         en: 'Uses the CLI configured default.',
-        zh:
-            '\u4f7f\u7528 CLI \u5f53\u524d\u914d\u7f6e\u7684\u9ed8\u8ba4\u6a21\u578b\u3002');
+        zh: '\u4f7f\u7528 CLI \u5f53\u524d\u914d\u7f6e\u7684\u9ed8\u8ba4\u6a21\u578b\u3002');
 
 String _modelPickerFallbackText(
     {required BuildContext context, required String en, required String zh}) {

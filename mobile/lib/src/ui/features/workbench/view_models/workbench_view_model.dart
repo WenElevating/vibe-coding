@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../../domain/repositories/conversation_repository.dart';
@@ -8,6 +10,7 @@ import '../../../../models/protocol.dart';
 import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
+import '../attachments/draft_attachment.dart';
 import '../coding_workbench_controller.dart';
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
@@ -19,6 +22,11 @@ enum WorkbenchModelNotice {
 class WorkbenchViewModel extends ChangeNotifier {
   static const String _unsupportedModelUpdateMessage =
       'existing conversation model updates require a newer daemon';
+  static const int _maxDraftAttachments = 4;
+  static const int _claudeImageBytesLimit = 5 * 1024 * 1024;
+  static const int _defaultImageBytesLimit = 10 * 1024 * 1024;
+  static const int _textDocumentBytesLimit = 1024 * 1024;
+  static const int _totalMultipartBytesLimit = 20 * 1024 * 1024;
 
   WorkbenchViewModel({
     required AppSnapshot initialData,
@@ -60,12 +68,14 @@ class WorkbenchViewModel extends ChangeNotifier {
   ConversationSummary? _activeConversation;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
+  final List<DraftAttachment> _draftAttachments = <DraftAttachment>[];
   ConversationViewState _conversationState = const ConversationViewState();
   int _lastSeq = 0;
   final Set<String> _resolvedApprovalIds = <String>{};
   bool _sending = false;
   String? _error;
   String? _errorTraceId;
+  String? _currentAttachmentClientMessageId;
 
   WorkbenchRouteState get routeState => _routeState;
   List<SessionItem> get optimisticSessions =>
@@ -91,6 +101,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<WorkbenchMessage> get messages => List.unmodifiable(_messages);
   List<ConversationEvent> get conversationEvents =>
       List.unmodifiable(_conversationEvents);
+  List<DraftAttachment> get draftAttachments =>
+      List.unmodifiable(_draftAttachments);
   ConversationViewState get conversationState => _conversationState;
   int get lastSeq => _lastSeq;
   String? get pendingQuestionId {
@@ -394,6 +406,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _selectedAdapter = adapter;
     _draftModel = _preferredModelFor(selectedAdapterStatus);
     _modelNotice = null;
+    _revalidateDraftAttachments();
     notifyListeners();
   }
 
@@ -412,6 +425,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       final changed = _draftModel != normalized || _modelNotice != null;
       _draftModel = normalized;
       _modelNotice = null;
+      _revalidateDraftAttachments();
       if (changed) notifyListeners();
       return true;
     }
@@ -438,6 +452,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _selectActiveConversationAdapter(conversation);
       _modelUpdateError = null;
       _modelUpdating = false;
+      _revalidateDraftAttachments();
       notifyListeners();
       return true;
     } on ConversationRepositoryException catch (error) {
@@ -474,7 +489,7 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void updateFromSnapshot(AppSnapshot snapshot) {
     reconcile(snapshot, notify: false);
-    _adapters = List<AdapterStatus>.unmodifiable(snapshot.adapters);
+    _applyAdapters(snapshot.adapters);
     final workspaces = List<WorkspaceSummary>.unmodifiable(snapshot.workspaces);
     _routeState = _rebuildRouteState(workspaces);
     final activeConversation = _activeConversation;
@@ -486,7 +501,27 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_activeConversationId == null) {
       _reconcileSelectedModel();
     }
+    _revalidateDraftAttachments();
     notifyListeners();
+  }
+
+  void updateAdapters(List<AdapterStatus> adapters, {bool notify = true}) {
+    _applyAdapters(adapters);
+    final activeConversation = _activeConversation;
+    if (activeConversation != null) {
+      _selectActiveConversationAdapter(activeConversation);
+    } else if (!_selectedAdapterStillAvailable(adapters)) {
+      _selectedAdapter = _computePreferredAdapter(adapters);
+    }
+    if (_activeConversationId == null) {
+      _reconcileSelectedModel();
+    }
+    _revalidateDraftAttachments();
+    if (notify) notifyListeners();
+  }
+
+  void _applyAdapters(List<AdapterStatus> adapters) {
+    _adapters = List<AdapterStatus>.unmodifiable(adapters);
   }
 
   void _selectActiveConversationAdapter(ConversationSummary? conversation) {
@@ -495,6 +530,40 @@ class WorkbenchViewModel extends ChangeNotifier {
     final adapter = conversation?.adapter.trim();
     if (adapter == null || adapter.isEmpty) return;
     _selectedAdapter = adapter;
+    _revalidateDraftAttachments();
+  }
+
+  void addDraftAttachments(List<DraftAttachment> attachments) {
+    if (attachments.isEmpty) return;
+    _draftAttachments.addAll(attachments);
+    if (_draftAttachments.length > _maxDraftAttachments) {
+      _draftAttachments.removeRange(
+        _maxDraftAttachments,
+        _draftAttachments.length,
+      );
+    }
+    _revalidateDraftAttachments();
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void addDraftAttachmentForTest(DraftAttachment attachment) {
+    addDraftAttachments(<DraftAttachment>[attachment]);
+  }
+
+  void removeDraftAttachment(int index) {
+    if (index < 0 || index >= _draftAttachments.length) return;
+    _draftAttachments.removeAt(index);
+    _revalidateDraftAttachments();
+    notifyListeners();
+  }
+
+  bool canSendComposer({required String text}) {
+    if (_sending) return false;
+    final hasText = text.trim().isNotEmpty;
+    final hasAttachment = _draftAttachments.any((item) => item.isValid);
+    final hasError = _draftAttachments.any((item) => !item.isValid);
+    return !hasError && (hasText || hasAttachment);
   }
 
   AdapterStatus? _adapterStatusFor(String? adapter) =>
@@ -580,8 +649,11 @@ class WorkbenchViewModel extends ChangeNotifier {
       conversation: conversation,
       runningConversation: runningConversation,
       run: runSummaryFromConversation(conversation),
-      updatedConversation: repository.sendConversationMessage(
-          conversation.id, ConversationMessageSendRequest(text: prompt)),
+      updatedConversation: _sendConversationMessageWithDrafts(
+        repository,
+        conversation.id,
+        prompt,
+      ),
     );
   }
 
@@ -589,14 +661,67 @@ class WorkbenchViewModel extends ChangeNotifier {
     required String conversationId,
     required String prompt,
     Future<void> Function()? restartPolling,
-  }) async {
+  }) {
     final repository = _requireConversationRepository();
-    final send = repository.sendConversationMessage(
+    final send = _sendConversationMessageWithDrafts(
+      repository,
       conversationId,
-      ConversationMessageSendRequest(text: prompt),
+      prompt,
     );
-    await restartPolling?.call();
-    return send;
+    final restart = restartPolling?.call();
+    if (restart == null) return send;
+    return Future.wait<Object?>(<Future<Object?>>[
+      restart.then<Object?>((_) => null),
+      send.then<Object?>((conversation) => conversation),
+    ]).then((results) => results[1] as ConversationSummary);
+  }
+
+  Future<ConversationSummary> _sendConversationMessageWithDrafts(
+    ConversationRepository repository,
+    String conversationId,
+    String prompt,
+  ) async {
+    final request = _buildConversationMessageRequest(prompt);
+    try {
+      final conversation =
+          await repository.sendConversationMessage(conversationId, request);
+      if (request.attachments.isNotEmpty) {
+        _draftAttachments.clear();
+        _currentAttachmentClientMessageId = null;
+      }
+      return conversation;
+    } on ConversationRepositoryException catch (error) {
+      if (request.attachments.isNotEmpty &&
+          !_keepsAttachmentClientMessageId(error)) {
+        _currentAttachmentClientMessageId = null;
+      }
+      rethrow;
+    }
+  }
+
+  ConversationMessageSendRequest _buildConversationMessageRequest(
+    String prompt,
+  ) {
+    final attachments = _draftAttachments
+        .where((item) => item.isValid)
+        .map((item) => ConversationMessageAttachment(
+              localPath: item.localPath,
+              name: item.name,
+              mimeType: item.mimeType,
+              kind: item.kind,
+              sizeBytes: item.sizeBytes,
+            ))
+        .toList(growable: false);
+    if (attachments.isEmpty) {
+      return ConversationMessageSendRequest(text: prompt);
+    }
+    _currentAttachmentClientMessageId ??= _generateUuidV4();
+    return ConversationMessageSendRequest(
+      text: prompt,
+      clientMessageId: _currentAttachmentClientMessageId,
+      capabilityVersion: selectedAdapterStatus?.capabilityVersion,
+      attachments: attachments,
+    );
   }
 
   Future<ConversationSummary> answerConversationQuestion({
@@ -909,6 +1034,118 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (error.statusCode == 405) return true;
     if (error.statusCode != 404) return false;
     return error.code != 'NOT_FOUND';
+  }
+
+  void _revalidateDraftAttachments() {
+    if (_draftAttachments.isEmpty) return;
+    final capabilities = _selectedAttachmentCapabilities();
+    final imageLimit = _selectedAdapter == 'claude'
+        ? _claudeImageBytesLimit
+        : _defaultImageBytesLimit;
+    final totalBytes =
+        _draftAttachments.fold<int>(0, (sum, item) => sum + item.sizeBytes);
+    for (var i = 0; i < _draftAttachments.length; i++) {
+      final attachment = _draftAttachments[i];
+      final validation = _validateDraftAttachment(
+        attachment,
+        capabilities: capabilities,
+        imageLimit: imageLimit,
+        totalBytes: totalBytes,
+      );
+      _draftAttachments[i] = attachment.copyWith(
+        errorCode: validation.$1,
+        errorMessage: validation.$2,
+      );
+    }
+  }
+
+  (String?, String?) _validateDraftAttachment(
+    DraftAttachment attachment, {
+    required AttachmentCapabilities capabilities,
+    required int imageLimit,
+    required int totalBytes,
+  }) {
+    if (attachment.sizeBytes < 1) {
+      return ('attachment_empty', 'This file is empty.');
+    }
+    if (totalBytes > _totalMultipartBytesLimit) {
+      return ('attachment_total_too_large', 'Selected files are too large.');
+    }
+    switch (attachment.kind) {
+      case AttachmentKind.image:
+        if (capabilities.image != AttachmentHandling.native) {
+          return (
+            'attachment_kind_unsupported',
+            'This file is not supported by the selected model.'
+          );
+        }
+        if (attachment.sizeBytes > imageLimit) {
+          return ('attachment_too_large', 'This image is too large.');
+        }
+      case AttachmentKind.textDocument:
+        if (capabilities.textDocument != AttachmentHandling.native &&
+            capabilities.textDocument != AttachmentHandling.textExtract) {
+          return (
+            'attachment_kind_unsupported',
+            'This file is not supported by the selected model.'
+          );
+        }
+        if (attachment.sizeBytes > _textDocumentBytesLimit) {
+          return ('attachment_too_large', 'This document is too large.');
+        }
+      case AttachmentKind.pdf:
+        if (capabilities.pdf == AttachmentHandling.unsupported) {
+          return (
+            'attachment_kind_unsupported',
+            'This file is not supported by the selected model.'
+          );
+        }
+      case AttachmentKind.unsupported:
+        return (
+          'attachment_kind_unsupported',
+          'This file is not supported by the selected model.'
+        );
+    }
+    return (null, null);
+  }
+
+  AttachmentCapabilities _selectedAttachmentCapabilities() {
+    final status = selectedAdapterStatus;
+    if (status == null) return const AttachmentCapabilities();
+    final selected = selectedModel;
+    if (selected == null) return status.attachmentCapabilities;
+    for (final model in status.models) {
+      if (model.id == selected) {
+        return model.attachmentCapabilities;
+      }
+    }
+    return status.attachmentCapabilities;
+  }
+
+  static bool _keepsAttachmentClientMessageId(
+    ConversationRepositoryException error,
+  ) {
+    if (error.statusCode == 413 ||
+        error.statusCode == 415 ||
+        error.statusCode == 422 ||
+        error.statusCode == 429) {
+      return true;
+    }
+    if (error.statusCode != 409) return false;
+    return error.code == 'capability_stale' ||
+        error.code == 'message_already_in_flight';
+  }
+
+  static String _generateUuidV4() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex =
+        bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
   }
 
   static String? _computePreferredAdapter(List<AdapterStatus> adapters) {

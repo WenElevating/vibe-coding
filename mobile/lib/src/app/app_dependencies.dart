@@ -179,6 +179,7 @@ class FeatureDependencies {
         ),
         createWorkbenchDependencies: (client, connectedData) {
           return WorkbenchDependencies(
+            adapterRepository: connectedData.adapterRepository,
             asrModelManager:
                 AsrModelManager(client: client.createAsrModelClient()),
             conversationRepository: connectedData.conversationRepository,

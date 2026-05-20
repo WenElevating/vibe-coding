@@ -27,6 +27,7 @@ import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon
 import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {
@@ -1156,6 +1157,59 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'coding composer renders attachment tray above input and deletes draft attachment',
+      (WidgetTester tester) async {
+    final controller = TextEditingController();
+    var deleted = -1;
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: true,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                cliLocked: false,
+                modelLocked: false,
+                model: 'gpt-5.3-codex',
+                draftAttachments: const <DraftAttachment>[
+                  DraftAttachment(
+                    localPath: r'D:\tmp\screenshot.png',
+                    name: 'screenshot.png',
+                    mimeType: 'image/png',
+                    kind: AttachmentKind.image,
+                    sizeBytes: 120034,
+                  ),
+                ],
+                onAttachmentTap: () {},
+                onRemoveAttachment: (index) => deleted = index,
+                onCliTap: () {},
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    final inputTop = tester.getTopLeft(find.byType(TextField)).dy;
+    final trayTop = tester.getTopLeft(find.text('screenshot.png')).dy;
+    expect(trayTop, lessThan(inputTop));
+
+    await tester.tap(find.byTooltip('Remove screenshot.png'));
+    expect(deleted, 0);
+  });
+
   testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());
@@ -1209,6 +1263,7 @@ void main() {
             dependencies.features.createRunDetailViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository: conversationRepository,
           diagnosticsRepository: connectedData.diagnosticsRepository,

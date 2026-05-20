@@ -1,3 +1,4 @@
+import '../../../domain/repositories/adapter_repository.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../domain/repositories/run_repository.dart';
@@ -7,6 +8,7 @@ import '../../../services/speech_input_contract.dart';
 
 class WorkbenchDependencies {
   const WorkbenchDependencies({
+    required this.adapterRepository,
     required this.asrModelManager,
     required this.conversationRepository,
     required this.diagnosticsRepository,
@@ -15,6 +17,7 @@ class WorkbenchDependencies {
     required this.workspaceRepository,
   });
 
+  final AdapterRepository adapterRepository;
   final AsrModelManager asrModelManager;
   final ConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;

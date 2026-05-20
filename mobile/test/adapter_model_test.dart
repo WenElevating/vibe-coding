@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
 
 void main() {
@@ -399,6 +400,121 @@ void main() {
         'send:conv_1:hello',
       ]);
     });
+
+    test('keeps draft attachments local until send', () {
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageModel],
+        ),
+      );
+
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      expect(viewModel.draftAttachments.single.name, 'screenshot.png');
+      expect(viewModel.canSendComposer(text: ''), isTrue);
+    });
+
+    test('marks image draft unsupported after switching to text-only model',
+        () async {
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageAndTextOnlyModels],
+        ),
+      );
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      final selected = await viewModel.selectModel('text-only-model');
+
+      expect(selected, isTrue);
+      expect(
+        viewModel.draftAttachments.single.errorCode,
+        'attachment_kind_unsupported',
+      );
+      expect(viewModel.canSendComposer(text: 'inspect'), isFalse);
+    });
+
+    test('existing conversation send forwards draft attachment metadata',
+        () async {
+      final repository = _FakeConversationRepository();
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageModel],
+        ),
+        conversationRepository: repository,
+      );
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      await viewModel.sendExistingConversationPrompt(
+        conversationId: 'conv_1',
+        prompt: 'inspect',
+      );
+
+      final request = repository.sentRequests.single;
+      expect(request.text, 'inspect');
+      expect(request.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
+      expect(request.clientMessageId, isNotNull);
+      expect(request.attachments.single.name, 'screenshot.png');
+      expect(request.attachments.single.kind, AttachmentKind.image);
+      expect(viewModel.draftAttachments, isEmpty);
+    });
+
+    test('pre-commit attachment failure keeps draft and client message id',
+        () async {
+      final repository = _FakeConversationRepository()
+        ..sendError = const ConversationRepositoryException(
+          statusCode: 422,
+          code: 'attachment_context_too_large',
+        );
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageModel],
+        ),
+        conversationRepository: repository,
+      );
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      await expectLater(
+        viewModel.sendExistingConversationPrompt(
+          conversationId: 'conv_1',
+          prompt: 'inspect',
+        ),
+        throwsA(isA<ConversationRepositoryException>()),
+      );
+      final firstId = repository.sentRequests.single.clientMessageId;
+
+      repository.sendError = null;
+      await viewModel.sendExistingConversationPrompt(
+        conversationId: 'conv_1',
+        prompt: 'inspect',
+      );
+
+      expect(viewModel.draftAttachments, isEmpty);
+      expect(repository.sentRequests.last.clientMessageId, firstId);
+    });
   });
 }
 
@@ -458,6 +574,58 @@ const _codexWithoutModelSelection = AdapterStatus(
       label: 'GPT-5 Codex',
       source: 'codex_config',
       selected: true,
+    ),
+  ],
+);
+
+const _codexImageModel = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+  capabilityVersion: '4bcf6aa44f7e2e074229f9cd',
+  canSelectModel: true,
+  selectedModel: 'gpt-5-codex',
+  models: <AdapterModelOption>[
+    AdapterModelOption(
+      id: 'gpt-5-codex',
+      label: 'GPT-5 Codex',
+      source: 'codex_catalog',
+      selected: true,
+      attachmentCapabilities: AttachmentCapabilities(
+        image: AttachmentHandling.native,
+        textDocument: AttachmentHandling.textExtract,
+      ),
+    ),
+  ],
+);
+
+const _codexImageAndTextOnlyModels = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+  capabilityVersion: '4bcf6aa44f7e2e074229f9cd',
+  canSelectModel: true,
+  selectedModel: 'gpt-5-codex',
+  models: <AdapterModelOption>[
+    AdapterModelOption(
+      id: 'gpt-5-codex',
+      label: 'GPT-5 Codex',
+      source: 'codex_catalog',
+      selected: true,
+      attachmentCapabilities: AttachmentCapabilities(
+        image: AttachmentHandling.native,
+        textDocument: AttachmentHandling.textExtract,
+      ),
+    ),
+    AdapterModelOption(
+      id: 'text-only-model',
+      label: 'Text Only',
+      source: 'codex_catalog',
+      selected: false,
+      attachmentCapabilities: AttachmentCapabilities(
+        image: AttachmentHandling.unsupported,
+        textDocument: AttachmentHandling.textExtract,
+      ),
     ),
   ],
 );
@@ -548,8 +716,11 @@ ConversationEvent _event({
 
 class _FakeConversationRepository implements ConversationRepository {
   final List<String> calls = <String>[];
+  final List<ConversationMessageSendRequest> sentRequests =
+      <ConversationMessageSendRequest>[];
   Completer<ConversationSummary>? updateCompleter;
   ConversationRepositoryException? updateError;
+  ConversationRepositoryException? sendError;
 
   @override
   Future<ConversationSummary> createConversation({
@@ -568,6 +739,9 @@ class _FakeConversationRepository implements ConversationRepository {
     ConversationMessageSendRequest request,
   ) async {
     calls.add('send:$conversationId:${request.text}');
+    sentRequests.add(request);
+    final error = sendError;
+    if (error != null) throw error;
     return _conversation();
   }
 
