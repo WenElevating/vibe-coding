@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../data/services/conversation_service.dart';
 import '../models/protocol.dart';
 import 'daemon_client.dart';
 
@@ -51,15 +52,58 @@ class ConversationClient {
     );
   }
 
-  Future<ConversationSummary> sendMessage(String conversationId, String text) async {
+  Future<ConversationSummary> sendMessage(
+      String conversationId, String text) async {
+    return sendMessageRequest(
+      conversationId,
+      ConversationServiceMessageSendRequest(text: text),
+    );
+  }
+
+  Future<ConversationSummary> sendMessageRequest(
+    String conversationId,
+    ConversationServiceMessageSendRequest request,
+  ) async {
+    if (request.attachments.isNotEmpty) {
+      return _sendMultipartMessage(conversationId, request);
+    }
     final response = await _post(
       '/api/conversations/$conversationId/messages',
       <String, Object?>{
-        'text': text,
+        'text': request.text,
       },
     );
     return ConversationSummary.fromJson(
       response['conversation'] as Map<String, Object?>,
+    );
+  }
+
+  Future<ConversationSummary> _sendMultipartMessage(
+    String conversationId,
+    ConversationServiceMessageSendRequest request,
+  ) async {
+    final multipart = http.MultipartRequest(
+      'POST',
+      baseUri.resolve('/api/conversations/$conversationId/messages'),
+    )
+      ..headers.addAll(_authHeaders())
+      ..fields['payload'] =
+          jsonEncode(conversationServiceMessagePayload(request));
+
+    for (var index = 0; index < request.attachments.length; index++) {
+      final attachment = request.attachments[index];
+      multipart.files.add(await http.MultipartFile.fromPath(
+        'files[$index]',
+        attachment.localPath,
+        filename: attachment.name,
+      ));
+    }
+
+    final streamed = await _httpClient.send(multipart);
+    final response = await http.Response.fromStream(streamed);
+    final decoded = _decode(response);
+    return ConversationSummary.fromJson(
+      decoded['conversation'] as Map<String, Object?>,
     );
   }
 
@@ -128,7 +172,8 @@ class ConversationClient {
     return _decode(response);
   }
 
-  Future<Map<String, Object?>> _post(String path, Map<String, Object?> body) async {
+  Future<Map<String, Object?>> _post(
+      String path, Map<String, Object?> body) async {
     final response = await _httpClient.post(
       baseUri.resolve(path),
       headers: _headers(),
@@ -139,6 +184,10 @@ class ConversationClient {
 
   Map<String, String> _headers() => <String, String>{
         'content-type': 'application/json; charset=utf-8',
+        if (_token != null) 'authorization': 'Bearer $_token',
+      };
+
+  Map<String, String> _authHeaders() => <String, String>{
         if (_token != null) 'authorization': 'Bearer $_token',
       };
 

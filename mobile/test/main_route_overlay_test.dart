@@ -420,7 +420,14 @@ class _UnusedRepository
   @override
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
+    ConversationMessageSendRequest request,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
   ) =>
       throw UnimplementedError();
 

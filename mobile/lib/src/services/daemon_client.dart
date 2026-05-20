@@ -562,12 +562,12 @@ class DaemonClient
   }
 
   @override
-  Future<ConversationSummary> sendConversationMessage(
-      String conversationId, String text) async {
-    final response = await _post(
-        '/api/conversations/$conversationId/messages', <String, Object?>{
-      'text': text,
-    });
+  Future<ConversationSummary> sendConversationMessage(String conversationId,
+      ConversationServiceMessageSendRequest request) async {
+    final path = '/api/conversations/$conversationId/messages';
+    final response = request.attachments.isEmpty
+        ? await _post(path, <String, Object?>{'text': request.text})
+        : await _postMultipartConversationMessage(path, request);
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);
   }
@@ -691,7 +691,54 @@ class DaemonClient
     return _decode(response);
   }
 
+  Future<Map<String, Object?>> _postMultipartConversationMessage(
+    String path,
+    ConversationServiceMessageSendRequest request, {
+    bool authorize = true,
+  }) async {
+    final response = await _sendMultipartConversationMessage(
+      path,
+      request,
+      authorize: authorize,
+    );
+    if (authorize && _isAuthRequired(response)) {
+      await _refreshAfterAuthRequired();
+      final retry = await _sendMultipartConversationMessage(
+        path,
+        request,
+        authorize: authorize,
+      );
+      return _decode(retry);
+    }
+    return _decode(response);
+  }
+
+  Future<http.Response> _sendMultipartConversationMessage(
+    String path,
+    ConversationServiceMessageSendRequest request, {
+    required bool authorize,
+  }) async {
+    final multipart = http.MultipartRequest('POST', baseUri.resolve(path))
+      ..headers.addAll(_multipartHeaders(authorize: authorize))
+      ..fields['payload'] =
+          jsonEncode(conversationServiceMessagePayload(request));
+    for (var index = 0; index < request.attachments.length; index++) {
+      final attachment = request.attachments[index];
+      multipart.files.add(await http.MultipartFile.fromPath(
+        'files[$index]',
+        attachment.localPath,
+        filename: attachment.name,
+      ));
+    }
+    final streamed = await _requestStream(() => _httpClient.send(multipart));
+    return http.Response.fromStream(streamed);
+  }
+
   Future<http.Response> _request(Future<http.Response> Function() request) =>
+      request().timeout(daemonRequestTimeout);
+
+  Future<http.StreamedResponse> _requestStream(
+          Future<http.StreamedResponse> Function() request) =>
       request().timeout(daemonRequestTimeout);
 
   bool _needsRefresh(TokenSession session) =>
@@ -742,6 +789,12 @@ class DaemonClient
   Map<String, String> _headers({required bool authorize}) {
     return <String, String>{
       'content-type': 'application/json; charset=utf-8',
+      if (authorize && _token != null) 'authorization': 'Bearer $_token',
+    };
+  }
+
+  Map<String, String> _multipartHeaders({required bool authorize}) {
+    return <String, String>{
       if (authorize && _token != null) 'authorization': 'Bearer $_token',
     };
   }

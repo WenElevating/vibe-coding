@@ -400,7 +400,7 @@ class _LazyConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
+    ConversationMessageSendRequest request,
   ) async =>
       throw UnimplementedError();
 
@@ -1547,8 +1547,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('model-picker-error')), findsOneWidget);
     expect(
-        find.text(
-            'Update the desktop daemon to change models in existing '
+        find.text('Update the desktop daemon to change models in existing '
             'conversations.'),
         findsOneWidget);
 

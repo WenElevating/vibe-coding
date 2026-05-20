@@ -1,15 +1,21 @@
+import 'attachment_models.dart';
+
 class AdapterModelOption {
   const AdapterModelOption({
     required this.id,
     required this.label,
     required this.source,
     required this.selected,
+    this.inputModalities = const <String>[],
+    this.attachmentCapabilities = const AttachmentCapabilities(),
   });
 
   final String id;
   final String label;
   final String source;
   final bool selected;
+  final List<String> inputModalities;
+  final AttachmentCapabilities attachmentCapabilities;
 
   factory AdapterModelOption.fromJson(Map<String, Object?> json) {
     final id = _optionalString(json['id']) ?? '';
@@ -18,6 +24,9 @@ class AdapterModelOption {
       label: _optionalString(json['label']) ?? id,
       source: _optionalString(json['source']) ?? 'unknown',
       selected: json['selected'] == true,
+      inputModalities: _stringList(json['inputModalities']),
+      attachmentCapabilities:
+          AttachmentCapabilities.fromJson(json['attachments']),
     );
   }
 }
@@ -33,7 +42,9 @@ class AdapterStatus {
       this.models = const <AdapterModelOption>[],
       this.selectedModel,
       this.canSelectModel = false,
-      this.capabilities = const <String, Object?>{}});
+      this.capabilities = const <String, Object?>{},
+      this.capabilityVersion,
+      this.attachmentCapabilities = const AttachmentCapabilities()});
   final String adapter;
   final bool available;
   final String status;
@@ -44,19 +55,27 @@ class AdapterStatus {
   final String? selectedModel;
   final bool canSelectModel;
   final Map<String, Object?> capabilities;
-  factory AdapterStatus.fromJson(Map<String, Object?> json) => AdapterStatus(
-        adapter: json['adapter'] as String? ?? '',
-        available: json['available'] as bool? ?? false,
-        status: json['status'] as String? ??
-            (json['available'] == true ? 'available' : 'unavailable'),
-        version: json['version'] as String?,
-        error: json['error'] as String?,
-        actionable: json['actionable'] as String?,
-        models: _adapterModelsFromJson(json['models']),
-        selectedModel: _optionalString(json['selectedModel']),
-        canSelectModel: json['canSelectModel'] == true,
-        capabilities: _objectMap(json['capabilities']),
-      );
+  final String? capabilityVersion;
+  final AttachmentCapabilities attachmentCapabilities;
+  factory AdapterStatus.fromJson(Map<String, Object?> json) {
+    final capabilities = _objectMap(json['capabilities']);
+    return AdapterStatus(
+      adapter: json['adapter'] as String? ?? '',
+      available: json['available'] as bool? ?? false,
+      status: json['status'] as String? ??
+          (json['available'] == true ? 'available' : 'unavailable'),
+      version: json['version'] as String?,
+      error: json['error'] as String?,
+      actionable: json['actionable'] as String?,
+      models: _adapterModelsFromJson(json['models']),
+      selectedModel: _optionalString(json['selectedModel']),
+      canSelectModel: json['canSelectModel'] == true,
+      capabilities: capabilities,
+      capabilityVersion: _optionalString(json['capabilityVersion']),
+      attachmentCapabilities:
+          AttachmentCapabilities.fromJson(capabilities['attachments']),
+    );
+  }
   String get statusText {
     if (available) return status;
     if (error != null) return error!;
@@ -160,4 +179,14 @@ String? _optionalString(Object? value) {
   }
   final trimmed = value.trim();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+List<String> _stringList(Object? value) {
+  if (value is! Iterable) {
+    return const <String>[];
+  }
+  return value
+      .whereType<String>()
+      .where((item) => item.trim().isNotEmpty)
+      .toList(growable: false);
 }

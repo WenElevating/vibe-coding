@@ -2,7 +2,9 @@
 .agents/
 .claude/
 .codex/
+.codegraph/
 .dart-appdata/
+.cursor/rules/codegraph.mdc
 docs/
 .omc/
 .omx/
@@ -11,7 +13,8 @@ docs/
 
 # Runtime data
 node_modules/
-data/
+# Keep this rooted so source folders like mobile/lib/src/data stay trackable.
+/data/
 data/**/*.sqlite
 data/**/*.sqlite-*
 daemon/asset/

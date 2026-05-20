@@ -112,6 +112,56 @@ void main() {
     expect(output.durationMs, 250);
   });
 
+  test('ConversationEvent parses committed attachment metadata', () {
+    final event = ConversationEvent.fromJson(const <String, Object?>{
+      'seq': 4,
+      'conversationId': 'conv_1',
+      'type': 'user.message',
+      'createdAt': '2026-05-20T00:00:00.000Z',
+      'attachments': [
+        {
+          'id': 'att_0_abc123',
+          'name': 'screenshot.png',
+          'kind': 'image',
+          'mimeType': 'image/png',
+          'sizeBytes': 120034,
+          'handling': 'native',
+        },
+      ],
+    });
+
+    final attachment = event.attachments.single;
+    expect(attachment.id, 'att_0_abc123');
+    expect(attachment.name, 'screenshot.png');
+    expect(attachment.kind, AttachmentKind.image);
+    expect(attachment.mimeType, 'image/png');
+    expect(attachment.sizeBytes, 120034);
+    expect(attachment.handling, AttachmentHandling.native);
+  });
+
+  test('Attachment protocol parsers handle staged paths and fallbacks', () {
+    expect(parseAttachmentKind('pdf'), AttachmentKind.pdf);
+    expect(parseAttachmentKind('unknown'), AttachmentKind.unsupported);
+    expect(
+      parseAttachmentHandling('staged_path'),
+      AttachmentHandling.stagedPath,
+    );
+    expect(
+      parseAttachmentHandling(
+        'unknown',
+        fallback: AttachmentHandling.textExtract,
+      ),
+      AttachmentHandling.textExtract,
+    );
+
+    final defaults = AttachmentCapabilities.fromJson(
+      const <String, Object?>{},
+    );
+    expect(defaults.image, AttachmentHandling.unsupported);
+    expect(defaults.textDocument, AttachmentHandling.textExtract);
+    expect(defaults.pdf, AttachmentHandling.unsupported);
+  });
+
   test('ExtensionSummary accepts nullable daemon adapter fields', () {
     final extension = ExtensionSummary.fromJson(const <String, Object?>{
       'id': 'claude',
@@ -144,6 +194,45 @@ void main() {
     expect(adapter.available, isTrue);
     expect(adapter.status, 'available');
     expect(adapter.statusText, 'available');
+  });
+
+  test('AdapterStatus parses attachment capabilities and capabilityVersion',
+      () {
+    final status = AdapterStatus.fromJson(const <String, Object?>{
+      'adapter': 'codex',
+      'available': true,
+      'status': 'available',
+      'capabilityVersion': '4bcf6aa44f7e2e074229f9cd',
+      'capabilities': {
+        'attachments': {
+          'image': 'native',
+          'textDocument': 'text_extract',
+          'pdf': 'unsupported',
+        },
+      },
+      'models': [
+        {
+          'id': 'gpt-5.3-codex',
+          'inputModalities': ['image', 'text'],
+          'attachments': {
+            'image': 'native',
+            'textDocument': 'text_extract',
+            'pdf': 'unsupported',
+          },
+        },
+      ],
+    });
+
+    expect(status.capabilityVersion, '4bcf6aa44f7e2e074229f9cd');
+    expect(status.attachmentCapabilities.image, AttachmentHandling.native);
+    expect(
+      status.models.single.inputModalities,
+      const <String>['image', 'text'],
+    );
+    expect(
+      status.models.single.attachmentCapabilities.image,
+      AttachmentHandling.native,
+    );
   });
 
   test('Daemon extension list accepts async adapter capability projection', () {

@@ -256,10 +256,10 @@ class WorkbenchMessage {
           completed: completed ?? this.completed,
           isError: isError ?? this.isError,
           duration: duration ?? this.duration,
-          taskId: this.taskId,
+          taskId: taskId,
           taskItems: taskItems,
-          completedCount: this.completedCount,
-          totalCount: this.totalCount,
+          completedCount: completedCount,
+          totalCount: totalCount,
           suggestions: suggestions);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {

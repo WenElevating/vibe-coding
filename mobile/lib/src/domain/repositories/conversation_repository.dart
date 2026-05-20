@@ -1,4 +1,35 @@
-import '../../models/protocol.dart';
+import '../../models/protocol.dart' hide AttachmentHandling, AttachmentKind;
+import '../models/attachment_types.dart';
+
+class ConversationMessageAttachment {
+  const ConversationMessageAttachment({
+    required this.localPath,
+    required this.name,
+    required this.mimeType,
+    required this.kind,
+    required this.sizeBytes,
+  });
+
+  final String localPath;
+  final String name;
+  final String mimeType;
+  final AttachmentKind kind;
+  final int sizeBytes;
+}
+
+class ConversationMessageSendRequest {
+  const ConversationMessageSendRequest({
+    required this.text,
+    this.clientMessageId,
+    this.capabilityVersion,
+    this.attachments = const <ConversationMessageAttachment>[],
+  });
+
+  final String text;
+  final String? clientMessageId;
+  final String? capabilityVersion;
+  final List<ConversationMessageAttachment> attachments;
+}
 
 class ConversationRepositoryException implements Exception {
   const ConversationRepositoryException({
@@ -35,7 +66,7 @@ abstract class ConversationRepository {
 
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
+    ConversationMessageSendRequest request,
   );
 
   Future<ConversationSummary> updateConversationModel(

@@ -450,9 +450,8 @@ class WorkbenchViewModel extends ChangeNotifier {
         _modelUpdateError = _unsupportedModelUpdateMessage;
       } else {
         final message = error.message?.trim();
-        _modelUpdateError = message == null || message.isEmpty
-            ? error.toString()
-            : message;
+        _modelUpdateError =
+            message == null || message.isEmpty ? error.toString() : message;
       }
       notifyListeners();
       return false;
@@ -581,8 +580,8 @@ class WorkbenchViewModel extends ChangeNotifier {
       conversation: conversation,
       runningConversation: runningConversation,
       run: runSummaryFromConversation(conversation),
-      updatedConversation:
-          repository.sendConversationMessage(conversation.id, prompt),
+      updatedConversation: repository.sendConversationMessage(
+          conversation.id, ConversationMessageSendRequest(text: prompt)),
     );
   }
 
@@ -592,7 +591,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     Future<void> Function()? restartPolling,
   }) async {
     final repository = _requireConversationRepository();
-    final send = repository.sendConversationMessage(conversationId, prompt);
+    final send = repository.sendConversationMessage(
+      conversationId,
+      ConversationMessageSendRequest(text: prompt),
+    );
     await restartPolling?.call();
     return send;
   }

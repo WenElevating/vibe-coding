@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:lan_ai_cli_control/src/data/services/conversation_service.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
@@ -78,6 +80,91 @@ void main() {
     final trace = await client.recordException(message: 'SocketException');
 
     expect(trace.traceId, 'trc_test');
+  });
+
+  test('sendConversationMessage text-only remains JSON', () async {
+    late Map<String, Object?> uploaded;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/messages');
+        expect(request.headers['content-type'],
+            contains('application/json; charset=utf-8'));
+        uploaded = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response(jsonEncode(_conversationResponse()), 200);
+      }),
+    );
+
+    final conversation = await client.sendConversationMessage(
+      'conv_1',
+      const ConversationServiceMessageSendRequest(text: 'hello'),
+    );
+
+    expect(uploaded, const <String, Object?>{'text': 'hello'});
+    expect(conversation.id, 'conv_1');
+  });
+
+  test('sendConversationMessage with attachments uses multipart form data',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('daemon-client-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file =
+        File('${directory.path}${Platform.pathSeparator}screenshot.png');
+    const fileBytes = <int>[1, 2, 3, 4];
+    await file.writeAsBytes(fileBytes);
+
+    late String contentType;
+    late List<int> multipartBytes;
+    late String multipartBody;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: FakeHttpClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/messages');
+        multipartBytes =
+            await request.finalize().expand((chunk) => chunk).toList();
+        multipartBody = utf8.decode(multipartBytes, allowMalformed: true);
+        contentType = request.headers['content-type'] ?? '';
+        return jsonResponse(_conversationResponse());
+      }),
+    );
+
+    await client.sendConversationMessage(
+      'conv_1',
+      ConversationServiceMessageSendRequest(
+        text: 'see attached',
+        clientMessageId: 'client_1',
+        capabilityVersion: '4bcf6aa44f7e2e074229f9cd',
+        attachments: <ConversationServiceMessageAttachment>[
+          ConversationServiceMessageAttachment(
+            localPath: file.path,
+            name: 'screenshot.png',
+            mimeType: 'image/png',
+            kind: 'image',
+            sizeBytes: 4,
+          ),
+        ],
+      ),
+    );
+
+    expect(contentType, startsWith('multipart/form-data; boundary='));
+    expect(multipartBody, contains('"text":"see attached"'));
+    expect(multipartBody, contains('"clientMessageId":"client_1"'));
+    expect(
+      multipartBody,
+      contains('"capabilityVersion":"4bcf6aa44f7e2e074229f9cd"'),
+    );
+    expect(multipartBody, contains('"field":"files[0]"'));
+    expect(multipartBody, contains('"name":"screenshot.png"'));
+    expect(multipartBody, contains('"mimeType":"image/png"'));
+    expect(multipartBody, contains('"kind":"image"'));
+    expect(multipartBody, contains('filename="screenshot.png"'));
+    expect(_containsSubsequence(multipartBytes, fileBytes), isTrue);
   });
 
   test('recordException redacts diagnostics before upload', () async {
@@ -397,4 +484,32 @@ void main() {
       );
     }
   });
+}
+
+Map<String, Object?> _conversationResponse() => const <String, Object?>{
+      'conversation': <String, Object?>{
+        'id': 'conv_1',
+        'workspaceId': 'workspace_1',
+        'adapter': 'codex',
+        'status': 'running',
+        'capabilities': <String, Object?>{},
+        'createdAt': '2026-05-20T00:00:00.000Z',
+        'updatedAt': '2026-05-20T00:00:01.000Z',
+      },
+    };
+
+bool _containsSubsequence(List<int> haystack, List<int> needle) {
+  if (needle.isEmpty) return true;
+  if (needle.length > haystack.length) return false;
+  for (var start = 0; start <= haystack.length - needle.length; start++) {
+    var matched = true;
+    for (var offset = 0; offset < needle.length; offset++) {
+      if (haystack[start + offset] != needle[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
 }

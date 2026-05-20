@@ -1,3 +1,5 @@
+import 'attachment_models.dart';
+
 bool conversationEventCompletesTurn(ConversationEvent event) {
   if (event.type == 'conversation.completed') return true;
   if (event.type != 'assistant.message') return false;
@@ -179,6 +181,7 @@ class ConversationEvent {
     this.isError = false,
     this.durationMs,
     this.raw = const <String, Object?>{},
+    this.attachments = const <CommittedAttachment>[],
   });
 
   final String type;
@@ -203,6 +206,7 @@ class ConversationEvent {
   final bool isError;
   final int? durationMs;
   final Map<String, Object?> raw;
+  final List<CommittedAttachment> attachments;
 
   factory ConversationEvent.fromJson(Map<String, Object?> json) =>
       ConversationEvent(
@@ -239,7 +243,18 @@ class ConversationEvent {
         isError: json['isError'] as bool? ?? false,
         durationMs: json['durationMs'] as int?,
         raw: json,
+        attachments: _attachmentsFromJson(json['attachments']),
       );
+}
+
+List<CommittedAttachment> _attachmentsFromJson(Object? value) {
+  if (value is! Iterable) {
+    return const <CommittedAttachment>[];
+  }
+  return value
+      .whereType<Map<String, Object?>>()
+      .map(CommittedAttachment.fromJson)
+      .toList(growable: false);
 }
 
 class TaskProgressItem {

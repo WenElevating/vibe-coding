@@ -174,7 +174,8 @@ void main() {
     expect(viewModel.selectedAdapter, 'codex');
   });
 
-  test('workbench view model keeps active conversation adapter on snapshot update',
+  test(
+      'workbench view model keeps active conversation adapter on snapshot update',
       () {
     final conversation = _conversation(
       id: 'conv_claude',
@@ -810,9 +811,9 @@ class _FakeConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
+    ConversationMessageSendRequest request,
   ) async {
-    calls.add('send:$conversationId:$text');
+    calls.add('send:$conversationId:${request.text}');
     return _conversation(
       id: conversationId,
       workspaceId: _workspace.id,

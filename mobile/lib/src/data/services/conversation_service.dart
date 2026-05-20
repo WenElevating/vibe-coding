@@ -1,5 +1,56 @@
 import '../../models/protocol.dart';
 
+class ConversationServiceMessageAttachment {
+  const ConversationServiceMessageAttachment({
+    required this.localPath,
+    required this.name,
+    required this.mimeType,
+    required this.kind,
+    required this.sizeBytes,
+  });
+
+  final String localPath;
+  final String name;
+  final String mimeType;
+  final String kind;
+  final int sizeBytes;
+}
+
+class ConversationServiceMessageSendRequest {
+  const ConversationServiceMessageSendRequest({
+    required this.text,
+    this.clientMessageId,
+    this.capabilityVersion,
+    this.attachments = const <ConversationServiceMessageAttachment>[],
+  });
+
+  final String text;
+  final String? clientMessageId;
+  final String? capabilityVersion;
+  final List<ConversationServiceMessageAttachment> attachments;
+}
+
+Map<String, Object?> conversationServiceMessagePayload(
+  ConversationServiceMessageSendRequest request,
+) =>
+    <String, Object?>{
+      'text': request.text,
+      if (request.clientMessageId != null)
+        'clientMessageId': request.clientMessageId,
+      if (request.capabilityVersion != null)
+        'capabilityVersion': request.capabilityVersion,
+      'attachments': <Map<String, Object?>>[
+        for (var index = 0; index < request.attachments.length; index++)
+          <String, Object?>{
+            'field': 'files[$index]',
+            'name': request.attachments[index].name,
+            'mimeType': request.attachments[index].mimeType,
+            'kind': request.attachments[index].kind,
+            'sizeBytes': request.attachments[index].sizeBytes,
+          },
+      ],
+    };
+
 abstract class ConversationService {
   Future<List<ConversationSummary>> listConversations();
 
@@ -12,7 +63,7 @@ abstract class ConversationService {
 
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
+    ConversationServiceMessageSendRequest request,
   );
 
   Future<ConversationSummary> updateConversationModel(

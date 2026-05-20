@@ -1,6 +1,7 @@
 import '../../domain/repositories/conversation_repository.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
+import '../services/conversation_service.dart';
 
 class DaemonConversationRepository implements ConversationRepository {
   DaemonConversationRepository({required DaemonClient client})
@@ -29,9 +30,22 @@ class DaemonConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
-    String text,
-  ) =>
-      _client.sendConversationMessage(conversationId, text);
+    ConversationMessageSendRequest request,
+  ) async {
+    try {
+      return await _client.sendConversationMessage(
+        conversationId,
+        _toServiceMessageRequest(request),
+      );
+    } on DaemonClientException catch (error) {
+      throw ConversationRepositoryException(
+        statusCode: error.statusCode,
+        code: _daemonErrorCode(error.body),
+        message: _daemonErrorMessage(error.body),
+        cause: error,
+      );
+    }
+  }
 
   @override
   Future<ConversationSummary> updateConversationModel(
@@ -77,6 +91,25 @@ class DaemonConversationRepository implements ConversationRepository {
   Future<ConversationSummary> cancelConversation(String conversationId) =>
       _client.cancelConversation(conversationId);
 }
+
+ConversationServiceMessageSendRequest _toServiceMessageRequest(
+  ConversationMessageSendRequest request,
+) =>
+    ConversationServiceMessageSendRequest(
+      text: request.text,
+      clientMessageId: request.clientMessageId,
+      capabilityVersion: request.capabilityVersion,
+      attachments: <ConversationServiceMessageAttachment>[
+        for (final attachment in request.attachments)
+          ConversationServiceMessageAttachment(
+            localPath: attachment.localPath,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            kind: attachment.kind.name,
+            sizeBytes: attachment.sizeBytes,
+          ),
+      ],
+    );
 
 String? _daemonErrorCode(Map<String, Object?> body) {
   final bodyError = body['error'];
