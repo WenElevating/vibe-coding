@@ -1210,6 +1210,61 @@ void main() {
     expect(deleted, 0);
   });
 
+  testWidgets(
+      'coding composer shows visible invalid attachment status for unsupported model',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = TextEditingController(text: '这个图片里面有什么?');
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.idle,
+                voiceEnabled: true,
+                voiceError: null,
+                cliLocked: false,
+                modelLocked: false,
+                model: 'text-only-model',
+                draftAttachments: const <DraftAttachment>[
+                  DraftAttachment(
+                    localPath: r'D:\tmp\screenshot.png',
+                    name: 'screenshot.png',
+                    mimeType: 'image/png',
+                    kind: AttachmentKind.image,
+                    sizeBytes: 120034,
+                    errorCode: 'attachment_kind_unsupported',
+                  ),
+                ],
+                onAttachmentTap: () {},
+                onRemoveAttachment: (_) {},
+                onCliTap: () {},
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(
+      find.text('This file is not supported by the selected model.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('coding back target renders workspace list',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCodingSessionListPreview());

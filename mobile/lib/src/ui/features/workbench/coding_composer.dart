@@ -62,129 +62,141 @@ class CodingComposer extends StatelessWidget {
   final VoidCallback onCancel;
 
   @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      decoration: BoxDecoration(
-          color: const Color(0xF608090B),
-          border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: .06))),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: .28),
-                blurRadius: 24,
-                offset: const Offset(0, -10))
-          ]),
-      child: SafeArea(
-          top: false,
-          child: Container(
-              padding: const EdgeInsets.fromLTRB(13, 9, 8, 7),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF161719),
-                  borderRadius: BorderRadius.circular(20),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: .085))),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (draftAttachments.isNotEmpty) ...[
-                  _AttachmentTray(
-                      attachments: draftAttachments,
-                      onRemove: onRemoveAttachment),
+  Widget build(BuildContext context) {
+    final attachmentStatus =
+        _firstLocalizedAttachmentError(context, draftAttachments);
+    return Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        decoration: BoxDecoration(
+            color: const Color(0xF608090B),
+            border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: .06))),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: .28),
+                  blurRadius: 24,
+                  offset: const Offset(0, -10))
+            ]),
+        child: SafeArea(
+            top: false,
+            child: Container(
+                padding: const EdgeInsets.fromLTRB(13, 9, 8, 7),
+                decoration: BoxDecoration(
+                    color: const Color(0xFF161719),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: .085))),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (draftAttachments.isNotEmpty) ...[
+                    _AttachmentTray(
+                        attachments: draftAttachments,
+                        onRemove: onRemoveAttachment),
+                    if (attachmentStatus != null) ...[
+                      const SizedBox(height: 7),
+                      _AttachmentStatus(attachmentStatus),
+                    ],
+                    const SizedBox(height: 8),
+                  ],
+                  TextField(
+                    controller: controller,
+                    minLines: 1,
+                    maxLines: 3,
+                    style: theme.appTextStyle.copyWith(
+                        color: theme.text,
+                        fontSize: 15,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0),
+                    decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        hintText: adapter == null
+                            ? AppLocalizations.of(context)
+                                .workbenchComposerNoAdapter
+                            : running
+                                ? AppLocalizations.of(context)
+                                    .workbenchComposerFollowUpHint
+                                : draftAttachments.isNotEmpty
+                                    ? AppLocalizations.of(context)
+                                        .workbenchAttachmentAddInstruction
+                                    : 'Add feedback...',
+                        hintStyle: theme.appTextStyle.copyWith(
+                            color: theme.faint,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w400),
+                        contentPadding: EdgeInsets.zero),
+                    textInputAction: TextInputAction.send,
+                    onChanged: onTextChanged,
+                    onSubmitted: (_) {
+                      if (canSend) onSend();
+                    },
+                  ),
+                  if (voiceState == VoiceInputState.initializing ||
+                      voiceState == VoiceInputState.listening ||
+                      voiceState == VoiceInputState.stopping) ...[
+                    const SizedBox(height: 8),
+                    const _VoiceInputStatus('Listening… release to finish'),
+                  ],
+                  if (modelNotice != null &&
+                      modelNotice!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(modelNotice!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: theme.muted,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w500))),
+                  ],
                   const SizedBox(height: 8),
-                ],
-                TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 3,
-                  style: theme.appTextStyle.copyWith(
-                      color: theme.text,
-                      fontSize: 15,
-                      height: 1.35,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0),
-                  decoration: InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      hintText: adapter == null
-                          ? AppLocalizations.of(context)
-                              .workbenchComposerNoAdapter
-                          : running
-                              ? AppLocalizations.of(context)
-                                  .workbenchComposerFollowUpHint
-                              : draftAttachments.isNotEmpty
-                                  ? AppLocalizations.of(context)
-                                      .workbenchAttachmentAddInstruction
-                                  : 'Add feedback...',
-                      hintStyle: theme.appTextStyle.copyWith(
-                          color: theme.faint,
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w400),
-                      contentPadding: EdgeInsets.zero),
-                  textInputAction: TextInputAction.send,
-                  onChanged: onTextChanged,
-                  onSubmitted: (_) {
-                    if (canSend) onSend();
-                  },
-                ),
-                if (voiceState == VoiceInputState.initializing ||
-                    voiceState == VoiceInputState.listening ||
-                    voiceState == VoiceInputState.stopping) ...[
-                  const SizedBox(height: 8),
-                  const _VoiceInputStatus('Listening… release to finish'),
-                ],
-                if (modelNotice != null && modelNotice!.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(modelNotice!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: theme.muted,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w500))),
-                ],
-                const SizedBox(height: 8),
-                Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Flexible(
-                      child: Wrap(spacing: 8, runSpacing: 6, children: [
-                    InkWell(
-                        onTap: cliLocked ? null : onCliTap,
-                        borderRadius: BorderRadius.circular(999),
-                        child: _ComposerCliPill(
-                            adapter: adapter, locked: cliLocked)),
-                    InkWell(
-                        onTap: modelLocked ? null : onModelTap,
-                        borderRadius: BorderRadius.circular(999),
-                        child: _ComposerModelPill(
-                            model: model, locked: modelLocked)),
-                  ])),
-                  const SizedBox(width: 8),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Tooltip(
-                        message: 'Add attachment',
-                        child: InkWell(
-                            onTap: running || sending ? null : onAttachmentTap,
-                            borderRadius: BorderRadius.circular(16),
-                            child: const SizedBox(
-                                width: 32,
-                                height: 32,
-                                child: Center(
-                                    child: _ComposerIcon(Icons.add_rounded))))),
-                    const SizedBox(width: 12),
-                    _VoiceInputButton(
-                        state: voiceState,
-                        enabled: voiceEnabled && !running && !sending,
-                        onStart: onVoiceStart,
-                        onStop: onVoiceStop,
-                        onCancel: onVoiceCancel),
-                    const SizedBox(width: 12),
-                    _SendPromptButton(
-                        enabled: canSend,
-                        busy: sending,
-                        running: running,
-                        onTap: running ? onCancel : (canSend ? onSend : null)),
-                  ]),
-                ])
-              ]))));
+                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Flexible(
+                        child: Wrap(spacing: 8, runSpacing: 6, children: [
+                      InkWell(
+                          onTap: cliLocked ? null : onCliTap,
+                          borderRadius: BorderRadius.circular(999),
+                          child: _ComposerCliPill(
+                              adapter: adapter, locked: cliLocked)),
+                      InkWell(
+                          onTap: modelLocked ? null : onModelTap,
+                          borderRadius: BorderRadius.circular(999),
+                          child: _ComposerModelPill(
+                              model: model, locked: modelLocked)),
+                    ])),
+                    const SizedBox(width: 8),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      Tooltip(
+                          message: 'Add attachment',
+                          child: InkWell(
+                              onTap:
+                                  running || sending ? null : onAttachmentTap,
+                              borderRadius: BorderRadius.circular(16),
+                              child: const SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: Center(
+                                      child:
+                                          _ComposerIcon(Icons.add_rounded))))),
+                      const SizedBox(width: 12),
+                      _VoiceInputButton(
+                          state: voiceState,
+                          enabled: voiceEnabled && !running && !sending,
+                          onStart: onVoiceStart,
+                          onStop: onVoiceStop,
+                          onCancel: onVoiceCancel),
+                      const SizedBox(width: 12),
+                      _SendPromptButton(
+                          enabled: canSend,
+                          busy: sending,
+                          running: running,
+                          onTap:
+                              running ? onCancel : (canSend ? onSend : null)),
+                    ]),
+                  ])
+                ]))));
+  }
 }
 
 class _AttachmentTray extends StatelessWidget {
@@ -273,6 +285,39 @@ String? _localizedAttachmentError(
       l10n.workbenchAttachmentTooLarge,
     _ => attachment.errorMessage,
   };
+}
+
+String? _firstLocalizedAttachmentError(
+  BuildContext context,
+  List<DraftAttachment> attachments,
+) {
+  for (final attachment in attachments) {
+    final error = _localizedAttachmentError(context, attachment);
+    if (error != null && error.trim().isNotEmpty) return error;
+  }
+  return null;
+}
+
+class _AttachmentStatus extends StatelessWidget {
+  const _AttachmentStatus(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        const Icon(Icons.error_outline_rounded, color: theme.red, size: 14),
+        const SizedBox(width: 7),
+        Expanded(
+            child: Text(text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: theme.red,
+                    fontSize: 12,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0)))
+      ]);
 }
 
 class _AttachmentPreview extends StatelessWidget {

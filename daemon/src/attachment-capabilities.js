@@ -40,15 +40,28 @@ function normalizeInputModalities(value) {
 }
 
 function applyModelAttachmentCapabilities(model, adapterAttachments) {
-  const inputModalities = normalizeInputModalities(model.inputModalities || model.input_modalities);
+  const rawInputModalities = explicitInputModalities(model);
   const attachments = mergeAttachmentCapabilities(adapterAttachments, model.attachments);
-  if (!inputModalities.includes('image')) attachments.image = attachmentHandling.UNSUPPORTED;
-  if (!inputModalities.includes('pdf')) attachments.pdf = attachmentHandling.UNSUPPORTED;
-  return {
+  const output = {
     ...model,
-    inputModalities,
     attachments
   };
+  if (rawInputModalities) {
+    const inputModalities = normalizeInputModalities(rawInputModalities);
+    if (!inputModalities.includes('image')) attachments.image = attachmentHandling.UNSUPPORTED;
+    if (!inputModalities.includes('pdf')) attachments.pdf = attachmentHandling.UNSUPPORTED;
+    output.inputModalities = inputModalities;
+  } else {
+    delete output.inputModalities;
+  }
+  return output;
+}
+
+function explicitInputModalities(model) {
+  if (!model || typeof model !== 'object') return null;
+  if (Array.isArray(model.inputModalities)) return model.inputModalities;
+  if (Array.isArray(model.input_modalities)) return model.input_modalities;
+  return null;
 }
 
 function mergeAttachmentCapabilities(adapterAttachments, modelAttachments) {
@@ -68,5 +81,6 @@ module.exports = {
   defaultAttachmentCapabilities,
   normalizeAttachmentCapabilities,
   normalizeInputModalities,
+  explicitInputModalities,
   applyModelAttachmentCapabilities
 };

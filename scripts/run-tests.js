@@ -4844,6 +4844,42 @@ test('multipart send validates handling against effective selected model capabil
   }
 });
 
+test('multipart send allows image when selected model lacks modality metadata and adapter supports images', async () => {
+  const adapter = codexNativeImageAttachmentAdapter({
+    modelCapability: {
+      canSelectModel: true,
+      selectedModel: 'gpt-5.5',
+      models: [{ id: 'gpt-5.5', label: 'GPT-5.5', source: MODEL_SOURCES.CODEX_CONFIG }]
+    }
+  });
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({ adapter, dbPrefix: 'app-db-attachments-inherited-model-capability-' });
+  try {
+    const internal = app.conversations.conversations.get(conversationId);
+    const capabilityVersion = await app.conversations.currentCapabilityVersion(internal);
+    const boundary = '----attachments-inherited-model-capability';
+    const pngHeader = minimalPngBytes({ width: 1, height: 1 });
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_inherited_model_capability',
+        capabilityVersion,
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: pngHeader.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: pngHeader }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(adapter.sent.length, 1);
+    assert.equal(adapter.sent[0].attachments[0].kind, 'image');
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart duplicate in-flight clientMessageId rejects with stable conflict code', async () => {
   const { manager, device, eventStore } = createConversationManagerForTest({
     adapters: new Map([['codex', attachmentConversationAdapter()]])
@@ -7290,6 +7326,58 @@ test('adapter capability listing exposes attachment capabilities and stable capa
     pdf: 'unsupported',
     textDocument: 'text_extract'
   });
+});
+
+test('adapter capability listing lets models without modality metadata inherit image support', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'codex',
+      async detectCapabilities() {
+        return {
+          adapter: 'codex',
+          available: true,
+          status: 'available',
+          cliVersion: '0.21.0',
+          cliPath: 'codex'
+        };
+      },
+      getModelCapability() {
+        return {
+          canSelectModel: true,
+          selectedModel: 'gpt-5.5',
+          models: [
+            {
+              id: 'gpt-5.5',
+              label: 'GPT-5.5',
+              source: MODEL_SOURCES.CODEX_CONFIG
+            },
+            {
+              id: 'text-only-model',
+              inputModalities: ['text']
+            }
+          ]
+        };
+      },
+      getCapabilities() {
+        return {
+          attachments: {
+            image: 'native',
+            textDocument: 'text_extract',
+            pdf: 'unsupported'
+          }
+        };
+      }
+    }
+  ]);
+
+  const [codex] = await registry.listCapabilities();
+  const imageModel = codex.models.find((model) => model.id === 'gpt-5.5');
+  const textOnlyModel = codex.models.find((model) => model.id === 'text-only-model');
+
+  assert.equal(imageModel.attachments.image, 'native');
+  assert.equal(Object.prototype.hasOwnProperty.call(imageModel, 'inputModalities'), false);
+  assert.equal(textOnlyModel.attachments.image, 'unsupported');
+  assert.deepEqual(textOnlyModel.inputModalities, ['text']);
 });
 
 test('adapter capability listing trims selected model before exposing and hashing', async () => {

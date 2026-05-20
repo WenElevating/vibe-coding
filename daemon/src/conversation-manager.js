@@ -1082,9 +1082,11 @@ function restorePreCommitState(conversation, snapshot) {
 
 function modelCapabilityHashInput(model, adapterAttachments) {
   const input = {
-    id: model.id,
-    inputModalities: model.inputModalities
+    id: model.id
   };
+  if (Array.isArray(model.inputModalities)) {
+    input.inputModalities = model.inputModalities;
+  }
   const defaultProjection = applyModelAttachmentCapabilities({
     id: model.id,
     inputModalities: model.inputModalities
