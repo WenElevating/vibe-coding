@@ -362,9 +362,14 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
       message: attachment.name,
-      child: ConstrainedBox(
+      child: Container(
           key: const Key('workbench-message-image-preview-shell'),
           constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .045),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: .085))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -385,30 +390,28 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
                       ),
                     ))),
             const SizedBox(height: 7),
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Row(children: [
-                  Icon(_attachmentIcon(attachment.kind),
-                      color: theme.muted, size: 15),
-                  const SizedBox(width: 6),
-                  Expanded(
-                      child: Text(attachment.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: theme.text,
-                              fontSize: 11.5,
-                              height: 1.1,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0))),
-                  const SizedBox(width: 8),
-                  Text(_attachmentSizeLabel(attachment.sizeBytes),
+            Row(children: [
+              Icon(_attachmentIcon(attachment.kind),
+                  color: theme.muted, size: 15),
+              const SizedBox(width: 6),
+              Expanded(
+                  child: Text(attachment.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: theme.muted,
-                          fontSize: 10.5,
-                          height: 1,
-                          letterSpacing: 0)),
-                ])),
+                          color: theme.text,
+                          fontSize: 11.5,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0))),
+              const SizedBox(width: 8),
+              Text(_attachmentSizeLabel(attachment.sizeBytes),
+                  style: const TextStyle(
+                      color: theme.muted,
+                      fontSize: 10.5,
+                      height: 1,
+                      letterSpacing: 0)),
+            ]),
           ])));
 }
 
