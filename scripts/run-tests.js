@@ -2595,10 +2595,10 @@ test('Codex attachment dispatch adds image flags to exec and resume argv', () =>
   });
 
   assert.deepEqual(execArgs.slice(execArgs.indexOf('--image'), execArgs.indexOf('--image') + 4), ['--image', 'D:\\scratch\\a.png', '--image', 'D:\\scratch\\b.png']);
-  assert.equal(execArgs[execArgs.length - 1], 'Inspect image.');
+  assert.equal(execArgs.indexOf('Inspect image.') < execArgs.indexOf('--image'), true);
   assert.deepEqual(resumeArgs.slice(resumeArgs.indexOf('--image'), resumeArgs.indexOf('--image') + 2), ['--image', 'D:\\scratch\\a.png']);
-  assert.equal(resumeArgs[resumeArgs.length - 2], 'thread_1');
-  assert.equal(resumeArgs[resumeArgs.length - 1], 'Inspect again.');
+  assert.equal(resumeArgs.indexOf('thread_1') < resumeArgs.indexOf('--image'), true);
+  assert.equal(resumeArgs.indexOf('Inspect again.') < resumeArgs.indexOf('--image'), true);
 });
 
 test('Codex capability detection allows slow Windows npm shim startup', () => {

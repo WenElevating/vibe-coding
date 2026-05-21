@@ -306,8 +306,8 @@ function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default',
     '-C', workspacePath,
     '--skip-git-repo-check',
     '--sandbox', 'workspace-write',
-    ...buildImageArgs(imagePaths),
-    prompt
+    prompt,
+    ...buildImageArgs(imagePaths)
   ];
 }
 
@@ -320,9 +320,9 @@ function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', w
     ...(model ? ['--model', model] : []),
     '--skip-git-repo-check',
     ...(resumeSupportsCd ? ['--cd', workspacePath] : []),
-    ...buildImageArgs(imagePaths),
     sessionId,
-    prompt
+    prompt,
+    ...buildImageArgs(imagePaths)
   ];
 }
 
