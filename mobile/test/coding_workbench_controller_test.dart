@@ -361,8 +361,8 @@ void main() {
     expect(viewModel.messages.single.body, 'inspect image');
   });
 
-  test('committed attachment event keeps local optimistic image preview path',
-      () {
+  test('committed attachment event keeps local preview after mime validation',
+      () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',
       available: true,
@@ -371,11 +371,13 @@ void main() {
       attachmentCapabilities:
           AttachmentCapabilities(image: AttachmentHandling.native),
     );
+    final repository = _FakeConversationRepository();
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(
         workspaces: const <WorkspaceSummary>[_workspace],
         adapters: const <AdapterStatus>[imageCapableAdapter],
       ),
+      conversationRepository: repository,
     );
     viewModel.updateActiveConversation(_conversation(
         id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
@@ -387,6 +389,12 @@ void main() {
       sizeBytes: 42,
     ));
     viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
+    await viewModel.sendExistingConversationPrompt(
+      conversationId: 'conv_1',
+      prompt: 'inspect image',
+    );
+    final clientMessageId = repository.sentRequests.single.clientMessageId;
+    expect(clientMessageId, isNotNull);
 
     viewModel.applyConversationEvents(
       <ConversationEvent>[
@@ -396,12 +404,13 @@ void main() {
           type: 'user.message',
           createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
           text: 'inspect image',
+          raw: <String, Object?>{'clientMessageId': clientMessageId},
           attachments: const <CommittedAttachment>[
             CommittedAttachment(
               id: 'att_0',
               name: 'screenshot.png',
               kind: AttachmentKind.image,
-              mimeType: 'image/png',
+              mimeType: 'image/jpeg',
               sizeBytes: 42,
               handling: AttachmentHandling.native,
             ),
@@ -423,12 +432,13 @@ void main() {
           type: 'user.message',
           createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
           text: 'inspect image',
+          raw: <String, Object?>{'clientMessageId': clientMessageId},
           attachments: const <CommittedAttachment>[
             CommittedAttachment(
               id: 'att_0',
               name: 'screenshot.png',
               kind: AttachmentKind.image,
-              mimeType: 'image/png',
+              mimeType: 'image/jpeg',
               sizeBytes: 42,
               handling: AttachmentHandling.native,
             ),
@@ -896,6 +906,8 @@ AppSnapshot _snapshot({
 
 class _FakeConversationRepository implements ConversationRepository {
   final List<String> calls = <String>[];
+  final List<ConversationMessageSendRequest> sentRequests =
+      <ConversationMessageSendRequest>[];
 
   @override
   Future<ConversationSummary> createConversation({
@@ -915,6 +927,7 @@ class _FakeConversationRepository implements ConversationRepository {
     ConversationMessageSendRequest request,
   ) async {
     calls.add('send:$conversationId:${request.text}');
+    sentRequests.add(request);
     return _conversation(
       id: conversationId,
       workspaceId: _workspace.id,

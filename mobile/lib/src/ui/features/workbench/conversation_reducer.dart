@@ -24,6 +24,7 @@ class ConversationMessage {
     this.isError = false,
     this.suggestions = const <String>[],
     this.attachments = const <CommittedAttachment>[],
+    this.clientMessageId,
   });
 
   final String role;
@@ -48,6 +49,7 @@ class ConversationMessage {
   final bool isError;
   final List<String> suggestions;
   final List<CommittedAttachment> attachments;
+  final String? clientMessageId;
 }
 
 class ConversationViewState {
@@ -91,7 +93,8 @@ class ConversationViewState {
               role: 'user',
               text: event.text ?? '',
               eventSeq: event.seq,
-              attachments: event.attachments));
+              attachments: event.attachments,
+              clientMessageId: event.raw['clientMessageId'] as String?));
           break;
         case 'assistant.partial':
           partial = _mergeAssistantPartial(partial, event.text ?? '');

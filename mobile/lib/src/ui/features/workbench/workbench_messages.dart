@@ -143,7 +143,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
   switch (message.role) {
     case 'user':
       return WorkbenchMessage.user(message.text,
-          attachments: message.attachments);
+          attachments: message.attachments,
+          clientMessageId: message.clientMessageId);
     case 'assistant':
       return WorkbenchMessage('assistant', 'CLI assistant', message.text,
           event: event, runId: 'conversation');
@@ -234,7 +235,8 @@ class WorkbenchMessage {
       this.completedCount,
       this.totalCount,
       this.suggestions = const <String>[],
-      this.attachments = const <CommittedAttachment>[]});
+      this.attachments = const <CommittedAttachment>[],
+      this.clientMessageId});
   final String role;
   final String title;
   final String body;
@@ -249,11 +251,14 @@ class WorkbenchMessage {
   final int? totalCount;
   final List<String> suggestions;
   final List<CommittedAttachment> attachments;
+  final String? clientMessageId;
   factory WorkbenchMessage.user(
     String text, {
     List<CommittedAttachment> attachments = const <CommittedAttachment>[],
+    String? clientMessageId,
   }) =>
-      WorkbenchMessage('user', 'You', text, attachments: attachments);
+      WorkbenchMessage('user', 'You', text,
+          attachments: attachments, clientMessageId: clientMessageId);
   factory WorkbenchMessage.status(String text) =>
       WorkbenchMessage('status', 'Run status', text);
   WorkbenchMessage copyWith(
@@ -261,7 +266,8 @@ class WorkbenchMessage {
           bool? completed,
           bool? isError,
           Duration? duration,
-          List<CommittedAttachment>? attachments}) =>
+          List<CommittedAttachment>? attachments,
+          String? clientMessageId}) =>
       WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
@@ -273,7 +279,8 @@ class WorkbenchMessage {
           completedCount: completedCount,
           totalCount: totalCount,
           suggestions: suggestions,
-          attachments: attachments ?? this.attachments);
+          attachments: attachments ?? this.attachments,
+          clientMessageId: clientMessageId ?? this.clientMessageId);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
     final parsed = _parseVisibleText(event);
