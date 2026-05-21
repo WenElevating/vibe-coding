@@ -156,6 +156,33 @@ void main() {
     expect(state.messages.last.text, contains('trusted directory'));
   });
 
+  test('ConversationViewState preserves committed user attachments', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'user.message',
+        'createdAt': '2026-05-21T04:52:19.000Z',
+        'text': '这个图片里面有什么？',
+        'attachments': [
+          {
+            'id': 'att_0_7d0b3b49',
+            'name': 'screenshot.png',
+            'kind': 'image',
+            'mimeType': 'image/png',
+            'sizeBytes': 1219716,
+            'handling': 'native',
+          }
+        ]
+      }),
+    ]);
+
+    expect(state.messages.single.role, 'user');
+    expect(state.messages.single.attachments, hasLength(1));
+    expect(state.messages.single.attachments.single.name, 'screenshot.png');
+    expect(state.messages.single.attachments.single.kind, AttachmentKind.image);
+  });
+
   test('ConversationViewState keeps thinking separate from final answer', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

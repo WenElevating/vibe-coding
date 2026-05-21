@@ -136,11 +136,14 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
         if (message.input.isNotEmpty) 'input': message.input,
         'suggestions': message.suggestions,
         if (message.output != null) 'output': message.output,
+        if (message.attachments.isNotEmpty)
+          'attachments': message.attachments.map((item) => item.name).toList(),
         if (message.role == 'assistant') 'result': message.text,
       });
   switch (message.role) {
     case 'user':
-      return WorkbenchMessage.user(message.text);
+      return WorkbenchMessage.user(message.text,
+          attachments: message.attachments);
     case 'assistant':
       return WorkbenchMessage('assistant', 'CLI assistant', message.text,
           event: event, runId: 'conversation');
@@ -230,7 +233,8 @@ class WorkbenchMessage {
       this.taskItems = const <TaskProgressItem>[],
       this.completedCount,
       this.totalCount,
-      this.suggestions = const <String>[]});
+      this.suggestions = const <String>[],
+      this.attachments = const <CommittedAttachment>[]});
   final String role;
   final String title;
   final String body;
@@ -244,8 +248,12 @@ class WorkbenchMessage {
   final int? completedCount;
   final int? totalCount;
   final List<String> suggestions;
-  factory WorkbenchMessage.user(String text) =>
-      WorkbenchMessage('user', 'You', text);
+  final List<CommittedAttachment> attachments;
+  factory WorkbenchMessage.user(
+    String text, {
+    List<CommittedAttachment> attachments = const <CommittedAttachment>[],
+  }) =>
+      WorkbenchMessage('user', 'You', text, attachments: attachments);
   factory WorkbenchMessage.status(String text) =>
       WorkbenchMessage('status', 'Run status', text);
   WorkbenchMessage copyWith(
@@ -260,7 +268,8 @@ class WorkbenchMessage {
           taskItems: taskItems,
           completedCount: completedCount,
           totalCount: totalCount,
-          suggestions: suggestions);
+          suggestions: suggestions,
+          attachments: attachments);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
     final parsed = _parseVisibleText(event);

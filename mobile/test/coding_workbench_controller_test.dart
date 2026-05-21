@@ -342,6 +342,24 @@ void main() {
     );
   });
 
+  test('conversation started event keeps optimistic user message visible', () {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+    viewModel.updateActiveConversation(_conversation(
+        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
+    viewModel.addUserMessage('inspect image');
+
+    final changed = viewModel.applyConversationEvents(
+      <ConversationEvent>[_event(seq: 1, type: 'conversation.started')],
+      streamOutput: false,
+    );
+
+    expect(changed, isTrue);
+    expect(viewModel.messages.single.role, 'user');
+    expect(viewModel.messages.single.body, 'inspect image');
+  });
+
   test('workbench view model exposes pending question id', () {
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
@@ -424,6 +442,7 @@ void main() {
   });
 
   test('active conversation status helper matches executor states', () {
+    expect(isActiveConversationStatus('sending'), isTrue);
     expect(isActiveConversationStatus('running'), isTrue);
     expect(isActiveConversationStatus('waiting_input'), isTrue);
     expect(isActiveConversationStatus('waiting_approval'), isTrue);

@@ -295,8 +295,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  void addUserMessage(String prompt, {bool notify = true}) {
-    _messages.add(WorkbenchMessage.user(prompt));
+  void addUserMessage(String prompt,
+      {bool includeDraftAttachments = false, bool notify = true}) {
+    _messages.add(WorkbenchMessage.user(prompt,
+        attachments: includeDraftAttachments
+            ? _draftAttachmentPreviews()
+            : const <CommittedAttachment>[]));
     if (notify) notifyListeners();
   }
 
@@ -333,6 +337,9 @@ class WorkbenchViewModel extends ChangeNotifier {
   }) {
     final newEvents = events.where((event) => event.seq > _lastSeq).toList();
     if (newEvents.isEmpty) return false;
+    final optimisticUserMessages = _messages
+        .where((message) => message.role == 'user' && message.event == null)
+        .toList(growable: false);
     newEvents.sort((a, b) => a.seq.compareTo(b.seq));
     for (final event in newEvents) {
       _conversationEvents.add(event);
@@ -342,6 +349,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _conversationState =
         _conversationState.apply(newEvents, streamOutput: streamOutput);
     _rebuildMessagesFromConversationState();
+    _restorePendingOptimisticUserMessages(optimisticUserMessages);
     if (notify) notifyListeners();
     return true;
   }
@@ -724,6 +732,33 @@ class WorkbenchViewModel extends ChangeNotifier {
     );
   }
 
+  List<CommittedAttachment> _draftAttachmentPreviews() {
+    final previews = <CommittedAttachment>[];
+    for (var i = 0; i < _draftAttachments.length; i++) {
+      final item = _draftAttachments[i];
+      if (!item.isValid) continue;
+      previews.add(CommittedAttachment(
+        id: 'draft_$i',
+        name: item.name,
+        kind: item.kind,
+        mimeType: item.mimeType,
+        sizeBytes: item.sizeBytes,
+        handling: _draftAttachmentHandling(item.kind),
+      ));
+    }
+    return List.unmodifiable(previews);
+  }
+
+  AttachmentHandling _draftAttachmentHandling(AttachmentKind kind) {
+    final capabilities = _selectedAttachmentCapabilities();
+    return switch (kind) {
+      AttachmentKind.image => capabilities.image,
+      AttachmentKind.textDocument => capabilities.textDocument,
+      AttachmentKind.pdf => capabilities.pdf,
+      AttachmentKind.unsupported => AttachmentHandling.unsupported,
+    };
+  }
+
   Future<ConversationSummary> answerConversationQuestion({
     required String conversationId,
     required String questionId,
@@ -862,6 +897,22 @@ class WorkbenchViewModel extends ChangeNotifier {
     );
     if (emptyCompletionDiagnostic != null) {
       _messages.add(WorkbenchMessage.status(emptyCompletionDiagnostic));
+    }
+  }
+
+  void _restorePendingOptimisticUserMessages(
+      List<WorkbenchMessage> optimisticUserMessages) {
+    for (final message in optimisticUserMessages) {
+      final committedIndex = _messages.indexWhere(
+          (item) => item.role == 'user' && item.body == message.body);
+      if (committedIndex >= 0) {
+        final committed = _messages[committedIndex];
+        if (committed.attachments.isEmpty && message.attachments.isNotEmpty) {
+          _messages[committedIndex] = message;
+        }
+      } else {
+        _messages.add(message);
+      }
     }
   }
 

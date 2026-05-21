@@ -13,7 +13,8 @@ bool canSendInConversationStatus(String? status) {
 }
 
 bool isActiveConversationStatus(String? status) {
-  return status == 'running' ||
+  return status == 'sending' ||
+      status == 'running' ||
       status == 'waiting_input' ||
       status == 'waiting_approval';
 }

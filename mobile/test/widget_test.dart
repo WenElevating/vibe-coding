@@ -2176,6 +2176,40 @@ void main() {
     expect(find.text('Thinking process'), findsNothing);
   });
 
+  testWidgets('user message card renders committed attachment metadata',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                      'user',
+                      'You',
+                      '这个图片里面有什么？',
+                      attachments: <CommittedAttachment>[
+                        CommittedAttachment(
+                          id: 'att_0',
+                          name: 'screenshot.png',
+                          kind: AttachmentKind.image,
+                          mimeType: 'image/png',
+                          sizeBytes: 1219716,
+                          handling: AttachmentHandling.native,
+                        ),
+                      ],
+                    ),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    expect(find.text('这个图片里面有什么？'), findsOneWidget);
+    expect(find.text('screenshot.png'), findsOneWidget);
+  });
+
   test('conversation pending status text uses active locale', () {
     final event = ConversationEvent.fromJson(const <String, Object?>{
       'seq': 1,

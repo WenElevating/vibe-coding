@@ -23,6 +23,7 @@ class ConversationMessage {
     this.exitCode,
     this.isError = false,
     this.suggestions = const <String>[],
+    this.attachments = const <CommittedAttachment>[],
   });
 
   final String role;
@@ -46,6 +47,7 @@ class ConversationMessage {
   final int? exitCode;
   final bool isError;
   final List<String> suggestions;
+  final List<CommittedAttachment> attachments;
 }
 
 class ConversationViewState {
@@ -86,7 +88,10 @@ class ConversationViewState {
           break;
         case 'user.message':
           nextMessages.add(ConversationMessage(
-              role: 'user', text: event.text ?? '', eventSeq: event.seq));
+              role: 'user',
+              text: event.text ?? '',
+              eventSeq: event.seq,
+              attachments: event.attachments));
           break;
         case 'assistant.partial':
           partial = _mergeAssistantPartial(partial, event.text ?? '');

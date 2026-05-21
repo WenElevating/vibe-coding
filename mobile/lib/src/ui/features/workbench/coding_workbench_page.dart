@@ -667,8 +667,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
     setState(() {
       _workbenchViewModel.beginOperation(notify: false);
-      if (prompt.isNotEmpty) {
-        _workbenchViewModel.addUserMessage(prompt, notify: false);
+      final hasDraftAttachment =
+          _workbenchViewModel.draftAttachments.any((item) => item.isValid);
+      if (prompt.isNotEmpty || hasDraftAttachment) {
+        _workbenchViewModel.addUserMessage(prompt,
+            includeDraftAttachments: true, notify: false);
       }
       _prompt.clear();
     });
@@ -1199,7 +1202,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String _conversationTitle(AppLocalizations l10n) {
     final userMessage = _messages.where((message) => message.role == 'user');
     if (userMessage.isEmpty) return l10n.workbenchNewSessionTitle;
-    final text = userMessage.last.body.trim();
+    final last = userMessage.last;
+    final text = last.body.trim().isNotEmpty
+        ? last.body.trim()
+        : last.attachments.isNotEmpty
+            ? last.attachments.first.name
+            : '';
+    if (text.isEmpty) return l10n.workbenchNewSessionTitle;
     if (text.length <= 18) return text;
     return '${text.substring(0, 18)}…';
   }

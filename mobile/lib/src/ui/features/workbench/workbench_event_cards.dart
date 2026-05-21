@@ -167,19 +167,28 @@ class WorkbenchMessageCard extends StatelessWidget {
                         ]),
                         const SizedBox(height: 8),
                       ],
-                      if (message.role == 'assistant')
-                        AssistantMarkdownBody(markdown: message.body)
-                      else
-                        Text(message.body,
-                            style: TextStyle(
-                                color: isUser
-                                    ? const Color(0xFFF4F4F4)
-                                    : theme.muted,
-                                fontSize: isUser ? 14.5 : 12.5,
-                                height: isUser ? 1.45 : 1.55,
-                                fontWeight: isUser
-                                    ? FontWeight.w500
-                                    : FontWeight.w400)),
+                      if (message.attachments.isNotEmpty) ...[
+                        _MessageAttachmentStrip(
+                            attachments: message.attachments,
+                            alignEnd: isUser),
+                        if (message.body.trim().isNotEmpty)
+                          const SizedBox(height: 8),
+                      ],
+                      if (message.body.trim().isNotEmpty) ...[
+                        if (message.role == 'assistant')
+                          AssistantMarkdownBody(markdown: message.body)
+                        else
+                          Text(message.body,
+                              style: TextStyle(
+                                  color: isUser
+                                      ? const Color(0xFFF4F4F4)
+                                      : theme.muted,
+                                  fontSize: isUser ? 14.5 : 12.5,
+                                  height: isUser ? 1.45 : 1.55,
+                                  fontWeight: isUser
+                                      ? FontWeight.w500
+                                      : FontWeight.w400)),
+                      ],
                       if (isApproval) ...[
                         const SizedBox(height: 12),
                         if (message.event?.approvalId == null)
@@ -207,6 +216,102 @@ class WorkbenchMessageCard extends StatelessWidget {
                       ]
                     ]))));
   }
+}
+
+class _MessageAttachmentStrip extends StatelessWidget {
+  const _MessageAttachmentStrip({
+    required this.attachments,
+    required this.alignEnd,
+  });
+
+  final List<CommittedAttachment> attachments;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) => Align(
+      alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+      child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: alignEnd ? WrapAlignment.end : WrapAlignment.start,
+          children: attachments
+              .map((attachment) =>
+                  _MessageAttachmentPill(attachment: attachment))
+              .toList(growable: false)));
+}
+
+class _MessageAttachmentPill extends StatelessWidget {
+  const _MessageAttachmentPill({required this.attachment});
+
+  final CommittedAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+      message: attachment.name,
+      child: Container(
+          constraints: const BoxConstraints(maxWidth: 180),
+          padding: const EdgeInsets.fromLTRB(6, 6, 9, 6),
+          decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .045),
+              borderRadius: BorderRadius.circular(10),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: .085))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .18),
+                    borderRadius: BorderRadius.circular(7)),
+                child: Icon(_attachmentIcon(attachment.kind),
+                    color: theme.muted, size: 17)),
+            const SizedBox(width: 8),
+            Flexible(
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(attachment.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: theme.text,
+                          fontSize: 11.5,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 3),
+                  Text(_attachmentSizeLabel(attachment.sizeBytes),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: theme.muted,
+                          fontSize: 10.5,
+                          height: 1,
+                          letterSpacing: 0)),
+                ])),
+          ])));
+}
+
+IconData _attachmentIcon(AttachmentKind kind) => switch (kind) {
+      AttachmentKind.image => Icons.image_outlined,
+      AttachmentKind.pdf => Icons.picture_as_pdf_outlined,
+      AttachmentKind.textDocument => Icons.description_outlined,
+      AttachmentKind.unsupported => Icons.attach_file_rounded,
+    };
+
+String _attachmentSizeLabel(int sizeBytes) {
+  if (sizeBytes <= 0) return '0 B';
+  const units = <String>['B', 'KB', 'MB', 'GB'];
+  var size = sizeBytes.toDouble();
+  var unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit++;
+  }
+  final digits = unit == 0 || size >= 10 ? 0 : 1;
+  return '${size.toStringAsFixed(digits)} ${units[unit]}';
 }
 
 class AssistantMarkdownBody extends StatefulWidget {
