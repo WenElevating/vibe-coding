@@ -2295,6 +2295,16 @@ void main() {
     expect(find.byKey(const Key('workbench-user-text-bubble')), findsOneWidget);
     expect(find.byKey(const Key('workbench-message-image-preview')),
         findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-preview-shell')),
+        findsOneWidget);
+    final borderedAttachmentContainers = tester
+        .widgetList<Container>(find.descendant(
+            of: find.byKey(const Key('workbench-user-attachment-bubble')),
+            matching: find.byType(Container)))
+        .where((container) =>
+            container.decoration is BoxDecoration &&
+            (container.decoration! as BoxDecoration).border != null);
+    expect(borderedAttachmentContainers, isEmpty);
 
     await tester.pumpWidget(const SizedBox.shrink());
     PaintingBinding.instance.imageCache.clear();

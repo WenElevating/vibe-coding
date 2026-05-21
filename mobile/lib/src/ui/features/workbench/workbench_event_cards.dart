@@ -210,11 +210,18 @@ class _UserMessageCard extends StatelessWidget {
     final body = message.body.trim();
     final bubbles = <Widget>[];
     if (message.attachments.isNotEmpty) {
-      bubbles.add(_UserBubbleFrame(
-        key: const Key('workbench-user-attachment-bubble'),
-        child: _MessageAttachmentStrip(
-            attachments: message.attachments, alignEnd: true),
-      ));
+      final attachmentStrip = _MessageAttachmentStrip(
+          attachments: message.attachments, alignEnd: true);
+      if (_usesBorderlessImageAttachmentFrame(message.attachments)) {
+        bubbles.add(KeyedSubtree(
+            key: const Key('workbench-user-attachment-bubble'),
+            child: attachmentStrip));
+      } else {
+        bubbles.add(_UserBubbleFrame(
+          key: const Key('workbench-user-attachment-bubble'),
+          child: attachmentStrip,
+        ));
+      }
     }
     if (body.isNotEmpty) {
       if (bubbles.isNotEmpty) bubbles.add(const SizedBox(height: 6));
@@ -233,6 +240,13 @@ class _UserMessageCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch, children: bubbles);
   }
 }
+
+bool _usesBorderlessImageAttachmentFrame(
+        List<CommittedAttachment> attachments) =>
+    attachments.isNotEmpty &&
+    attachments.every((attachment) =>
+        attachment.kind == AttachmentKind.image &&
+        attachment.localPath != null);
 
 class _UserBubbleFrame extends StatelessWidget {
   const _UserBubbleFrame({super.key, required this.child});
@@ -348,13 +362,9 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
       message: attachment.name,
-      child: Container(
+      child: ConstrainedBox(
+          key: const Key('workbench-message-image-preview-shell'),
           constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .045),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: .085))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -375,28 +385,30 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
                       ),
                     ))),
             const SizedBox(height: 7),
-            Row(children: [
-              Icon(_attachmentIcon(attachment.kind),
-                  color: theme.muted, size: 15),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: Text(attachment.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Row(children: [
+                  Icon(_attachmentIcon(attachment.kind),
+                      color: theme.muted, size: 15),
+                  const SizedBox(width: 6),
+                  Expanded(
+                      child: Text(attachment.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.text,
+                              fontSize: 11.5,
+                              height: 1.1,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0))),
+                  const SizedBox(width: 8),
+                  Text(_attachmentSizeLabel(attachment.sizeBytes),
                       style: const TextStyle(
-                          color: theme.text,
-                          fontSize: 11.5,
-                          height: 1.1,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0))),
-              const SizedBox(width: 8),
-              Text(_attachmentSizeLabel(attachment.sizeBytes),
-                  style: const TextStyle(
-                      color: theme.muted,
-                      fontSize: 10.5,
-                      height: 1,
-                      letterSpacing: 0)),
-            ]),
+                          color: theme.muted,
+                          fontSize: 10.5,
+                          height: 1,
+                          letterSpacing: 0)),
+                ])),
           ])));
 }
 
