@@ -69,6 +69,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
   final List<DraftAttachment> _draftAttachments = <DraftAttachment>[];
+  final Map<String, String> _localAttachmentPreviewPaths = <String, String>{};
   ConversationViewState _conversationState = const ConversationViewState();
   int _lastSeq = 0;
   final Set<String> _resolvedApprovalIds = <String>{};
@@ -297,10 +298,11 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void addUserMessage(String prompt,
       {bool includeDraftAttachments = false, bool notify = true}) {
-    _messages.add(WorkbenchMessage.user(prompt,
-        attachments: includeDraftAttachments
-            ? _draftAttachmentPreviews()
-            : const <CommittedAttachment>[]));
+    final attachments = includeDraftAttachments
+        ? _draftAttachmentPreviews()
+        : const <CommittedAttachment>[];
+    _rememberLocalAttachmentPreviews(attachments);
+    _messages.add(WorkbenchMessage.user(prompt, attachments: attachments));
     if (notify) notifyListeners();
   }
 
@@ -744,10 +746,61 @@ class WorkbenchViewModel extends ChangeNotifier {
         mimeType: item.mimeType,
         sizeBytes: item.sizeBytes,
         handling: _draftAttachmentHandling(item.kind),
+        localPath: item.localPath,
       ));
     }
     return List.unmodifiable(previews);
   }
+
+  List<CommittedAttachment> _mergeLocalAttachmentPreviews(
+    List<CommittedAttachment> committed,
+    List<CommittedAttachment> optimistic,
+  ) =>
+      committed
+          .map((attachment) => attachment.localPath == null
+              ? attachment.copyWith(
+                  localPath: _matchingLocalPreviewPath(attachment, optimistic))
+              : attachment)
+          .toList(growable: false);
+
+  String? _matchingLocalPreviewPath(
+    CommittedAttachment attachment,
+    List<CommittedAttachment> optimistic,
+  ) {
+    for (final candidate in optimistic) {
+      if (candidate.localPath == null) continue;
+      if (candidate.name == attachment.name &&
+          candidate.kind == attachment.kind &&
+          candidate.mimeType == attachment.mimeType &&
+          candidate.sizeBytes == attachment.sizeBytes) {
+        return candidate.localPath;
+      }
+    }
+    return _localAttachmentPreviewPaths[_attachmentPreviewKey(attachment)];
+  }
+
+  void _rememberLocalAttachmentPreviews(List<CommittedAttachment> attachments) {
+    for (final attachment in attachments) {
+      final localPath = attachment.localPath;
+      if (localPath == null || localPath.isEmpty) continue;
+      _localAttachmentPreviewPaths[_attachmentPreviewKey(attachment)] =
+          localPath;
+    }
+  }
+
+  bool _sameAttachmentPreviewPaths(
+    List<CommittedAttachment> left,
+    List<CommittedAttachment> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (left[i].localPath != right[i].localPath) return false;
+    }
+    return true;
+  }
+
+  String _attachmentPreviewKey(CommittedAttachment attachment) =>
+      '${attachment.kind}|${attachment.mimeType}|${attachment.sizeBytes}|${attachment.name}';
 
   AttachmentHandling _draftAttachmentHandling(AttachmentKind kind) {
     final capabilities = _selectedAttachmentCapabilities();
@@ -888,7 +941,8 @@ class WorkbenchViewModel extends ChangeNotifier {
           _activeConversation,
         )
             .where((message) => message.role != 'question_hidden')
-            .map(workbenchMessageFromConversation),
+            .map(workbenchMessageFromConversation)
+            .map(_withLocalAttachmentPreviews),
       );
     final emptyCompletionDiagnostic = emptyConversationCompletionDiagnostic(
       _conversationEvents,
@@ -900,6 +954,18 @@ class WorkbenchViewModel extends ChangeNotifier {
     }
   }
 
+  WorkbenchMessage _withLocalAttachmentPreviews(WorkbenchMessage message) {
+    if (message.role != 'user' || message.attachments.isEmpty) return message;
+    final mergedAttachments = _mergeLocalAttachmentPreviews(
+      message.attachments,
+      const <CommittedAttachment>[],
+    );
+    if (_sameAttachmentPreviewPaths(message.attachments, mergedAttachments)) {
+      return message;
+    }
+    return message.copyWith(attachments: mergedAttachments);
+  }
+
   void _restorePendingOptimisticUserMessages(
       List<WorkbenchMessage> optimisticUserMessages) {
     for (final message in optimisticUserMessages) {
@@ -909,6 +975,15 @@ class WorkbenchViewModel extends ChangeNotifier {
         final committed = _messages[committedIndex];
         if (committed.attachments.isEmpty && message.attachments.isNotEmpty) {
           _messages[committedIndex] = message;
+        } else if (committed.attachments.isNotEmpty &&
+            message.attachments.isNotEmpty) {
+          final mergedAttachments = _mergeLocalAttachmentPreviews(
+              committed.attachments, message.attachments);
+          if (!_sameAttachmentPreviewPaths(
+              committed.attachments, mergedAttachments)) {
+            _messages[committedIndex] =
+                committed.copyWith(attachments: mergedAttachments);
+          }
         }
       } else {
         _messages.add(message);

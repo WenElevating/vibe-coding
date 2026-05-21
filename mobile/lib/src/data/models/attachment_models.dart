@@ -40,6 +40,7 @@ class CommittedAttachment {
     required this.mimeType,
     required this.sizeBytes,
     required this.handling,
+    this.localPath,
   });
 
   final String id;
@@ -48,6 +49,7 @@ class CommittedAttachment {
   final String mimeType;
   final int sizeBytes;
   final AttachmentHandling handling;
+  final String? localPath;
 
   factory CommittedAttachment.fromJson(Map<String, Object?> json) =>
       CommittedAttachment(
@@ -57,6 +59,20 @@ class CommittedAttachment {
         mimeType: json['mimeType'] as String? ?? 'application/octet-stream',
         sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
         handling: parseAttachmentHandling(json['handling']),
+        localPath: _optionalString(json['localPath']),
+      );
+
+  CommittedAttachment copyWith({
+    String? localPath,
+  }) =>
+      CommittedAttachment(
+        id: id,
+        name: name,
+        kind: kind,
+        mimeType: mimeType,
+        sizeBytes: sizeBytes,
+        handling: handling,
+        localPath: localPath ?? this.localPath,
       );
 }
 
@@ -94,4 +110,10 @@ Map<String, Object?> _objectMap(Object? value) {
     }
   }
   return result;
+}
+
+String? _optionalString(Object? value) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

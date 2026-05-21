@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
@@ -88,54 +90,39 @@ class WorkbenchMessageCard extends StatelessWidget {
     if (message.role == 'notice') {
       return _SystemNoticeEventCard(message: message);
     }
-    final color = isUser
-        ? theme.purple2
-        : isApproval
-            ? theme.amber
-            : isTool
-                ? theme.orange
-                : theme.green;
+    if (isUser) return _UserMessageCard(message: message);
+    final color = isApproval
+        ? theme.amber
+        : isTool
+            ? theme.orange
+            : theme.green;
     return Align(
-        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+        alignment: Alignment.centerLeft,
         child: FractionallySizedBox(
-            widthFactor: isUser ? .78 : 1,
+            widthFactor: 1,
             child: Container(
-                padding: EdgeInsets.fromLTRB(isUser ? 13 : 16,
-                    isApproval ? 12 : 11, isUser ? 13 : 16, 11),
+                padding: EdgeInsets.fromLTRB(16, isApproval ? 12 : 11, 16, 11),
                 decoration: BoxDecoration(
-                    gradient: isUser ? null : null,
-                    color: isUser
-                        ? const Color(0xFF191A1E)
-                        : isApproval
-                            ? const Color(0xFF101113)
-                            : message.role == 'assistant'
-                                ? Colors.transparent
-                                : const Color(0xFF101113),
+                    color: isApproval
+                        ? const Color(0xFF101113)
+                        : message.role == 'assistant'
+                            ? Colors.transparent
+                            : const Color(0xFF101113),
                     borderRadius: BorderRadius.only(
                         topLeft: Radius.circular(isApproval ? 14 : 18),
                         topRight: Radius.circular(isApproval ? 14 : 18),
-                        bottomLeft: Radius.circular(isUser
-                            ? 18
-                            : isApproval
-                                ? 14
-                                : 6),
-                        bottomRight: Radius.circular(isUser
-                            ? 6
-                            : isApproval
-                                ? 14
-                                : 18)),
+                        bottomLeft: Radius.circular(isApproval ? 14 : 6),
+                        bottomRight: Radius.circular(isApproval ? 14 : 18)),
                     border: Border.all(
-                        color: isUser
-                            ? Colors.white.withValues(alpha: .085)
-                            : isApproval
-                                ? Colors.white.withValues(alpha: .08)
-                                : message.role == 'assistant'
-                                    ? Colors.transparent
-                                    : theme.stroke)),
+                        color: isApproval
+                            ? Colors.white.withValues(alpha: .08)
+                            : message.role == 'assistant'
+                                ? Colors.transparent
+                                : theme.stroke)),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (!isUser && message.role != 'assistant') ...[
+                      if (message.role != 'assistant') ...[
                         Row(children: [
                           Container(
                               width: isApproval ? 24 : 18,
@@ -169,8 +156,7 @@ class WorkbenchMessageCard extends StatelessWidget {
                       ],
                       if (message.attachments.isNotEmpty) ...[
                         _MessageAttachmentStrip(
-                            attachments: message.attachments,
-                            alignEnd: isUser),
+                            attachments: message.attachments, alignEnd: false),
                         if (message.body.trim().isNotEmpty)
                           const SizedBox(height: 8),
                       ],
@@ -180,14 +166,10 @@ class WorkbenchMessageCard extends StatelessWidget {
                         else
                           Text(message.body,
                               style: TextStyle(
-                                  color: isUser
-                                      ? const Color(0xFFF4F4F4)
-                                      : theme.muted,
-                                  fontSize: isUser ? 14.5 : 12.5,
-                                  height: isUser ? 1.45 : 1.55,
-                                  fontWeight: isUser
-                                      ? FontWeight.w500
-                                      : FontWeight.w400)),
+                                  color: theme.muted,
+                                  fontSize: 12.5,
+                                  height: 1.55,
+                                  fontWeight: FontWeight.w400)),
                       ],
                       if (isApproval) ...[
                         const SizedBox(height: 12),
@@ -218,6 +200,64 @@ class WorkbenchMessageCard extends StatelessWidget {
   }
 }
 
+class _UserMessageCard extends StatelessWidget {
+  const _UserMessageCard({required this.message});
+
+  final WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = message.body.trim();
+    final bubbles = <Widget>[];
+    if (message.attachments.isNotEmpty) {
+      bubbles.add(_UserBubbleFrame(
+        key: const Key('workbench-user-attachment-bubble'),
+        child: _MessageAttachmentStrip(
+            attachments: message.attachments, alignEnd: true),
+      ));
+    }
+    if (body.isNotEmpty) {
+      if (bubbles.isNotEmpty) bubbles.add(const SizedBox(height: 6));
+      bubbles.add(_UserBubbleFrame(
+        key: const Key('workbench-user-text-bubble'),
+        child: Text(body,
+            style: const TextStyle(
+                color: Color(0xFFF4F4F4),
+                fontSize: 14.5,
+                height: 1.45,
+                fontWeight: FontWeight.w500)),
+      ));
+    }
+    if (bubbles.isEmpty) return const SizedBox.shrink();
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: bubbles);
+  }
+}
+
+class _UserBubbleFrame extends StatelessWidget {
+  const _UserBubbleFrame({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Align(
+      alignment: Alignment.centerRight,
+      child: FractionallySizedBox(
+          widthFactor: .78,
+          child: Container(
+              padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+              decoration: BoxDecoration(
+                  color: const Color(0xFF191A1E),
+                  borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      topRight: Radius.circular(18),
+                      bottomLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(6)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .085))),
+              child: child)));
+}
+
 class _MessageAttachmentStrip extends StatelessWidget {
   const _MessageAttachmentStrip({
     required this.attachments,
@@ -246,33 +286,101 @@ class _MessageAttachmentPill extends StatelessWidget {
   final CommittedAttachment attachment;
 
   @override
+  Widget build(BuildContext context) {
+    if (attachment.kind == AttachmentKind.image &&
+        attachment.localPath != null) {
+      return _MessageImageAttachmentPreview(attachment: attachment);
+    }
+    return Tooltip(
+        message: attachment.name,
+        child: Container(
+            constraints: const BoxConstraints(maxWidth: 180),
+            padding: const EdgeInsets.fromLTRB(6, 6, 9, 6),
+            decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .045),
+                borderRadius: BorderRadius.circular(10),
+                border:
+                    Border.all(color: Colors.white.withValues(alpha: .085))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(7)),
+                  child: Icon(_attachmentIcon(attachment.kind),
+                      color: theme.muted, size: 17)),
+              const SizedBox(width: 8),
+              Flexible(
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(attachment.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: theme.text,
+                            fontSize: 11.5,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0)),
+                    const SizedBox(height: 3),
+                    Text(_attachmentSizeLabel(attachment.sizeBytes),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: theme.muted,
+                            fontSize: 10.5,
+                            height: 1,
+                            letterSpacing: 0)),
+                  ])),
+            ])));
+  }
+}
+
+class _MessageImageAttachmentPreview extends StatelessWidget {
+  const _MessageImageAttachmentPreview({required this.attachment});
+
+  final CommittedAttachment attachment;
+
+  @override
   Widget build(BuildContext context) => Tooltip(
       message: attachment.name,
       child: Container(
-          constraints: const BoxConstraints(maxWidth: 180),
-          padding: const EdgeInsets.fromLTRB(6, 6, 9, 6),
+          constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: .045),
               borderRadius: BorderRadius.circular(10),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: .085))),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: .18),
-                    borderRadius: BorderRadius.circular(7)),
-                child: Icon(_attachmentIcon(attachment.kind),
-                    color: theme.muted, size: 17)),
-            const SizedBox(width: 8),
-            Flexible(
-                child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(attachment.name,
+              border: Border.all(color: Colors.white.withValues(alpha: .085))),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    width: double.infinity,
+                    color: Colors.black.withValues(alpha: .22),
+                    child: AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: Image.file(
+                        File(attachment.localPath!),
+                        key: const Key('workbench-message-image-preview'),
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                            _attachmentIcon(attachment.kind),
+                            color: theme.muted,
+                            size: 22),
+                      ),
+                    ))),
+            const SizedBox(height: 7),
+            Row(children: [
+              Icon(_attachmentIcon(attachment.kind),
+                  color: theme.muted, size: 15),
+              const SizedBox(width: 6),
+              Expanded(
+                  child: Text(attachment.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -280,17 +388,15 @@ class _MessageAttachmentPill extends StatelessWidget {
                           fontSize: 11.5,
                           height: 1.1,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 0)),
-                  const SizedBox(height: 3),
-                  Text(_attachmentSizeLabel(attachment.sizeBytes),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: theme.muted,
-                          fontSize: 10.5,
-                          height: 1,
-                          letterSpacing: 0)),
-                ])),
+                          letterSpacing: 0))),
+              const SizedBox(width: 8),
+              Text(_attachmentSizeLabel(attachment.sizeBytes),
+                  style: const TextStyle(
+                      color: theme.muted,
+                      fontSize: 10.5,
+                      height: 1,
+                      letterSpacing: 0)),
+            ]),
           ])));
 }
 
@@ -567,9 +673,7 @@ class _TaskProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final completed = message.completedCount ??
-        message.taskItems
-            .where((item) => item.status == 'completed')
-            .length;
+        message.taskItems.where((item) => item.status == 'completed').length;
     final total = message.totalCount ?? message.taskItems.length;
     return Container(
         width: double.infinity,
@@ -593,8 +697,8 @@ class _TaskProgressCard extends StatelessWidget {
                 decoration: BoxDecoration(
                     color: theme.green.withValues(alpha: .10),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: theme.green.withValues(alpha: .22))),
+                    border:
+                        Border.all(color: theme.green.withValues(alpha: .22))),
                 child: const Icon(Icons.checklist_rounded,
                     color: theme.green, size: 16)),
             const SizedBox(width: 9),
@@ -689,11 +793,13 @@ class _TaskProgressLegend extends StatelessWidget {
   const _TaskProgressLegend();
 
   @override
-  Widget build(BuildContext context) => Wrap(spacing: 10, runSpacing: 6, children: [
+  Widget build(BuildContext context) =>
+      Wrap(spacing: 10, runSpacing: 6, children: [
         _TaskProgressLegendItem(
             color: theme.green, label: _taskProgressStatus('completed').label),
         _TaskProgressLegendItem(
-            color: theme.amber, label: _taskProgressStatus('in_progress').label),
+            color: theme.amber,
+            label: _taskProgressStatus('in_progress').label),
         _TaskProgressLegendItem(
             color: theme.faint, label: _taskProgressStatus('pending').label),
       ]);
@@ -706,7 +812,8 @@ class _TaskProgressLegendItem extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+  Widget build(BuildContext context) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
         _TaskProgressDot(color: color, small: true),
         const SizedBox(width: 5),
         Text(label,
@@ -732,8 +839,7 @@ class _TaskProgressDot extends StatelessWidget {
           color: color,
           boxShadow: [
             BoxShadow(
-                color: color.withValues(alpha: .25),
-                blurRadius: small ? 5 : 8)
+                color: color.withValues(alpha: .25), blurRadius: small ? 5 : 8)
           ]));
 }
 

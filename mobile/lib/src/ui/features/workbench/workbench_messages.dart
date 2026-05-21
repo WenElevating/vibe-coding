@@ -257,7 +257,11 @@ class WorkbenchMessage {
   factory WorkbenchMessage.status(String text) =>
       WorkbenchMessage('status', 'Run status', text);
   WorkbenchMessage copyWith(
-          {String? body, bool? completed, bool? isError, Duration? duration}) =>
+          {String? body,
+          bool? completed,
+          bool? isError,
+          Duration? duration,
+          List<CommittedAttachment>? attachments}) =>
       WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
@@ -269,7 +273,7 @@ class WorkbenchMessage {
           completedCount: completedCount,
           totalCount: totalCount,
           suggestions: suggestions,
-          attachments: attachments);
+          attachments: attachments ?? this.attachments);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
     final parsed = _parseVisibleText(event);

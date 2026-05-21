@@ -6,6 +6,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repositor
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/session_item.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
@@ -358,6 +359,87 @@ void main() {
     expect(changed, isTrue);
     expect(viewModel.messages.single.role, 'user');
     expect(viewModel.messages.single.body, 'inspect image');
+  });
+
+  test('committed attachment event keeps local optimistic image preview path',
+      () {
+    const imageCapableAdapter = AdapterStatus(
+      adapter: 'codex',
+      available: true,
+      status: 'available',
+      capabilityVersion: 'cap_v1',
+      attachmentCapabilities:
+          AttachmentCapabilities(image: AttachmentHandling.native),
+    );
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        adapters: const <AdapterStatus>[imageCapableAdapter],
+      ),
+    );
+    viewModel.updateActiveConversation(_conversation(
+        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
+    viewModel.addDraftAttachmentForTest(const DraftAttachment(
+      localPath: r'C:\tmp\screenshot.png',
+      name: 'screenshot.png',
+      mimeType: 'image/png',
+      kind: AttachmentKind.image,
+      sizeBytes: 42,
+    ));
+    viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/png',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.messages.single.attachments.single.localPath,
+        r'C:\tmp\screenshot.png');
+
+    viewModel.resetConversationDisplay(clearActiveConversation: false);
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/png',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.messages.single.attachments.single.localPath,
+        r'C:\tmp\screenshot.png');
   });
 
   test('workbench view model exposes pending question id', () {

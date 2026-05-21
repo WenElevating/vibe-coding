@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2176,8 +2177,88 @@ void main() {
     expect(find.text('Thinking process'), findsNothing);
   });
 
-  testWidgets('user message card renders committed attachment metadata',
+  testWidgets('user message card splits image attachment and text preview',
       (WidgetTester tester) async {
+    final tempDir =
+        Directory.systemTemp.createTempSync('workbench-preview-test-');
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}workbench-preview.png',
+    );
+    imageFile.writeAsBytesSync(<int>[
+      0x89,
+      0x50,
+      0x4E,
+      0x47,
+      0x0D,
+      0x0A,
+      0x1A,
+      0x0A,
+      0x00,
+      0x00,
+      0x00,
+      0x0D,
+      0x49,
+      0x48,
+      0x44,
+      0x52,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x08,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
+      0x1F,
+      0x15,
+      0xC4,
+      0x89,
+      0x00,
+      0x00,
+      0x00,
+      0x0A,
+      0x49,
+      0x44,
+      0x41,
+      0x54,
+      0x78,
+      0x9C,
+      0x63,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x05,
+      0x00,
+      0x01,
+      0x0D,
+      0x0A,
+      0x2D,
+      0xB4,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x49,
+      0x45,
+      0x4E,
+      0x44,
+      0xAE,
+      0x42,
+      0x60,
+      0x82,
+    ]);
+
     await tester.pumpWidget(MaterialApp(
         supportedLocales: appSupportedLocales,
         localizationsDelegates: appLocalizationsDelegates,
@@ -2187,19 +2268,20 @@ void main() {
             body: Padding(
                 padding: const EdgeInsets.all(16),
                 child: WorkbenchMessageCard(
-                    message: const WorkbenchMessage(
+                    message: WorkbenchMessage(
                       'user',
                       'You',
                       '这个图片里面有什么？',
                       attachments: <CommittedAttachment>[
-                        CommittedAttachment(
-                          id: 'att_0',
-                          name: 'screenshot.png',
-                          kind: AttachmentKind.image,
-                          mimeType: 'image/png',
-                          sizeBytes: 1219716,
-                          handling: AttachmentHandling.native,
-                        ),
+                        CommittedAttachment.fromJson(<String, Object?>{
+                          'id': 'att_0',
+                          'name': 'screenshot.png',
+                          'kind': 'image',
+                          'mimeType': 'image/png',
+                          'sizeBytes': 1219716,
+                          'handling': 'native',
+                          'localPath': imageFile.path,
+                        }),
                       ],
                     ),
                     onApproval: (_) {},
@@ -2208,6 +2290,15 @@ void main() {
 
     expect(find.text('这个图片里面有什么？'), findsOneWidget);
     expect(find.text('screenshot.png'), findsOneWidget);
+    expect(find.byKey(const Key('workbench-user-attachment-bubble')),
+        findsOneWidget);
+    expect(find.byKey(const Key('workbench-user-text-bubble')), findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-preview')),
+        findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
   test('conversation pending status text uses active locale', () {
