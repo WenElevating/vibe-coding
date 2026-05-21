@@ -725,7 +725,7 @@ class DaemonClient
     for (var index = 0; index < request.attachments.length; index++) {
       final attachment = request.attachments[index];
       multipart.files.add(await http.MultipartFile.fromPath(
-        'files[$index]',
+        'files[]',
         attachment.localPath,
         filename: attachment.name,
       ));

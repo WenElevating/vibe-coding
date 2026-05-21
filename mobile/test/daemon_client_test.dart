@@ -163,6 +163,8 @@ void main() {
     expect(multipartBody, contains('"name":"screenshot.png"'));
     expect(multipartBody, contains('"mimeType":"image/png"'));
     expect(multipartBody, contains('"kind":"image"'));
+    expect(multipartBody, contains('name="files[]"'));
+    expect(multipartBody, isNot(contains('name="files[0]"')));
     expect(multipartBody, contains('filename="screenshot.png"'));
     expect(_containsSubsequence(multipartBytes, fileBytes), isTrue);
   });
