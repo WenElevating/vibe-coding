@@ -2,74 +2,119 @@
 
 [简体中文](README.zh-CN.md)
 
-LAN AI CLI Control is a local-first control surface for running AI coding CLIs from a phone or another device on the same LAN. The daemon stays on the trusted desktop, executes inside explicitly authorized workspaces, and exposes a narrow HTTP API to the Flutter client.
+LAN AI CLI Control is a local-first mobile control plane for AI coding CLIs. It lets a phone or another LAN device start, resume, inspect, and stop bounded coding conversations while the actual Claude Code, Codex CLI, or OpenCode process stays on the trusted desktop.
 
-The project currently supports conversation-oriented control for Claude Code and Codex CLI, plus OpenCode attachment and a development-only synthetic adapter. It is designed for real coding workflows without exposing a raw remote shell or arbitrary mobile-provided command execution.
+The project is intentionally not a remote terminal. The daemon owns workspace authorization, CLI invocation, attachment validation, event persistence, diagnostics, and security boundaries; the Flutter app provides a focused workbench for real coding sessions.
 
-## What It Does
+## Screenshots
 
-- Pair a mobile client with the local daemon using token-based auth.
-- Register and select trusted workspaces before any CLI execution.
-- Start and resume coding conversations for supported CLI adapters.
-- Stream assistant text, command/tool activity, outputs, status changes, and diagnostics to the mobile UI.
-- Preserve CLI session IDs for resume workflows where the underlying CLI supports them.
-- Keep lifecycle and diagnostic events in the event log while hiding low-value internal notices from the main transcript UI.
-- Provide redacted diagnostics and health/version endpoints for troubleshooting.
+| Codex conversation | Image prompt |
+| --- | --- |
+| ![Codex conversation in the mobile workbench](images/output/en/chat-codex.png) | ![Image attachment prompt in the mobile workbench](images/output/en/chat-with-image.png) |
 
-## Safety Boundary
+## Why This Exists
 
-The daemon intentionally rejects unrestricted terminal behavior:
+Modern coding CLIs are powerful, but their execution context matters. A raw remote shell from a phone is too broad for daily use, and copying prompts between devices loses context. This project keeps the dangerous part local: the daemon runs on the developer machine, limits execution to authorized workspaces, and exposes only the API surface needed for coding workflows.
 
-- No arbitrary shell commands from mobile clients.
-- No arbitrary `cwd` from mobile clients.
-- No mobile-provided raw CLI arguments.
-- No persistent PTY session exposed over the API.
-- Work only runs inside daemon-authorized workspace paths.
-- Dangerous CLI bypass modes must not be exposed through the mobile control surface.
+Use it when you want to:
 
-The mobile client is a controller for bounded local coding sessions, not a remote terminal.
+- Check or continue an active AI coding session away from the keyboard.
+- Send follow-up prompts to Claude Code or Codex CLI without exposing arbitrary shell execution.
+- Keep workspace, adapter, model, approval, and diagnostic state visible from a mobile UI.
+- Attach supported images or text documents to a conversation while preserving daemon-side validation and cleanup.
+- Inspect run history, tool output, command activity, diagnostics, and workspace status from the same control surface.
 
-## Project Structure
+## Current Capabilities
 
-- `daemon/`: Node.js daemon, HTTP API, workspace management, adapter orchestration, persistence, and diagnostics.
-- `mobile/`: Flutter client application, UI, models, services, reducers, and mobile tests.
-- `scripts/`: Node-based regression and smoke test entry points.
-- `docs/`: Design notes, UI references, release notes, and implementation plans.
-- `data/`: Local runtime data such as SQLite databases. Do not commit it.
-- `.omx/`: Local agent/runtime artifacts. Treat it as generated output.
+- Pair a mobile device with the local daemon using access and refresh tokens.
+- Register, rename, list, and logically delete trusted workspaces per paired device.
+- Start and resume conversation-oriented coding sessions for Claude Code and Codex CLI.
+- Select supported models when the detected CLI exposes model selection.
+- Send text prompts, image attachments, and text-document attachments through capability-checked multipart requests.
+- Render user messages, image previews, assistant messages, thinking blocks, tool output, approval cards, task progress, and run errors in the Flutter workbench.
+- Persist conversation state and event history in SQLite so sessions survive app restarts.
+- Keep low-level lifecycle events in the event log while hiding noisy protocol internals from the main transcript.
+- Export redacted diagnostics with trace ids for daemon and mobile failures.
+- Provide optional ASR model download endpoints for the mobile voice-input flow.
+- Keep legacy bounded task-runner APIs for run queues, command templates, Git status, and Git diff.
+
+## Adapter Support
+
+| Adapter | Conversation support | Resume | Model selection | Attachments | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Yes | Yes | When `claude` detection reports model flag support | Native images, text extraction, no PDF dispatch | Image bytes are capped at 5 MB before base64 conversion. Mobile input and approval callbacks are supported when the CLI emits them. |
+| Codex CLI | Yes | Yes, through `codex exec resume --json` | When both `exec` and `resume` help expose model flags | Native images only when both `exec` and `resume` expose image flags; text extraction is supported; PDF is not dispatched | Codex must be explicitly enabled for daemon adapter listing. The conversation adapter validates CLI JSON support before use. |
+| OpenCode | Attach/run surface only | Session id required for run follow-up | No mobile model picker in this path | Depends on OpenCode server behavior | The `/api/conversations` OpenCode adapter is intentionally not implemented yet. Use `OPENCODE_SERVER_URL` for the attach-style adapter surface. |
+| Synthetic adapters | Development only | Test behavior | No | Test fixtures | Enabled only with `DEV_ADAPTERS=1`; useful for daemon and UI conformance tests. |
+
+Attachment behavior is capability-driven. The mobile app reads the selected adapter and selected model capability projection before allowing a file to be sent. The daemon then validates the multipart payload again, sniffs file bytes, writes scoped scratch files, commits only metadata to the event log, and cleans scratch data after terminal conversation events.
+
+## Architecture
+
+```text
+Flutter mobile app
+  -> Daemon HTTP API with pairing-token auth
+    -> Workspace registry and SQLite persistence
+      -> ConversationManager / RunManager
+        -> Claude Code, Codex CLI, OpenCode, or synthetic adapters
+          -> Authorized desktop workspace path
+```
+
+The repository is split into two main applications:
+
+- `daemon/`: Node.js HTTP daemon, auth, workspace ACLs, adapter orchestration, multipart attachment handling, event stores, diagnostics, task queues, and Git/workspace inspection APIs.
+- `mobile/`: Flutter app, connection flow, pairing/token persistence, workbench UI, reducers, repositories, voice input, attachment picker, localization, and widget/unit tests.
+
+Important support directories:
+
+- `scripts/`: Node regression test runner and static checks.
+- `docs/`: PRDs, release notes, implementation plans, and architecture notes.
+- `images/output/`: README screenshots.
+- `data/`: local SQLite/runtime data. Do not commit runtime files.
+- `.omx/`: local agent/runtime artifacts. Treat as generated output.
+
+## Security Model
+
+The daemon is designed around a narrow control surface:
+
+- Mobile clients cannot send arbitrary shell commands.
+- Mobile clients cannot provide arbitrary `cwd` values.
+- Mobile clients cannot pass arbitrary raw CLI arguments.
+- The API does not expose a persistent PTY session.
+- CLI work is limited to daemon-authorized workspace paths.
+- Workspace access is scoped by paired device.
+- Pairing uses short-lived pairing codes and token storage with hashed device identity.
+- Attachment uploads require capability versions and client message ids.
+- Attachment diagnostics and adapter errors are redacted before returning to mobile or diagnostic bundles.
+- Release mode disables the development smoke endpoint.
+
+If you bind the daemon to a LAN interface, use a trusted network. The daemon is meant for local control, not public internet exposure.
 
 ## Requirements
 
 - Node.js 20 or newer.
-- Flutter SDK for mobile/client development.
-- At least one supported local AI CLI installed for real conversations:
-  - Claude Code
-  - Codex CLI
-  - OpenCode server, when using attach mode
+- Flutter SDK with Dart `>=3.3.0 <4.0.0`.
+- A supported local CLI for real conversations:
+  - Claude Code, available as `claude`.
+  - Codex CLI, available as `codex`.
+  - OpenCode server, when using the attach/run path.
+- Optional for voice input: the Sherpa ONNX model ZIP expected by the daemon ASR asset endpoint.
 
-## Daemon Commands
+## Quick Start
 
-Run these from the repository root:
+Install daemon dependencies:
 
 ```powershell
-npm test
-npm run lint
+npm install
+```
+
+Start the daemon on loopback:
+
+```powershell
 npm run start:daemon
 ```
 
-## Mobile Commands
-
-Run these from `mobile/`:
-
-```powershell
-flutter analyze
-flutter test
-flutter build windows --debug
-```
-
-## Adapter Environment
-
-Codex support is explicit-enable:
+Enable Codex in adapter listing when you want to use Codex CLI:
 
 ```powershell
 $env:CODEX_ENABLED='1'
@@ -77,58 +122,190 @@ $env:CODEX_COMMAND='codex'
 npm run start:daemon
 ```
 
-OpenCode is attach-only in the current scope:
+Use a LAN bind only when a phone must connect to the desktop daemon:
 
 ```powershell
-$env:OPENCODE_SERVER_URL='http://127.0.0.1:4096'
+$env:DAEMON_HOST='0.0.0.0'
+$env:PORT='4317'
 npm run start:daemon
 ```
 
-Development-only synthetic adapters can be enabled for local conformance tests:
+Windows Firewall may prompt when LAN mode is enabled. Keep the daemon on a trusted network and connect the Flutter app to `http://<desktop-lan-ip>:4317`.
 
-```powershell
-$env:DEV_ADAPTERS='1'
-npm run start:daemon
-```
-
-## API Scope
-
-The daemon exposes APIs for:
-
-- Pairing, token auth, and device revocation.
-- Workspace registration and authorization.
-- Adapter capability diagnostics.
-- Conversation creation, message sending, event replay, cancellation, input responses, and approval responses when supported.
-- Legacy run/task endpoints and command templates.
-- Health, version, and redacted diagnostic export.
-
-`/api/runs` remains a bounded task-runner surface. Conversation-oriented CLI control should use `/api/conversations`.
-
-## Testing Notes
-
-Use daemon tests for adapter, protocol, persistence, and security-boundary changes:
-
-```powershell
-npm test
-```
-
-Use Flutter tests for reducer, model, and UI-state changes:
+Run the Flutter app from `mobile/`:
 
 ```powershell
 cd mobile
+flutter pub get
+flutter run -d windows
+```
+
+If you need mainland China mirrors for Flutter package and artifact downloads:
+
+```powershell
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter pub get
 flutter test
 ```
 
-Keep regression tests close to the bug surface. Adapter and daemon behavior belongs in `scripts/run-tests.js`; mobile event rendering and state behavior belongs under `mobile/test/`.
+## Configuration Reference
 
-## Current Release Notes
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DAEMON_HOST` | `127.0.0.1` | HTTP bind host. Use `0.0.0.0` only for trusted LAN access. |
+| `PORT` | `4317` | HTTP daemon port. |
+| `DAEMON_MODE` | `dev` | Runtime mode. Release mode disables development-only smoke APIs. |
+| `APP_DB_PATH` | app data default | SQLite path for app data, conversations, workspaces, auth, exceptions, and related state. |
+| `CONVERSATION_DB_PATH` | unset | Backward-compatible alias used when `APP_DB_PATH` is not set. |
+| `AUTH_TOKEN_SECRET` | generated file secret | Token signing secret. Generated into `.daemon-secrets.json` near the app DB when absent. |
+| `DEVICE_ID_PEPPER` | generated file secret | Pepper for device identity hashing. |
+| `CLAUDE_COMMAND` | `claude` | Claude Code command or shim path. |
+| `CODEX_ENABLED` | disabled | Set to `1` to expose the Codex run adapter in adapter listing. |
+| `CODEX_COMMAND` | `codex` | Codex CLI command or shim path. |
+| `OPENCODE_SERVER_URL` | `http://127.0.0.1:4096` | OpenCode server URL for the attach/run adapter. |
+| `DEV_ADAPTERS` | disabled | Set to `1` to add synthetic adapters for development tests. |
+| `CONVERSATION_IDLE_TTL_MS` | `600000` | Idle TTL used by conversation management. |
 
-- V1 established the LAN daemon, pairing/token auth, workspace allowlist, event persistence, and the no-PTY/no-arbitrary-shell boundary.
-- V1.1 added adapter diagnostics for Claude, Codex, and OpenCode, shortcut APIs, run filters, device revocation, and diff summaries.
-- V1.2 added serialized workspace task queues, adapter profiles, Git status/diff endpoints, and command templates.
-- V1.3 added health/version metadata, redacted diagnostics export, a dev-only smoke endpoint, and release-readiness models.
-- Current conversation work focuses on Claude/Codex session lifecycle, resume behavior, hidden lifecycle events, and mobile-friendly event rendering.
+## API Overview
 
-## Security Notes
+Public unauthenticated endpoints:
 
-Do not commit tokens, pairing secrets, SQLite runtime data, `.omx/`, build outputs, or manual smoke artifacts. Keep CLI execution bounded to authorized workspace paths, and preserve tests around cwd, permissions, stdin handling, event replay, and protocol filtering.
+- `GET /api/health`
+- `GET /api/version`
+- `POST /api/e2e/smoke` in development mode only
+- `POST /api/pairing-code`
+- `POST /api/pair`
+- `POST /api/token/refresh`
+
+Authenticated device endpoints:
+
+- `GET /api/adapters`
+- `GET /api/extensions`
+- `GET /api/workspaces`
+- `POST /api/workspaces`
+- `PATCH /api/workspaces/:workspaceId`
+- `DELETE /api/workspaces/:workspaceId`
+- `GET /api/fs/roots`
+- `GET /api/fs/children`
+- `GET /api/workspaces/:workspaceId/overview`
+- `GET /api/workspaces/:workspaceId/files/tree`
+- `GET /api/workspaces/:workspaceId/files/content`
+- `GET /api/workspaces/:workspaceId/diagnostics/code`
+- `GET /api/workspaces/:workspaceId/git/status`
+- `GET /api/workspaces/:workspaceId/git/diff`
+- `GET /api/workspaces/:workspaceId/git/commits`
+- `GET /api/conversations`
+- `POST /api/conversations`
+- `PATCH /api/conversations/:conversationId/model`
+- `GET /api/conversations/:conversationId/events?afterSeq=0`
+- `POST /api/conversations/:conversationId/messages`
+- `POST /api/conversations/:conversationId/questions/respond`
+- `POST /api/conversations/:conversationId/approvals/:approvalId/respond`
+- `POST /api/conversations/:conversationId/cancel`
+- `GET /api/runs`
+- `POST /api/runs`
+- `GET /api/runs/:runId/events?afterSeq=0`
+- `POST /api/runs/:runId/input`
+- `POST /api/runs/:runId/cancel`
+- `POST /api/approvals/:approvalId/respond`
+- `GET /api/queue`
+- `GET /api/shortcuts`
+- `POST /api/shortcuts`
+- `GET /api/command-templates`
+- `POST /api/command-templates`
+- `POST /api/command-templates/:templateId/invoke`
+- `POST /api/diagnostics/export`
+- `POST /api/exceptions`
+- `GET /api/asr-model`
+- `GET /api/asr-model/download`
+- `POST /api/devices/{deviceId}/revoke` for the authenticated device
+
+`/api/conversations` is the primary surface for mobile coding sessions. `/api/runs` remains a bounded compatibility/task-runner surface.
+
+## Attachment Pipeline
+
+The conversation message endpoint accepts JSON for text-only messages and `multipart/form-data` for attachments. Multipart sends include:
+
+- `clientMessageId`, used for idempotency and mobile optimistic-message reconciliation.
+- `capabilityVersion`, used to reject stale client assumptions about the selected adapter/model.
+- Declared attachment metadata.
+- File bytes in the expected multipart order.
+
+Current validation includes:
+
+- Flat, normalized display names with no path separators, control characters, bidi controls, trailing spaces/dots, or Windows reserved device names.
+- PNG, JPEG, WebP, PDF, and supported text sniffing.
+- Image dimension limits of 16,384 by 16,384 and 40 million pixels.
+- Mobile-side size limits: Claude images 5 MB, other image-capable paths 10 MB, text documents 1 MB, total multipart selection 20 MB.
+- Pre-commit rejection for unsupported kinds, malformed payloads, stale capability versions, missing files, and oversized or invalid bytes.
+- Scratch cleanup on terminal conversation events, cancellation, and relevant failure paths.
+
+## Development Commands
+
+Run daemon checks from the repository root:
+
+```powershell
+npm run lint
+npm test
+```
+
+Run Flutter checks from `mobile/`:
+
+```powershell
+flutter analyze
+flutter test
+dart run tool/check_architecture_imports.dart
+```
+
+For local Windows desktop builds:
+
+```powershell
+cd mobile
+flutter build windows --debug
+```
+
+## Testing Strategy
+
+- Daemon protocol, adapter, auth, attachment, persistence, and security-boundary behavior lives in `scripts/run-tests.js` and `daemon/test/`.
+- Flutter model parsing, reducers, ViewModels, widget behavior, and architecture import checks live in `mobile/test/`.
+- Attachment regressions should include both daemon multipart tests and mobile rendering/state tests when the bug crosses the HTTP boundary.
+- Keep tests close to the failure surface: daemon for committed protocol behavior, mobile for projection and UI behavior.
+
+## ASR and Voice Input
+
+The mobile app includes a voice-input path backed by Sherpa ONNX. The daemon serves model metadata and ranged downloads from:
+
+- `GET /api/asr-model`
+- `GET /api/asr-model/download`
+
+By default the daemon expects `daemon/asset/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20-mobile.zip`. If the file is missing, the API returns a structured `ASR_MODEL_UNAVAILABLE` error with a user action instead of silently failing.
+
+## Current Status and Limits
+
+- The app is optimized for LAN and local development workflows.
+- Claude and Codex conversation paths are the main supported coding surfaces.
+- OpenCode is present as an attach/run adapter, not as a full conversation adapter.
+- PDF metadata and validation exist, but current production conversation dispatch does not send PDFs to Claude or Codex.
+- The daemon does not provide TLS by itself. Keep it behind a trusted LAN or a transport you control.
+- Runtime SQLite data, pairing secrets, `.omx/`, diagnostic bundles, and build outputs should not be committed.
+
+## Repository Hygiene
+
+Before committing code changes, run the checks relevant to the touched layer. For Flutter architecture changes, include:
+
+```powershell
+cd mobile
+dart run tool/check_architecture_imports.dart
+flutter analyze
+flutter test
+```
+
+For daemon API, adapter, attachment, auth, or persistence changes, include:
+
+```powershell
+npm run lint
+npm test
+```
+
+Keep generated runtime data out of Git, and preserve tests around `cwd`, permissions, stdin handling, event replay, attachment redaction, and protocol filtering.
