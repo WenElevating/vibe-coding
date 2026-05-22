@@ -245,7 +245,8 @@ class _UserMessageCard extends StatelessWidget {
 bool _usesBorderlessImageAttachmentFrame(
         List<CommittedAttachment> attachments) =>
     attachments.isNotEmpty &&
-    attachments.every((attachment) => attachment.hasImagePreview);
+    attachments
+        .every((attachment) => _cachedImagePreviewFile(attachment) != null);
 
 class _UserBubbleFrame extends StatelessWidget {
   const _UserBubbleFrame({super.key, required this.child});
@@ -300,7 +301,7 @@ class _MessageAttachmentPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (attachment.hasImagePreview) {
+    if (_cachedImagePreviewFile(attachment) != null) {
       return _MessageImageAttachmentPreview(attachment: attachment);
     }
     return Tooltip(
@@ -420,7 +421,7 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
 
 void _showImageAttachmentViewer(
     BuildContext context, CommittedAttachment attachment) {
-  if (!attachment.hasImagePreview) return;
+  if (_cachedImagePreviewFile(attachment) == null) return;
   showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -502,28 +503,25 @@ Widget _attachmentPreviewImage(
       Icon(_attachmentIcon(attachment.kind),
           color: theme.muted, size: errorIconSize);
 
-  final localPath = attachment.localPath;
-  if (localPath != null) {
+  final localFile = _cachedImagePreviewFile(attachment);
+  if (localFile != null) {
     return Image.file(
-      File(localPath),
+      localFile,
       key: key,
       fit: fit,
-      errorBuilder: errorBuilder,
-    );
-  }
-  final previewUrl = attachment.previewUrl;
-  if (previewUrl != null) {
-    return Image.network(
-      previewUrl,
-      key: key,
-      fit: fit,
-      headers:
-          attachment.previewHeaders.isEmpty ? null : attachment.previewHeaders,
       errorBuilder: errorBuilder,
     );
   }
   return Icon(_attachmentIcon(attachment.kind),
       key: key, color: theme.muted, size: errorIconSize);
+}
+
+File? _cachedImagePreviewFile(CommittedAttachment attachment) {
+  if (attachment.kind != AttachmentKind.image) return null;
+  final localPath = attachment.localPath;
+  if (localPath == null) return null;
+  final file = File(localPath);
+  return file.existsSync() ? file : null;
 }
 
 IconData _attachmentIcon(AttachmentKind kind) => switch (kind) {

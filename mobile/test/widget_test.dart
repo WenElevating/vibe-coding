@@ -2792,15 +2792,15 @@ void main() {
                       'You',
                       '这个图片里面有什么？',
                       attachments: <CommittedAttachment>[
-                        CommittedAttachment.fromJson(<String, Object?>{
-                          'id': 'att_0',
-                          'name': 'screenshot.png',
-                          'kind': 'image',
-                          'mimeType': 'image/png',
-                          'sizeBytes': 1219716,
-                          'handling': 'native',
-                          'localPath': imageFile.path,
-                        }),
+                        CommittedAttachment(
+                          id: 'att_0',
+                          name: 'screenshot.png',
+                          kind: AttachmentKind.image,
+                          mimeType: 'image/png',
+                          sizeBytes: 1219716,
+                          handling: AttachmentHandling.native,
+                          localPath: imageFile.path,
+                        ),
                       ],
                     ),
                     onApproval: (_) {},
@@ -2834,8 +2834,15 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
-  testWidgets('user message card renders persisted image preview without frame',
+  testWidgets('user message card falls back to metadata on image cache miss',
       (WidgetTester tester) async {
+    final tempDir = Directory.systemTemp.createTempSync('workbench-miss-test-');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+    final missingPath =
+        '${tempDir.path}${Platform.pathSeparator}missing-preview.png';
+
     await tester.pumpWidget(MaterialApp(
         supportedLocales: appSupportedLocales,
         localizationsDelegates: appLocalizationsDelegates,
@@ -2848,42 +2855,45 @@ void main() {
                     message: WorkbenchMessage(
                       'user',
                       'You',
-                      '重启后也要显示图片',
+                      '重启后缓存没命中',
                       attachments: <CommittedAttachment>[
-                        CommittedAttachment.fromJson(<String, Object?>{
-                          'id': 'att_0',
-                          'name': 'persisted.png',
-                          'kind': 'image',
-                          'mimeType': 'image/png',
-                          'sizeBytes': 1219716,
-                          'handling': 'native',
-                          'previewUrl':
-                              'http://127.0.0.1:4317/api/conversations/conv_1/attachments/att_0/preview',
-                        }),
+                        CommittedAttachment(
+                          id: 'att_0',
+                          name: 'persisted.png',
+                          kind: AttachmentKind.image,
+                          mimeType: 'image/png',
+                          sizeBytes: 1219716,
+                          handling: AttachmentHandling.native,
+                          localPath: missingPath,
+                        ),
                       ],
                     ),
                     onApproval: (_) {},
                     onSuggestion: (_) {},
                     expandThinking: false)))));
 
-    expect(find.text('重启后也要显示图片'), findsOneWidget);
+    expect(find.text('重启后缓存没命中'), findsOneWidget);
     expect(find.text('persisted.png'), findsOneWidget);
     expect(find.byKey(const Key('workbench-user-attachment-bubble')),
         findsOneWidget);
     expect(find.byKey(const Key('workbench-user-text-bubble')), findsOneWidget);
     expect(find.byKey(const Key('workbench-message-image-preview')),
-        findsOneWidget);
+        findsNothing);
     expect(find.byKey(const Key('workbench-message-image-preview-shell')),
-        findsOneWidget);
+        findsNothing);
+    expect(find.byIcon(Icons.image_outlined), findsOneWidget);
+    expect(find.text('1 MB'), findsOneWidget);
     final borderedAttachmentContainers = tester
         .widgetList<Container>(find.descendant(
             of: find.byKey(const Key('workbench-user-attachment-bubble')),
             matching: find.byType(Container)))
         .where((container) =>
             container.decoration is BoxDecoration &&
-            (container.decoration! as BoxDecoration).border != null);
+            (container.decoration! as BoxDecoration).border != null)
+        .toList(growable: false);
+    expect(borderedAttachmentContainers.length, greaterThanOrEqualTo(2));
     expect(borderedAttachmentContainers.map((container) => container.key),
-        <Key>[const Key('workbench-message-image-preview-shell')]);
+        isNot(contains(const Key('workbench-message-image-preview-shell'))));
 
     await tester.pumpWidget(const SizedBox.shrink());
     PaintingBinding.instance.imageCache.clear();
@@ -2917,15 +2927,15 @@ void main() {
                       'You',
                       '查看这张图',
                       attachments: <CommittedAttachment>[
-                        CommittedAttachment.fromJson(<String, Object?>{
-                          'id': 'att_0',
-                          'name': 'viewer.png',
-                          'kind': 'image',
-                          'mimeType': 'image/png',
-                          'sizeBytes': 1,
-                          'handling': 'native',
-                          'localPath': imageFile.path,
-                        }),
+                        CommittedAttachment(
+                          id: 'att_0',
+                          name: 'viewer.png',
+                          kind: AttachmentKind.image,
+                          mimeType: 'image/png',
+                          sizeBytes: 1,
+                          handling: AttachmentHandling.native,
+                          localPath: imageFile.path,
+                        ),
                       ],
                     ),
                     onApproval: (_) {},
@@ -2946,6 +2956,65 @@ void main() {
 
     await tester
         .tap(find.byKey(const Key('workbench-message-image-viewer-close')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('workbench-message-image-viewer')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  });
+
+  testWidgets('user message card ignores deleted cached image before viewer tap',
+      (WidgetTester tester) async {
+    final tempDir = Directory.systemTemp
+        .createTempSync('workbench-image-viewer-eviction-test-');
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}evicted-viewer.png',
+    )..writeAsBytesSync(<int>[0x00]);
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: WorkbenchMessage(
+                      'user',
+                      'You',
+                      '查看这张已缓存图片',
+                      attachments: <CommittedAttachment>[
+                        CommittedAttachment(
+                          id: 'att_0',
+                          name: 'evicted-viewer.png',
+                          kind: AttachmentKind.image,
+                          mimeType: 'image/png',
+                          sizeBytes: 1,
+                          handling: AttachmentHandling.native,
+                          localPath: imageFile.path,
+                        ),
+                      ],
+                    ),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    expect(find.byKey(const Key('workbench-message-image-preview')),
+        findsOneWidget);
+    expect(
+        find.byKey(const Key('workbench-message-image-viewer')), findsNothing);
+
+    imageFile.deleteSync();
+    await tester.tap(find.byKey(const Key('workbench-message-image-preview')));
     await tester.pumpAndSettle();
 
     expect(
