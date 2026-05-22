@@ -28,6 +28,17 @@ Daemon send-time scratch storage remains valid because CLI adapters still need
 temporary attachment files. Scratch storage must not be treated as historical
 media storage.
 
+Pending-to-committed preview binding must use attachment content hash as the
+primary identity and `clientMessageId` as the message bridge. `attachmentIndex`
+is only an ordering hint. Retrying the same attachment message must reuse the
+same `clientMessageId` so daemon idempotency and mobile preview cache binding
+stay aligned.
+
+The first mobile cache implementation should protect local storage with default
+limits of 100 MB or 500 records, evicting least-recently-accessed records first.
+If the cache index is file-backed, writes must be serialized and atomic; an
+existing local database is preferred when available.
+
 ## Alternatives
 
 - Daemon media store: rejected for current scope because it creates retention,
@@ -72,3 +83,5 @@ the exact mirror-configured command for manual verification.
 - Attachment previews need backup, restore, export, or sharing semantics.
 - The daemon gains an explicit media-store product responsibility.
 - The app adds cloud sync or a shared object store.
+- A tablet, desktop companion, or linked device must share the same
+  preview-availability guarantee.

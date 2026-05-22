@@ -118,7 +118,7 @@ message already carries it.
 Recommended cache-stability fields:
 
 ```text
-contentSha256Prefix or contentHash
+contentSha256Prefix or contentHash, preferably computed before send
 dimensions.width
 dimensions.height
 ```
@@ -126,6 +126,19 @@ dimensions.height
 `contentHash` is the best long-term cache key because names and sizes can
 collide. Dimensions let the UI reserve a stable preview area before the cached
 thumbnail loads.
+
+The daemon already validates attachment content hashes for multipart messages.
+The mobile cache design should treat a hash computed from the picked local file
+as the primary attachment identity from the start of the send flow.
+`attachmentIndex` is only a tie-breaker and ordering hint. It must not be the
+only key used to bind pending previews to committed attachments.
+
+`clientMessageId` is the message-level bridge between pending previews and the
+committed `user.message` event. Attachment-message retries must reuse the same
+`clientMessageId` while the user is retrying the same draft. If the app creates
+a new `clientMessageId`, the previous pending preview records become
+uncommitted draft leftovers and are eligible for cleanup rather than historical
+binding.
 
 ## Mobile Cache Model
 
@@ -141,8 +154,8 @@ abstract class AttachmentPreviewCache {
   Future<void> rememberPending({
     required String conversationId,
     required String clientMessageId,
-    required int attachmentIndex,
     required DraftAttachment draft,
+    required AttachmentPreviewIdentity identity,
   });
 
   Future<void> bindCommitted({
@@ -151,6 +164,36 @@ abstract class AttachmentPreviewCache {
     required List<CommittedAttachment> attachments,
   });
 }
+```
+
+`AttachmentPreviewIdentity` should be derived before the network send begins:
+
+```text
+contentHash/contentSha256Prefix
+name
+mimeType
+sizeBytes
+attachmentIndex
+```
+
+Use the hash first. Use name, MIME type, size, and index only to disambiguate or
+diagnose unexpected mismatches.
+
+`CachedAttachmentPreview` should be explicit rather than passing raw file paths
+through UI state:
+
+```text
+conversationId
+attachmentId
+clientMessageId
+contentHash or contentSha256Prefix
+cachePath
+width
+height
+mimeType
+sizeBytes
+createdAt
+lastAccessedAt
 ```
 
 The cache record should contain:
@@ -173,6 +216,12 @@ an existing local persistence mechanism if one is already appropriate. It does
 not need a new database unless the implementation naturally fits an existing
 local DB boundary.
 
+If the first implementation uses JSON, index writes must be serialized through a
+single cache service queue or mutex and written atomically through a temporary
+file plus rename. Concurrent sends with multiple images must not interleave
+read-modify-write cycles and lose records. If an existing local SQLite-style
+store is already available in the mobile layer, prefer it for the cache index.
+
 ## Send Flow
 
 When a user sends an image attachment:
@@ -180,21 +229,65 @@ When a user sends an image attachment:
 ```text
 1. The picker returns the source localPath.
 2. The ViewModel builds a message request with a clientMessageId.
-3. The mobile cache generates a bounded thumbnail from the source file.
-4. Before the daemon returns attachment ids, the cache records the preview under
-   conversationId + clientMessageId + attachmentIndex/hash.
+3. For every image draft, mobile computes the attachment identity hash before
+   sending, or records a pending identity failure before sending.
+4. Mobile starts thumbnail generation and pending-cache recording before the
+   daemon request is allowed to bind committed attachments.
 5. The daemon persists the user.message event with attachment metadata only.
 6. After the committed attachments are received or replayed, mobile binds the
    pending preview record to conversationId + attachmentId/hash.
 7. The UI resolves committed attachments against the local cache.
 ```
 
+There must be no race where `bindCommitted` runs before the relevant
+`rememberPending` operation has either completed or recorded a failure. The
+implementation can satisfy this in either of two ways:
+
+```text
+Option A:
+  Await identity calculation and pending-cache registration before sending the
+  daemon request. Thumbnail encoding may continue in the background if the
+  pending record can later transition to ready/failed.
+
+Option B:
+  Let thumbnail work run concurrently, but make bindCommitted wait for, observe,
+  or subscribe to the pending operation keyed by clientMessageId + content hash.
+  If pending is still in progress, binding must retry or finalize when the
+  pending operation completes.
+```
+
+Prefer Option A for the first implementation unless profiling proves it hurts
+send latency. It is simpler and avoids silent preview loss.
+
 Thumbnail generation failure must not block message sending. A failed thumbnail
 only means the historical message renders as a normal attachment card.
+
+Failures must still be observable:
+
+```text
+record failure state in the cache index for the pending identity
+log/report a non-fatal diagnostic with conversationId, clientMessageId,
+attachment identity, and error category
+do not retry indefinitely
+```
+
+Retry policy:
+
+```text
+Try once during the send preparation path.
+If identity calculation succeeds but thumbnail encoding fails, allow one
+background retry after the message is committed.
+After the background retry fails, mark the preview as failed until the user
+changes the attachment or the cache entry is purged.
+```
 
 If message sending fails before the daemon commits the message, the pending
 preview should remain usable for the current draft or retry path, but it must not
 be bound as a historical preview until a committed message exists.
+
+If the user retries the same attachment message after a recoverable send failure,
+reuse the same `clientMessageId` and pending preview identity so the cache and
+daemon idempotency stay aligned.
 
 ## Cache Storage And Eviction
 
@@ -207,6 +300,18 @@ attachment_previews/
 
 Use bounded thumbnails instead of full original images. A reasonable initial
 target is a longest edge around 512-720 px with compressed JPEG/WebP output.
+
+The first implementation should still enforce a conservative default cap:
+
+```text
+maximum preview bytes: 100 MB
+maximum records: 500
+eviction: least-recently-accessed cache records first
+never evict records for a message currently being sent
+```
+
+These values are defaults, not product promises. They protect device storage
+while keeping the local-device guarantee realistic.
 
 Cache reads must always verify that the file still exists:
 
@@ -298,10 +403,19 @@ Mobile ViewModel/cache coverage:
 ```text
 send image calls AttachmentPreviewCache.rememberPending
 committed attachment replay calls bindCommitted
+bindCommitted cannot miss a preview because rememberPending is still running
+content hash is the primary pending-to-committed binding key
+attachmentIndex mismatch does not bind the wrong cached thumbnail
+same-draft retry reuses clientMessageId and pending cache records
 cache resolve hit produces an image-preview display model
 cache resolve miss produces a normal attachment card
 thumbnail generation failure does not block send
+thumbnail generation failure records a non-fatal diagnostic
+background retry can bind a preview after commit
 missing cache file removes or ignores stale index and returns miss
+concurrent sends with multiple image attachments do not corrupt the cache index
+app restart during an in-flight send does not bind orphaned pending previews as
+historical previews
 ```
 
 Mobile widget coverage:
@@ -333,3 +447,5 @@ stores only bounded thumbnails for historical preview display.
 - Attachments become first-class files with download, sharing, or retention
   policies.
 - The app introduces a real shared media store with access control and cleanup.
+- The product treats a tablet, desktop companion, or linked device as part of
+  the same preview-availability guarantee rather than a separate device.
