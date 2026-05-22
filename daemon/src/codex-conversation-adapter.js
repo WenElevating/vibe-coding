@@ -194,7 +194,10 @@ class CodexConversationHandle {
   handleJson(raw) {
     if (this.turnCompleted && raw?.type === 'error') return;
     this.validJsonStarted = true;
-    const event = mapCodexEvent(raw, { maxAggregatedOutputBytes: this.adapter.maxAggregatedOutputBytes });
+    const event = mapCodexEvent(raw, {
+      maxAggregatedOutputBytes: this.adapter.maxAggregatedOutputBytes,
+      workspacePath: this.workspacePath
+    });
     if (!event) return;
     if (event.sessionId) this.sessionId = event.sessionId;
     this.onEvent(event);
@@ -373,6 +376,9 @@ function mapCodexEvent(raw, options = {}) {
   if (['item.started', 'item.updated', 'item.completed'].includes(raw.type) && item?.type === 'todo_list') {
     return mapCodexTodoListEvent(raw, item);
   }
+  if (['item.started', 'item.completed'].includes(raw.type) && item?.type === 'file_change') {
+    return mapCodexFileChangeEvent(raw, item, options);
+  }
   if (raw.type === 'item.started' && item?.type === 'command_execution') {
     return {
       type: conversationEventTypes.TOOL_STARTED,
@@ -426,6 +432,83 @@ function mapCodexEvent(raw, options = {}) {
     visible: false,
     raw
   };
+}
+
+function mapCodexFileChangeEvent(raw, item, options = {}) {
+  const changes = normalizeCodexFileChanges(item.changes, options.workspacePath);
+  if (changes.length === 0) return null;
+  if (raw.type !== 'item.completed') {
+    return {
+      type: conversationEventTypes.SYSTEM_NOTICE,
+      text: 'Codex file change started',
+      noticeKind: 'codex_file_change_started',
+      visible: false,
+      changes,
+      raw
+    };
+  }
+  return {
+    type: conversationEventTypes.SYSTEM_NOTICE,
+    text: formatCodexFileChangeText(changes),
+    noticeKind: 'codex_file_change',
+    visible: true,
+    changes,
+    raw
+  };
+}
+
+function normalizeCodexFileChanges(changes, workspacePath) {
+  if (!Array.isArray(changes)) return [];
+  const normalized = [];
+  for (const change of changes) {
+    if (!change || typeof change !== 'object') continue;
+    const rawPath = typeof change.path === 'string' ? change.path.trim() : '';
+    if (!rawPath) continue;
+    normalized.push({
+      path: relativeCodexFilePath(rawPath, workspacePath),
+      kind: typeof change.kind === 'string' && change.kind.trim()
+        ? change.kind.trim()
+        : 'change'
+    });
+  }
+  return normalized;
+}
+
+function relativeCodexFilePath(filePath, workspacePath) {
+  const normalizedPath = String(filePath || '').replace(/\\/g, '/');
+  const normalizedWorkspace = String(workspacePath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (normalizedWorkspace && normalizedPath.toLowerCase().startsWith(`${normalizedWorkspace.toLowerCase()}/`)) {
+    return normalizedPath.slice(normalizedWorkspace.length + 1);
+  }
+  return normalizedPath;
+}
+
+function formatCodexFileChangeText(changes) {
+  const parts = changes.map((change) => `${codexFileChangeKindLabel(change.kind)} ${change.path}`);
+  if (parts.length === 1) return `File changed: ${parts[0]}`;
+  const visibleParts = parts.slice(0, 3);
+  const remaining = parts.length - visibleParts.length;
+  return `Files changed: ${visibleParts.join('; ')}${remaining > 0 ? `; and ${remaining} more` : ''}`;
+}
+
+function codexFileChangeKindLabel(kind) {
+  switch (String(kind || '').toLowerCase()) {
+    case 'add':
+    case 'added':
+      return 'added';
+    case 'delete':
+    case 'deleted':
+    case 'remove':
+    case 'removed':
+      return 'deleted';
+    case 'update':
+    case 'updated':
+    case 'modify':
+    case 'modified':
+      return 'updated';
+    default:
+      return 'changed';
+  }
 }
 
 function mapCodexTodoListEvent(raw, item) {

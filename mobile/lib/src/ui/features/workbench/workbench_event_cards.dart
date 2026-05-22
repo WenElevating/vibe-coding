@@ -245,9 +245,7 @@ class _UserMessageCard extends StatelessWidget {
 bool _usesBorderlessImageAttachmentFrame(
         List<CommittedAttachment> attachments) =>
     attachments.isNotEmpty &&
-    attachments.every((attachment) =>
-        attachment.kind == AttachmentKind.image &&
-        attachment.localPath != null);
+    attachments.every((attachment) => attachment.hasImagePreview);
 
 class _UserBubbleFrame extends StatelessWidget {
   const _UserBubbleFrame({super.key, required this.child});
@@ -302,8 +300,7 @@ class _MessageAttachmentPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (attachment.kind == AttachmentKind.image &&
-        attachment.localPath != null) {
+    if (attachment.hasImagePreview) {
       return _MessageImageAttachmentPreview(attachment: attachment);
     }
     return Tooltip(
@@ -387,14 +384,12 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
                             color: Colors.black.withValues(alpha: .22),
                             child: AspectRatio(
                               aspectRatio: 4 / 3,
-                              child: Image.file(
-                                File(attachment.localPath!),
+                              child: _attachmentPreviewImage(
+                                attachment,
                                 key: const Key(
                                     'workbench-message-image-preview'),
                                 fit: BoxFit.contain,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Icon(_attachmentIcon(attachment.kind),
-                                        color: theme.muted, size: 22),
+                                errorIconSize: 22,
                               ),
                             ))),
                     const SizedBox(height: 7),
@@ -425,8 +420,7 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
 
 void _showImageAttachmentViewer(
     BuildContext context, CommittedAttachment attachment) {
-  final localPath = attachment.localPath;
-  if (localPath == null) return;
+  if (!attachment.hasImagePreview) return;
   showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -461,14 +455,11 @@ class _ImageAttachmentViewer extends StatelessWidget {
                     maxScale: 5,
                     boundaryMargin: const EdgeInsets.all(80),
                     child: Center(
-                        child: Image.file(
-                      File(attachment.localPath!),
+                        child: _attachmentPreviewImage(
+                      attachment,
                       key: const Key('workbench-message-image-viewer-image'),
                       fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                          _attachmentIcon(attachment.kind),
-                          color: theme.muted,
-                          size: 44),
+                      errorIconSize: 44,
                     ))))),
         Positioned(
             left: 16,
@@ -498,6 +489,41 @@ class _ImageAttachmentViewer extends StatelessWidget {
                         color: theme.text, size: 22),
                     onPressed: () => Navigator.of(context).maybePop()))),
       ])));
+}
+
+Widget _attachmentPreviewImage(
+  CommittedAttachment attachment, {
+  required Key key,
+  required BoxFit fit,
+  required double errorIconSize,
+}) {
+  Widget errorBuilder(
+          BuildContext context, Object error, StackTrace? stackTrace) =>
+      Icon(_attachmentIcon(attachment.kind),
+          color: theme.muted, size: errorIconSize);
+
+  final localPath = attachment.localPath;
+  if (localPath != null) {
+    return Image.file(
+      File(localPath),
+      key: key,
+      fit: fit,
+      errorBuilder: errorBuilder,
+    );
+  }
+  final previewUrl = attachment.previewUrl;
+  if (previewUrl != null) {
+    return Image.network(
+      previewUrl,
+      key: key,
+      fit: fit,
+      headers:
+          attachment.previewHeaders.isEmpty ? null : attachment.previewHeaders,
+      errorBuilder: errorBuilder,
+    );
+  }
+  return Icon(_attachmentIcon(attachment.kind),
+      key: key, color: theme.muted, size: errorIconSize);
 }
 
 IconData _attachmentIcon(AttachmentKind kind) => switch (kind) {

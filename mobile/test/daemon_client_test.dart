@@ -93,6 +93,65 @@ void main() {
     expect(conversations.single.title, 'Fix mobile title rendering');
   });
 
+  test('fetchConversationEvents resolves persisted attachment preview paths',
+      () async {
+    final tokenStore = MemoryTokenStore();
+    await tokenStore.writeAccessTokenSession(
+      'device-1',
+      TokenSession(
+        token: 'access-1',
+        expiresAt: DateTime.parse('2026-06-01T08:00:00.000Z'),
+      ),
+    );
+    final requests = <http.Request>[];
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        expect(request.url.path, '/api/conversations/conv_1/events');
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'events': <Object?>[
+              <String, Object?>{
+                'seq': 1,
+                'conversationId': 'conv_1',
+                'type': 'user.message',
+                'createdAt': '2026-05-22T00:00:00.000Z',
+                'text': '看图',
+                'attachments': <Object?>[
+                  <String, Object?>{
+                    'id': 'att_0',
+                    'name': 'persisted.png',
+                    'kind': 'image',
+                    'mimeType': 'image/png',
+                    'sizeBytes': 42,
+                    'handling': 'native',
+                    'previewPath':
+                        '/api/conversations/conv_1/attachments/att_0/preview',
+                  },
+                ],
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    await client.ensurePaired(
+        deviceIdentityStore: MemoryDeviceIdentityStore(deviceId: 'device-1'));
+
+    final events = await client.fetchConversationEvents('conv_1');
+
+    expect(requests, hasLength(1));
+    expect(requests.single.headers['authorization'], 'Bearer access-1');
+    final attachment = events.single.attachments.single;
+    expect(attachment.previewUrl,
+        'http://127.0.0.1:4317/api/conversations/conv_1/attachments/att_0/preview');
+    expect(attachment.previewHeaders,
+        const <String, String>{'authorization': 'Bearer access-1'});
+  });
+
   test('recordException returns daemon trace id', () async {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),

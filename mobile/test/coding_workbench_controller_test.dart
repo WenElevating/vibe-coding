@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/l10n/app_localizations_zh.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
@@ -566,6 +567,66 @@ void main() {
         drainPending: true,
       ),
       isFalse,
+    );
+  });
+
+  test('pending status does not report completed tool activity', () {
+    final l10n = AppLocalizationsZh();
+    final events = <ConversationEvent>[
+      _event(
+        seq: 1,
+        type: 'conversation.status_changed',
+        raw: const <String, Object?>{'status': 'running'},
+      ),
+      _event(
+        seq: 2,
+        type: 'tool.started',
+        toolUseId: 'cmd_1',
+        toolName: 'command_execution',
+        input: const <String, Object?>{'command': 'flutter test'},
+      ),
+      _event(
+        seq: 3,
+        type: 'tool.completed',
+        toolUseId: 'cmd_1',
+        toolName: 'command_execution',
+        text: 'Done',
+      ),
+    ];
+
+    expect(
+      conversationPendingStatusText(l10n, 'running', events),
+      l10n.workbenchPendingWaitingNextEvent,
+    );
+  });
+
+  test('send acknowledgement does not overwrite terminal event state', () {
+    expect(
+      shouldApplyConversationSendAcknowledgement(
+        sendStartSeq: 10,
+        currentSeq: 12,
+        acknowledgementStatus: 'running',
+        reducerStatus: 'idle',
+      ),
+      isFalse,
+    );
+    expect(
+      shouldApplyConversationSendAcknowledgement(
+        sendStartSeq: 10,
+        currentSeq: 10,
+        acknowledgementStatus: 'running',
+        reducerStatus: 'idle',
+      ),
+      isTrue,
+    );
+    expect(
+      shouldApplyConversationSendAcknowledgement(
+        sendStartSeq: 10,
+        currentSeq: 12,
+        acknowledgementStatus: 'idle',
+        reducerStatus: 'idle',
+      ),
+      isTrue,
     );
   });
 

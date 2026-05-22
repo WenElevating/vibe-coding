@@ -41,6 +41,9 @@ class CommittedAttachment {
     required this.sizeBytes,
     required this.handling,
     this.localPath,
+    this.previewPath,
+    this.previewUrl,
+    this.previewHeaders = const <String, String>{},
   });
 
   final String id;
@@ -50,6 +53,12 @@ class CommittedAttachment {
   final int sizeBytes;
   final AttachmentHandling handling;
   final String? localPath;
+  final String? previewPath;
+  final String? previewUrl;
+  final Map<String, String> previewHeaders;
+
+  bool get hasImagePreview =>
+      kind == AttachmentKind.image && (localPath != null || previewUrl != null);
 
   factory CommittedAttachment.fromJson(Map<String, Object?> json) =>
       CommittedAttachment(
@@ -60,10 +69,16 @@ class CommittedAttachment {
         sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
         handling: parseAttachmentHandling(json['handling']),
         localPath: _optionalString(json['localPath']),
+        previewPath: _optionalString(json['previewPath']),
+        previewUrl: _optionalString(json['previewUrl']),
+        previewHeaders: _stringMap(json['previewHeaders']),
       );
 
   CommittedAttachment copyWith({
     String? localPath,
+    String? previewPath,
+    String? previewUrl,
+    Map<String, String>? previewHeaders,
   }) =>
       CommittedAttachment(
         id: id,
@@ -73,6 +88,9 @@ class CommittedAttachment {
         sizeBytes: sizeBytes,
         handling: handling,
         localPath: localPath ?? this.localPath,
+        previewPath: previewPath ?? this.previewPath,
+        previewUrl: previewUrl ?? this.previewUrl,
+        previewHeaders: previewHeaders ?? this.previewHeaders,
       );
 }
 
@@ -116,4 +134,17 @@ String? _optionalString(Object? value) {
   if (value is! String) return null;
   final trimmed = value.trim();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+Map<String, String> _stringMap(Object? value) {
+  if (value is! Map) return const <String, String>{};
+  final result = <String, String>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    final item = entry.value;
+    if (key is String && item is String && key.trim().isNotEmpty) {
+      result[key] = item;
+    }
+  }
+  return result.isEmpty ? const <String, String>{} : Map.unmodifiable(result);
 }

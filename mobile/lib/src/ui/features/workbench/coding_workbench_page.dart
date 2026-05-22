@@ -570,6 +570,21 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     return conversationPendingStatusText(l10n, status, events);
   }
 
+  void _applyConversationSendAcknowledgement(
+    ConversationSummary conversation, {
+    required int sendStartSeq,
+  }) {
+    if (_activeConversationId != conversation.id) return;
+    final shouldApply = shouldApplyConversationSendAcknowledgement(
+      sendStartSeq: sendStartSeq,
+      currentSeq: _workbenchViewModel.lastSeq,
+      acknowledgementStatus: conversation.status,
+      reducerStatus: _workbenchViewModel.conversationState.status,
+    );
+    if (!shouldApply) return;
+    _workbenchViewModel.updateActiveConversation(conversation, notify: false);
+  }
+
   List<String> get _recentActionSummaries {
     return const <String>[];
   }
@@ -702,6 +717,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             _workbenchViewModel.selectedAdapterStatus?.canSelectModel == true
                 ? _workbenchViewModel.selectedModel
                 : null;
+        final sendStartSeq = _workbenchViewModel.lastSeq;
         final result = await _workbenchViewModel.createAndSend(
           workspace: routeWorkspace!,
           prompt: prompt,
@@ -719,8 +735,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         await _restartConversationPolling();
         final updated = await result.updatedConversation;
         if (mounted) {
-          setState(() => _workbenchViewModel.updateActiveConversation(updated,
-              notify: false));
+          setState(() {
+            _applyConversationSendAcknowledgement(
+              updated,
+              sendStartSeq: sendStartSeq,
+            );
+          });
         }
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
         final conversation =
@@ -736,6 +756,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         });
       } else {
         if (_isRunningCli) return;
+        final sendStartSeq = _workbenchViewModel.lastSeq;
         setState(() {
           _workbenchViewModel.markConversationRunning(notify: false);
         });
@@ -747,8 +768,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         );
         if (mounted) {
           setState(() {
-            _workbenchViewModel.updateActiveConversation(conversation,
-                notify: false);
+            _applyConversationSendAcknowledgement(
+              conversation,
+              sendStartSeq: sendStartSeq,
+            );
           });
         }
       }

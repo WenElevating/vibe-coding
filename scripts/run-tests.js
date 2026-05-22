@@ -2980,7 +2980,7 @@ test('Codex conversation adapter resumes captured thread with authorized workspa
   spawnCalls[0].child.emit('exit', 0, null);
 });
 
-test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, and failed events', () => {
+test('Codex event mapper normalizes thread, assistant, tool, file changes, declined, unknown, and failed events', () => {
   const threadStarted = mapCodexEvent({ type: 'thread.started', thread_id: 'thread_a' });
   assert.equal(threadStarted.sessionId, 'thread_a');
   assert.equal(threadStarted.visible, false);
@@ -2996,6 +2996,22 @@ test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, 
   assert.equal(completedCommand.type, 'tool.completed');
   assert.equal(completedCommand.text, 'done');
   assert.equal(completedCommand.exitCode, 0);
+  const fileChange = mapCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_96',
+      type: 'file_change',
+      changes: [
+        { path: 'D:\\AIProject\\vibe-coding\\daemon\\src\\attachment-preview-store.js', kind: 'add' }
+      ],
+      status: 'completed'
+    }
+  }, { workspacePath: 'D:\\AIProject\\vibe-coding' });
+  assert.equal(fileChange.type, 'system.notice');
+  assert.equal(fileChange.noticeKind, 'codex_file_change');
+  assert.equal(fileChange.visible, true);
+  assert.equal(fileChange.changes[0].path, 'daemon/src/attachment-preview-store.js');
+  assert.match(fileChange.text, /added daemon\/src\/attachment-preview-store\.js/);
   const declined = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'write', aggregated_output: 'rejected: blocked by policy', status: 'declined' } });
   assert.equal(declined.type, 'system.notice');
   assert.equal(declined.noticeKind, 'codex_policy_blocked');
@@ -5244,6 +5260,50 @@ test('multipart conversation send commits attachment metadata without raw scratc
     const scratchRoot = app.conversations.attachmentScratchStore.root;
     const scratchEntries = fs.existsSync(scratchRoot) ? fs.readdirSync(scratchRoot) : [];
     assert.deepEqual(scratchEntries, []);
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
+test('multipart conversation image preview survives turn scratch cleanup', async () => {
+  const adapter = codexNativeImageAttachmentAdapter();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    dbPrefix: 'app-db-attachments-image-preview-'
+  });
+  try {
+    const boundary = '----attachments-image-preview';
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_image_preview',
+        capabilityVersion: attachmentImageCapabilityVersion(),
+        attachments: [{ field: 'files[0]', name: 'preview.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'preview.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    const internal = app.conversations.conversations.get(conversationId);
+    const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
+    const attachment = userMessage.attachments[0];
+    assert.match(attachment.previewPath, new RegExp(`^/api/conversations/${conversationId}/attachments/${attachment.id}/preview$`));
+    assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'scratchPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'contentSha256'), false);
+
+    app.conversations.recordAdapterEvent(internal, { type: 'conversation.completed' });
+    await waitForAttachmentScratchCleanup(app);
+    assert.deepEqual(attachmentScratchEntries(app), []);
+
+    const preview = await requestRaw(port, 'GET', attachment.previewPath, null, token);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers['content-type'], 'image/png');
+    assert.deepEqual(preview.body, imageBytes);
   } finally {
     await closeAttachmentConversationApp(app);
   }

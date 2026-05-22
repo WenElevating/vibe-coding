@@ -29,6 +29,20 @@ bool shouldKeepPollingForTerminalDrain({
   return changed;
 }
 
+bool shouldApplyConversationSendAcknowledgement({
+  required int sendStartSeq,
+  required int currentSeq,
+  required String acknowledgementStatus,
+  required String reducerStatus,
+}) {
+  if (currentSeq <= sendStartSeq) return true;
+  if (isActiveConversationStatus(acknowledgementStatus) &&
+      !isActiveConversationStatus(reducerStatus)) {
+    return false;
+  }
+  return true;
+}
+
 class WorkbenchPollTraceEntry {
   const WorkbenchPollTraceEntry({
     required this.conversationId,

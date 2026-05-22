@@ -2834,6 +2834,62 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
+  testWidgets('user message card renders persisted image preview without frame',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: WorkbenchMessage(
+                      'user',
+                      'You',
+                      '重启后也要显示图片',
+                      attachments: <CommittedAttachment>[
+                        CommittedAttachment.fromJson(<String, Object?>{
+                          'id': 'att_0',
+                          'name': 'persisted.png',
+                          'kind': 'image',
+                          'mimeType': 'image/png',
+                          'sizeBytes': 1219716,
+                          'handling': 'native',
+                          'previewUrl':
+                              'http://127.0.0.1:4317/api/conversations/conv_1/attachments/att_0/preview',
+                        }),
+                      ],
+                    ),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    expect(find.text('重启后也要显示图片'), findsOneWidget);
+    expect(find.text('persisted.png'), findsOneWidget);
+    expect(find.byKey(const Key('workbench-user-attachment-bubble')),
+        findsOneWidget);
+    expect(find.byKey(const Key('workbench-user-text-bubble')), findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-preview')),
+        findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-preview-shell')),
+        findsOneWidget);
+    final borderedAttachmentContainers = tester
+        .widgetList<Container>(find.descendant(
+            of: find.byKey(const Key('workbench-user-attachment-bubble')),
+            matching: find.byType(Container)))
+        .where((container) =>
+            container.decoration is BoxDecoration &&
+            (container.decoration! as BoxDecoration).border != null);
+    expect(borderedAttachmentContainers.map((container) => container.key),
+        <Key>[const Key('workbench-message-image-preview-shell')]);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  });
+
   testWidgets('user message card opens image attachment viewer',
       (WidgetTester tester) async {
     final tempDir =

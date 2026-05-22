@@ -23,25 +23,51 @@ String conversationPendingStatusText(
   }
   final list = events.toList(growable: false);
   if (list.isEmpty) return l10n.workbenchPendingStarting;
+  final activeToolUseIds = <String>{};
+  for (final event in list) {
+    final toolUseId = event.toolUseId;
+    if (toolUseId == null || toolUseId.isEmpty) continue;
+    if (event.type == 'tool.started') {
+      activeToolUseIds.add(toolUseId);
+    } else if (event.type == 'tool.completed') {
+      activeToolUseIds.remove(toolUseId);
+    }
+  }
+  var toolCompletionSeen = false;
   for (final event in list.reversed) {
+    final toolUseId = event.toolUseId;
+    final hasToolUseId = toolUseId != null && toolUseId.isNotEmpty;
+    final activeTool = hasToolUseId && activeToolUseIds.contains(toolUseId);
+    if (event.type == 'tool.completed') {
+      toolCompletionSeen = true;
+      continue;
+    }
     if (isTransitionSystemNotice(event)) {
+      if (toolCompletionSeen) continue;
       final text = (event.text ?? event.summary ?? '').trim();
       if (text.isNotEmpty) return text;
     }
     if (event.type == 'assistant.partial') {
+      if (toolCompletionSeen) continue;
       return l10n.workbenchPendingGenerating;
     }
     if (event.type == 'tool.started') {
+      if (hasToolUseId && !activeTool) continue;
+      if (!hasToolUseId && toolCompletionSeen) continue;
       return l10n.workbenchPendingRunningTool(
           event.toolName ?? l10n.workbenchPendingToolFallback);
     }
     if (event.type == 'tool.output') {
+      if (hasToolUseId && !activeTool) continue;
+      if (!hasToolUseId && toolCompletionSeen) continue;
       return l10n.workbenchPendingReceivingToolOutput;
     }
     if (event.type == 'diff.summary') {
+      if (toolCompletionSeen) continue;
       return l10n.workbenchPendingSummarizingDiff;
     }
     if (event.type == 'conversation.started') {
+      if (toolCompletionSeen) continue;
       return l10n.workbenchPendingReadingContext;
     }
   }

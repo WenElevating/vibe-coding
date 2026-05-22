@@ -54,3 +54,44 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening ex
 ```
 
 - Last verified: 2026-05-22
+
+## Symptom: Workbench Shows Completed Command As Still Running
+
+- Symptom: a command card can show completed while the bottom pending sentinel
+  still says `正在运行 command_execution...`.
+- Action: inspect the full event chain before changing daemon completion logic.
+  A `tool.completed` event only completes one command; the turn remains running
+  until `conversation.completed` or a terminal assistant message. The pending
+  status text must correlate `tool.started` and `tool.completed` by
+  `toolUseId`, and send acknowledgements must not overwrite terminal state that
+  arrived through event polling.
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded --plain-name "pending status does not report completed tool activity"
+```
+
+- Last verified: 2026-05-22
+
+## Symptom: Codex Conversation Hides File Changes And Looks Stalled
+
+- Symptom: Codex says it is changing backend/mobile code, but the workbench
+  transcript shows no visible file-change cards and the pending sentinel appears
+  stuck during that gap.
+- Action: inspect persisted `conversation_events` for `system.notice` rows with
+  `noticeKind=codex_unknown_event`, `visible=0`, `raw.type=item.completed`, and
+  `raw.item.type=file_change`. The Codex adapter should map completed
+  `file_change` items to a visible `codex_file_change` notice with normalized
+  relative paths.
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+```
+
+- Last verified: 2026-05-22
