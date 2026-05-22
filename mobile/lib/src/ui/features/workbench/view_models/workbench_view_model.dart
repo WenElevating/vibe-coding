@@ -10,6 +10,7 @@ import '../../../../models/protocol.dart';
 import '../../../../shell/app_snapshot.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
+import '../attachments/attachment_preview_cache.dart';
 import '../attachments/draft_attachment.dart';
 import '../coding_workbench_controller.dart';
 import '../conversation_reducer.dart';
@@ -35,8 +36,11 @@ class WorkbenchViewModel extends ChangeNotifier {
     DiagnosticsRepository? diagnosticsRepository,
     RunRepository? runRepository,
     WorkspaceRepository? workspaceRepository,
+    AttachmentPreviewCache attachmentPreviewCache =
+        const NoopAttachmentPreviewCache(),
     Duration workspaceCreationTimeout = const Duration(seconds: 20),
-  })  : _conversationRepository = conversationRepository,
+  })  : _attachmentPreviewCache = attachmentPreviewCache,
+        _conversationRepository = conversationRepository,
         _diagnosticsRepository = diagnosticsRepository,
         _runRepository = runRepository,
         _workspaceRepository = workspaceRepository,
@@ -50,6 +54,7 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   WorkbenchRouteState _routeState;
   final Map<String, SessionItem> _optimisticSessions = <String, SessionItem>{};
+  final AttachmentPreviewCache _attachmentPreviewCache;
   final ConversationRepository? _conversationRepository;
   final DiagnosticsRepository? _diagnosticsRepository;
   final RunRepository? _runRepository;
@@ -72,10 +77,9 @@ class WorkbenchViewModel extends ChangeNotifier {
   final List<WorkbenchPollTraceEntry> _pollTraceEntries =
       <WorkbenchPollTraceEntry>[];
   final List<DraftAttachment> _draftAttachments = <DraftAttachment>[];
-  final Map<String, String> _localAttachmentPreviewPaths = <String, String>{};
-  final Map<String, List<CommittedAttachment>>
-      _localAttachmentPreviewsByClientMessageId =
-      <String, List<CommittedAttachment>>{};
+  final Map<String, List<AttachmentPreviewIdentity>>
+      _pendingAttachmentPreviewIdentities =
+      <String, List<AttachmentPreviewIdentity>>{};
   ConversationViewState _conversationState = const ConversationViewState();
   int _lastSeq = 0;
   final Set<String> _resolvedApprovalIds = <String>{};
@@ -315,9 +319,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   void addUserMessage(String prompt,
       {bool includeDraftAttachments = false, bool notify = true}) {
     final attachments = includeDraftAttachments
-        ? _draftAttachmentPreviews()
+        ? _draftAttachmentsForOptimisticMessage()
         : const <CommittedAttachment>[];
-    _rememberLocalAttachmentPreviews(attachments);
     _messages.add(WorkbenchMessage.user(prompt, attachments: attachments));
     if (notify) notifyListeners();
   }
@@ -370,6 +373,23 @@ class WorkbenchViewModel extends ChangeNotifier {
     _restorePendingOptimisticUserMessages(optimisticUserMessages);
     if (notify) notifyListeners();
     return true;
+  }
+
+  Future<bool> applyConversationEventsAsync(
+    List<ConversationEvent> events, {
+    required bool streamOutput,
+    bool notify = true,
+  }) async {
+    final changed = applyConversationEvents(
+      events,
+      streamOutput: streamOutput,
+      notify: false,
+    );
+    if (!changed) return false;
+    final previewChanged = await _bindAndResolveAttachmentPreviews(events);
+    final hasChanged = changed || previewChanged;
+    if (notify && hasChanged) notifyListeners();
+    return hasChanged;
   }
 
   void applyApprovalResponse(
@@ -707,7 +727,8 @@ class WorkbenchViewModel extends ChangeNotifier {
     String conversationId,
     String prompt,
   ) async {
-    final request = _buildConversationMessageRequest(prompt);
+    final request =
+        await _buildConversationMessageRequest(conversationId, prompt);
     try {
       final conversation =
           await repository.sendConversationMessage(conversationId, request);
@@ -725,9 +746,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     }
   }
 
-  ConversationMessageSendRequest _buildConversationMessageRequest(
+  Future<ConversationMessageSendRequest> _buildConversationMessageRequest(
+    String conversationId,
     String prompt,
-  ) {
+  ) async {
     final attachments = _draftAttachments
         .where((item) => item.isValid)
         .map((item) => ConversationMessageAttachment(
@@ -743,10 +765,27 @@ class WorkbenchViewModel extends ChangeNotifier {
     }
     _currentAttachmentClientMessageId ??= _generateUuidV4();
     final clientMessageId = _currentAttachmentClientMessageId!;
-    _rememberLocalAttachmentPreviewsForClientMessage(
-      clientMessageId,
-      _draftAttachmentPreviews(),
-    );
+    final pendingIdentities = <AttachmentPreviewIdentity>[];
+    for (var index = 0; index < _draftAttachments.length; index += 1) {
+      final draft = _draftAttachments[index];
+      if (!draft.isValid || draft.kind != AttachmentKind.image) continue;
+      try {
+        final identity = await _attachmentPreviewCache.rememberPending(
+          conversationId: conversationId,
+          clientMessageId: clientMessageId,
+          attachmentIndex: index,
+          draft: draft,
+        );
+        pendingIdentities.add(identity);
+      } catch (_) {
+        // Preview cache failures must not block sending the message.
+      }
+    }
+    if (pendingIdentities.isNotEmpty) {
+      _pendingAttachmentPreviewIdentities[
+              _pendingAttachmentPreviewKey(conversationId, clientMessageId)] =
+          List.unmodifiable(pendingIdentities);
+    }
     return ConversationMessageSendRequest(
       text: prompt,
       clientMessageId: clientMessageId,
@@ -755,12 +794,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     );
   }
 
-  List<CommittedAttachment> _draftAttachmentPreviews() {
-    final previews = <CommittedAttachment>[];
+  List<CommittedAttachment> _draftAttachmentsForOptimisticMessage() {
+    final attachments = <CommittedAttachment>[];
     for (var i = 0; i < _draftAttachments.length; i++) {
       final item = _draftAttachments[i];
       if (!item.isValid) continue;
-      previews.add(CommittedAttachment(
+      attachments.add(CommittedAttachment(
         id: 'draft_$i',
         name: item.name,
         kind: item.kind,
@@ -770,92 +809,97 @@ class WorkbenchViewModel extends ChangeNotifier {
         localPath: item.localPath,
       ));
     }
-    return List.unmodifiable(previews);
+    return List.unmodifiable(attachments);
   }
 
-  List<CommittedAttachment> _mergeLocalAttachmentPreviews(
-    List<CommittedAttachment> committed,
-    List<CommittedAttachment> optimistic,
-    String? clientMessageId,
-  ) =>
-      committed.asMap().entries.map((entry) {
-        final attachment = entry.value;
-        if (attachment.localPath != null) return attachment;
-        return attachment.copyWith(
-          localPath: _matchingLocalPreviewPath(
-            attachment,
-            optimistic,
-            index: entry.key,
-            clientMessageId: clientMessageId,
-          ),
+  Future<bool> _bindAndResolveAttachmentPreviews(
+      Iterable<ConversationEvent> events) async {
+    var previewChanged = false;
+    final activeConversationId = _activeConversationId;
+    for (final event in events) {
+      if (event.type != 'user.message' || event.attachments.isEmpty) continue;
+      final clientMessageId = event.raw['clientMessageId'] as String?;
+      if (clientMessageId == null || clientMessageId.isEmpty) continue;
+      final pendingKey = _pendingAttachmentPreviewKey(
+        event.conversationId,
+        clientMessageId,
+      );
+      try {
+        await _attachmentPreviewCache.bindCommitted(
+          conversationId: event.conversationId,
+          clientMessageId: clientMessageId,
+          attachments: event.attachments,
+          pendingIdentities: _pendingAttachmentPreviewIdentities[pendingKey],
         );
-      }).toList(growable: false);
-
-  String? _matchingLocalPreviewPath(
-    CommittedAttachment attachment,
-    List<CommittedAttachment> optimistic, {
-    required int index,
-    required String? clientMessageId,
-  }) {
-    final clientMessagePreviews = clientMessageId == null
-        ? null
-        : _localAttachmentPreviewsByClientMessageId[clientMessageId];
-    if (clientMessagePreviews != null && index < clientMessagePreviews.length) {
-      final candidate = clientMessagePreviews[index];
-      if (candidate.localPath != null &&
-          _isCompatibleAttachmentPreview(attachment, candidate)) {
-        return candidate.localPath;
+        previewChanged = true;
+      } catch (_) {
+        // Cache binding is best-effort; event projection should still proceed.
+      } finally {
+        _pendingAttachmentPreviewIdentities.remove(pendingKey);
       }
     }
-    for (final candidate in optimistic) {
-      if (candidate.localPath == null) continue;
-      if (_isCompatibleAttachmentPreview(attachment, candidate)) {
-        return candidate.localPath;
+    if (activeConversationId == null) return previewChanged;
+
+    final resolvedMessages = <WorkbenchMessage>[];
+    for (final message in _messages) {
+      if (message.role != 'user' || message.attachments.isEmpty) {
+        resolvedMessages.add(message);
+        continue;
       }
+      final attachments = <CommittedAttachment>[];
+      for (final attachment in message.attachments) {
+        if (attachment.kind != AttachmentKind.image ||
+            attachment.id.startsWith('draft_')) {
+          attachments.add(attachment);
+          continue;
+        }
+        CachedAttachmentPreview? cached;
+        try {
+          cached = await _attachmentPreviewCache.resolve(
+            conversationId: activeConversationId,
+            attachment: attachment,
+          );
+        } catch (_) {
+          cached = null;
+        }
+        attachments.add(cached == null
+            ? attachment.copyWith(clearLocalPath: true)
+            : attachment.copyWith(localPath: cached.cachePath));
+      }
+      resolvedMessages.add(message.copyWith(attachments: attachments));
     }
-    return _localAttachmentPreviewPaths[_attachmentPreviewKey(attachment)];
-  }
-
-  void _rememberLocalAttachmentPreviews(List<CommittedAttachment> attachments) {
-    for (final attachment in attachments) {
-      final localPath = attachment.localPath;
-      if (localPath == null || localPath.isEmpty) continue;
-      _localAttachmentPreviewPaths[_attachmentPreviewKey(attachment)] =
-          localPath;
+    if (_sameWorkbenchAttachmentPaths(_messages, resolvedMessages)) {
+      return previewChanged;
     }
+    _messages
+      ..clear()
+      ..addAll(resolvedMessages);
+    return true;
   }
 
-  void _rememberLocalAttachmentPreviewsForClientMessage(
-    String clientMessageId,
-    List<CommittedAttachment> attachments,
-  ) {
-    if (attachments.isEmpty) return;
-    _localAttachmentPreviewsByClientMessageId[clientMessageId] =
-        List.unmodifiable(attachments);
-    _rememberLocalAttachmentPreviews(attachments);
-  }
-
-  bool _isCompatibleAttachmentPreview(
-    CommittedAttachment committed,
-    CommittedAttachment localPreview,
-  ) =>
-      committed.name == localPreview.name &&
-      committed.kind == localPreview.kind &&
-      committed.sizeBytes == localPreview.sizeBytes;
-
-  bool _sameAttachmentPreviewPaths(
-    List<CommittedAttachment> left,
-    List<CommittedAttachment> right,
+  bool _sameWorkbenchAttachmentPaths(
+    List<WorkbenchMessage> left,
+    List<WorkbenchMessage> right,
   ) {
     if (left.length != right.length) return false;
-    for (var i = 0; i < left.length; i++) {
-      if (left[i].localPath != right[i].localPath) return false;
+    for (var i = 0; i < left.length; i += 1) {
+      final leftAttachments = left[i].attachments;
+      final rightAttachments = right[i].attachments;
+      if (leftAttachments.length != rightAttachments.length) return false;
+      for (var j = 0; j < leftAttachments.length; j += 1) {
+        if (leftAttachments[j].localPath != rightAttachments[j].localPath) {
+          return false;
+        }
+      }
     }
     return true;
   }
 
-  String _attachmentPreviewKey(CommittedAttachment attachment) =>
-      '${attachment.kind}|${attachment.mimeType}|${attachment.sizeBytes}|${attachment.name}';
+  String _pendingAttachmentPreviewKey(
+    String conversationId,
+    String clientMessageId,
+  ) =>
+      '$conversationId|$clientMessageId';
 
   AttachmentHandling _draftAttachmentHandling(AttachmentKind kind) {
     final capabilities = _selectedAttachmentCapabilities();
@@ -1019,8 +1063,7 @@ class WorkbenchViewModel extends ChangeNotifier {
           _activeConversation,
         )
             .where((message) => message.role != 'question_hidden')
-            .map(workbenchMessageFromConversation)
-            .map(_withLocalAttachmentPreviews),
+            .map(workbenchMessageFromConversation),
       );
     final emptyCompletionDiagnostic = emptyConversationCompletionDiagnostic(
       _conversationEvents,
@@ -1032,19 +1075,6 @@ class WorkbenchViewModel extends ChangeNotifier {
     }
   }
 
-  WorkbenchMessage _withLocalAttachmentPreviews(WorkbenchMessage message) {
-    if (message.role != 'user' || message.attachments.isEmpty) return message;
-    final mergedAttachments = _mergeLocalAttachmentPreviews(
-      message.attachments,
-      const <CommittedAttachment>[],
-      message.clientMessageId,
-    );
-    if (_sameAttachmentPreviewPaths(message.attachments, mergedAttachments)) {
-      return message;
-    }
-    return message.copyWith(attachments: mergedAttachments);
-  }
-
   void _restorePendingOptimisticUserMessages(
       List<WorkbenchMessage> optimisticUserMessages) {
     for (final message in optimisticUserMessages) {
@@ -1054,17 +1084,6 @@ class WorkbenchViewModel extends ChangeNotifier {
         final committed = _messages[committedIndex];
         if (committed.attachments.isEmpty && message.attachments.isNotEmpty) {
           _messages[committedIndex] = message;
-        } else if (committed.attachments.isNotEmpty &&
-            message.attachments.isNotEmpty) {
-          final mergedAttachments = _mergeLocalAttachmentPreviews(
-              committed.attachments,
-              message.attachments,
-              committed.clientMessageId);
-          if (!_sameAttachmentPreviewPaths(
-              committed.attachments, mergedAttachments)) {
-            _messages[committedIndex] =
-                committed.copyWith(attachments: mergedAttachments);
-          }
         }
       } else {
         _messages.add(message);

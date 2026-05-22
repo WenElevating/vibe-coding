@@ -21,6 +21,7 @@ import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/diagnostics/diagnostics.dart';
 import '../ui/features/run_detail/run_detail.dart';
+import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
@@ -188,6 +189,7 @@ class FeatureDependencies {
             speechInputServiceBuilder: (modelDirectory) =>
                 SherpaSpeechInputService(modelDirectory: modelDirectory),
             workspaceRepository: connectedData.workspaceRepository,
+            attachmentPreviewCache: LocalAttachmentPreviewCache(),
           );
         },
       );

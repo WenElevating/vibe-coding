@@ -7,6 +7,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repositor
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/session_item.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/attachment_preview_cache.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -362,7 +363,7 @@ void main() {
     expect(viewModel.messages.single.body, 'inspect image');
   });
 
-  test('committed attachment event keeps local preview after mime validation',
+  test('committed attachment event binds cache identity and resolves local path',
       () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',
@@ -373,12 +374,14 @@ void main() {
           AttachmentCapabilities(image: AttachmentHandling.native),
     );
     final repository = _FakeConversationRepository();
+    final cache = _FakeAttachmentPreviewCache();
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(
         workspaces: const <WorkspaceSummary>[_workspace],
         adapters: const <AdapterStatus>[imageCapableAdapter],
       ),
       conversationRepository: repository,
+      attachmentPreviewCache: cache,
     );
     viewModel.updateActiveConversation(_conversation(
         id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
@@ -397,7 +400,7 @@ void main() {
     final clientMessageId = repository.sentRequests.single.clientMessageId;
     expect(clientMessageId, isNotNull);
 
-    viewModel.applyConversationEvents(
+    await viewModel.applyConversationEventsAsync(
       <ConversationEvent>[
         ConversationEvent(
           seq: 1,
@@ -411,7 +414,7 @@ void main() {
               id: 'att_0',
               name: 'screenshot.png',
               kind: AttachmentKind.image,
-              mimeType: 'image/jpeg',
+              mimeType: 'image/png',
               sizeBytes: 42,
               handling: AttachmentHandling.native,
             ),
@@ -421,11 +424,14 @@ void main() {
       streamOutput: false,
     );
 
+    expect(cache.bound, <String>[
+      'conv_1|$clientMessageId|att_0|hash_0',
+    ]);
     expect(viewModel.messages.single.attachments.single.localPath,
-        r'C:\tmp\screenshot.png');
+        r'C:\cache\screenshot.png');
 
     viewModel.resetConversationDisplay(clearActiveConversation: false);
-    viewModel.applyConversationEvents(
+    await viewModel.applyConversationEventsAsync(
       <ConversationEvent>[
         ConversationEvent(
           seq: 1,
@@ -439,7 +445,7 @@ void main() {
               id: 'att_0',
               name: 'screenshot.png',
               kind: AttachmentKind.image,
-              mimeType: 'image/jpeg',
+              mimeType: 'image/png',
               sizeBytes: 42,
               handling: AttachmentHandling.native,
             ),
@@ -450,7 +456,48 @@ void main() {
     );
 
     expect(viewModel.messages.single.attachments.single.localPath,
-        r'C:\tmp\screenshot.png');
+        r'C:\cache\screenshot.png');
+  });
+
+  test('attachment preview cache failure does not block event projection',
+      () async {
+    final cache = _FakeAttachmentPreviewCache()
+      ..bindError = StateError('preview cache unavailable')
+      ..resolveError = StateError('preview cache unavailable');
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      attachmentPreviewCache: cache,
+    );
+    viewModel.updateActiveConversation(
+        _conversation(id: 'conv_1', workspaceId: _workspace.id));
+
+    final changed = await viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          raw: const <String, Object?>{'clientMessageId': 'client_1'},
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/png',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(changed, isTrue);
+    expect(viewModel.messages.single.body, 'inspect image');
+    expect(viewModel.messages.single.attachments.single.localPath, isNull);
   });
 
   test('workbench view model exposes pending question id', () {
@@ -1139,6 +1186,76 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
     ].join('|'));
     return 'trace_1';
   }
+}
+
+class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
+  final List<String> remembered = <String>[];
+  final List<String> bound = <String>[];
+  final Map<String, CachedAttachmentPreview> _resolved =
+      <String, CachedAttachmentPreview>{};
+  Object? bindError;
+  Object? resolveError;
+
+  @override
+  Future<AttachmentPreviewIdentity> rememberPending({
+    required String conversationId,
+    required String clientMessageId,
+    required int attachmentIndex,
+    required DraftAttachment draft,
+  }) async {
+    remembered.add('$conversationId|$clientMessageId|$attachmentIndex');
+    return AttachmentPreviewIdentity(
+      contentHash: 'hash_$attachmentIndex',
+      name: draft.name,
+      mimeType: draft.mimeType,
+      sizeBytes: draft.sizeBytes,
+      attachmentIndex: attachmentIndex,
+    );
+  }
+
+  @override
+  Future<void> bindCommitted({
+    required String conversationId,
+    required String clientMessageId,
+    required List<CommittedAttachment> attachments,
+    List<AttachmentPreviewIdentity>? pendingIdentities,
+  }) async {
+    final error = bindError;
+    if (error != null) throw error;
+    final identity = pendingIdentities?.single;
+    final attachment = attachments.single;
+    bound.add(
+      '$conversationId|$clientMessageId|${attachment.id}|'
+      '${identity?.contentHash}',
+    );
+    _resolved['$conversationId|${attachment.id}'] = CachedAttachmentPreview(
+      attachmentId: attachment.id,
+      contentHash: identity?.contentHash ?? 'missing',
+      cachePath: r'C:\cache\screenshot.png',
+      width: 320,
+      height: 200,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      createdAt: DateTime.utc(2026, 5, 22),
+      lastAccessedAt: DateTime.utc(2026, 5, 22),
+    );
+  }
+
+  @override
+  Future<CachedAttachmentPreview?> resolve({
+    required String conversationId,
+    required CommittedAttachment attachment,
+  }) async {
+    final error = resolveError;
+    if (error != null) throw error;
+    return _resolved['$conversationId|${attachment.id}'];
+  }
+
+  @override
+  Future<void> markClientMessageOrphaned({
+    required String conversationId,
+    required String clientMessageId,
+  }) async {}
 }
 
 class _FakeRunRepository implements RunRepository {

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/attachment_preview_cache.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
 
@@ -448,11 +449,13 @@ void main() {
     test('existing conversation send forwards draft attachment metadata',
         () async {
       final repository = _FakeConversationRepository();
+      final cache = _FakeAttachmentPreviewCache();
       final viewModel = WorkbenchViewModel(
         initialData: _snapshot(
           adapters: const <AdapterStatus>[_codexImageModel],
         ),
         conversationRepository: repository,
+        attachmentPreviewCache: cache,
       );
       viewModel.addDraftAttachmentForTest(const DraftAttachment(
         localPath: r'D:\tmp\screenshot.png',
@@ -473,7 +476,41 @@ void main() {
       expect(request.clientMessageId, isNotNull);
       expect(request.attachments.single.name, 'screenshot.png');
       expect(request.attachments.single.kind, AttachmentKind.image);
+      expect(cache.remembered, <String>[
+        'conv_1|${request.clientMessageId}|0|screenshot.png|image/png|120034',
+      ]);
       expect(viewModel.draftAttachments, isEmpty);
+    });
+
+    test('attachment preview cache failure does not block send', () async {
+      final repository = _FakeConversationRepository();
+      final cache = _FakeAttachmentPreviewCache()
+        ..rememberError = StateError('preview cache unavailable');
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageModel],
+        ),
+        conversationRepository: repository,
+        attachmentPreviewCache: cache,
+      );
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      await viewModel.sendExistingConversationPrompt(
+        conversationId: 'conv_1',
+        prompt: 'inspect',
+      );
+
+      final request = repository.sentRequests.single;
+      expect(request.text, 'inspect');
+      expect(request.clientMessageId, isNotNull);
+      expect(request.attachments.single.name, 'screenshot.png');
+      expect(cache.remembered, isEmpty);
     });
 
     test('pre-commit attachment failure keeps draft and client message id',
@@ -788,4 +825,52 @@ class _FakeConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> cancelConversation(String conversationId) async =>
       _conversation();
+}
+
+class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
+  final List<String> remembered = <String>[];
+  Object? rememberError;
+
+  @override
+  Future<AttachmentPreviewIdentity> rememberPending({
+    required String conversationId,
+    required String clientMessageId,
+    required int attachmentIndex,
+    required DraftAttachment draft,
+  }) async {
+    final error = rememberError;
+    if (error != null) throw error;
+    remembered.add(
+      '$conversationId|$clientMessageId|$attachmentIndex|'
+      '${draft.name}|${draft.mimeType}|${draft.sizeBytes}',
+    );
+    return AttachmentPreviewIdentity(
+      contentHash: 'hash_$attachmentIndex',
+      name: draft.name,
+      mimeType: draft.mimeType,
+      sizeBytes: draft.sizeBytes,
+      attachmentIndex: attachmentIndex,
+    );
+  }
+
+  @override
+  Future<void> bindCommitted({
+    required String conversationId,
+    required String clientMessageId,
+    required List<CommittedAttachment> attachments,
+    List<AttachmentPreviewIdentity>? pendingIdentities,
+  }) async {}
+
+  @override
+  Future<CachedAttachmentPreview?> resolve({
+    required String conversationId,
+    required CommittedAttachment attachment,
+  }) async =>
+      null;
+
+  @override
+  Future<void> markClientMessageOrphaned({
+    required String conversationId,
+    required String clientMessageId,
+  }) async {}
 }

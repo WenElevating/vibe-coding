@@ -224,6 +224,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       diagnosticsRepository: widget.dependencies.diagnosticsRepository,
       runRepository: widget.dependencies.runRepository,
       workspaceRepository: widget.dependencies.workspaceRepository,
+      attachmentPreviewCache: widget.dependencies.attachmentPreviewCache,
     )..addListener(_syncWorkbenchViewModel);
     _attachmentPicker = const WorkbenchAttachmentPicker();
     _asrModelManager = widget.dependencies.asrModelManager;
@@ -868,13 +869,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         recordPollTrace(returnedCount: 0, cancelled: false, changed: false);
         return;
       }
-      var changed = false;
-      setState(() {
-        changed = _workbenchViewModel.applyConversationEvents(
-            conversationEvents,
-            streamOutput: widget.streamOutput,
-            notify: false);
-      });
+      final changed = await _workbenchViewModel.applyConversationEventsAsync(
+        conversationEvents,
+        streamOutput: widget.streamOutput,
+        notify: false,
+      );
+      final cancelledAfterApply = !mounted ||
+          conversationId != _activeConversationId ||
+          runId != _activeRunId;
+      if (cancelledAfterApply) {
+        recordPollTrace(
+            returnedCount: conversationEvents.length,
+            cancelled: true,
+            changed: changed);
+        return;
+      }
+      if (mounted) setState(() {});
       if (changed) _scrollToBottom();
       if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(changed)) {
         _poller?.cancel();
