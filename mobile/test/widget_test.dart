@@ -1364,6 +1364,82 @@ void main() {
     expect(find.text('message 250'), findsNothing);
   });
 
+  testWidgets('opening existing conversation scrolls to latest message',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final messages = List<ConversationEvent>.generate(
+      80,
+      (index) => ConversationEvent.fromJson(<String, Object?>{
+        'seq': index + 1,
+        'conversationId': 'conv_scroll',
+        'type': index.isEven ? 'user.message' : 'assistant.message',
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'text': index == 79 ? 'latest visible sentinel' : 'message $index',
+      }),
+    );
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LazyConversationRepository(messages);
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_scroll',
+              workspaceId: 'workspace_1',
+              status: 'completed',
+              sessionBinding: 'confirmed',
+              userMessageCount: messages.length,
+              title: 'Scroll regression conversation',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Scroll regression conversation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('latest visible sentinel'), findsOneWidget);
+    expect(find.text('message 0'), findsNothing);
+  });
+
   testWidgets('connected app preloads adapters before new session',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(

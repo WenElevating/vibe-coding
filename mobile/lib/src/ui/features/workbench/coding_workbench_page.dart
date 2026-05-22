@@ -621,14 +621,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     return null;
   }
 
-  void _scrollToBottom({bool jump = false, int retries = 2}) {
+  void _scrollToBottom({bool jump = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!_scrollController.hasClients) {
-        if (retries > 0) _scrollToBottom(jump: jump, retries: retries - 1);
-        return;
-      }
-      final target = _scrollController.position.maxScrollExtent;
+      if (!mounted || !_scrollController.hasClients) return;
+      final target = _scrollController.position.minScrollExtent;
       if (jump) {
         _scrollController.jumpTo(target);
       } else {
@@ -1161,12 +1157,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         (hasPending ? 1 : 0);
     return ListView.builder(
       controller: _scrollController,
+      reverse: true,
       padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
       itemCount: itemCount,
       itemBuilder: (context, index) {
-        var messageIndex = index;
+        final logicalIndex = itemCount - 1 - index;
+        var messageIndex = logicalIndex;
         if (hasStatus) {
-          if (index == 0) {
+          if (logicalIndex == 0) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: WorkbenchInlineStatus(
