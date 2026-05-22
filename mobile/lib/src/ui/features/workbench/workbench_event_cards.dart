@@ -11,9 +11,6 @@ import '../../core/widgets/widgets.dart';
 import 'conversation_reducer.dart';
 import 'workbench_messages.dart';
 
-const largeOutputLineThreshold = 200;
-const largeOutputCharThreshold = 20000;
-const initialLargeOutputLines = 120;
 const _codeCopySuccessBackground = Color(0xFFE7ECF8);
 const _codeCopySuccessBorder = Color(0xFFF4F7FC);
 const _codeCopySuccessIcon = Color(0xFF0B0C0E);
@@ -666,7 +663,7 @@ class _CopyableCodeBlockState extends State<_CopyableCodeBlock>
           child: SingleChildScrollView(
               controller: _scrollController,
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
               child: SelectableText(copyText, style: textStyle)))
     ]);
   }
@@ -1209,16 +1206,6 @@ class _ToolDetailBlock extends StatefulWidget {
 }
 
 class _ToolDetailBlockState extends State<_ToolDetailBlock> {
-  bool _expanded = false;
-
-  bool get _large => _isLargeOutput(widget.text);
-
-  String get _visibleText {
-    if (!_large || _expanded) return widget.text;
-    final lines = widget.text.split('\n');
-    return lines.take(initialLargeOutputLines).join('\n');
-  }
-
   @override
   Widget build(BuildContext context) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1249,11 +1236,9 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                                 color: Colors.white.withValues(alpha: .045))),
                         child: Row(children: [
                           Expanded(
-                              child: Text(_visibleText,
-                                  maxLines: _large && !_expanded ? 8 : null,
-                                  overflow: _large && !_expanded
-                                      ? TextOverflow.ellipsis
-                                      : TextOverflow.visible,
+                              child: Text(widget.text,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   softWrap: true,
                                   style: const TextStyle(
                                       color: theme.muted,
@@ -1264,19 +1249,8 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                           const Icon(Icons.open_in_full_rounded,
                               color: theme.faint, size: 12),
                         ])))),
-            if (_large) ...[
-              const SizedBox(height: 6),
-              Align(
-                  alignment: Alignment.centerLeft,
-                  child: TinyActionButton(_expanded ? 'Show less' : 'Show more',
-                      onTap: () => setState(() => _expanded = !_expanded))),
-            ]
           ]);
 }
-
-bool _isLargeOutput(String text) =>
-    text.length > largeOutputCharThreshold ||
-    text.split('\n').length > largeOutputLineThreshold;
 
 String _toolKindLabel(WorkbenchMessage message) {
   final tool = _rawToolName(message).toLowerCase();

@@ -2517,8 +2517,7 @@ void main() {
     expect(find.text('hello from intro'), findsWidgets);
   });
 
-  testWidgets(
-      'command detail wraps long command text instead of horizontal scrolling',
+  testWidgets('command preview wraps long text but defaults to two lines',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1;
@@ -2553,8 +2552,8 @@ void main() {
         find.byWidgetPredicate((widget) =>
             widget is Text &&
             widget.data == longCommand &&
-            widget.maxLines == null &&
-            widget.overflow != TextOverflow.ellipsis),
+            widget.maxLines == 2 &&
+            widget.overflow == TextOverflow.ellipsis),
         findsOneWidget);
 
     await tester.tap(find.text(longCommand).last);
@@ -2563,25 +2562,38 @@ void main() {
     expect(find.text('命令详情'), findsOneWidget);
     expect(
         find.byWidgetPredicate((widget) =>
+            widget is SelectableText &&
+            widget.data == longCommand &&
+            widget.maxLines == null),
+        findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
             widget is SingleChildScrollView &&
             widget.scrollDirection == Axis.horizontal),
         findsNothing);
   });
 
-  testWidgets('large command output renders capped content with show more',
+  testWidgets(
+      'large command output defaults to two-line preview and opens details',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildLargeOutputCommandCardPreview());
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('line 0'), findsOneWidget);
-    expect(find.textContaining('line 204'), findsNothing);
-    expect(find.text('Show more'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is Text &&
+            widget.data?.startsWith('line 0') == true &&
+            widget.maxLines == 2 &&
+            widget.overflow == TextOverflow.ellipsis),
+        findsOneWidget);
+    expect(find.text('Show more'), findsNothing);
 
-    await tester.tap(find.text('Show more'));
+    await tester.tap(find.textContaining('line 0'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Output details'), findsOneWidget);
     expect(find.textContaining('line 204'), findsOneWidget);
-    expect(find.text('Show less'), findsOneWidget);
+    expect(find.text('Show less'), findsNothing);
   });
 
   testWidgets(
