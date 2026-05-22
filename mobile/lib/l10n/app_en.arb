@@ -366,6 +366,7 @@
     }
   },
   "workbenchCopyAllTooltip": "Copy full text",
+  "workbenchCopyCodeTooltip": "Copy code",
   "workbenchCopiedSnack": "Copied to clipboard",
   "workbenchCloseTooltip": "Close",
   "workbenchPendingRunning": "Running",

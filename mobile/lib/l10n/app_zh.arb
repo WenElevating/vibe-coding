@@ -366,6 +366,7 @@
     }
   },
   "workbenchCopyAllTooltip": "复制全文",
+  "workbenchCopyCodeTooltip": "复制代码",
   "workbenchCopiedSnack": "已复制到剪贴板",
   "workbenchCloseTooltip": "关闭",
   "workbenchPendingRunning": "正在运行",

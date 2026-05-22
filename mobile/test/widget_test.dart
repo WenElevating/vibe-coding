@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
 import 'package:lan_ai_cli_control/l10n/app_localizations.dart';
@@ -2177,6 +2178,72 @@ void main() {
     expect(find.text('Thinking process'), findsNothing);
   });
 
+  testWidgets('assistant code blocks expose a compact copy action',
+      (WidgetTester tester) async {
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (MethodCall methodCall) async {
+      if (methodCall.method == 'Clipboard.setData') {
+        final data = methodCall.arguments as Map<Object?, Object?>;
+        clipboardText = data['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage('assistant', 'Codex',
+                        'Run this:\n\n```powershell\nflutter analyze\n```\n\nThen continue.'),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    final copyButton = find.byKey(const Key('workbench-markdown-code-copy'));
+    expect(copyButton, findsOneWidget);
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+
+    await tester.tap(copyButton);
+    await tester.pump();
+
+    expect(clipboardText, 'flutter analyze');
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+
+    final feedbackShell = tester.widget<AnimatedContainer>(
+        find.byKey(const Key('workbench-markdown-code-copy-feedback')));
+    final decoration = feedbackShell.decoration as BoxDecoration;
+    expect(decoration.color, const Color(0xFFE7ECF8));
+    expect(decoration.border, isNotNull);
+    final copiedIcon = tester.widget<Icon>(find.byIcon(Icons.check_rounded));
+    expect(copiedIcon.color, const Color(0xFF0B0C0E));
+
+    await tester.pump(const Duration(milliseconds: 2200));
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+    clipboardText = null;
+
+    await tester.tap(copyButton);
+    await tester.pump();
+
+    expect(clipboardText, 'flutter analyze');
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 2200));
+    await tester.pump(const Duration(milliseconds: 180));
+  });
+
   testWidgets('user message card splits image attachment and text preview',
       (WidgetTester tester) async {
     final tempDir =
@@ -2357,14 +2424,14 @@ void main() {
                     onSuggestion: (_) {},
                     expandThinking: false)))));
 
-    expect(find.byKey(const Key('workbench-message-image-viewer')),
-        findsNothing);
+    expect(
+        find.byKey(const Key('workbench-message-image-viewer')), findsNothing);
 
     await tester.tap(find.byKey(const Key('workbench-message-image-preview')));
     await tester.pumpAndSettle();
 
-    expect(
-        find.byKey(const Key('workbench-message-image-viewer')), findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-viewer')),
+        findsOneWidget);
     expect(find.byType(InteractiveViewer), findsOneWidget);
     expect(find.byKey(const Key('workbench-message-image-viewer-image')),
         findsOneWidget);
@@ -2373,8 +2440,8 @@ void main() {
         .tap(find.byKey(const Key('workbench-message-image-viewer-close')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workbench-message-image-viewer')),
-        findsNothing);
+    expect(
+        find.byKey(const Key('workbench-message-image-viewer')), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     PaintingBinding.instance.imageCache.clear();
