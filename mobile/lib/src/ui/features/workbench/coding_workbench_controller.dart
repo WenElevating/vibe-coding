@@ -29,6 +29,54 @@ bool shouldKeepPollingForTerminalDrain({
   return changed;
 }
 
+class WorkbenchPollTraceEntry {
+  const WorkbenchPollTraceEntry({
+    required this.conversationId,
+    required this.runId,
+    required this.path,
+    required this.afterSeq,
+    required this.returnedCount,
+    required this.durationMs,
+    required this.cancelled,
+    required this.changed,
+    required this.terminalDrainPending,
+    this.error,
+  });
+
+  final String conversationId;
+  final String runId;
+  final String path;
+  final int afterSeq;
+  final int? returnedCount;
+  final int durationMs;
+  final bool cancelled;
+  final bool changed;
+  final bool terminalDrainPending;
+  final String? error;
+
+  bool get isError => error != null && error!.isNotEmpty;
+
+  String get status {
+    if (isError) return 'error';
+    if (cancelled) return 'cancelled';
+    return 'success';
+  }
+
+  String get message => 'pollConversationEvents: $status';
+
+  Map<String, Object?> toMetadata() => <String, Object?>{
+        'operation': 'pollConversationEvents',
+        'afterSeq': afterSeq,
+        'returnedCount': returnedCount,
+        'durationMs': durationMs,
+        'cancelled': cancelled,
+        'changed': changed,
+        'terminalDrainPending': terminalDrainPending,
+        'status': status,
+        if (error != null) 'error': error,
+      };
+}
+
 bool isSendAcknowledgementTimeout(
   Object error, {
   required String? activeConversationId,

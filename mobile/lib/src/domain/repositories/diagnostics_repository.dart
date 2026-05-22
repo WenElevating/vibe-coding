@@ -5,6 +5,7 @@ abstract class DiagnosticsRepository {
 
   Future<String> recordException({
     required String message,
+    String severity = 'error',
     String? stack,
     String? path,
     String? method,

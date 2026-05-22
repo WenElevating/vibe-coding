@@ -776,13 +776,52 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _poller?.cancel();
       return;
     }
+    final afterSeq = _workbenchViewModel.lastSeq;
+    final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
+    final startedAt = DateTime.now();
+    void recordPollTrace({
+      required int? returnedCount,
+      required bool cancelled,
+      required bool changed,
+      String? error,
+    }) {
+      unawaited(_workbenchViewModel.recordPollTrace(WorkbenchPollTraceEntry(
+        conversationId: conversationId,
+        runId: runId,
+        path: path,
+        afterSeq: afterSeq,
+        returnedCount: returnedCount,
+        durationMs: DateTime.now().difference(startedAt).inMilliseconds,
+        cancelled: cancelled,
+        changed: changed,
+        terminalDrainPending: _terminalPollDrainPending,
+        error: error,
+      )));
+    }
+
     try {
       final conversationEvents =
           await _workbenchViewModel.fetchConversationEvents(
         conversationId: conversationId,
-        afterSeq: _workbenchViewModel.lastSeq,
+        afterSeq: afterSeq,
       );
-      if (conversationEvents.isEmpty || !mounted) return;
+      final cancelled = !mounted ||
+          conversationId != _activeConversationId ||
+          runId != _activeRunId;
+      if (cancelled) {
+        recordPollTrace(
+            returnedCount: conversationEvents.length,
+            cancelled: true,
+            changed: false);
+        return;
+      }
+      if (conversationEvents.isEmpty) {
+        if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(false)) {
+          _poller?.cancel();
+        }
+        recordPollTrace(returnedCount: 0, cancelled: false, changed: false);
+        return;
+      }
       var changed = false;
       setState(() {
         changed = _workbenchViewModel.applyConversationEvents(
@@ -794,13 +833,21 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(changed)) {
         _poller?.cancel();
       }
+      recordPollTrace(
+          returnedCount: conversationEvents.length,
+          cancelled: false,
+          changed: changed);
     } catch (err, stack) {
+      recordPollTrace(
+          returnedCount: null,
+          cancelled: !mounted,
+          changed: false,
+          error: err.toString());
       final traced = await _recordWorkbenchException(
         err,
         stack,
         operation: 'pollConversationEvents',
-        path:
-            '/api/conversations/$conversationId/events?afterSeq=${_workbenchViewModel.lastSeq}',
+        path: path,
       );
       if (mounted) {
         setState(() {

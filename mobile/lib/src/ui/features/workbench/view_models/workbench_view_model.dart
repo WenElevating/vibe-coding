@@ -23,6 +23,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   static const String _unsupportedModelUpdateMessage =
       'existing conversation model updates require a newer daemon';
   static const int _maxDraftAttachments = 4;
+  static const int _maxPollTraceEntries = 200;
   static const int _claudeImageBytesLimit = 5 * 1024 * 1024;
   static const int _defaultImageBytesLimit = 10 * 1024 * 1024;
   static const int _textDocumentBytesLimit = 1024 * 1024;
@@ -68,6 +69,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   ConversationSummary? _activeConversation;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
+  final List<WorkbenchPollTraceEntry> _pollTraceEntries =
+      <WorkbenchPollTraceEntry>[];
   final List<DraftAttachment> _draftAttachments = <DraftAttachment>[];
   final Map<String, String> _localAttachmentPreviewPaths = <String, String>{};
   final Map<String, List<CommittedAttachment>>
@@ -105,6 +108,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<WorkbenchMessage> get messages => List.unmodifiable(_messages);
   List<ConversationEvent> get conversationEvents =>
       List.unmodifiable(_conversationEvents);
+  List<WorkbenchPollTraceEntry> get pollTraceEntries =>
+      List.unmodifiable(_pollTraceEntries);
   List<DraftAttachment> get draftAttachments =>
       List.unmodifiable(_draftAttachments);
   ConversationViewState get conversationState => _conversationState;
@@ -247,6 +252,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _conversationState.pendingPartial.isNotEmpty ||
         _lastSeq != 0 ||
         _resolvedApprovalIds.isNotEmpty ||
+        _pollTraceEntries.isNotEmpty ||
         (clearActiveConversation &&
             (_activeRunId != null ||
                 _activeConversationId != null ||
@@ -260,6 +266,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _conversationState = const ConversationViewState();
     _lastSeq = 0;
     _resolvedApprovalIds.clear();
+    _pollTraceEntries.clear();
     if (clearActiveConversation) {
       _activeRunId = null;
       _activeConversationId = null;
@@ -927,6 +934,29 @@ class WorkbenchViewModel extends ChangeNotifier {
         runId: runId,
         metadata: <String, Object?>{'operation': operation},
       );
+
+  Future<void> recordPollTrace(WorkbenchPollTraceEntry entry) async {
+    _pollTraceEntries.add(entry);
+    if (_pollTraceEntries.length > _maxPollTraceEntries) {
+      _pollTraceEntries.removeRange(
+          0, _pollTraceEntries.length - _maxPollTraceEntries);
+    }
+    final repository = _diagnosticsRepository;
+    if (repository == null) return;
+    try {
+      await repository.recordException(
+        message: entry.message,
+        severity: entry.isError ? 'error' : 'info',
+        path: entry.path,
+        method: 'GET',
+        conversationId: entry.conversationId,
+        runId: entry.runId,
+        metadata: entry.toMetadata(),
+      );
+    } catch (_) {
+      // Poll tracing must never interfere with the conversation polling loop.
+    }
+  }
 
   void _applyConversationStatusEvent(ConversationEvent event) {
     final current = _activeConversation;

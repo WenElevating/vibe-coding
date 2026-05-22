@@ -15,6 +15,7 @@ class DaemonDiagnosticsRepository implements DiagnosticsRepository {
   @override
   Future<String> recordException({
     required String message,
+    String severity = 'error',
     String? stack,
     String? path,
     String? method,
@@ -24,6 +25,7 @@ class DaemonDiagnosticsRepository implements DiagnosticsRepository {
   }) async {
     final trace = await _client.recordException(
       message: message,
+      severity: severity,
       stack: stack,
       path: path,
       method: method,

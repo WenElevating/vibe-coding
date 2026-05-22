@@ -135,6 +135,7 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   @override
   Future<String> recordException({
     required String message,
+    String severity = 'error',
     String? stack,
     String? path,
     String? method,

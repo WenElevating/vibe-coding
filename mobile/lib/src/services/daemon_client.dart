@@ -492,6 +492,7 @@ class DaemonClient
 
   Future<ExceptionTrace> recordException({
     required String message,
+    String severity = 'error',
     String? stack,
     String? path,
     String? method,
@@ -507,7 +508,7 @@ class DaemonClient
     );
     final response = await _post('/api/exceptions', <String, Object?>{
       'source': 'mobile',
-      'severity': 'error',
+      'severity': severity,
       'message': redacted.message,
       if (redacted.stack != null) 'stack': redacted.stack,
       if (redacted.path != null) 'path': redacted.path,

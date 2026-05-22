@@ -186,6 +186,7 @@ void main() {
     await client.recordException(
       message:
           'Authorization: Bearer secret-token at https://example.com/path?token=secret',
+      severity: 'info',
       stack: r'C:\Users\Alice\repo\main.dart api_key=secret-key',
       path: r'C:\Users\Alice\repo\main.dart',
       metadata: const <String, Object?>{
@@ -196,6 +197,7 @@ void main() {
     );
 
     expect(uploaded['message'], contains('Authorization: Bearer [REDACTED]'));
+    expect(uploaded['severity'], 'info');
     expect(uploaded['message'],
         contains('https://example.com/path?[REDACTED_QUERY]'));
     expect(uploaded['message'], isNot(contains('secret-token')));

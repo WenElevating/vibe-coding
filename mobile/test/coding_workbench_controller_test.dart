@@ -816,7 +816,33 @@ void main() {
 
     expect(traceId, 'trace_1');
     expect(repository.calls, <String>[
-      'boom|stack|/api/conversations|GET|conv_1|run_1|poll_events',
+      'boom|stack|/api/conversations|GET|conv_1|run_1|error|poll_events|null|null|null|null|null|null|null',
+    ]);
+  });
+
+  test('workbench view model records poll trace metadata', () async {
+    final repository = _FakeDiagnosticsRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      diagnosticsRepository: repository,
+    );
+
+    await viewModel.recordPollTrace(WorkbenchPollTraceEntry(
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      path: '/api/conversations/conv_1/events?afterSeq=7',
+      afterSeq: 7,
+      returnedCount: 3,
+      durationMs: 42,
+      cancelled: false,
+      changed: true,
+      terminalDrainPending: false,
+    ));
+
+    expect(viewModel.pollTraceEntries, hasLength(1));
+    expect(viewModel.pollTraceEntries.single.afterSeq, 7);
+    expect(repository.calls, <String>[
+      'pollConversationEvents: success|null|/api/conversations/conv_1/events?afterSeq=7|GET|conv_1|run_1|info|pollConversationEvents|7|3|42|false|true|false|null',
     ]);
   });
 
@@ -1025,6 +1051,7 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   @override
   Future<String> recordException({
     required String message,
+    String severity = 'error',
     String? stack,
     String? path,
     String? method,
@@ -1039,7 +1066,15 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
       method,
       conversationId,
       runId,
+      severity,
       metadata['operation'],
+      metadata['afterSeq'],
+      metadata['returnedCount'],
+      metadata['durationMs'],
+      metadata['cancelled'],
+      metadata['changed'],
+      metadata['terminalDrainPending'],
+      metadata['error'],
     ].join('|'));
     return 'trace_1';
   }
