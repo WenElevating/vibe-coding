@@ -88,7 +88,7 @@ class CodingSessionListPage extends StatelessWidget {
               _SessionStack(
                   children: currentItems
                       .map((item) => _SessionRunRow(
-                          run: item.run, onTap: () => onSelectItem(item)))
+                          item: item, onTap: () => onSelectItem(item)))
                       .toList(growable: false)),
             const SizedBox(height: 16),
             Padding(
@@ -199,13 +199,14 @@ class _EmptySessionStack extends StatelessWidget {
 }
 
 class _SessionRunRow extends StatelessWidget {
-  const _SessionRunRow({required this.run, required this.onTap});
-  final RunSummary run;
+  const _SessionRunRow({required this.item, required this.onTap});
+  final SessionItem item;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final run = item.run;
     final state = _sessionRunState(run.status, l10n);
     return InkWell(
         onTap: onTap,
@@ -236,7 +237,7 @@ class _SessionRunRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                    Text(_sessionRunTitle(run, l10n),
+                    Text(_sessionRunTitle(item, l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -305,7 +306,10 @@ _SessionRunVisualState _sessionRunState(String status, AppLocalizations l10n) {
       color: const Color(0xFFA0A0A0));
 }
 
-String _sessionRunTitle(RunSummary run, AppLocalizations l10n) {
+String _sessionRunTitle(SessionItem item, AppLocalizations l10n) {
+  final title = item.conversation?.title?.trim();
+  if (title != null && title.isNotEmpty) return title;
+  final run = item.run;
   if (run.cliSessionId != null && run.cliSessionId!.isNotEmpty) {
     return '${_toolDisplayName(run.tool)} ${l10n.sessionsSessionNoun} ${run.cliSessionId!.split('-').first}';
   }

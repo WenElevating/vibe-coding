@@ -97,6 +97,7 @@ class ConversationSummary {
     this.permissionSupport = const <String, Object?>{},
     this.cliSessionId,
     this.sessionBinding = 'unknown',
+    this.title,
     this.userMessageCount = 0,
     this.blockingItem,
     this.idleExpiresAt,
@@ -109,6 +110,7 @@ class ConversationSummary {
   final String status;
   final String? cliSessionId;
   final String sessionBinding;
+  final String? title;
   final int userMessageCount;
   final ConversationBlockingItem? blockingItem;
   final String? idleExpiresAt;
@@ -129,6 +131,7 @@ class ConversationSummary {
         status: json['status'] as String? ?? '',
         cliSessionId: json['cliSessionId'] as String?,
         sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
+        title: _optionalText(json['title']),
         userMessageCount: json['userMessageCount'] as int? ?? 0,
         blockingItem: json['blockingItem'] is Map<String, Object?>
             ? ConversationBlockingItem.fromJson(

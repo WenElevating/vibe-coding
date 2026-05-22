@@ -65,6 +65,34 @@ void main() {
     expect(calls, 2);
   });
 
+  test('listConversations parses stable conversation title', () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: FakeHttpClient((request) {
+        expect(request.url.path, '/api/conversations');
+        return jsonResponse(const <String, Object?>{
+          'conversations': <Object?>[
+            <String, Object?>{
+              'id': 'conv_1',
+              'workspaceId': 'workspace_1',
+              'adapter': 'codex',
+              'status': 'idle',
+              'title': 'Fix mobile title rendering',
+              'createdAt': '2026-05-22T00:00:00.000Z',
+              'updatedAt': '2026-05-22T00:00:01.000Z',
+              'capabilities': <String, Object?>{},
+            },
+          ],
+        });
+      }),
+    );
+
+    final conversations = await client.listConversations();
+
+    expect(conversations.single.title, 'Fix mobile title rendering');
+  });
+
   test('recordException returns daemon trace id', () async {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),

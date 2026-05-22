@@ -488,6 +488,29 @@ test('app SQLite store restores legacy user-message conversations as interrupted
   sqlite.close();
 });
 
+test('app SQLite store backfills conversation title from first user message', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-title-backfill-') });
+  sqlite.saveConversation({
+    id: 'conv_title_backfill', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'codex',
+    permissionMode: 'default', deviceId: 'device_1', status: 'idle', cliSessionId: 'thread_1',
+    sessionBinding: 'confirmed', userMessageCount: 0, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-08T00:00:00.000Z', updatedAt: '2026-05-08T00:00:01.000Z', capabilities: { resume: true }, handle: null
+  });
+  const events = new ConversationEventStore({ persistentStore: sqlite, now: () => new Date('2026-05-08T00:00:02.000Z') });
+  events.append('conv_title_backfill', 'user.message', { text: '  first line\nsecond line  ' });
+  events.append('conv_title_backfill', 'user.message', { text: 'newer message should not win' });
+
+  const loaded = sqlite.loadConversations()[0];
+  assert.equal(loaded.title, 'first line second line');
+  assert.equal(
+    sqlite.db.prepare('SELECT title FROM conversations WHERE id = ?').get('conv_title_backfill').title,
+    'first line second line'
+  );
+  sqlite.close();
+});
+
 test('conversation manager handles input and approval blocking states', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -803,6 +826,35 @@ test('PATCH conversation model event append failure keeps persisted model', asyn
   assert.equal(updated.model, 'gpt-5.5');
   assert.equal(manager.requireConversation(conversation.id, device).model, 'gpt-5.5');
   assert.equal(auditLog.list().some((record) => record.type === 'conversation.model_change_event_error'), true);
+});
+
+test('conversation manager titles from first user message and keeps it stable', async () => {
+  const sent = [];
+  const adapter = {
+    capabilities: { resume: true },
+    async startConversation() {
+      return {
+        async sendUserMessage(message) {
+          sent.push(message);
+        },
+        cancel() {},
+        dispose() {}
+      };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([['codex', adapter]])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  assert.equal(conversation.title, null);
+
+  const first = await manager.sendMessage(conversation.id, { text: '  first line\nsecond line  ' }, device);
+  const second = await manager.sendMessage(conversation.id, { text: 'newer message should not win' }, device);
+
+  assert.deepEqual(sent, ['first line\nsecond line', 'newer message should not win']);
+  assert.equal(first.title, 'first line second line');
+  assert.equal(second.title, 'first line second line');
+  assert.equal(manager.getConversation(conversation.id, device).title, 'first line second line');
 });
 
 test('conversation model update and send locks reject crossing operations', async () => {

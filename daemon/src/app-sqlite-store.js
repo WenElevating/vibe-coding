@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { deriveConversationTitle } = require('./conversation-title');
 
 const LIVE_STATUSES = new Set(['running', 'waiting_input', 'waiting_approval']);
 
@@ -34,6 +35,7 @@ class AppSqliteStore {
         status TEXT NOT NULL,
         cli_session_id TEXT,
         session_binding TEXT NOT NULL DEFAULT 'unknown',
+        title TEXT,
         user_message_count INTEGER NOT NULL DEFAULT 0,
         blocking_item_json TEXT,
         idle_expires_at TEXT,
@@ -121,6 +123,7 @@ class AppSqliteStore {
         ON exceptions(device_id, created_at DESC);
     `);
     ensureColumn(this.db, 'conversations', 'session_binding', "TEXT NOT NULL DEFAULT 'unknown'");
+    ensureColumn(this.db, 'conversations', 'title', 'TEXT');
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn(this.db, 'conversations', 'model', 'TEXT');
     this.ensureWorkspaceDeleteSchema();
@@ -193,10 +196,10 @@ class AppSqliteStore {
     this.db.prepare(`
       INSERT INTO conversations (
         id, workspace_id, workspace_path, adapter, model, permission_mode, device_id,
-        status, cli_session_id, session_binding, user_message_count,
+        status, cli_session_id, session_binding, title, user_message_count,
         blocking_item_json, idle_expires_at,
         created_at, updated_at, capabilities_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         workspace_path = excluded.workspace_path,
@@ -207,6 +210,7 @@ class AppSqliteStore {
         status = excluded.status,
         cli_session_id = excluded.cli_session_id,
         session_binding = excluded.session_binding,
+        title = excluded.title,
         user_message_count = excluded.user_message_count,
         blocking_item_json = excluded.blocking_item_json,
         idle_expires_at = excluded.idle_expires_at,
@@ -224,6 +228,7 @@ class AppSqliteStore {
       row.status,
       row.cli_session_id,
       row.session_binding,
+      row.title,
       row.user_message_count,
       row.blocking_item_json,
       row.idle_expires_at,
@@ -235,6 +240,7 @@ class AppSqliteStore {
 
   loadConversations() {
     const countsByConversation = new Map();
+    const titlesByConversation = new Map();
     for (const row of this.db.prepare(`
       SELECT conversation_id, COUNT(*) AS msg_count
       FROM conversation_events
@@ -243,15 +249,38 @@ class AppSqliteStore {
     `).all()) {
       countsByConversation.set(row.conversation_id, Number(row.msg_count));
     }
+    for (const row of this.db.prepare(`
+      SELECT e.conversation_id, e.payload_json
+      FROM conversation_events e
+      JOIN (
+        SELECT conversation_id, MIN(seq) AS first_seq
+        FROM conversation_events
+        WHERE type = 'user.message'
+        GROUP BY conversation_id
+      ) first_message
+        ON first_message.conversation_id = e.conversation_id
+       AND first_message.first_seq = e.seq
+      WHERE e.type = 'user.message'
+    `).all()) {
+      const payload = parseJson(row.payload_json, {});
+      const title = deriveConversationTitle(payload);
+      if (title) titlesByConversation.set(row.conversation_id, title);
+    }
     return this.db.prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
       .all()
       .map((row) => {
         const conversation = deserializeConversation(row);
-        return this.normalizeLoadedConversation(conversation, countsByConversation.get(conversation.id) || 0);
+        const normalized = this.normalizeLoadedConversation(
+          conversation,
+          countsByConversation.get(conversation.id) || 0,
+          titlesByConversation.get(conversation.id)
+        );
+        if (!row.title && normalized.title) this.saveConversation(normalized);
+        return normalized;
       });
   }
 
-  normalizeLoadedConversation(conversation, precomputedMessageCount) {
+  normalizeLoadedConversation(conversation, precomputedMessageCount, firstMessageTitle) {
     const userMessageCount = precomputedMessageCount !== undefined
       ? precomputedMessageCount
       : Number(this.db.prepare(`
@@ -266,6 +295,9 @@ class AppSqliteStore {
       conversation.sessionBinding = 'unknown';
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
+    }
+    if (!conversation.title && firstMessageTitle) {
+      conversation.title = firstMessageTitle;
     }
     return conversation;
   }
@@ -575,6 +607,7 @@ function serializeConversation(conversation) {
     status: conversation.status,
     cli_session_id: conversation.cliSessionId || null,
     session_binding: conversation.sessionBinding || (conversation.cliSessionId ? 'confirmed' : 'unknown'),
+    title: conversation.title || null,
     user_message_count: Number(conversation.userMessageCount || 0),
     blocking_item_json: conversation.blockingItem ? JSON.stringify(conversation.blockingItem) : null,
     idle_expires_at: conversation.idleExpiresAt || null,
@@ -597,6 +630,7 @@ function deserializeConversation(row) {
     status: wasLive ? 'interrupted' : row.status,
     cliSessionId: row.cli_session_id || null,
     sessionBinding: row.session_binding || (row.cli_session_id ? 'confirmed' : 'unknown'),
+    title: row.title || null,
     userMessageCount: Number(row.user_message_count || 0),
     blockingItem: wasLive ? null : parseJson(row.blocking_item_json, null),
     idleExpiresAt: wasLive ? null : row.idle_expires_at,

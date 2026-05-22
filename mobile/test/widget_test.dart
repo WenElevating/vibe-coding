@@ -542,6 +542,7 @@ ConversationSummary _conversationSummary({
   ConversationCapabilities? capabilities,
   ConversationBlockingItem? blockingItem,
   String? model,
+  String? title,
 }) =>
     ConversationSummary(
       id: id,
@@ -549,6 +550,7 @@ ConversationSummary _conversationSummary({
       adapter: 'codex',
       model: model,
       status: status,
+      title: title,
       cliSessionId: cliSessionId,
       sessionBinding: sessionBinding,
       userMessageCount: userMessageCount,
@@ -1786,6 +1788,63 @@ void main() {
 
     expect(find.textContaining('current-1'), findsWidgets);
     expect(find.textContaining('other-1'), findsNothing);
+  });
+
+  testWidgets('session list prefers stable conversation title over uuid labels',
+      (WidgetTester tester) async {
+    const workspace = WorkspaceSummary(
+        id: 'workspace_1',
+        name: 'Current Project',
+        path: r'D:\AiProject\vibe-coding');
+    final conversation = _conversationSummary(
+      id: 'conv_019e4d98',
+      workspaceId: workspace.id,
+      status: 'interrupted',
+      cliSessionId: '019e4d98-348d-7840-b8ef-9b2dda2c1235',
+      sessionBinding: 'confirmed',
+      userMessageCount: 1,
+      title: 'Fix mobile title rendering',
+    );
+    final data = _testSnapshot(conversations: <ConversationSummary>[
+      conversation,
+    ]);
+
+    await tester.pumpWidget(MaterialApp(
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+        backgroundColor: theme.bg,
+        body: CodingSessionListPage(
+          data: data,
+          items: <SessionItem>[
+            SessionItem(
+              run: const RunSummary(
+                id: 'conv_019e4d98',
+                tool: 'codex',
+                workspaceId: 'workspace_1',
+                status: 'interrupted',
+                cliSessionId: '019e4d98-348d-7840-b8ef-9b2dda2c1235',
+              ),
+              conversation: conversation,
+            ),
+          ],
+          currentWorkspace: workspace,
+          onNewSession: () {},
+          onSelectItem: (_) {},
+          onBackToWorkspaces: () {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fix mobile title rendering'), findsOneWidget);
+    expect(find.text('Codex 会话 019e4d98'), findsNothing);
   });
 
   testWidgets('missing selected workspace falls back to workspace list',

@@ -93,6 +93,7 @@ ConversationSummary applyCancelledConversationSummary(
     id: conversation.id,
     workspaceId: conversation.workspaceId,
     adapter: conversation.adapter,
+    title: conversation.title,
     status: conversation.status,
     capabilities: conversation.capabilities,
     createdAt: conversation.createdAt,

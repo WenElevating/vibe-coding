@@ -19,6 +19,7 @@ const { AttachmentScratchStore } = require('./attachment-scratch-store');
 const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = require('./attachment-hashes');
 const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
 const { textAttachmentWrapper } = require('./attachment-validation');
+const { deriveConversationTitle } = require('./conversation-title');
 
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
 
@@ -103,6 +104,7 @@ class ConversationManager {
       status: conversationStatuses.IDLE,
       cliSessionId: null,
       sessionBinding: conversationSessionBindings.UNKNOWN,
+      title: null,
       userMessageCount: 0,
       blockingItem: null,
       idleExpiresAt: addMs(this.now(), this.idleTtlMs).toISOString(),
@@ -308,12 +310,19 @@ class ConversationManager {
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
       conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
+      const attachmentMetadata = hasAttachments ? committedAttachmentMetadata(files) : [];
+      if (!conversation.title) {
+        conversation.title = deriveConversationTitle({
+          text: message.text,
+          attachments: attachmentMetadata
+        });
+      }
       this.touch(conversation);
       this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, {
         text: message.text,
         ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
         ...(payloadHash ? { payloadHash } : {}),
-        ...(hasAttachments ? { attachments: committedAttachmentMetadata(files) } : {})
+        ...(hasAttachments ? { attachments: attachmentMetadata } : {})
       });
       if (hasAttachments) rememberMessageIdempotency(conversation.messageIdempotency, message.clientMessageId, payloadHash, this.messageIdempotencyMaxEntries);
       committed = true;
@@ -1067,6 +1076,7 @@ function snapshotPreCommitState(conversation) {
     status: conversation.status,
     blockingItem: conversation.blockingItem,
     idleExpiresAt: conversation.idleExpiresAt,
+    title: conversation.title,
     userMessageCount: conversation.userMessageCount,
     updatedAt: conversation.updatedAt
   };
@@ -1076,6 +1086,7 @@ function restorePreCommitState(conversation, snapshot) {
   conversation.status = snapshot.status;
   conversation.blockingItem = snapshot.blockingItem;
   conversation.idleExpiresAt = snapshot.idleExpiresAt;
+  conversation.title = snapshot.title;
   conversation.userMessageCount = snapshot.userMessageCount;
   conversation.updatedAt = snapshot.updatedAt;
 }
@@ -1110,6 +1121,7 @@ function publicConversation(conversation) {
     status: conversation.status,
     cliSessionId: conversation.cliSessionId || null,
     sessionBinding: conversation.sessionBinding || (conversation.cliSessionId ? conversationSessionBindings.CONFIRMED : conversationSessionBindings.UNKNOWN),
+    title: conversation.title || null,
     userMessageCount: Number(conversation.userMessageCount || 0),
     blockingItem: conversation.blockingItem || null,
     idleExpiresAt: conversation.idleExpiresAt || null,

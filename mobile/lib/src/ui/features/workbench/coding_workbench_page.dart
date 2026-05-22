@@ -1243,13 +1243,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       );
 
   String _conversationTitle(AppLocalizations l10n) {
+    final persistedTitle = _activeConversation?.title?.trim();
+    if (persistedTitle != null && persistedTitle.isNotEmpty) {
+      if (persistedTitle.length <= 18) return persistedTitle;
+      return '${persistedTitle.substring(0, 18)}…';
+    }
     final userMessage = _messages.where((message) => message.role == 'user');
     if (userMessage.isEmpty) return l10n.workbenchNewSessionTitle;
-    final last = userMessage.last;
-    final text = last.body.trim().isNotEmpty
-        ? last.body.trim()
-        : last.attachments.isNotEmpty
-            ? last.attachments.first.name
+    final first = userMessage.first;
+    final text = first.body.trim().isNotEmpty
+        ? first.body.trim()
+        : first.attachments.isNotEmpty
+            ? first.attachments.first.name
             : '';
     if (text.isEmpty) return l10n.workbenchNewSessionTitle;
     if (text.length <= 18) return text;

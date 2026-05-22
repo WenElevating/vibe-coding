@@ -92,6 +92,7 @@ ConversationSummary copyConversationStatus(
       workspaceId: conversation.workspaceId,
       adapter: conversation.adapter,
       model: conversation.model,
+      title: conversation.title,
       status: status,
       capabilities: conversation.capabilities,
       createdAt: conversation.createdAt,

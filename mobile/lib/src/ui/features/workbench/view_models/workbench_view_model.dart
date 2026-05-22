@@ -215,6 +215,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     _activeConversation = conversation;
     _activeConversationId = conversation.id;
     _activeRunId = runId ?? _activeRunId ?? conversation.id;
+    if (_optimisticSessions.containsKey(conversation.id)) {
+      _optimisticSessions[conversation.id] = SessionItem(
+        run: runSummaryFromConversation(conversation),
+        conversation: conversation,
+      );
+    }
     if (conversationChanged) {
       _resetConversationModelUpdateState();
     }
@@ -1375,6 +1381,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         workspaceId: conversation.workspaceId,
         adapter: conversation.adapter,
         model: conversation.model,
+        title: conversation.title,
         status: status,
         capabilities: conversation.capabilities,
         createdAt: conversation.createdAt,
