@@ -435,6 +435,52 @@ replace in-memory-only localPath preview maps with AttachmentPreviewCache
 The UI can still use a local file image provider for cached previews, but the
 file path must come from the mobile cache service, not from daemon metadata.
 
+## Cache Record State Machine
+
+`AttachmentPreviewCacheRecord.state` has three durable values:
+
+```text
+pending
+ready
+failed
+```
+
+`orphanedAt` is not a fourth state. It is a lifecycle marker that makes a record
+ineligible for historical binding and moves it ahead of normal ready records for
+cleanup.
+
+Legal transitions:
+
+| From | To | Trigger | Required action |
+| --- | --- | --- | --- |
+| none | pending | user starts sending an image attachment and the cache service computes or starts computing its identity | write a pending record keyed by conversationId + clientMessageId + content hash; do this before committed binding can run |
+| pending | ready | thumbnail generation succeeds before or after the daemon commits the message | write the thumbnail file, store cachePath/dimensions, clear failureCode, keep clientMessageId and content hash |
+| pending | failed | identity succeeds but thumbnail generation fails on the send-preparation attempt | store failureCode and lastAttemptedAt; do not block send |
+| pending | pending + committedAt | daemon commits the user.message before thumbnail generation finishes | bind attachmentId/content hash through bindCommitted; let the cache service finish the pending generation |
+| pending | pending + orphanedAt | draft is abandoned, attachments change enough to create a new clientMessageId, or app restarts before commit | mark orphanedAt; exclude from future historical binding |
+| failed | ready | the one allowed background retry succeeds after the record has committed attachment identity | write the thumbnail file, clear failureCode, keep committedAt |
+| failed | failed | background retry fails | update failureCode/lastAttemptedAt; do not retry again until the user changes the attachment or the record is purged |
+| failed | failed + orphanedAt | draft is abandoned before a committed attachment identity exists | mark orphanedAt; exclude from future historical binding |
+| ready | ready + committedAt | bindCommitted supplies the attachmentId for a thumbnail that was generated before commit | attach the committed identity without regenerating the thumbnail |
+| ready | evicted | LRU or orphan-first cleanup removes the thumbnail file and index record | future UI resolve returns cache miss and renders the normal attachment card |
+| failed | evicted | cleanup removes a failed or orphaned failed record | no user-visible change |
+| pending + orphanedAt | evicted | orphan cleanup runs | no historical binding is allowed before deletion |
+
+Forbidden transitions:
+
+```text
+pending/failed + orphanedAt -> ready historical preview
+ready -> failed because eviction deleted the file
+bindCommitted -> thumbnail generation side effect
+attachmentIndex-only pending -> committed binding
+new clientMessageId -> bind old pending record to history
+```
+
+If a ready record's file disappears, the next resolve treats it as a cache miss
+and removes or ignores the stale record. That is not a `ready -> failed`
+transition because failure means generation failed, not eviction or external
+file removal.
+
 ## Testing
 
 Daemon regression coverage:
