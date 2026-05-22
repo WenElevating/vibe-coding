@@ -109,13 +109,6 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         const afterSeq = Number(url.searchParams.get('afterSeq') || 0);
         return json(res, 200, { events: conversations.listEvents(conversationEvents[1], afterSeq, device) });
       }
-      const conversationAttachmentPreview = url.pathname.match(/^\/api\/conversations\/([^/]+)\/attachments\/([^/]+)\/preview$/);
-      if (method === 'GET' && conversationAttachmentPreview) {
-        return streamAttachmentPreview(
-          res,
-          await conversations.getAttachmentPreview(conversationAttachmentPreview[1], conversationAttachmentPreview[2], device)
-        );
-      }
       const conversationMessages = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (method === 'POST' && conversationMessages) {
         const contentType = String(req.headers['content-type'] || '').toLowerCase();
@@ -213,23 +206,6 @@ function invokeTemplate(templateId, body, context) {
   const run = context.runs.createRun(payload, context.device);
   context.eventStore.append(run.id, eventTypes.COMMAND_TEMPLATE_STARTED, { templateId, label: template.label });
   return { templateId, run };
-}
-
-function streamAttachmentPreview(res, preview) {
-  res.writeHead(200, {
-    'content-type': preview.mimeType || 'application/octet-stream',
-    'content-length': preview.sizeBytes,
-    'cache-control': 'private, max-age=86400',
-    'x-content-type-options': 'nosniff',
-    'content-disposition': `inline; filename="${safeHeaderFileName(preview.name)}"`
-  });
-  const stream = preview.stream();
-  stream.on('error', () => res.destroy());
-  stream.pipe(res);
-}
-
-function safeHeaderFileName(value) {
-  return String(value || 'attachment').replace(/["\\\r\n]/g, '_');
 }
 
 async function resolveAll(items) { return Promise.all(items.map((item) => Promise.resolve(item))); }

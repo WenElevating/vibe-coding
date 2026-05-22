@@ -16,7 +16,6 @@ const {
 } = require('./conversation-protocol');
 const { readMultipartConversationMessage } = require('./multipart-message-reader');
 const { AttachmentScratchStore } = require('./attachment-scratch-store');
-const { AttachmentPreviewStore } = require('./attachment-preview-store');
 const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = require('./attachment-hashes');
 const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
 const { textAttachmentWrapper } = require('./attachment-validation');
@@ -25,7 +24,7 @@ const { deriveConversationTitle } = require('./conversation-title');
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
 
 class ConversationManager {
-  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null, attachmentPreviewStore = null }) {
+  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null }) {
     this.workspaces = workspaces;
     this.eventStore = eventStore;
     this.auditLog = auditLog;
@@ -34,7 +33,6 @@ class ConversationManager {
     this.idleTtlMs = idleTtlMs;
     this.now = now;
     this.attachmentScratchStore = attachmentScratchStore || new AttachmentScratchStore({ root: path.join(os.tmpdir(), 'vibe-coding-attachment-scratch') });
-    this.attachmentPreviewStore = attachmentPreviewStore || new AttachmentPreviewStore({ root: path.join(os.tmpdir(), 'vibe-coding-attachment-previews') });
     this.multipartDeviceLocks = new Map();
     this.multipartActiveCount = 0;
     this.multipartMaxPerDaemon = 4;
@@ -312,7 +310,7 @@ class ConversationManager {
       conversation.blockingItem = null;
       conversation.idleExpiresAt = null;
       conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
-      const attachmentMetadata = hasAttachments ? await this.committedAttachmentMetadata(conversation, files) : [];
+      const attachmentMetadata = hasAttachments ? this.committedAttachmentMetadata(conversation, files) : [];
       if (!conversation.title) {
         conversation.title = deriveConversationTitle({
           text: message.text,
@@ -427,30 +425,8 @@ class ConversationManager {
     await this.cleanupAttachmentScratch(conversation, scratch);
   }
 
-  async committedAttachmentMetadata(conversation, files) {
-    const metadata = committedAttachmentMetadata(files);
-    for (let index = 0; index < metadata.length; index += 1) {
-      const attachment = metadata[index];
-      const file = files[index];
-      if (attachment.kind !== 'image' || !file?.scratchPath) continue;
-      const previewPath = await this.attachmentPreviewStore.saveImagePreview({
-        conversationId: conversation.id,
-        attachment,
-        sourcePath: file.scratchPath
-      });
-      if (previewPath) metadata[index] = { ...attachment, previewPath };
-    }
-    return metadata;
-  }
-
-  async getAttachmentPreview(conversationId, attachmentId, device) {
-    const conversation = this.requireConversation(conversationId, device);
-    const preview = await this.attachmentPreviewStore.getImagePreview({
-      conversationId: conversation.id,
-      attachmentId
-    });
-    if (!preview) throw notFound('attachment preview not found');
-    return preview;
+  committedAttachmentMetadata(_conversation, files) {
+    return committedAttachmentMetadata(files);
   }
 
   async cleanupAttachmentFile(conversation, file) {

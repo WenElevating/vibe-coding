@@ -3002,7 +3002,7 @@ test('Codex event mapper normalizes thread, assistant, tool, file changes, decli
       id: 'item_96',
       type: 'file_change',
       changes: [
-        { path: 'D:\\AIProject\\vibe-coding\\daemon\\src\\attachment-preview-store.js', kind: 'add' }
+        { path: 'D:\\AIProject\\vibe-coding\\daemon\\src\\conversation-notes.js', kind: 'add' }
       ],
       status: 'completed'
     }
@@ -3010,8 +3010,8 @@ test('Codex event mapper normalizes thread, assistant, tool, file changes, decli
   assert.equal(fileChange.type, 'system.notice');
   assert.equal(fileChange.noticeKind, 'codex_file_change');
   assert.equal(fileChange.visible, true);
-  assert.equal(fileChange.changes[0].path, 'daemon/src/attachment-preview-store.js');
-  assert.match(fileChange.text, /added daemon\/src\/attachment-preview-store\.js/);
+  assert.equal(fileChange.changes[0].path, 'daemon/src/conversation-notes.js');
+  assert.match(fileChange.text, /added daemon\/src\/conversation-notes\.js/);
   const declined = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'write', aggregated_output: 'rejected: blocked by policy', status: 'declined' } });
   assert.equal(declined.type, 'system.notice');
   assert.equal(declined.noticeKind, 'codex_policy_blocked');
@@ -5265,20 +5265,20 @@ test('multipart conversation send commits attachment metadata without raw scratc
   }
 });
 
-test('multipart conversation image preview survives turn scratch cleanup', async () => {
+test('multipart conversation image attachments commit metadata without preview storage', async () => {
   const adapter = codexNativeImageAttachmentAdapter();
   const { app, port, token, conversationId } = await createAttachmentConversationApp({
     adapter,
-    dbPrefix: 'app-db-attachments-image-preview-'
+    dbPrefix: 'app-db-attachments-image-metadata-'
   });
   try {
-    const boundary = '----attachments-image-preview';
+    const boundary = '----attachments-image-metadata';
     const imageBytes = minimalPngBytes({ width: 1, height: 1 });
     const body = multipartBody({
       boundary,
       payload: {
         text: 'inspect image',
-        clientMessageId: 'client_image_preview',
+        clientMessageId: 'client_image_metadata',
         capabilityVersion: attachmentImageCapabilityVersion(),
         attachments: [{ field: 'files[0]', name: 'preview.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
       },
@@ -5292,7 +5292,13 @@ test('multipart conversation image preview survives turn scratch cleanup', async
     const internal = app.conversations.conversations.get(conversationId);
     const userMessage = app.conversationEventStore.list(conversationId, 0).find((event) => event.type === 'user.message');
     const attachment = userMessage.attachments[0];
-    assert.match(attachment.previewPath, new RegExp(`^/api/conversations/${conversationId}/attachments/${attachment.id}/preview$`));
+    assert.equal(attachment.name, 'preview.png');
+    assert.equal(attachment.kind, 'image');
+    assert.equal(attachment.mimeType, 'image/png');
+    assert.equal(attachment.handling, 'native');
+    assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'previewPath'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'previewUrl'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'previewHeaders'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'scratchPath'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(attachment, 'contentSha256'), false);
 
@@ -5300,10 +5306,9 @@ test('multipart conversation image preview survives turn scratch cleanup', async
     await waitForAttachmentScratchCleanup(app);
     assert.deepEqual(attachmentScratchEntries(app), []);
 
-    const preview = await requestRaw(port, 'GET', attachment.previewPath, null, token);
-    assert.equal(preview.status, 200);
-    assert.equal(preview.headers['content-type'], 'image/png');
-    assert.deepEqual(preview.body, imageBytes);
+    const previewRoute = `/api/conversations/${conversationId}/attachments/${attachment.id}/preview`;
+    const preview = await requestRaw(port, 'GET', previewRoute, null, token);
+    assert.equal(preview.status, 404);
   } finally {
     await closeAttachmentConversationApp(app);
   }
