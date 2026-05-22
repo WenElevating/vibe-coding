@@ -468,8 +468,11 @@ void main() {
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
       attachmentPreviewCache: cache,
     );
-    viewModel.updateActiveConversation(
-        _conversation(id: 'conv_1', workspaceId: _workspace.id));
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'idle',
+    ));
 
     final changed = await viewModel.applyConversationEventsAsync(
       <ConversationEvent>[

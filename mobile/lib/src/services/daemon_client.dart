@@ -880,12 +880,6 @@ List<Object?> _readList(Map<String, Object?> json, String key) {
   });
 }
 
-String? _nonEmptyString(Object? value) {
-  if (value is! String) return null;
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
-
 class DaemonClientException implements Exception {
   const DaemonClientException(this.statusCode, this.body);
   final int statusCode;
