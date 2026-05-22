@@ -1250,8 +1250,11 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                         child: Row(children: [
                           Expanded(
                               child: Text(_visibleText,
-                                  maxLines: _large && !_expanded ? 8 : 2,
-                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: _large && !_expanded ? 8 : null,
+                                  overflow: _large && !_expanded
+                                      ? TextOverflow.ellipsis
+                                      : TextOverflow.visible,
+                                  softWrap: true,
                                   style: const TextStyle(
                                       color: theme.muted,
                                       fontSize: 12,
@@ -1472,14 +1475,13 @@ class _CommandDetailSheet extends StatelessWidget {
                             controller: scrollController,
                             padding: const EdgeInsets.all(14),
                             scrollDirection: Axis.vertical,
-                            child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SelectableText(text,
-                                    style: const TextStyle(
-                                        color: theme.muted,
-                                        fontSize: 12.5,
-                                        fontFamily: 'Consolas',
-                                        height: 1.45)))))))
+                            child: SelectableText(text,
+                                textWidthBasis: TextWidthBasis.parent,
+                                style: const TextStyle(
+                                    color: theme.muted,
+                                    fontSize: 12.5,
+                                    fontFamily: 'Consolas',
+                                    height: 1.45))))))
           ])));
 }
 

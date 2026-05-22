@@ -2263,6 +2263,57 @@ void main() {
     expect(find.text('hello from intro'), findsWidgets);
   });
 
+  testWidgets(
+      'command detail wraps long command text instead of horizontal scrolling',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const longCommand =
+        r'"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -Command "Get-ChildItem D:\AIProject\vibe-coding\mobile\lib\src\ui\features\workbench\workbench_event_cards.dart"';
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                        'command', 'command_execution', longCommand,
+                        completed: true,
+                        duration: Duration(milliseconds: 2550)),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is Text &&
+            widget.data == longCommand &&
+            widget.maxLines == null &&
+            widget.overflow != TextOverflow.ellipsis),
+        findsOneWidget);
+
+    await tester.tap(find.text(longCommand).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('命令详情'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is SingleChildScrollView &&
+            widget.scrollDirection == Axis.horizontal),
+        findsNothing);
+  });
+
   testWidgets('large command output renders capped content with show more',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildLargeOutputCommandCardPreview());
