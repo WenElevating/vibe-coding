@@ -420,6 +420,79 @@ class _LazyConversationRepository implements ConversationRepository {
       );
 }
 
+class _NewSessionConversationRepository implements ConversationRepository {
+  final sendCompleter = Completer<ConversationSummary>();
+
+  String? sentText;
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> cancelConversation(String conversationId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+    String? model,
+  }) async =>
+      _conversationSummary(
+        id: 'conv_new_running',
+        workspaceId: workspaceId,
+        status: 'idle',
+        sessionBinding: 'pending',
+        userMessageCount: 0,
+      );
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) async =>
+      const <ConversationEvent>[];
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      const <ConversationSummary>[];
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> sendConversationMessage(
+    String conversationId,
+    ConversationMessageSendRequest request,
+  ) {
+    sentText = request.text;
+    return sendCompleter.future;
+  }
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async =>
+      _conversationSummary(
+        id: conversationId,
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        model: model,
+      );
+}
+
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
@@ -1438,6 +1511,187 @@ void main() {
 
     expect(find.text('latest visible sentinel'), findsOneWidget);
     expect(find.text('message 0'), findsNothing);
+  });
+
+  testWidgets('opening short existing conversation keeps transcript near top',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final messages = <ConversationEvent>[
+      ConversationEvent.fromJson(<String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_short',
+        'type': 'user.message',
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'text': 'short opening prompt',
+      }),
+      ConversationEvent.fromJson(<String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_short',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'text': 'short assistant response',
+      }),
+    ];
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LazyConversationRepository(messages);
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_short',
+              workspaceId: 'workspace_1',
+              status: 'completed',
+              sessionBinding: 'confirmed',
+              userMessageCount: messages.length,
+              title: 'Short regression conversation',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Short regression conversation'));
+    await tester.pumpAndSettle();
+
+    final transcriptScrollable = find.descendant(
+      of: find.byKey(const ValueKey('coding-workbench-detail')),
+      matching: find.byType(Scrollable),
+    );
+    expect(transcriptScrollable, findsOneWidget);
+    final scrollTop = tester.getTopLeft(transcriptScrollable).dy;
+    final scrollBottom = tester.getBottomLeft(transcriptScrollable).dy;
+    final promptTop = tester.getTopLeft(find.text('short opening prompt')).dy;
+
+    expect(promptTop, lessThan(scrollTop + (scrollBottom - scrollTop) * .45));
+  });
+
+  testWidgets('new conversation keeps short transcript near top while running',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final conversationRepository = _NewSessionConversationRepository();
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Session'));
+    await tester.pumpAndSettle();
+
+    const prompt = 'Who are you?';
+    await tester.enterText(find.byType(TextField), prompt);
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(conversationRepository.sentText, prompt);
+    expect(find.text(prompt), findsOneWidget);
+    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
+
+    final transcriptScrollable = find.descendant(
+      of: find.byKey(const ValueKey('coding-workbench-detail')),
+      matching: find.byType(Scrollable),
+    );
+    expect(transcriptScrollable, findsOneWidget);
+    final scrollTop = tester.getTopLeft(transcriptScrollable).dy;
+    final scrollBottom = tester.getBottomLeft(transcriptScrollable).dy;
+    final promptTop = tester.getTopLeft(find.text(prompt)).dy;
+
+    expect(promptTop, lessThan(scrollTop + (scrollBottom - scrollTop) * .45));
+
+    conversationRepository.sendCompleter.complete(_conversationSummary(
+      id: 'conv_new_running',
+      workspaceId: 'workspace_1',
+      status: 'completed',
+      sessionBinding: 'confirmed',
+      userMessageCount: 1,
+    ));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 
   testWidgets('connected app preloads adapters before new session',

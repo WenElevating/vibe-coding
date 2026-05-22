@@ -76,6 +76,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String _currentRoute = _routeWorkspaces;
   bool? _lastReportedListOpen = true;
   late int _handledOpenSessionListRequest;
+  bool _bottomAnchorTranscript = false;
+  bool _bottomAnchorTranscriptUnderflow = false;
 
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems(
       widget.data.conversations, widget.data.runs);
@@ -93,6 +95,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool get _sending => _workbenchViewModel.sending;
   String? get _error => _workbenchViewModel.error;
   String? get _errorTraceId => _workbenchViewModel.errorTraceId;
+  bool get _useReverseTranscript =>
+      _bottomAnchorTranscript && !_bottomAnchorTranscriptUnderflow;
 
   Future<bool> handleSystemBack() async {
     final navigator = _navigatorKey.currentState;
@@ -157,14 +161,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _routeConversation, (route) => route.settings.name == _routeSessions);
   }
 
-  void _resetConversationState() {
+  void _resetConversationState({bool bottomAnchorTranscript = false}) {
+    _bottomAnchorTranscript = bottomAnchorTranscript;
+    _bottomAnchorTranscriptUnderflow = false;
     _workbenchViewModel.resetConversationDisplay(notify: false);
   }
 
   Future<void> _openSession(SessionItem item) async {
     _poller?.cancel();
     setState(() {
-      _resetConversationState();
+      _resetConversationState(bottomAnchorTranscript: item.conversation != null);
       _workbenchViewModel.openSession(item, notify: false);
       _workbenchViewModel.clearOperationError(notify: false);
     });
@@ -624,7 +630,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void _scrollToBottom({bool jump = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
-      final target = _scrollController.position.minScrollExtent;
+      final target = _useReverseTranscript
+          ? _scrollController.position.minScrollExtent
+          : _scrollController.position.maxScrollExtent;
       if (jump) {
         _scrollController.jumpTo(target);
       } else {
@@ -634,6 +642,25 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           curve: Curves.easeOutCubic,
         );
       }
+    });
+  }
+
+  void _syncTranscriptUnderflow() {
+    if (!_bottomAnchorTranscript) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_bottomAnchorTranscript ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      final position = _scrollController.position;
+      final underflows =
+          position.maxScrollExtent <= position.minScrollExtent + .5;
+      if (_bottomAnchorTranscriptUnderflow == underflows) return;
+      final resumedReverseRendering =
+          _bottomAnchorTranscriptUnderflow && !underflows;
+      setState(() => _bottomAnchorTranscriptUnderflow = underflows);
+      if (resumedReverseRendering) _scrollToBottom(jump: true);
     });
   }
 
@@ -1151,17 +1178,23 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final hasStatus = _activeRunId != null;
     final hasError = _error != null;
     final hasPending = _isBusyCli;
+    final useReverseTranscript = _useReverseTranscript;
     final itemCount = (hasStatus ? 1 : 0) +
         _messages.length +
         (hasError ? 1 : 0) +
         (hasPending ? 1 : 0);
+    _syncTranscriptUnderflow();
     return ListView.builder(
+      key: ValueKey(
+        'workbench-message-list-${useReverseTranscript ? 'reverse' : 'normal'}',
+      ),
       controller: _scrollController,
-      reverse: true,
+      reverse: useReverseTranscript,
       padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
       itemCount: itemCount,
       itemBuilder: (context, index) {
-        final logicalIndex = itemCount - 1 - index;
+        final logicalIndex =
+            useReverseTranscript ? itemCount - 1 - index : index;
         var messageIndex = logicalIndex;
         if (hasStatus) {
           if (logicalIndex == 0) {
