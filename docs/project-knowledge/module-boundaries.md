@@ -43,7 +43,7 @@
 
 ### Attachment previews
 
-- Status: accepted; implementation pending
+- Status: accepted; implemented
 - Decision: historical image previews are mobile-owned local cache, not daemon
   media storage.
 - Daemon owns attachment metadata and send-time scratch only. It must not keep

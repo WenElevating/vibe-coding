@@ -1,6 +1,6 @@
 # Decision: Attachment Previews Are Mobile-Owned Cache
 
-- Status: accepted; implementation pending
+- Status: accepted; implemented
 - Date: 2026-05-22
 - Last verified: 2026-05-22
 
@@ -69,7 +69,7 @@ cleaned before normal ready historical previews.
 
 ## Verification
 
-Implementation should verify:
+Implementation verification:
 
 ```powershell
 node scripts/run-tests.js
@@ -85,6 +85,10 @@ flutter test
 
 If Flutter commands time out in Codex, stop after the first timeout and provide
 the exact mirror-configured command for manual verification.
+
+As of the initial implementation, daemon regression tests and JavaScript lint
+passed in Codex. Mobile Flutter/Dart verification commands timed out in the
+Codex environment and still require manual mirror-configured verification.
 
 ## Re-Evaluate When
 
