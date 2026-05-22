@@ -11,12 +11,17 @@ This repository contains a LAN/mobile control surface for AI CLI coding tools.
 - `data/`: Runtime SQLite data such as `data/conversations/conversations.sqlite` and should not be committed.
 - `.omx/`: Local agent/runtime artifacts; treat as generated and exclude from commits.
 
+## Project Knowledge
+
+For non-trivial work, read `docs/project-knowledge/index.md` and the linked task-specific slice before deep exploration. Update project knowledge only when the task creates durable architecture, debugging, testing, decision, risk, or environment lessons.
+
 ## Build, Test, and Development Commands
 
 Run commands from the repository root unless noted.
 
 - `npm test`: Runs daemon/API/adapter regression tests via `scripts/run-tests.js`.
 - `npm run lint`: Runs JavaScript static checks with `scripts/check-js.js`.
+- `node scripts/check-project-knowledge.js`: Runs lightweight structural checks for `docs/project-knowledge/`.
 - `npm run start:daemon`: Starts the local daemon.
 - `cd mobile && flutter analyze`: Runs Flutter static analysis.
 - `cd mobile && flutter test`: Runs Flutter unit and widget tests.

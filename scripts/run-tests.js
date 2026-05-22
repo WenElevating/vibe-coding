@@ -25,12 +25,129 @@ const { conversationEventTypes } = require('../daemon/src/conversation-protocol'
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+function createKnowledgeFixture(files) {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-knowledge-check-'));
+  for (const [relativePath, content] of Object.entries(files)) {
+    const filePath = path.join(root, relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf8');
+  }
+  return root;
+}
+
 function tempConversationDbPath(prefix = 'conversation-app-') {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
+
+test('project knowledge check validates links and active entry metadata', () => {
+  const fs = require('node:fs');
+  const { checkProjectKnowledge } = require('./check-project-knowledge');
+  const root = createKnowledgeFixture({
+    'docs/project-knowledge/index.md': [
+      '# Project Knowledge Index',
+      '',
+      '- Last verified: 2026-05-22',
+      '',
+      '## Routing',
+      '',
+      'Read [architecture.md](architecture.md).',
+      '',
+      '## Active Slices',
+      '',
+      '- [architecture.md](architecture.md)'
+    ].join('\n'),
+    'docs/project-knowledge/architecture.md': [
+      '# Architecture',
+      '',
+      '- Last verified: 2026-05-22',
+      '',
+      'Related file: [example.js](../../daemon/src/example.js)'
+    ].join('\n'),
+    'daemon/src/example.js': "'use strict';\n"
+  });
+
+  try {
+    const result = checkProjectKnowledge({ rootDir: root });
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(result.notices, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('project knowledge check fails missing relative links and archive routes', () => {
+  const fs = require('node:fs');
+  const { checkProjectKnowledge } = require('./check-project-knowledge');
+  const root = createKnowledgeFixture({
+    'docs/project-knowledge/index.md': [
+      '# Project Knowledge Index',
+      '',
+      '- Last verified: 2026-05-22',
+      '',
+      '## Routing',
+      '',
+      'Bug route: [old note](archive/old.md).',
+      '',
+      '## Active Slices',
+      '',
+      '- [architecture.md](architecture.md)'
+    ].join('\n'),
+    'docs/project-knowledge/architecture.md': [
+      '# Architecture',
+      '',
+      '- Last verified: 2026-05-22',
+      '',
+      'Related file: [missing.js](../../daemon/src/missing.js)'
+    ].join('\n')
+  });
+
+  try {
+    const result = checkProjectKnowledge({ rootDir: root });
+    assert.equal(result.errors.some((error) => error.includes('Missing link target')), true);
+    assert.equal(result.errors.some((error) => error.includes('Routing section links to archive')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('project knowledge check reports missing Last verified as notice', () => {
+  const fs = require('node:fs');
+  const { checkProjectKnowledge } = require('./check-project-knowledge');
+  const root = createKnowledgeFixture({
+    'docs/project-knowledge/index.md': [
+      '# Project Knowledge Index',
+      '',
+      '## Routing',
+      '',
+      'Read [architecture.md](architecture.md).'
+    ].join('\n'),
+    'docs/project-knowledge/architecture.md': [
+      '# Architecture',
+      '',
+      'No verification marker yet.'
+    ].join('\n')
+  });
+
+  try {
+    const result = checkProjectKnowledge({ rootDir: root });
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.notices.some((notice) => notice.includes('Missing Last verified')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('project knowledge check passes current repository seed', () => {
+  const { checkProjectKnowledge } = require('./check-project-knowledge');
+  const result = checkProjectKnowledge({ rootDir: process.cwd() });
+  assert.deepEqual(result.errors, []);
+});
 
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
