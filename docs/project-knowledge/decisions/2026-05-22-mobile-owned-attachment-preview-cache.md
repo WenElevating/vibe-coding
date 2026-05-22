@@ -34,10 +34,19 @@ is only an ordering hint. Retrying the same attachment message must reuse the
 same `clientMessageId` so daemon idempotency and mobile preview cache binding
 stay aligned.
 
+Hash calculation must run off the Flutter UI isolate. `bindCommitted` binds
+committed metadata to existing pending cache records; thumbnail generation and
+background retry are owned by the cache service state machine, not by binding
+logic.
+
 The first mobile cache implementation should protect local storage with default
 limits of 100 MB or 500 records, evicting least-recently-accessed records first.
 If the cache index is file-backed, writes must be serialized and atomic; an
 existing local database is preferred when available.
+
+Uncommitted pending records from abandoned drafts or changed `clientMessageId`
+values are orphan cache entries. They must never bind to history and should be
+cleaned before normal ready historical previews.
 
 ## Alternatives
 

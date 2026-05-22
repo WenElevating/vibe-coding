@@ -133,6 +133,13 @@ as the primary attachment identity from the start of the send flow.
 `attachmentIndex` is only a tie-breaker and ordering hint. It must not be the
 only key used to bind pending previews to committed attachments.
 
+Hashing must not run synchronously on the Flutter UI isolate. The cache service
+should compute file hashes in a background isolate/thread and expose the work as
+a `Future` that the send flow can await while the UI remains responsive. If an
+implementation later wants an inline fast path, it must be limited to small
+files after measurement; the default design is background hashing for all image
+attachments.
+
 `clientMessageId` is the message-level bridge between pending previews and the
 committed `user.message` event. Attachment-message retries must reuse the same
 `clientMessageId` while the user is retrying the same draft. If the app creates
@@ -179,8 +186,17 @@ attachmentIndex
 Use the hash first. Use name, MIME type, size, and index only to disambiguate or
 diagnose unexpected mismatches.
 
-`CachedAttachmentPreview` should be explicit rather than passing raw file paths
-through UI state:
+Two cache data shapes should be kept separate:
+
+```text
+AttachmentPreviewCacheRecord
+  persisted cache/index schema
+
+CachedAttachmentPreview
+  read-only resolved result returned to ViewModel/UI
+```
+
+`AttachmentPreviewCacheRecord` should contain:
 
 ```text
 conversationId
@@ -192,23 +208,39 @@ width
 height
 mimeType
 sizeBytes
+state: pending | ready | failed
+failureCode
 createdAt
 lastAccessedAt
+lastAttemptedAt
 ```
 
-The cache record should contain:
+`CachedAttachmentPreview` should be explicit rather than passing raw file paths
+through UI state:
 
 ```text
-conversationId
-clientMessageId
 attachmentId
-attachmentIndex
 contentHash or contentSha256Prefix
 cachePath
 width
 height
+mimeType
+sizeBytes
 createdAt
 lastAccessedAt
+```
+
+The resolved result can omit pending/failure bookkeeping because callers only
+receive it when the cache entry is ready and the file exists.
+
+The persisted cache record also needs enough draft/orphan bookkeeping to clean
+unfinished sends:
+
+```text
+attachmentIndex
+draftLocalPath, optional and redacted from diagnostics
+orphanedAt, optional
+committedAt, optional
 ```
 
 The first implementation can store the index in a lightweight local JSON file or
@@ -259,6 +291,14 @@ Option B:
 Prefer Option A for the first implementation unless profiling proves it hurts
 send latency. It is simpler and avoids silent preview loss.
 
+`bindCommitted` must stay focused on binding metadata. It must not own thumbnail
+generation. If a pending record exists but its thumbnail generation failed or is
+still incomplete, the cache service schedules or observes the one allowed
+background retry from its own pending-record state machine after the committed
+message is known. The trigger is the cache service learning the committed
+attachment identity through `bindCommitted`, not the ViewModel embedding
+thumbnail generation inside binding.
+
 Thumbnail generation failure must not block message sending. A failed thumbnail
 only means the historical message renders as a normal attachment card.
 
@@ -289,6 +329,13 @@ If the user retries the same attachment message after a recoverable send failure
 reuse the same `clientMessageId` and pending preview identity so the cache and
 daemon idempotency stay aligned.
 
+If the user abandons the draft, changes attachments enough to create a new
+`clientMessageId`, or the app restarts before commit, the old pending preview
+records become orphans. The cache service should mark them with `orphanedAt`
+when it can observe the transition. Orphans do not need immediate deletion, but
+they must be excluded from historical binding and should be the first records
+eligible for cleanup before normal LRU eviction.
+
 ## Cache Storage And Eviction
 
 Thumbnail files should live in app-specific storage under a dedicated directory
@@ -308,6 +355,7 @@ maximum preview bytes: 100 MB
 maximum records: 500
 eviction: least-recently-accessed cache records first
 never evict records for a message currently being sent
+evict orphaned pending records before ready historical records
 ```
 
 These values are defaults, not product promises. They protect device storage
@@ -326,9 +374,17 @@ If no index exists:
   return cache miss.
 ```
 
-Eviction can be simple in the first implementation. A later pass can add an LRU
-cap such as total bytes or maximum record count. Cache eviction is a normal
-state and must not damage message history.
+Eviction is required in the first implementation, but it can stay simple: enforce
+the default byte and record caps with least-recently-accessed ordering, and clean
+orphaned pending records before ready historical previews. Cache eviction is a
+normal state and must not damage message history.
+
+Eviction may race with UI usage. A cached image that was already decoded can
+remain visible in memory, but every later action that needs the file path, such
+as opening the image viewer, must resolve the cache again or handle file-missing
+errors by falling back to the normal attachment card. The UI must never show a
+permanent broken-image state because eviction removed a file between list render
+and tap.
 
 ## UI Behavior
 
@@ -416,6 +472,9 @@ missing cache file removes or ignores stale index and returns miss
 concurrent sends with multiple image attachments do not corrupt the cache index
 app restart during an in-flight send does not bind orphaned pending previews as
 historical previews
+eviction while a historical message is visible does not break the list item or
+viewer; the UI falls back to the normal attachment card or a dismissible miss
+state
 ```
 
 Mobile widget coverage:
