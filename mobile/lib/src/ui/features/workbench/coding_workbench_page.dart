@@ -277,12 +277,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void _syncVoicePreviewText() {
     if (!mounted) return;
     if (_voiceInput.state == VoiceInputState.listening) {
-      final preview = _voiceInput.previewText();
-      if (preview != _prompt.text) {
+      final preview = _voiceInput.previewValue();
+      if (preview.text != _prompt.text ||
+          preview.selection != _prompt.selection) {
         _applyingVoiceText = true;
-        _prompt.value = TextEditingValue(
-            text: preview,
-            selection: TextSelection.collapsed(offset: preview.length));
+        _prompt.value = preview;
         _applyingVoiceText = false;
       }
     }
@@ -321,7 +320,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _ownedSpeechInputService = nextService;
       _voiceInput.updateService(nextService);
     }
-    await _voiceInput.start(currentPrompt: _prompt.text);
+    await _voiceInput.startValue(currentPrompt: _prompt.value);
   }
 
   Future<String?> _showAsrDownloadDialog() {
@@ -333,12 +332,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _stopVoiceInput() async {
-    final merged = await _voiceInput.stop(currentPrompt: _prompt.text);
+    final merged = await _voiceInput.stopValue(currentPrompt: _prompt.value);
     if (!mounted) return;
     _applyingVoiceText = true;
-    _prompt.value = TextEditingValue(
-        text: merged,
-        selection: TextSelection.collapsed(offset: merged.length));
+    _prompt.value = merged;
     _applyingVoiceText = false;
     setState(() {});
   }
@@ -361,12 +358,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _finishVoiceInputForSend() async {
-    final merged = await _voiceInput.finishForSend(currentPrompt: _prompt.text);
+    final merged =
+        await _voiceInput.finishForSendValue(currentPrompt: _prompt.value);
     if (merged != null && mounted) {
       _applyingVoiceText = true;
-      _prompt.value = TextEditingValue(
-          text: merged,
-          selection: TextSelection.collapsed(offset: merged.length));
+      _prompt.value = merged;
       _applyingVoiceText = false;
       setState(() {});
     } else if (mounted) {

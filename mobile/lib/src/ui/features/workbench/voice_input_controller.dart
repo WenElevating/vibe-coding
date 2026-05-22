@@ -26,6 +26,7 @@ class VoiceInputController extends ChangeNotifier {
   VoiceInputState _state = VoiceInputState.idle;
   String _partialText = '';
   String _baseText = '';
+  TextSelection _baseSelection = const TextSelection.collapsed(offset: 0);
   String? _error;
   bool _receivedPartial = false;
 
@@ -47,7 +48,10 @@ class VoiceInputController extends ChangeNotifier {
     if (_state == VoiceInputState.failed) _setState(VoiceInputState.idle);
   }
 
-  Future<void> start({required String currentPrompt}) async {
+  Future<void> start({
+    required String currentPrompt,
+    TextSelection? currentSelection,
+  }) async {
     if (_state == VoiceInputState.initializing ||
         _state == VoiceInputState.listening ||
         _state == VoiceInputState.stopping ||
@@ -55,6 +59,10 @@ class VoiceInputController extends ChangeNotifier {
       return;
     }
     _baseText = currentPrompt;
+    _baseSelection = _normalizedSelection(
+        currentSelection ??
+            TextSelection.collapsed(offset: currentPrompt.length),
+        currentPrompt.length);
     _partialText = '';
     _receivedPartial = false;
     _error = null;
@@ -76,19 +84,35 @@ class VoiceInputController extends ChangeNotifier {
     }
   }
 
+  Future<void> startValue({required TextEditingValue currentPrompt}) => start(
+      currentPrompt: currentPrompt.text,
+      currentSelection: currentPrompt.selection);
+
   Future<String> stop({required String currentPrompt}) async {
+    final merged = await stopValue(
+        currentPrompt: TextEditingValue(
+            text: currentPrompt,
+            selection: TextSelection.collapsed(offset: currentPrompt.length)));
+    return merged.text;
+  }
+
+  Future<TextEditingValue> stopValue(
+      {required TextEditingValue currentPrompt}) async {
     if (_state != VoiceInputState.listening) return currentPrompt;
     _setState(VoiceInputState.stopping);
     try {
       final finalText = await _service.stop();
+      final preview = previewValue();
+      final mergeBase = currentPrompt.text == preview.text
+          ? _baseValue()
+          : _normalizedValue(currentPrompt);
       final merged = finalText.trim().isEmpty || !_receivedPartial
           ? currentPrompt
-          : mergeVoiceText(
-              currentPrompt == previewText() ? _baseText : currentPrompt,
-              finalText);
+          : mergeVoiceTextValue(mergeBase, finalText);
       _partialText = '';
       _receivedPartial = false;
-      _baseText = merged;
+      _baseText = merged.text;
+      _baseSelection = merged.selection;
       _error = null;
       _setState(VoiceInputState.idle);
       return merged;
@@ -113,18 +137,53 @@ class VoiceInputController extends ChangeNotifier {
 
   String restoreBaseText() => _baseText;
 
-  String previewText() {
-    if (_partialText.trim().isEmpty) return _baseText;
-    return mergeVoiceText(_baseText, _partialText);
+  String previewText() => previewValue().text;
+
+  TextEditingValue previewValue() {
+    final base = _baseValue();
+    if (_partialText.trim().isEmpty) return base;
+    return mergeVoiceTextValue(base, _partialText);
   }
 
-  String mergeVoiceText(String currentPrompt, String voiceText) {
+  String mergeVoiceText(String currentPrompt, String voiceText) =>
+      mergeVoiceTextValue(
+              TextEditingValue(
+                  text: currentPrompt,
+                  selection:
+                      TextSelection.collapsed(offset: currentPrompt.length)),
+              voiceText)
+          .text;
+
+  TextEditingValue mergeVoiceTextValue(
+      TextEditingValue currentPrompt, String voiceText) {
     final trimmedVoice = voiceText.trim();
-    if (trimmedVoice.isEmpty) return currentPrompt;
-    final trimmedPrompt = currentPrompt.trimRight();
-    if (trimmedPrompt.isEmpty) return trimmedVoice;
-    return '$trimmedPrompt\n$trimmedVoice';
+    if (trimmedVoice.isEmpty) return _normalizedValue(currentPrompt);
+    final normalized = _normalizedValue(currentPrompt);
+    final text = normalized.text;
+    final range = _normalizedRange(normalized.selection, text.length);
+    final before = text.substring(0, range.start);
+    final after = text.substring(range.end);
+    if (after.isEmpty) {
+      final trimmedBefore = before.trimRight();
+      if (trimmedBefore.isEmpty) {
+        return TextEditingValue(
+            text: trimmedVoice,
+            selection: TextSelection.collapsed(offset: trimmedVoice.length));
+      }
+      final merged = '$trimmedBefore\n$trimmedVoice';
+      return TextEditingValue(
+          text: merged,
+          selection: TextSelection.collapsed(offset: merged.length));
+    }
+    final merged = '$before$trimmedVoice$after';
+    return TextEditingValue(
+        text: merged,
+        selection: TextSelection.collapsed(
+            offset: before.length + trimmedVoice.length));
   }
+
+  TextEditingValue _baseValue() =>
+      TextEditingValue(text: _baseText, selection: _baseSelection);
 
   void _setPartialText(String text) {
     _partialText = text;
@@ -168,12 +227,21 @@ class VoiceInputViewModel extends ChangeNotifier {
   Future<void> start({required String currentPrompt}) =>
       _controller.start(currentPrompt: currentPrompt);
 
+  Future<void> startValue({required TextEditingValue currentPrompt}) =>
+      _controller.startValue(currentPrompt: currentPrompt);
+
   Future<String> stop({required String currentPrompt}) =>
       _controller.stop(currentPrompt: currentPrompt);
+
+  Future<TextEditingValue> stopValue(
+          {required TextEditingValue currentPrompt}) =>
+      _controller.stopValue(currentPrompt: currentPrompt);
 
   Future<void> cancel() => _controller.cancel();
 
   String previewText() => _controller.previewText();
+
+  TextEditingValue previewValue() => _controller.previewValue();
 
   Future<void> cancelIfBusy() async {
     if (!isBusy) return;
@@ -189,6 +257,16 @@ class VoiceInputViewModel extends ChangeNotifier {
     return null;
   }
 
+  Future<TextEditingValue?> finishForSendValue(
+      {required TextEditingValue currentPrompt}) async {
+    if (!isBusy) return null;
+    if (state == VoiceInputState.listening) {
+      return stopValue(currentPrompt: currentPrompt);
+    }
+    await cancel();
+    return null;
+  }
+
   @override
   void dispose() {
     _controller.removeListener(notifyListeners);
@@ -199,6 +277,38 @@ class VoiceInputViewModel extends ChangeNotifier {
     }
     super.dispose();
   }
+}
+
+({int start, int end}) _normalizedRange(TextSelection selection, int length) {
+  final normalized = _normalizedSelection(selection, length);
+  final start = normalized.start < normalized.end
+      ? normalized.start
+      : normalized.end;
+  final end = normalized.start < normalized.end
+      ? normalized.end
+      : normalized.start;
+  return (start: start, end: end);
+}
+
+TextEditingValue _normalizedValue(TextEditingValue value) => TextEditingValue(
+    text: value.text,
+    selection: _normalizedSelection(value.selection, value.text.length));
+
+TextSelection _normalizedSelection(TextSelection selection, int length) {
+  final safeLength = length < 0 ? 0 : length;
+  final start = selection.isValid ? selection.start : safeLength;
+  final end = selection.isValid ? selection.end : safeLength;
+  return TextSelection(
+      baseOffset: _clampOffset(start, safeLength),
+      extentOffset: _clampOffset(end, safeLength),
+      affinity: selection.affinity,
+      isDirectional: selection.isDirectional);
+}
+
+int _clampOffset(int value, int max) {
+  if (value < 0) return 0;
+  if (value > max) return max;
+  return value;
 }
 
 @visibleForTesting

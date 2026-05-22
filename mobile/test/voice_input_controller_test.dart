@@ -56,6 +56,41 @@ void main() {
     expect(controller.state, VoiceInputState.idle);
   });
 
+  test('preview inserts partial text at captured cursor position', () async {
+    final service = _FakeSpeechInputService();
+    final controller = VoiceInputController(service: service);
+    const cursorOffset = 7;
+
+    await controller.startValue(
+        currentPrompt: const TextEditingValue(
+            text: 'before  after',
+            selection: TextSelection.collapsed(offset: cursorOffset)));
+    service.onPartial?.call('partial');
+
+    final preview = controller.previewValue();
+
+    expect(preview.text, 'before partial after');
+    expect(preview.selection.baseOffset, cursorOffset + 'partial'.length);
+  });
+
+  test('stop replaces visible partial at captured cursor position', () async {
+    final service = _FakeSpeechInputService()..stopText = 'final voice';
+    final controller = VoiceInputController(service: service);
+    const cursorOffset = 7;
+
+    await controller.startValue(
+        currentPrompt: const TextEditingValue(
+            text: 'before  after',
+            selection: TextSelection.collapsed(offset: cursorOffset)));
+    service.onPartial?.call('partial');
+
+    final merged =
+        await controller.stopValue(currentPrompt: controller.previewValue());
+
+    expect(merged.text, 'before final voice after');
+    expect(merged.selection.baseOffset, cursorOffset + 'final voice'.length);
+  });
+
   test('stop keeps visible partial when final text is empty', () async {
     final service = _FakeSpeechInputService()..stopText = '';
     final controller = VoiceInputController(service: service);
