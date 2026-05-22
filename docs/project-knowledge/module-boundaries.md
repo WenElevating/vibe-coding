@@ -41,6 +41,18 @@
   only the ListView rendering layer.
 - Related: [bottom anchored transcript decision](decisions/2026-05-22-bottom-anchored-transcript.md).
 
+### Attachment previews
+
+- Status: accepted; implementation pending
+- Decision: historical image previews are mobile-owned local cache, not daemon
+  media storage.
+- Daemon owns attachment metadata and send-time scratch only. It must not keep
+  `previewPath`, `previewUrl`, or `previewHeaders` in the committed attachment
+  protocol.
+- Mobile owns thumbnail generation, local preview index persistence, cache
+  lookup, and cache-miss UI fallback for images sent from that mobile device.
+- Related: [mobile-owned attachment preview cache decision](decisions/2026-05-22-mobile-owned-attachment-preview-cache.md).
+
 ## Verification
 
 ```powershell
