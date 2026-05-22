@@ -137,6 +137,7 @@ void main() {
     expect(attachment.mimeType, 'image/png');
     expect(attachment.sizeBytes, 120034);
     expect(attachment.handling, AttachmentHandling.native);
+    expect(attachment.localPath, isNull);
   });
 
   test('Attachment protocol parsers handle staged paths and fallbacks', () {

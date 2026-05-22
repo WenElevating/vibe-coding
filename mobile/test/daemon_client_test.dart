@@ -93,7 +93,7 @@ void main() {
     expect(conversations.single.title, 'Fix mobile title rendering');
   });
 
-  test('fetchConversationEvents resolves persisted attachment preview paths',
+  test('fetchConversationEvents ignores legacy attachment preview fields',
       () async {
     final tokenStore = MemoryTokenStore();
     await tokenStore.writeAccessTokenSession(
@@ -118,17 +118,18 @@ void main() {
                 'conversationId': 'conv_1',
                 'type': 'user.message',
                 'createdAt': '2026-05-22T00:00:00.000Z',
-                'text': '看图',
+                'text': 'see image',
                 'attachments': <Object?>[
                   <String, Object?>{
                     'id': 'att_0',
-                    'name': 'persisted.png',
+                    'name': 'legacy.png',
                     'kind': 'image',
                     'mimeType': 'image/png',
                     'sizeBytes': 42,
                     'handling': 'native',
                     'previewPath':
                         '/api/conversations/conv_1/attachments/att_0/preview',
+                    'previewUrl': 'http://127.0.0.1:4317/legacy',
                   },
                 ],
               },
@@ -146,10 +147,9 @@ void main() {
     expect(requests, hasLength(1));
     expect(requests.single.headers['authorization'], 'Bearer access-1');
     final attachment = events.single.attachments.single;
-    expect(attachment.previewUrl,
-        'http://127.0.0.1:4317/api/conversations/conv_1/attachments/att_0/preview');
-    expect(attachment.previewHeaders,
-        const <String, String>{'authorization': 'Bearer access-1'});
+    expect(attachment.id, 'att_0');
+    expect(attachment.name, 'legacy.png');
+    expect(attachment.localPath, isNull);
   });
 
   test('recordException returns daemon trace id', () async {

@@ -581,7 +581,7 @@ class DaemonClient
     final items = _readList(response, 'events');
     return items
         .cast<Map<String, Object?>>()
-        .map(_conversationEventFromJson)
+        .map((json) => ConversationEvent.fromJson(json))
         .toList();
   }
 
@@ -733,49 +733,6 @@ class DaemonClient
     }
     final streamed = await _requestStream(() => _httpClient.send(multipart));
     return http.Response.fromStream(streamed);
-  }
-
-  ConversationEvent _conversationEventFromJson(Map<String, Object?> json) =>
-      ConversationEvent.fromJson(_withResolvedAttachmentPreviews(json));
-
-  Map<String, Object?> _withResolvedAttachmentPreviews(
-      Map<String, Object?> json) {
-    final attachments = json['attachments'];
-    if (attachments is! List) return json;
-    var changed = false;
-    final resolvedAttachments = <Object?>[
-      for (final item in attachments)
-        _resolveAttachmentPreview(item, () {
-          changed = true;
-        }),
-    ];
-    if (!changed) return json;
-    return <String, Object?>{...json, 'attachments': resolvedAttachments};
-  }
-
-  Object? _resolveAttachmentPreview(Object? item, void Function() markChanged) {
-    if (item is! Map) return item;
-    final attachment = <String, Object?>{};
-    for (final entry in item.entries) {
-      final key = entry.key;
-      if (key is String) attachment[key] = entry.value;
-    }
-    final previewPath = _nonEmptyString(attachment['previewPath']);
-    if (previewPath != null &&
-        _nonEmptyString(attachment['previewUrl']) == null) {
-      attachment['previewUrl'] = baseUri.resolve(previewPath).toString();
-      markChanged();
-    }
-    if (_nonEmptyString(attachment['previewUrl']) != null &&
-        attachment['previewHeaders'] == null &&
-        _token != null &&
-        _token!.isNotEmpty) {
-      attachment['previewHeaders'] = <String, String>{
-        'authorization': 'Bearer $_token',
-      };
-      markChanged();
-    }
-    return attachment;
   }
 
   Future<http.Response> _request(Future<http.Response> Function() request) =>
