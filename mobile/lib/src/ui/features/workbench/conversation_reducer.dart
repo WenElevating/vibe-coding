@@ -227,7 +227,11 @@ class ConversationViewState {
           break;
         case 'tool.delta':
         case 'tool.output':
-          _appendCommandOutput(nextMessages, event);
+          if (_toolOutputCompletesCommand(event)) {
+            _completeCommandMessage(nextMessages, event);
+          } else {
+            _appendCommandOutput(nextMessages, event);
+          }
           break;
         case 'tool.completed':
           _completeCommandMessage(nextMessages, event);
@@ -365,11 +369,21 @@ void _appendCommandOutput(
   );
 }
 
+bool _toolOutputCompletesCommand(ConversationEvent event) {
+  if (event.type != 'tool.output') return false;
+  final rawEvent = event.raw['raw'];
+  if (rawEvent is! Map<String, Object?>) return false;
+  if (rawEvent['type'] != 'item.completed') return false;
+  final item = rawEvent['item'];
+  return item is Map<String, Object?> && item['type'] == 'command_execution';
+}
+
 void _completeCommandMessage(
     List<ConversationMessage> messages, ConversationEvent event) {
   final index = _commandIndexForToolUseId(messages, event.toolUseId);
   if (index < 0) return;
   final command = messages[index];
+  final output = event.text ?? event.summary;
   messages[index] = ConversationMessage(
     role: command.role,
     text: command.text,
@@ -383,7 +397,9 @@ void _completeCommandMessage(
     completed: true,
     startedAt: command.startedAt,
     completedAt: event.createdAt,
-    output: command.output,
+    output: output == null || output.trim().isEmpty
+        ? command.output
+        : _mergeCommandOutput(command.output, output.trim()),
     exitCode: event.exitCode ?? command.exitCode,
     isError: command.isError || event.isError,
     suggestions: command.suggestions,

@@ -99,6 +99,95 @@ void main() {
     expect(state.messages.last.output, contains('skill'));
   });
 
+  test('ConversationViewState completes command when tool completion arrives',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-22T00:00:00.000Z',
+        'status': 'running'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-22T00:00:01.000Z',
+        'toolUseId': 'cmd_1',
+        'toolName': 'command_execution',
+        'input': {'command': 'flutter test'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-22T00:02:01.000Z',
+        'toolUseId': 'cmd_1',
+        'toolName': 'command_execution',
+        'text': '120 seconds timed out',
+        'exitCode': 124,
+        'isError': true
+      }),
+    ]);
+
+    expect(state.status, 'running');
+    expect(state.messages.single.role, 'command');
+    expect(state.messages.single.completed, isTrue);
+    expect(state.messages.single.output, contains('timed out'));
+    expect(state.messages.single.exitCode, 124);
+    expect(state.messages.single.isError, isTrue);
+  });
+
+  test('ConversationViewState completes legacy Codex tool output completion',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-22T00:00:00.000Z',
+        'status': 'running'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-22T00:00:01.000Z',
+        'toolUseId': 'cmd_1',
+        'toolName': 'command_execution',
+        'input': {'command': 'flutter test'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-22T00:02:01.000Z',
+        'toolUseId': 'cmd_1',
+        'toolName': 'command_execution',
+        'text': '120 seconds timed out',
+        'exitCode': 124,
+        'isError': true,
+        'raw': {
+          'type': 'item.completed',
+          'item': {
+            'id': 'cmd_1',
+            'type': 'command_execution',
+            'status': 'failed',
+            'exit_code': 124
+          }
+        }
+      }),
+    ]);
+
+    expect(state.status, 'running');
+    expect(state.messages.single.role, 'command');
+    expect(state.messages.single.completed, isTrue);
+    expect(state.messages.single.output, contains('timed out'));
+    expect(state.messages.single.exitCode, 124);
+    expect(state.messages.single.isError, isTrue);
+  });
+
   test('ConversationViewState completes Codex turn on explicit completion', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

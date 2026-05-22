@@ -397,13 +397,16 @@ function mapCodexEvent(raw, options = {}) {
         raw
       };
     }
+    const exitCode = Number.isInteger(item.exit_code) ? item.exit_code : null;
+    const status = item.status || null;
     return {
-      type: conversationEventTypes.TOOL_OUTPUT,
+      type: conversationEventTypes.TOOL_COMPLETED,
       toolUseId: item.id || null,
       toolName: 'command_execution',
       text: output.text,
-      exitCode: Number.isInteger(item.exit_code) ? item.exit_code : null,
-      status: item.status || null,
+      exitCode,
+      status,
+      isError: exitCode !== null ? exitCode !== 0 : ['failed', 'error'].includes(status),
       truncated: output.truncated,
       raw
     };

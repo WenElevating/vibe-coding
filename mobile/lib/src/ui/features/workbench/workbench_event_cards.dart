@@ -360,59 +360,145 @@ class _MessageImageAttachmentPreview extends StatelessWidget {
   final CommittedAttachment attachment;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-      message: attachment.name,
-      child: Container(
-          key: const Key('workbench-message-image-preview-shell'),
-          constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .045),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: .085))),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                    constraints: const BoxConstraints(maxHeight: 220),
-                    width: double.infinity,
-                    color: Colors.black.withValues(alpha: .22),
-                    child: AspectRatio(
-                      aspectRatio: 4 / 3,
-                      child: Image.file(
-                        File(attachment.localPath!),
-                        key: const Key('workbench-message-image-preview'),
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) => Icon(
-                            _attachmentIcon(attachment.kind),
-                            color: theme.muted,
-                            size: 22),
-                      ),
-                    ))),
-            const SizedBox(height: 7),
-            Row(children: [
-              Icon(_attachmentIcon(attachment.kind),
-                  color: theme.muted, size: 15),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: Text(attachment.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: theme.text,
-                          fontSize: 11.5,
-                          height: 1.1,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0))),
-              const SizedBox(width: 8),
-              Text(_attachmentSizeLabel(attachment.sizeBytes),
-                  style: const TextStyle(
-                      color: theme.muted,
-                      fontSize: 10.5,
-                      height: 1,
-                      letterSpacing: 0)),
-            ]),
-          ])));
+  Widget build(BuildContext context) => Semantics(
+      button: true,
+      child: Tooltip(
+          message: attachment.name,
+          child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showImageAttachmentViewer(context, attachment),
+              child: Container(
+                  key: const Key('workbench-message-image-preview-shell'),
+                  constraints:
+                      const BoxConstraints(minWidth: 180, maxWidth: 260),
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .045),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: .085))),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                            constraints: const BoxConstraints(maxHeight: 220),
+                            width: double.infinity,
+                            color: Colors.black.withValues(alpha: .22),
+                            child: AspectRatio(
+                              aspectRatio: 4 / 3,
+                              child: Image.file(
+                                File(attachment.localPath!),
+                                key: const Key(
+                                    'workbench-message-image-preview'),
+                                fit: BoxFit.contain,
+                                errorBuilder:
+                                    (context, error, stackTrace) => Icon(
+                                        _attachmentIcon(attachment.kind),
+                                        color: theme.muted,
+                                        size: 22),
+                              ),
+                            ))),
+                    const SizedBox(height: 7),
+                    Row(children: [
+                      Icon(_attachmentIcon(attachment.kind),
+                          color: theme.muted, size: 15),
+                      const SizedBox(width: 6),
+                      Expanded(
+                          child: Text(attachment.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.text,
+                                  fontSize: 11.5,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0))),
+                      const SizedBox(width: 8),
+                      Text(_attachmentSizeLabel(attachment.sizeBytes),
+                          style: const TextStyle(
+                              color: theme.muted,
+                              fontSize: 10.5,
+                              height: 1,
+                              letterSpacing: 0)),
+                    ]),
+                  ])))));
+}
+
+void _showImageAttachmentViewer(
+    BuildContext context, CommittedAttachment attachment) {
+  final localPath = attachment.localPath;
+  if (localPath == null) return;
+  showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: const Color(0xF20B0C10),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          _ImageAttachmentViewer(attachment: attachment),
+      transitionBuilder: (context, animation, secondaryAnimation, child) =>
+          FadeTransition(
+              opacity: CurvedAnimation(
+                  parent: animation, curve: Curves.easeOutCubic),
+              child: child));
+}
+
+class _ImageAttachmentViewer extends StatelessWidget {
+  const _ImageAttachmentViewer({required this.attachment});
+
+  final CommittedAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) => Material(
+      key: const Key('workbench-message-image-viewer'),
+      color: Colors.transparent,
+      child: SafeArea(
+          child: Stack(children: [
+        Positioned.fill(
+            child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 52, 12, 18),
+                child: InteractiveViewer(
+                    minScale: .75,
+                    maxScale: 5,
+                    boundaryMargin: const EdgeInsets.all(80),
+                    child: Center(
+                        child: Image.file(
+                      File(attachment.localPath!),
+                      key: const Key('workbench-message-image-viewer-image'),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                          _attachmentIcon(attachment.kind),
+                          color: theme.muted,
+                          size: 44),
+                    ))))),
+        Positioned(
+            left: 16,
+            top: 11,
+            right: 64,
+            child: Text(attachment.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 13,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0))),
+        Positioned(
+            right: 8,
+            top: 4,
+            child: Container(
+                decoration: BoxDecoration(
+                    color: const Color(0x1FE6E2D8),
+                    borderRadius: BorderRadius.circular(20)),
+                child: IconButton(
+                    key: const Key('workbench-message-image-viewer-close'),
+                    tooltip:
+                        MaterialLocalizations.of(context).closeButtonTooltip,
+                    icon: const Icon(Icons.close_rounded,
+                        color: theme.text, size: 22),
+                    onPressed: () => Navigator.of(context).maybePop()))),
+      ])));
 }
 
 IconData _attachmentIcon(AttachmentKind kind) => switch (kind) {

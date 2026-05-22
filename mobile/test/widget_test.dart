@@ -2315,6 +2315,72 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
+  testWidgets('user message card opens image attachment viewer',
+      (WidgetTester tester) async {
+    final tempDir =
+        Directory.systemTemp.createTempSync('workbench-image-viewer-test-');
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}workbench-viewer.png',
+    )..writeAsBytesSync(<int>[0x00]);
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: WorkbenchMessage(
+                      'user',
+                      'You',
+                      '查看这张图',
+                      attachments: <CommittedAttachment>[
+                        CommittedAttachment.fromJson(<String, Object?>{
+                          'id': 'att_0',
+                          'name': 'viewer.png',
+                          'kind': 'image',
+                          'mimeType': 'image/png',
+                          'sizeBytes': 1,
+                          'handling': 'native',
+                          'localPath': imageFile.path,
+                        }),
+                      ],
+                    ),
+                    onApproval: (_) {},
+                    onSuggestion: (_) {},
+                    expandThinking: false)))));
+
+    expect(find.byKey(const Key('workbench-message-image-viewer')),
+        findsNothing);
+
+    await tester.tap(find.byKey(const Key('workbench-message-image-preview')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('workbench-message-image-viewer')), findsOneWidget);
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byKey(const Key('workbench-message-image-viewer-image')),
+        findsOneWidget);
+
+    await tester
+        .tap(find.byKey(const Key('workbench-message-image-viewer-close')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workbench-message-image-viewer')),
+        findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  });
+
   test('conversation pending status text uses active locale', () {
     final event = ConversationEvent.fromJson(const <String, Object?>{
       'seq': 1,

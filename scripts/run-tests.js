@@ -2823,6 +2823,10 @@ test('Codex event mapper normalizes thread, assistant, tool, declined, unknown, 
   assert.equal(assistant.type, 'assistant.message');
   assert.equal(assistant.turnFinal, false);
   assert.equal(mapCodexEvent({ type: 'item.started', item: { id: 'cmd_1', type: 'command_execution', command: 'dir', status: 'in_progress' } }).type, 'tool.started');
+  const completedCommand = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'dir', aggregated_output: 'done', exit_code: 0, status: 'completed' } });
+  assert.equal(completedCommand.type, 'tool.completed');
+  assert.equal(completedCommand.text, 'done');
+  assert.equal(completedCommand.exitCode, 0);
   const declined = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_1', type: 'command_execution', command: 'write', aggregated_output: 'rejected: blocked by policy', status: 'declined' } });
   assert.equal(declined.type, 'system.notice');
   assert.equal(declined.noticeKind, 'codex_policy_blocked');
@@ -3214,7 +3218,7 @@ test('Claude model discovery uses project settings before system environment whe
 
 test('Codex mapper truncates large aggregated output with marker', () => {
   const event = mapCodexEvent({ type: 'item.completed', item: { id: 'cmd_big', type: 'command_execution', command: 'dump', aggregated_output: 'abcdef', status: 'completed' } }, { maxAggregatedOutputBytes: 3 });
-  assert.equal(event.type, 'tool.output');
+  assert.equal(event.type, 'tool.completed');
   assert.equal(event.text, 'abc');
   assert.equal(event.truncated, true);
 });
