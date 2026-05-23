@@ -89,6 +89,27 @@ class NotificationHub {
     connection.subscriptions.clear();
   }
 
+  close() {
+    for (const connection of this.connections.values()) {
+      connection.subscriptions.clear();
+      try {
+        if (connection.ws.readyState === WebSocket.OPEN || connection.ws.readyState === WebSocket.CONNECTING) {
+          connection.ws.close(1001, 'Notification hub shutting down');
+        } else if (connection.ws.readyState === WebSocket.CLOSING) {
+          connection.ws.terminate();
+        }
+      } catch {
+        // Shutdown must remain best-effort during test and daemon teardown.
+      }
+    }
+    this.connections.clear();
+    try {
+      this.wss.close();
+    } catch {
+      // ws.close() may throw if the server is already closing or closed.
+    }
+  }
+
   send(connection, frame) {
     if (connection.ws.readyState !== WebSocket.OPEN) return false;
     connection.ws.send(JSON.stringify(frame));

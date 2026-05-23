@@ -486,6 +486,30 @@ test('notification websocket accepts bearer token and sends hello', async () => 
   }
 });
 
+test('notification websocket hub closes active connections during teardown', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-close-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-close-test', deviceId: 'ws-device-close-1' });
+    socket = await openNotificationSocket(port, paired.body.token);
+    const hello = await readWsJson(socket);
+    assert.equal(hello.type, 'hello');
+    assert.equal(app.notificationHub.connections.size, 1);
+
+    app.notificationHub.close();
+
+    assert.equal(app.notificationHub.connections.size, 0);
+    assert.doesNotThrow(() => app.notificationHub.close());
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('app SQLite store persists workspaces and device authorizations', () => {
   const fs = require('node:fs');
   const os = require('node:os');
