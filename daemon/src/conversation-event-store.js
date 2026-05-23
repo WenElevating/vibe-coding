@@ -5,6 +5,12 @@ class ConversationEventStore {
     this.now = now;
     this.persistentStore = persistentStore;
     this.events = new Map();
+    this.appendListeners = new Set();
+  }
+
+  onAppend(listener) {
+    this.appendListeners.add(listener);
+    return () => this.appendListeners.delete(listener);
   }
 
   append(conversationId, type, payload = {}) {
@@ -24,6 +30,7 @@ class ConversationEventStore {
     if (this.persistentStore) this.persistentStore.appendEvent(event);
     list.push(event);
     this.events.set(conversationId, list);
+    for (const listener of this.appendListeners) listener(event);
     return event;
   }
 

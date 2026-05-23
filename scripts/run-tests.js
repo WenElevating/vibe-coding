@@ -510,6 +510,80 @@ test('notification websocket hub closes active connections during teardown', asy
   }
 });
 
+test('notification websocket subscribes and replays conversation events after sequence', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-replay-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-replay', deviceId: 'ws-device-replay' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Default' }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
+    const conversationId = created.body.conversation.id;
+    const first = app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'first' });
+    const second = app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'second' });
+
+    socket = await openNotificationSocket(port, token);
+    await readWsJson(socket);
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_1',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq: first.seq
+    }));
+    const subscribed = await readWsJson(socket);
+    const replayed = await readWsJson(socket);
+    assert.equal(subscribed.type, 'subscribed');
+    assert.equal(replayed.type, 'event');
+    assert.equal(replayed.seq, second.seq);
+    assert.equal(replayed.payload.text, 'second');
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('notification websocket delivers live conversation events after subscribe', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-live-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-live', deviceId: 'ws-device-live' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Default' }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
+    const conversationId = created.body.conversation.id;
+    const afterSeq = app.conversationEventStore.list(conversationId, 0).at(-1).seq;
+
+    socket = await openNotificationSocket(port, token);
+    await readWsJson(socket);
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_live',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq
+    }));
+    await readWsJson(socket);
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'live' });
+    const event = await readWsJson(socket);
+    assert.equal(event.type, 'event');
+    assert.equal(event.payload.text, 'live');
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('app SQLite store persists workspaces and device authorizations', () => {
   const fs = require('node:fs');
   const os = require('node:os');
