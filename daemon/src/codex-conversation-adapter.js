@@ -379,6 +379,9 @@ function mapCodexEvent(raw, options = {}) {
   if (['item.started', 'item.completed'].includes(raw.type) && item?.type === 'file_change') {
     return mapCodexFileChangeEvent(raw, item, options);
   }
+  if (['item.started', 'item.completed'].includes(raw.type) && item?.type === 'mcp_tool_call') {
+    return mapCodexMcpToolCallEvent(raw, item, options);
+  }
   if (raw.type === 'item.started' && item?.type === 'command_execution') {
     return {
       type: conversationEventTypes.TOOL_STARTED,
@@ -432,6 +435,92 @@ function mapCodexEvent(raw, options = {}) {
     visible: false,
     raw
   };
+}
+
+function mapCodexMcpToolCallEvent(raw, item, options = {}) {
+  const maxAggregatedOutputBytes = options.maxAggregatedOutputBytes || DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES;
+  const server = String(item.server || 'mcp').trim() || 'mcp';
+  const tool = String(item.tool || item.name || 'tool').trim() || 'tool';
+  const toolName = `${server}.${tool}`;
+  const summary = formatCodexMcpToolSummary(server, tool, item.arguments);
+  if (raw.type === 'item.started') {
+    return {
+      type: conversationEventTypes.TOOL_STARTED,
+      toolUseId: item.id || null,
+      toolName,
+      input: codexMcpToolInput(server, tool, item.arguments),
+      summary,
+      raw
+    };
+  }
+
+  const errorText = codexMcpToolErrorText(item.error);
+  const resultText = errorText || codexMcpToolResultText(item.result);
+  const output = truncateText(resultText || 'MCP tool call completed.', maxAggregatedOutputBytes);
+  const status = item.status || null;
+  return {
+    type: conversationEventTypes.TOOL_COMPLETED,
+    toolUseId: item.id || null,
+    toolName,
+    text: output.text,
+    status,
+    isError: Boolean(errorText) || ['failed', 'error'].includes(String(status || '').toLowerCase()),
+    truncated: output.truncated,
+    raw
+  };
+}
+
+function codexMcpToolInput(server, tool, args) {
+  const input = { server, tool };
+  if (args && typeof args === 'object') input.arguments = args;
+  return input;
+}
+
+function formatCodexMcpToolSummary(server, tool, args) {
+  const argsText = args && typeof args === 'object' ? safeJsonStringify(args) : '';
+  return argsText ? `${server}.${tool} ${argsText}` : `${server}.${tool}`;
+}
+
+function codexMcpToolErrorText(error) {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object') {
+    return error.message || error.text || safeJsonStringify(error);
+  }
+  return String(error);
+}
+
+function codexMcpToolResultText(result) {
+  if (result == null) return '';
+  if (typeof result === 'string') return stripAnsi(result);
+  if (Array.isArray(result.content)) {
+    return result.content
+      .map(codexMcpContentPartText)
+      .filter((text) => text.trim())
+      .join('\n');
+  }
+  const structured = result.structured_content || result.structuredContent;
+  if (structured != null) return safeJsonStringify(structured);
+  return safeJsonStringify(result);
+}
+
+function codexMcpContentPartText(part) {
+  if (part == null) return '';
+  if (typeof part === 'string') return stripAnsi(part);
+  if (typeof part === 'object') {
+    if (typeof part.text === 'string') return stripAnsi(part.text);
+    if (typeof part.content === 'string') return stripAnsi(part.content);
+    return safeJsonStringify(part);
+  }
+  return String(part);
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
 }
 
 function mapCodexFileChangeEvent(raw, item, options = {}) {

@@ -14,6 +14,8 @@ const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
+const { ConversationManager } = require('../daemon/src/conversation-manager');
+const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
 const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
@@ -3020,6 +3022,128 @@ test('Codex event mapper normalizes thread, assistant, tool, file changes, decli
   assert.equal(unknown.type, 'system.notice');
   assert.equal(unknown.noticeKind, 'codex_unknown_event');
   assert.equal(unknown.visible, false);
+});
+
+test('Codex mapper normalizes MCP tool calls into visible tool events', () => {
+  const started = mapCodexEvent({
+    type: 'item.started',
+    item: {
+      id: 'mcp_1',
+      type: 'mcp_tool_call',
+      server: 'codegraph',
+      tool: 'codegraph_search',
+      arguments: { query: 'fetchConversationEvents', limit: 20 },
+      status: 'in_progress'
+    }
+  });
+  assert.equal(started.type, 'tool.started');
+  assert.equal(started.toolUseId, 'mcp_1');
+  assert.equal(started.toolName, 'codegraph.codegraph_search');
+  assert.equal(started.input.server, 'codegraph');
+  assert.equal(started.input.tool, 'codegraph_search');
+  assert.match(started.summary, /fetchConversationEvents/);
+
+  const completed = mapCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'mcp_1',
+      type: 'mcp_tool_call',
+      server: 'codegraph',
+      tool: 'codegraph_search',
+      result: {
+        content: [
+          { type: 'text', text: '## Search Results\nfetchConversationEvents' }
+        ]
+      },
+      status: 'completed'
+    }
+  });
+  assert.equal(completed.type, 'tool.completed');
+  assert.equal(completed.toolUseId, 'mcp_1');
+  assert.equal(completed.toolName, 'codegraph.codegraph_search');
+  assert.equal(completed.isError, false);
+  assert.match(completed.text, /Search Results/);
+
+  const failed = mapCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'mcp_2',
+      type: 'mcp_tool_call',
+      server: 'codegraph',
+      tool: 'codegraph_search',
+      error: { message: 'server unavailable' },
+      status: 'failed'
+    }
+  });
+  assert.equal(failed.type, 'tool.completed');
+  assert.equal(failed.isError, true);
+  assert.match(failed.text, /server unavailable/);
+});
+
+test('conversation replay remaps legacy Codex unknown MCP events', () => {
+  const now = new Date('2026-05-23T00:00:00.000Z');
+  const eventStore = new ConversationEventStore({ now: () => now });
+  const device = { id: 'device_1' };
+  const manager = new ConversationManager({
+    workspaces: {
+      getAuthorized() {
+        return { id: 'workspace_1', path: process.cwd() };
+      }
+    },
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['codex', { capabilities: {} }]]),
+    now: () => now
+  });
+  const conversation = manager.createConversation(
+    { workspaceId: 'workspace_1', adapter: 'codex' },
+    device
+  );
+
+  eventStore.append(conversation.id, 'system.notice', {
+    text: 'Codex event: item.started',
+    noticeKind: 'codex_unknown_event',
+    visible: false,
+    raw: {
+      type: 'item.started',
+      item: {
+        id: 'mcp_legacy',
+        type: 'mcp_tool_call',
+        server: 'codegraph',
+        tool: 'codegraph_search',
+        arguments: { query: 'mapCodexEvent' },
+        status: 'in_progress'
+      }
+    }
+  });
+  eventStore.append(conversation.id, 'system.notice', {
+    text: 'Codex event: item.completed',
+    noticeKind: 'codex_unknown_event',
+    visible: false,
+    raw: {
+      type: 'item.completed',
+      item: {
+        id: 'mcp_legacy',
+        type: 'mcp_tool_call',
+        server: 'codegraph',
+        tool: 'codegraph_search',
+        result: {
+          content: [{ type: 'text', text: '## Search Results\nmapCodexEvent' }]
+        },
+        status: 'completed'
+      }
+    }
+  });
+
+  const replayed = manager.listEvents(conversation.id, 1, device);
+  const started = replayed.find((event) => event.toolUseId === 'mcp_legacy' && event.type === 'tool.started');
+  const completed = replayed.find((event) => event.toolUseId === 'mcp_legacy' && event.type === 'tool.completed');
+  assert.ok(started);
+  assert.equal(started.toolName, 'codegraph.codegraph_search');
+  assert.equal(started.seq, 2);
+  assert.ok(completed);
+  assert.match(completed.text, /Search Results/);
+  assert.equal(completed.seq, 3);
 });
 
 test('Codex mapper normalizes observed todo_list items into task progress', () => {

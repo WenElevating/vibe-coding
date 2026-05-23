@@ -96,6 +96,28 @@ node scripts/run-tests.js
 
 - Last verified: 2026-05-22
 
+## Symptom: Codex CLI Events Are Persisted But Invisible
+
+- Symptom: the daemon persists `system.notice` rows with
+  `noticeKind=codex_unknown_event` and `visible=false`; mobile then filters
+  them from the transcript.
+- Action: group ignored events by `payload_json.raw.type` and
+  `payload_json.raw.item.type` before treating them as harmless lifecycle
+  noise. Lifecycle events such as `thread.started` and `turn.started` are
+  intentionally hidden, but item payloads such as `file_change` or
+  `mcp_tool_call` should be mapped to visible product events when they carry
+  user-relevant work. If old rows were already persisted as
+  `codex_unknown_event`, keep storage immutable and remap them from preserved
+  `raw` payloads during replay/fetch.
+- Verification:
+
+```powershell
+sqlite3 -json data\app\app.sqlite "select json_extract(payload_json,'$.noticeKind') as noticeKind, json_extract(payload_json,'$.raw.type') as rawType, json_extract(payload_json,'$.raw.item.type') as itemType, count(*) as count, max(created_at) as latest from conversation_events where type='system.notice' group by noticeKind, rawType, itemType order by latest desc, count desc;"
+node scripts/run-tests.js
+```
+
+- Last verified: 2026-05-23
+
 ## Symptom: Sent Image Preview Turns Into Placeholder After Commit
 
 - Symptom: an uploaded image preview renders initially from the optimistic

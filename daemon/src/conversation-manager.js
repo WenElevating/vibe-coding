@@ -20,6 +20,7 @@ const { payloadHashForNormalizedInput, capabilityVersionForNormalizedInput } = r
 const { normalizeAttachmentCapabilities, applyModelAttachmentCapabilities } = require('./attachment-capabilities');
 const { textAttachmentWrapper } = require('./attachment-validation');
 const { deriveConversationTitle } = require('./conversation-title');
+const { mapCodexEvent } = require('./codex-conversation-adapter');
 
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
 
@@ -516,7 +517,9 @@ class ConversationManager {
 
   listEvents(conversationId, afterSeq, device) {
     const conversation = this.requireConversation(conversationId, device);
-    return this.eventStore.list(conversation.id, afterSeq);
+    return this.eventStore
+      .list(conversation.id, afterSeq)
+      .map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
   }
 
   recordAdapterEvent(conversation, event) {
@@ -714,6 +717,26 @@ function activeStateBlocksModelUpdate(conversation) {
     conversationStatuses.WAITING_INPUT,
     conversationStatuses.WAITING_APPROVAL
   ].includes(conversation.status) || Boolean(conversation.sendLock);
+}
+
+function normalizeLegacyConversationEventForReplay(event, conversation) {
+  if (conversation.adapter !== 'codex') return event;
+  if (!event || event.type !== conversationEventTypes.SYSTEM_NOTICE) return event;
+  if (event.noticeKind !== 'codex_unknown_event') return event;
+  const mapped = mapCodexEvent(event.raw, { workspacePath: conversation.workspacePath });
+  if (!mapped) return event;
+  if (
+    mapped.type === conversationEventTypes.SYSTEM_NOTICE &&
+    mapped.noticeKind === 'codex_unknown_event'
+  ) {
+    return event;
+  }
+  return {
+    seq: event.seq,
+    conversationId: event.conversationId,
+    createdAt: event.createdAt,
+    ...mapped
+  };
 }
 
 async function disposeIdleHandle(conversation) {
