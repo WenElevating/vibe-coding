@@ -14,6 +14,12 @@ typedef NotificationSocketConnector = Future<NotificationSocket> Function(
   Uri uri,
   Map<String, String> headers,
 );
+typedef NotificationReconnectDelayWaiter = Future<void> Function(
+  Duration delay,
+);
+
+// Empty reconnectDelays still back off so persistent failures cannot spin.
+const Duration _fallbackReconnectDelay = Duration(milliseconds: 100);
 
 abstract class NotificationSocket {
   Stream<Object?> get stream;
@@ -43,6 +49,7 @@ class DaemonNotificationClient implements NotificationService {
     required this.tokenProvider,
     required this.fetchBackfill,
     NotificationSocketConnector? connector,
+    NotificationReconnectDelayWaiter? reconnectDelayWaiter,
     this.reconnectDelays = const <Duration>[
       Duration(seconds: 1),
       Duration(seconds: 2),
@@ -51,15 +58,20 @@ class DaemonNotificationClient implements NotificationService {
       Duration(seconds: 16),
       Duration(seconds: 30),
     ],
-  }) : _connector = connector ?? _connectIoSocket;
+  }) : _connector = connector ?? _connectIoSocket,
+        _reconnectDelayWaiter =
+            reconnectDelayWaiter ?? ((delay) => Future<void>.delayed(delay));
 
   final Uri baseUri;
   final NotificationTokenProvider tokenProvider;
   final NotificationBackfillFetcher fetchBackfill;
   final NotificationSocketConnector _connector;
+  final NotificationReconnectDelayWaiter _reconnectDelayWaiter;
   final List<Duration> reconnectDelays;
 
   bool _closed = false;
+  final Set<NotificationSocket> _activeSockets = <NotificationSocket>{};
+  final Completer<void> _closedCompleter = Completer<void>();
 
   static Object? decodeJson(String source) => jsonDecode(source);
 
@@ -72,13 +84,17 @@ class DaemonNotificationClient implements NotificationService {
     var attempt = 0;
     while (!_closed) {
       NotificationSocket? socket;
-      var reconnectNow = false;
+      var skipDelay = false;
       try {
         final token = tokenProvider();
         socket = await _connector(
           daemonNotificationWebSocketUri(baseUri),
           <String, String>{if (token != null) 'authorization': 'Bearer $token'},
         );
+        if (_closed) {
+          break;
+        }
+        _activeSockets.add(socket);
         socket.add(jsonEncode(<String, Object?>{
           'type': 'subscribe',
           'id': 'sub_$conversationId',
@@ -88,20 +104,22 @@ class DaemonNotificationClient implements NotificationService {
         }));
         attempt = 0;
         await for (final raw in socket.stream) {
-          final decoded = raw is String ? jsonDecode(raw) : raw;
-          if (decoded is! Map) {
+          final frame = _decodeFrame(raw);
+          if (frame == null) {
             continue;
           }
-          final frame = Map<String, Object?>.from(decoded);
           if (frame['type'] == 'event') {
-            final payload = Map<String, Object?>.from(frame['payload'] as Map);
-            final event = ConversationEvent.fromJson(payload);
+            final event = _eventFromFrame(frame);
+            if (event == null) {
+              continue;
+            }
             if (event.seq > cursor) {
               cursor = event.seq;
             }
             yield event;
           } else if (frame['type'] == 'error' &&
               frame['code'] == 'REPLAY_TRUNCATED') {
+            final previousCursor = cursor;
             final backfill =
                 await fetchBackfill(conversationId, afterSeq: cursor);
             for (final event in backfill) {
@@ -110,7 +128,7 @@ class DaemonNotificationClient implements NotificationService {
               }
               yield event;
             }
-            reconnectNow = true;
+            skipDelay = cursor > previousCursor;
             break;
           } else if (frame['type'] == 'error' &&
               (frame['code'] == 'AUTH_REQUIRED' ||
@@ -118,24 +136,86 @@ class DaemonNotificationClient implements NotificationService {
             break;
           }
         }
+      } catch (_) {
+        // Connector and socket stream failures use the normal reconnect path.
       } finally {
-        await socket?.close();
+        if (socket != null) {
+          _activeSockets.remove(socket);
+          await _closeSocket(socket);
+        }
       }
       if (_closed) {
         break;
       }
-      if (reconnectNow || reconnectDelays.isEmpty) {
+      if (skipDelay) {
         continue;
       }
-      final delayIndex = attempt.clamp(0, reconnectDelays.length - 1) as int;
-      final delay = reconnectDelays[delayIndex];
+      final delay = _delayForAttempt(attempt);
       attempt += 1;
-      await Future<void>.delayed(delay);
+      await _waitForReconnectDelay(delay);
     }
   }
 
   Future<void> close() async {
+    if (_closed) {
+      return;
+    }
     _closed = true;
+    if (!_closedCompleter.isCompleted) {
+      _closedCompleter.complete();
+    }
+    final sockets = List<NotificationSocket>.of(_activeSockets);
+    await Future.wait<void>(sockets.map(_closeSocket));
+  }
+
+  Duration _delayForAttempt(int attempt) {
+    if (reconnectDelays.isEmpty) {
+      return _fallbackReconnectDelay;
+    }
+    final delayIndex = attempt.clamp(0, reconnectDelays.length - 1) as int;
+    return reconnectDelays[delayIndex];
+  }
+
+  Future<void> _waitForReconnectDelay(Duration delay) async {
+    if (_closed || delay <= Duration.zero) {
+      return;
+    }
+    await Future.any<void>(<Future<void>>[
+      _reconnectDelayWaiter(delay),
+      _closedCompleter.future,
+    ]);
+  }
+}
+
+Map<String, Object?>? _decodeFrame(Object? raw) {
+  try {
+    final decoded = raw is String ? jsonDecode(raw) : raw;
+    if (decoded is! Map) {
+      return null;
+    }
+    return Map<String, Object?>.from(decoded);
+  } catch (_) {
+    return null;
+  }
+}
+
+ConversationEvent? _eventFromFrame(Map<String, Object?> frame) {
+  final payload = frame['payload'];
+  if (payload is! Map) {
+    return null;
+  }
+  try {
+    return ConversationEvent.fromJson(Map<String, Object?>.from(payload));
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _closeSocket(NotificationSocket socket) async {
+  try {
+    await socket.close();
+  } catch (_) {
+    // Closing is best-effort because the socket may already be gone.
   }
 }
 

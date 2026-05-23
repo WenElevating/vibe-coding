@@ -117,11 +117,170 @@ void main() {
     await subscription.cancel();
     await client.close();
   });
+
+  test('reconnects after connector failure and emits later events', () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    var attempts = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        attempts += 1;
+        if (attempts == 1) {
+          throw const SocketConnectionFailure();
+        }
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+      reconnectDelayWaiter: delay.wait,
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await delay.started.future;
+    expect(sockets, isEmpty);
+    delay.complete();
+
+    await waitFor(() => sockets.length == 1);
+    expect(sockets.single.sentJson.single['afterSeq'], 7);
+
+    sockets.single.serverAddJson(eventFrame(seq: 8, text: 'after reconnect'));
+    await waitFor(() => events.length == 1);
+    expect(events.single.seq, 8);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
+  test('close actively closes current socket', () async {
+    final socket = FakeNotificationSocket();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async => socket,
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+    );
+
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen((_) {});
+    await waitFor(() => socket.sentJson.isNotEmpty);
+
+    await client.close();
+
+    expect(socket.closeCalls, 1);
+    await subscription.cancel();
+  });
+
+  test('close wakes delayed reconnect', () async {
+    final delay = ControlledDelay();
+    var attempts = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        attempts += 1;
+        throw const SocketConnectionFailure();
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration(seconds: 30)],
+      reconnectDelayWaiter: delay.wait,
+    );
+
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen((_) {});
+    final done = subscription.asFuture<void>();
+
+    await delay.started.future;
+    await client.close();
+    await done.timeout(const Duration(milliseconds: 100));
+
+    expect(attempts, 1);
+    await subscription.cancel();
+  });
+
+  test('ignores malformed frames and emits later valid events', () async {
+    final socket = FakeNotificationSocket();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async => socket,
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => socket.sentJson.isNotEmpty);
+    socket.serverAddRaw('{bad json');
+    socket.serverAddJson(<String, Object?>{'type': 'event'});
+    socket.serverAddJson(<String, Object?>{
+      'type': 'event',
+      'payload': 'not an object',
+    });
+    socket.serverAddJson(eventFrame(seq: 8, text: 'valid'));
+
+    await waitFor(() => events.length == 1);
+    expect(events.single.seq, 8);
+    expect(events.single.text, 'valid');
+
+    await subscription.cancel();
+    await client.close();
+  });
+
+  test('replay truncated without cursor advancement waits before reconnect',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+      reconnectDelayWaiter: delay.wait,
+    );
+
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen((_) {});
+
+    await waitFor(() => sockets.length == 1);
+    sockets.single.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'code': 'REPLAY_TRUNCATED',
+    });
+
+    await delay.started.future;
+    expect(sockets.length, 1);
+    delay.complete();
+
+    await waitFor(() => sockets.length == 2);
+    expect(sockets[1].sentJson.single['afterSeq'], 7);
+
+    await subscription.cancel();
+    await client.close();
+  });
 }
 
 class FakeNotificationSocket implements NotificationSocket {
   final StreamController<Object?> _incoming = StreamController<Object?>();
   final List<Map<String, Object?>> sentJson = <Map<String, Object?>>[];
+  int closeCalls = 0;
 
   @override
   Stream<Object?> get stream => _incoming.stream;
@@ -135,10 +294,39 @@ class FakeNotificationSocket implements NotificationSocket {
     _incoming.add(json);
   }
 
+  void serverAddRaw(Object? value) {
+    _incoming.add(value);
+  }
+
   @override
   Future<void> close([int? code, String? reason]) async {
-    await _incoming.close();
+    if (!_incoming.isClosed) {
+      closeCalls += 1;
+      await _incoming.close();
+    }
   }
+}
+
+class ControlledDelay {
+  final Completer<void> started = Completer<void>();
+  final Completer<void> _released = Completer<void>();
+
+  Future<void> wait(Duration delay) {
+    if (!started.isCompleted) {
+      started.complete();
+    }
+    return _released.future;
+  }
+
+  void complete() {
+    if (!_released.isCompleted) {
+      _released.complete();
+    }
+  }
+}
+
+class SocketConnectionFailure implements Exception {
+  const SocketConnectionFailure();
 }
 
 Map<String, Object?> jsonObject(String source) {
@@ -157,6 +345,21 @@ ConversationEvent conversationEvent({required int seq}) =>
       'createdAt': '2026-05-23T05:18:14.000Z',
       'text': 'backfilled',
     });
+
+Map<String, Object?> eventFrame({required int seq, required String text}) =>
+    <String, Object?>{
+      'type': 'event',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'seq': seq,
+      'payload': <String, Object?>{
+        'seq': seq,
+        'conversationId': 'conv_1',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-23T05:18:14.000Z',
+        'text': text,
+      },
+    };
 
 Future<void> waitFor(bool Function() condition) async {
   for (var attempt = 0; attempt < 20; attempt += 1) {
