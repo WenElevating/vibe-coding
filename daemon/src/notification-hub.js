@@ -267,7 +267,11 @@ class NotificationHub {
         this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));
       }
       if (this.onReplayBatchSent) {
-        this.onReplayBatchSent({ connection, subscription });
+        try {
+          this.onReplayBatchSent({ connection, subscription });
+        } catch {
+          // Test hooks must not change production replay behavior.
+        }
       }
       await new Promise((resolve) => setImmediate(resolve));
     }

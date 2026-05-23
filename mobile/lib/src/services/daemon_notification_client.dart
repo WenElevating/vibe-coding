@@ -96,6 +96,7 @@ class DaemonNotificationClient implements NotificationService {
     while (!_closed) {
       NotificationSocket? socket;
       var skipDelay = false;
+      var authRecovered = false;
       try {
         final token = tokenProvider();
         socket = await _connector(
@@ -146,12 +147,13 @@ class DaemonNotificationClient implements NotificationService {
                   frame['code'] == 'TOKEN_EXPIRED')) {
             if (refreshAuth != null) {
               await refreshAuth!();
+              authRecovered = true;
               skipDelay = true;
             }
             break;
           }
         }
-        if (_isAuthClose(socket)) {
+        if (!authRecovered && _isAuthClose(socket)) {
           if (refreshAuth != null) {
             await refreshAuth!();
             skipDelay = true;

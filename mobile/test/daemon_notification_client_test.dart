@@ -206,6 +206,55 @@ void main() {
     await client.close();
   });
 
+  test('does not refresh twice when token expired frame is followed by auth close',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final tokens = <String>['token_old'];
+    final refreshCalls = <String>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => tokens.last,
+      connector: (_, headers) async {
+        final socket = FakeNotificationSocket();
+        socket.connectHeaders = Map<String, String>.from(headers);
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      refreshAuth: () async {
+        refreshCalls.add('refresh');
+        tokens.add('token_new');
+      },
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => sockets.length == 1);
+    sockets.single.serverAddJson(eventFrame(seq: 8, text: 'before expiry'));
+    await waitFor(() => events.length == 1);
+    sockets.single.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'code': 'TOKEN_EXPIRED',
+      'message': 'WebSocket authorization expired.',
+    });
+    await sockets.single.serverClose(1008, 'TOKEN_EXPIRED');
+
+    await waitFor(() => sockets.length == 2);
+    expect(refreshCalls, <String>['refresh']);
+    expect(sockets[0].connectHeaders['authorization'], 'Bearer token_old');
+    expect(sockets[1].connectHeaders['authorization'], 'Bearer token_new');
+    expect(sockets[1].sentJson.single['afterSeq'], 8);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('refreshes token after auth websocket close and reconnects from cursor',
       () async {
     final sockets = <FakeNotificationSocket>[];
