@@ -383,6 +383,13 @@ class _LazyConversationRepository implements ConversationRepository {
       messages;
 
   @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      Stream<ConversationEvent>.fromIterable(messages);
+
+  @override
   Future<List<ConversationSummary>> listConversations() async =>
       <ConversationSummary>[
         _conversationSummary(
@@ -460,6 +467,13 @@ class _NewSessionConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) async =>
       const <ConversationEvent>[];
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      const Stream<ConversationEvent>.empty();
 
   @override
   Future<List<ConversationSummary>> listConversations() async =>

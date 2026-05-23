@@ -68,9 +68,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final WorkbenchAttachmentPicker _attachmentPicker;
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
-  Timer? _poller;
-  bool _pollInFlight = false;
-  bool _terminalPollDrainPending = false;
+  StreamSubscription<ConversationEvent>? _conversationEventSubscription;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
@@ -123,6 +121,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _goToWorkspaces() {
+    unawaited(_cancelConversationEventSubscription());
     _navigatorKey.currentState
         ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
   }
@@ -147,6 +146,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _goToSessions(WorkspaceSummary workspace) {
+    unawaited(_cancelConversationEventSubscription());
     _workbenchViewModel.showSessions(workspace);
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeSessions, (route) => route.settings.name == _routeWorkspaces);
@@ -163,13 +163,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _resetConversationState({bool bottomAnchorTranscript = false}) {
+    unawaited(_cancelConversationEventSubscription());
     _bottomAnchorTranscript = bottomAnchorTranscript;
     _bottomAnchorTranscriptUnderflow = false;
     _workbenchViewModel.resetConversationDisplay(notify: false);
   }
 
   Future<void> _openSession(SessionItem item) async {
-    _poller?.cancel();
+    await _cancelConversationEventSubscription();
     setState(() {
       _resetConversationState(
           bottomAnchorTranscript: item.conversation != null);
@@ -177,7 +178,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.clearOperationError(notify: false);
     });
     _workbenchViewModel.showConversation(_workspaceForId(item.run.workspaceId));
-    if (item.conversation != null) await _pollEvents();
+    if (item.conversation != null) {
+      await _restartConversationEventSubscription();
+    }
     if (!mounted) return;
     _goToConversation();
     _scrollToBottom(jump: true);
@@ -207,7 +210,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _workbenchViewModel.setCancelledConversationDisplayStatus(conversation,
             run: run, notify: false);
       });
-      _poller?.cancel();
+      await _cancelConversationEventSubscription();
     } catch (err) {
       if (mounted) _workbenchViewModel.setOperationError(err.toString());
     } finally {
@@ -255,7 +258,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _poller?.cancel();
+    unawaited(_conversationEventSubscription?.cancel());
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
@@ -735,7 +738,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               notify: false);
         });
         if (mounted) _goToConversation();
-        await _restartConversationPolling();
+        await _restartConversationEventSubscription();
         final updated = await result.updatedConversation;
         if (mounted) {
           setState(() {
@@ -767,7 +770,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             await _workbenchViewModel.sendExistingConversationPrompt(
           conversationId: existingConversationId,
           prompt: prompt,
-          restartPolling: _restartConversationPolling,
+          restartPolling: _restartConversationEventSubscription,
         );
         if (mounted) {
           setState(() {
@@ -797,7 +800,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         setState(() {
           _workbenchViewModel.clearOperationError(notify: false);
         });
-        await _restartConversationPolling();
+        await _restartConversationEventSubscription();
         return;
       }
       final traced = await _recordWorkbenchException(
@@ -816,109 +819,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       });
     } finally {
       if (mounted) _workbenchViewModel.finishOperation();
-    }
-  }
-
-  Future<void> _pollEvents() async {
-    final runId = _activeRunId;
-    final conversationId = _activeConversationId;
-    if (runId == null || conversationId == null) {
-      _poller?.cancel();
-      return;
-    }
-    if (_pollInFlight) return;
-    _pollInFlight = true;
-    final afterSeq = _workbenchViewModel.lastSeq;
-    final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
-    final startedAt = DateTime.now();
-    void recordPollTrace({
-      required int? returnedCount,
-      required bool cancelled,
-      required bool changed,
-      String? error,
-    }) {
-      unawaited(_workbenchViewModel.recordPollTrace(WorkbenchPollTraceEntry(
-        conversationId: conversationId,
-        runId: runId,
-        path: path,
-        afterSeq: afterSeq,
-        returnedCount: returnedCount,
-        durationMs: DateTime.now().difference(startedAt).inMilliseconds,
-        cancelled: cancelled,
-        changed: changed,
-        terminalDrainPending: _terminalPollDrainPending,
-        error: error,
-      )));
-    }
-
-    try {
-      final conversationEvents =
-          await _workbenchViewModel.fetchConversationEvents(
-        conversationId: conversationId,
-        afterSeq: afterSeq,
-      );
-      final cancelled = !mounted ||
-          conversationId != _activeConversationId ||
-          runId != _activeRunId;
-      if (cancelled) {
-        recordPollTrace(
-            returnedCount: conversationEvents.length,
-            cancelled: true,
-            changed: false);
-        return;
-      }
-      if (conversationEvents.isEmpty) {
-        if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(false)) {
-          _poller?.cancel();
-        }
-        recordPollTrace(returnedCount: 0, cancelled: false, changed: false);
-        return;
-      }
-      final changed = await _workbenchViewModel.applyConversationEventsAsync(
-        conversationEvents,
-        streamOutput: widget.streamOutput,
-        notify: false,
-      );
-      final cancelledAfterApply = !mounted ||
-          conversationId != _activeConversationId ||
-          runId != _activeRunId;
-      if (cancelledAfterApply) {
-        recordPollTrace(
-            returnedCount: conversationEvents.length,
-            cancelled: true,
-            changed: changed);
-        return;
-      }
-      if (mounted) setState(() {});
-      if (changed) _scrollToBottom();
-      if (!_isRunningCli && !_shouldKeepPollingForTerminalDrain(changed)) {
-        _poller?.cancel();
-      }
-      recordPollTrace(
-          returnedCount: conversationEvents.length,
-          cancelled: false,
-          changed: changed);
-    } catch (err, stack) {
-      recordPollTrace(
-          returnedCount: null,
-          cancelled: !mounted,
-          changed: false,
-          error: err.toString());
-      final traced = await _recordWorkbenchException(
-        err,
-        stack,
-        operation: 'pollConversationEvents',
-        path: path,
-      );
-      if (mounted) {
-        setState(() {
-          _workbenchViewModel.setOperationError(traced.message,
-              traceId: traced.traceId, notify: false);
-        });
-      }
-      _poller?.cancel();
-    } finally {
-      _pollInFlight = false;
     }
   }
 
@@ -944,28 +844,50 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  Future<void> _restartConversationPolling() async {
-    _poller?.cancel();
-    _terminalPollDrainPending = false;
-    await _pollEvents();
-    if (!mounted ||
-        _activeConversationId == null ||
-        !isActiveConversationStatus(
-            _workbenchViewModel.effectiveConversationStatus)) {
-      return;
-    }
-    _poller =
-        Timer.periodic(const Duration(milliseconds: 900), (_) => _pollEvents());
+  Future<void> _cancelConversationEventSubscription() async {
+    final subscription = _conversationEventSubscription;
+    _conversationEventSubscription = null;
+    await subscription?.cancel();
   }
 
-  bool _shouldKeepPollingForTerminalDrain(bool changed) {
-    final keepPolling = shouldKeepPollingForTerminalDrain(
-      isRunningCli: _isRunningCli,
-      changed: changed,
-      drainPending: _terminalPollDrainPending,
-    );
-    _terminalPollDrainPending = keepPolling && !_isRunningCli;
-    return keepPolling;
+  Future<void> _restartConversationEventSubscription() async {
+    await _cancelConversationEventSubscription();
+    final runId = _activeRunId;
+    final conversationId = _activeConversationId;
+    if (!mounted || runId == null || conversationId == null) return;
+    final afterSeq = _workbenchViewModel.lastSeq;
+    _conversationEventSubscription = _workbenchViewModel
+        .watchConversationEvents(
+            conversationId: conversationId, afterSeq: afterSeq)
+        .listen((event) async {
+      if (!mounted ||
+          conversationId != _activeConversationId ||
+          runId != _activeRunId) {
+        return;
+      }
+      final changed = await _workbenchViewModel.applyConversationEventsAsync(
+        <ConversationEvent>[event],
+        streamOutput: widget.streamOutput,
+        notify: true,
+      );
+      if (!mounted ||
+          conversationId != _activeConversationId ||
+          runId != _activeRunId) {
+        return;
+      }
+      if (changed) {
+        _scrollToBottom();
+      }
+    }, onError: (Object error, StackTrace stack) {
+      unawaited(_workbenchViewModel.recordException(
+        message: error.toString(),
+        stack: stack.toString(),
+        path: '/api/notifications/ws',
+        conversationId: conversationId,
+        runId: runId,
+        operation: 'watchConversationEvents',
+      ));
+    });
   }
 
   void _startNewSessionFromList() {
@@ -1009,7 +931,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       });
       final conversation = _activeConversation;
       if (conversation != null && shouldPollAfterApproval(conversation)) {
-        await _restartConversationPolling();
+        await _restartConversationEventSubscription();
       }
     } catch (err) {
       _workbenchViewModel.setOperationError(err.toString());

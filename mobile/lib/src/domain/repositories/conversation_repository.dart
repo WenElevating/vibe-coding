@@ -79,6 +79,11 @@ abstract class ConversationRepository {
     int afterSeq,
   });
 
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  });
+
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,
     String questionId,

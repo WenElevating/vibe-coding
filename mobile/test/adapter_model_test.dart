@@ -807,6 +807,13 @@ class _FakeConversationRepository implements ConversationRepository {
       const <ConversationEvent>[];
 
   @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      const Stream<ConversationEvent>.empty();
+
+  @override
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,
     String questionId,

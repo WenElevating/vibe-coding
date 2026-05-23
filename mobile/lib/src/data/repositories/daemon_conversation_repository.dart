@@ -2,12 +2,17 @@ import '../../domain/repositories/conversation_repository.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../services/conversation_service.dart';
+import '../services/notification_service.dart';
 
 class DaemonConversationRepository implements ConversationRepository {
-  DaemonConversationRepository({required DaemonClient client})
-      : _client = client;
+  DaemonConversationRepository({
+    required DaemonClient client,
+    NotificationService? notificationService,
+  })  : _client = client,
+        _notificationService = notificationService;
 
   final DaemonClient _client;
+  final NotificationService? _notificationService;
 
   @override
   Future<List<ConversationSummary>> listConversations() =>
@@ -70,6 +75,23 @@ class DaemonConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) =>
       _client.fetchConversationEvents(conversationId, afterSeq: afterSeq);
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    final service = _notificationService;
+    if (service == null) {
+      return Stream<List<ConversationEvent>>.periodic(
+        const Duration(seconds: 5),
+      )
+          .asyncMap(
+              (_) => fetchConversationEvents(conversationId, afterSeq: afterSeq))
+          .expand((events) => events);
+    }
+    return service.watchConversationEvents(conversationId, afterSeq: afterSeq);
+  }
 
   @override
   Future<ConversationSummary> answerConversationQuestion(

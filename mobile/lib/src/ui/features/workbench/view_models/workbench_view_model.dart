@@ -931,6 +931,15 @@ class WorkbenchViewModel extends ChangeNotifier {
         afterSeq: afterSeq,
       );
 
+  Stream<ConversationEvent> watchConversationEvents({
+    required String conversationId,
+    required int afterSeq,
+  }) =>
+      _requireConversationRepository().watchConversationEvents(
+        conversationId,
+        afterSeq: afterSeq,
+      );
+
   Future<ConversationSummary> respondConversationApproval({
     required String conversationId,
     required String approvalId,

@@ -941,6 +941,33 @@ void main() {
     expect(events.single.type, 'assistant.message');
   });
 
+  test('workbench view model watches conversation events after sequence',
+      () async {
+    final repository = _FakeConversationRepository();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      conversationRepository: repository,
+    );
+
+    final emitted = <ConversationEvent>[];
+    final subscription = viewModel
+        .watchConversationEvents(conversationId: 'conv_existing', afterSeq: 7)
+        .listen(emitted.add);
+
+    repository.emitConversationEvent(ConversationEvent(
+      seq: 8,
+      conversationId: 'conv_existing',
+      type: 'assistant.message',
+      createdAt: DateTime.parse('2026-05-23T05:18:14.000Z'),
+      text: 'streamed',
+    ));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(repository.calls, <String>['watchEvents:conv_existing:7']);
+    expect(emitted.single.seq, 8);
+    await subscription.cancel();
+  });
+
   test('workbench view model responds to conversation approval', () async {
     final repository = _FakeConversationRepository();
     final viewModel = WorkbenchViewModel(
@@ -1144,6 +1171,10 @@ class _FakeConversationRepository implements ConversationRepository {
   final List<String> calls = <String>[];
   final List<ConversationMessageSendRequest> sentRequests =
       <ConversationMessageSendRequest>[];
+  final StreamController<ConversationEvent> _events =
+      StreamController<ConversationEvent>.broadcast();
+
+  void emitConversationEvent(ConversationEvent event) => _events.add(event);
 
   @override
   Future<ConversationSummary> createConversation({
@@ -1210,6 +1241,15 @@ class _FakeConversationRepository implements ConversationRepository {
         text: 'hello',
       ),
     ];
+  }
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    calls.add('watchEvents:$conversationId:$afterSeq');
+    return _events.stream;
   }
 
   @override

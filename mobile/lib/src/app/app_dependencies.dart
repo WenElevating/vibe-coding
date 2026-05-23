@@ -16,6 +16,7 @@ import '../models/protocol.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
+import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
 import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
@@ -111,7 +112,18 @@ class DataDependencies {
       ConnectedDataDependencies(
         authRepository: DaemonAuthRepository(client: client),
         adapterRepository: DaemonAdapterRepository(client: client),
-        conversationRepository: DaemonConversationRepository(client: client),
+        conversationRepository: DaemonConversationRepository(
+          client: client,
+          notificationService: DaemonNotificationClient(
+            baseUri: client.baseUri,
+            tokenProvider: () => client.currentToken,
+            fetchBackfill: (conversationId, {required afterSeq}) =>
+                client.fetchConversationEvents(
+              conversationId,
+              afterSeq: afterSeq,
+            ),
+          ),
+        ),
         diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
         runRepository: DaemonRunRepository(client: client),
         workspaceRepository: DaemonWorkspaceRepository(client: client),
