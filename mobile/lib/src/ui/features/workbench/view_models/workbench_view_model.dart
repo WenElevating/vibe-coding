@@ -16,6 +16,8 @@ import '../coding_workbench_controller.dart';
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
 
+typedef WorkbenchEventApplicationIsCurrent = bool Function();
+
 enum WorkbenchModelNotice {
   changedToAvailableOption,
 }
@@ -379,14 +381,22 @@ class WorkbenchViewModel extends ChangeNotifier {
     List<ConversationEvent> events, {
     required bool streamOutput,
     bool notify = true,
+    WorkbenchEventApplicationIsCurrent? isCurrent,
   }) async {
+    final stillCurrent = isCurrent ?? () => true;
+    if (!stillCurrent()) return false;
     final changed = applyConversationEvents(
       events,
       streamOutput: streamOutput,
       notify: false,
     );
     if (!changed) return false;
-    final previewChanged = await _bindAndResolveAttachmentPreviews(events);
+    if (!stillCurrent()) return false;
+    final previewChanged = await _bindAndResolveAttachmentPreviews(
+      events,
+      isCurrent: stillCurrent,
+    );
+    if (!stillCurrent()) return false;
     final hasChanged = changed || previewChanged;
     if (notify && hasChanged) notifyListeners();
     return hasChanged;
@@ -813,10 +823,13 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   Future<bool> _bindAndResolveAttachmentPreviews(
-      Iterable<ConversationEvent> events) async {
+    Iterable<ConversationEvent> events, {
+    required WorkbenchEventApplicationIsCurrent isCurrent,
+  }) async {
     var previewChanged = false;
     final activeConversationId = _activeConversationId;
     for (final event in events) {
+      if (!isCurrent()) return false;
       if (event.type != 'user.message' || event.attachments.isEmpty) continue;
       final clientMessageId = event.raw['clientMessageId'] as String?;
       if (clientMessageId == null || clientMessageId.isEmpty) continue;
@@ -831,17 +844,22 @@ class WorkbenchViewModel extends ChangeNotifier {
           attachments: event.attachments,
           pendingIdentities: _pendingAttachmentPreviewIdentities[pendingKey],
         );
+        if (!isCurrent()) return false;
         previewChanged = true;
       } catch (_) {
         // Cache binding is best-effort; event projection should still proceed.
       } finally {
-        _pendingAttachmentPreviewIdentities.remove(pendingKey);
+        if (isCurrent()) {
+          _pendingAttachmentPreviewIdentities.remove(pendingKey);
+        }
       }
     }
+    if (!isCurrent()) return false;
     if (activeConversationId == null) return previewChanged;
 
     final resolvedMessages = <WorkbenchMessage>[];
     for (final message in _messages) {
+      if (!isCurrent()) return false;
       if (message.role != 'user' || message.attachments.isEmpty) {
         resolvedMessages.add(message);
         continue;
@@ -862,6 +880,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         } catch (_) {
           cached = null;
         }
+        if (!isCurrent()) return false;
         attachments.add(cached == null
             ? attachment
             : attachment.copyWith(localPath: cached.cachePath));
@@ -871,6 +890,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_sameWorkbenchAttachmentPaths(_messages, resolvedMessages)) {
       return previewChanged;
     }
+    if (!isCurrent()) return false;
     _messages
       ..clear()
       ..addAll(resolvedMessages);

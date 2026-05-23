@@ -898,6 +898,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       <ConversationEvent>[event],
       streamOutput: widget.streamOutput,
       notify: true,
+      isCurrent: () =>
+          generation == _conversationEventSubscriptionGeneration &&
+          mounted &&
+          conversationId == _activeConversationId &&
+          runId == _activeRunId,
     );
     if (generation != _conversationEventSubscriptionGeneration ||
         !mounted ||

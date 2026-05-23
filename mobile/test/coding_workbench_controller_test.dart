@@ -573,6 +573,67 @@ void main() {
     expect(viewModel.messages.single.attachments.single.localPath, isNull);
   });
 
+  test('stale async event apply does not rewrite messages after cancellation',
+      () async {
+    final cache = _FakeAttachmentPreviewCache()
+      ..resolveCompleter = Completer<CachedAttachmentPreview?>();
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+      attachmentPreviewCache: cache,
+    );
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'idle',
+    ));
+    var isCurrent = true;
+
+    final applyFuture = viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          raw: const <String, Object?>{'clientMessageId': 'client_1'},
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/png',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+      isCurrent: () => isCurrent,
+    );
+    await cache.resolveStarted.future;
+
+    isCurrent = false;
+    viewModel.resetConversationDisplay(clearActiveConversation: false);
+    cache.resolveCompleter!.complete(CachedAttachmentPreview(
+      attachmentId: 'att_0',
+      contentHash: 'hash_0',
+      cachePath: r'C:\cache\stale.png',
+      width: 320,
+      height: 200,
+      mimeType: 'image/png',
+      sizeBytes: 42,
+      createdAt: DateTime.utc(2026, 5, 22),
+      lastAccessedAt: DateTime.utc(2026, 5, 22),
+    ));
+
+    final changed = await applyFuture;
+
+    expect(changed, isFalse);
+    expect(viewModel.messages, isEmpty);
+  });
+
   test('workbench view model exposes pending question id', () {
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
@@ -1335,8 +1396,10 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
   final List<String> bound = <String>[];
   final Map<String, CachedAttachmentPreview> _resolved =
       <String, CachedAttachmentPreview>{};
+  final Completer<void> resolveStarted = Completer<void>();
   Object? bindError;
   Object? resolveError;
+  Completer<CachedAttachmentPreview?>? resolveCompleter;
   bool resolveCommittedPreview = true;
 
   @override
@@ -1390,6 +1453,13 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
     required String conversationId,
     required CommittedAttachment attachment,
   }) async {
+    if (!resolveStarted.isCompleted) {
+      resolveStarted.complete();
+    }
+    final completer = resolveCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
     final error = resolveError;
     if (error != null) throw error;
     return _resolved['$conversationId|${attachment.id}'];
