@@ -97,8 +97,14 @@ class DaemonNotificationClient implements NotificationService {
   final List<Duration> reconnectDelays;
 
   bool _closed = false;
+  NotificationSocket? _socket;
+  Future<void>? _connectionTask;
+  int _failedAttemptsSinceBackfill = 0;
   final Set<NotificationSocket> _activeSockets = <NotificationSocket>{};
+  final Map<String, _ConversationRoute> _conversationRoutes =
+      <String, _ConversationRoute>{};
   final Completer<void> _closedCompleter = Completer<void>();
+  Completer<void> _routeChangeCompleter = Completer<void>();
 
   static Object? decodeJson(String source) => jsonDecode(source);
 
@@ -106,112 +112,122 @@ class DaemonNotificationClient implements NotificationService {
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
-  }) async* {
-    var cursor = afterSeq;
+  }) {
+    if (_closed) {
+      return Stream<ConversationEvent>.error(const DaemonNotificationException(
+        code: 'CLOSED',
+        message: 'Notification client is closed.',
+      ));
+    }
+    final route = _conversationRoutes.putIfAbsent(
+      conversationId,
+      () => _ConversationRoute(conversationId),
+    );
+    late final _ConversationWatcher watcher;
+    final controller = StreamController<ConversationEvent>(
+      onCancel: () => _removeConversationWatcher(conversationId, watcher),
+    );
+    watcher = _ConversationWatcher(afterSeq, controller);
+    route.watchers.add(watcher);
+    _wakeConnectionLoop();
+    _ensureConnectionLoop();
+    _sendSubscribe(route);
+    return controller.stream;
+  }
+
+  Future<void> close() async {
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+    if (!_closedCompleter.isCompleted) {
+      _closedCompleter.complete();
+    }
+    final routes = List<_ConversationRoute>.of(_conversationRoutes.values);
+    _conversationRoutes.clear();
+    for (final route in routes) {
+      await route.close();
+    }
+    final sockets = List<NotificationSocket>.of(_activeSockets);
+    await Future.wait<void>(sockets.map(_closeSocket));
+  }
+
+  void _ensureConnectionLoop() {
+    if (_closed || _conversationRoutes.isEmpty || _connectionTask != null) {
+      return;
+    }
+    _connectionTask = _runConnectionLoop().whenComplete(() {
+      _connectionTask = null;
+      if (!_closed && _conversationRoutes.isNotEmpty) {
+        _ensureConnectionLoop();
+      }
+    });
+  }
+
+  Future<void> _runConnectionLoop() async {
     var attempt = 0;
-    var failedAttemptsSinceBackfill = 0;
-    while (!_closed) {
+    while (!_closed && _conversationRoutes.isNotEmpty) {
       NotificationSocket? socket;
       var skipDelay = false;
-      var authRecovered = false;
       var socketFailed = false;
+      var reconnectRequested = false;
       try {
         final token = tokenProvider();
         socket = await _connector(
           daemonNotificationWebSocketUri(baseUri),
           <String, String>{if (token != null) 'authorization': 'Bearer $token'},
         );
-        if (_closed) {
+        if (_closed || _conversationRoutes.isEmpty) {
           break;
         }
+        _socket = socket;
         _activeSockets.add(socket);
-        socket.add(jsonEncode(<String, Object?>{
-          'type': 'subscribe',
-          'id': 'sub_$conversationId',
-          'topic': 'conversation.events',
-          'scope': <String, Object?>{'conversationId': conversationId},
-          'afterSeq': cursor,
-        }));
+        for (final route in List<_ConversationRoute>.of(
+          _conversationRoutes.values,
+        )) {
+          _sendSubscribe(route);
+        }
         attempt = 0;
         await for (final raw in socket.stream) {
-          final frame = _decodeFrame(raw);
-          if (frame == null) {
-            continue;
-          }
-          if (frame['type'] == 'event') {
-            final event = _eventFromFrame(frame);
-            if (event == null) {
-              continue;
-            }
-            if (event.seq > cursor) {
-              cursor = event.seq;
-            }
-            failedAttemptsSinceBackfill = 0;
-            yield event;
-          } else if (frame['type'] == 'error' &&
-              frame['code'] == 'REPLAY_TRUNCATED') {
-            final previousCursor = cursor;
-            final backfill =
-                await fetchBackfill(conversationId, afterSeq: cursor);
-            for (final event in backfill) {
-              if (event.seq > cursor) {
-                cursor = event.seq;
-              }
-              failedAttemptsSinceBackfill = 0;
-              yield event;
-            }
-            skipDelay = cursor > previousCursor;
+          final action = await _handleSocketFrame(raw);
+          if (action.reconnect) {
+            reconnectRequested = true;
+            skipDelay = action.skipDelay;
             break;
-          } else if (frame['type'] == 'error' &&
-              (frame['code'] == 'AUTH_REQUIRED' ||
-                  frame['code'] == 'TOKEN_EXPIRED')) {
+          }
+          if (_closed || _conversationRoutes.isEmpty) {
+            break;
+          }
+        }
+        if (!reconnectRequested && !_closed && _conversationRoutes.isNotEmpty) {
+          if (_isAuthClose(socket)) {
             if (refreshAuth != null) {
               await refreshAuth!();
-              authRecovered = true;
               skipDelay = true;
             }
-            break;
-          } else if (frame['type'] == 'error' &&
-              _isNonRetryableNotificationError(frame['code'])) {
-            throw DaemonNotificationException(
-              code: _notificationErrorCode(frame),
-              message: _notificationErrorMessage(frame),
-            );
+          } else {
+            socketFailed = true;
           }
         }
-        if (!authRecovered && _isAuthClose(socket)) {
-          if (refreshAuth != null) {
-            await refreshAuth!();
-            skipDelay = true;
-          }
-        }
-      } on DaemonNotificationException {
-        rethrow;
       } catch (_) {
         socketFailed = true;
         // Connector and socket stream failures use the normal reconnect path.
       } finally {
+        if (_socket == socket) {
+          _socket = null;
+        }
         if (socket != null) {
           _activeSockets.remove(socket);
           await _closeSocket(socket);
         }
       }
-      if (!_closed && socketFailed) {
-        failedAttemptsSinceBackfill += 1;
-        if (failedAttemptsSinceBackfill >= backfillAfterFailedAttempts) {
-          failedAttemptsSinceBackfill = 0;
-          final backfill =
-              await fetchBackfill(conversationId, afterSeq: cursor);
-          for (final event in backfill) {
-            if (event.seq <= cursor) {
-              continue;
-            }
-            cursor = event.seq;
-            yield event;
-          }
+      if (!_closed && socketFailed && _conversationRoutes.isNotEmpty) {
+        _failedAttemptsSinceBackfill += 1;
+        if (_failedAttemptsSinceBackfill >= backfillAfterFailedAttempts) {
+          await _backfillAllRoutes();
         }
       }
-      if (_closed) {
+      if (_closed || _conversationRoutes.isEmpty) {
         break;
       }
       if (skipDelay) {
@@ -223,16 +239,188 @@ class DaemonNotificationClient implements NotificationService {
     }
   }
 
-  Future<void> close() async {
-    if (_closed) {
+  Future<_SocketFrameAction> _handleSocketFrame(Object? raw) async {
+    final frame = _decodeFrame(raw);
+    if (frame == null) {
+      return _SocketFrameAction.continueListening;
+    }
+    final type = frame['type'];
+    if (type == 'event') {
+      final event = _eventFromFrame(frame);
+      if (event != null) {
+        _deliverConversationEvent(event);
+      }
+      return _SocketFrameAction.continueListening;
+    }
+    if (type != 'error') {
+      return _SocketFrameAction.continueListening;
+    }
+    final code = frame['code'];
+    if (code == 'REPLAY_TRUNCATED') {
+      final route = _routeForFrame(frame);
+      if (route != null) {
+        final advanced = await _backfillRoute(route);
+        return _SocketFrameAction.reconnect(skipDelay: advanced);
+      }
+      return _SocketFrameAction.reconnect(skipDelay: false);
+    }
+    if (code == 'AUTH_REQUIRED' || code == 'TOKEN_EXPIRED') {
+      if (refreshAuth != null) {
+        await refreshAuth!();
+        return _SocketFrameAction.reconnect(skipDelay: true);
+      }
+      return _SocketFrameAction.reconnect(skipDelay: false);
+    }
+    if (_isNonRetryableNotificationError(code)) {
+      final error = DaemonNotificationException(
+        code: _notificationErrorCode(frame),
+        message: _notificationErrorMessage(frame),
+      );
+      final route = _routeForFrame(frame);
+      if (route == null) {
+        await _failAllRoutes(error);
+      } else {
+        await _failRoute(route, error);
+      }
+    }
+    return _SocketFrameAction.continueListening;
+  }
+
+  void _sendSubscribe(_ConversationRoute route) {
+    final socket = _socket;
+    if (_closed || route.isEmpty || socket == null) {
       return;
     }
-    _closed = true;
-    if (!_closedCompleter.isCompleted) {
-      _closedCompleter.complete();
+    socket.add(jsonEncode(<String, Object?>{
+      'type': 'subscribe',
+      'id': 'sub_${route.conversationId}',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': route.conversationId},
+      'afterSeq': route.afterSeq,
+    }));
+  }
+
+  void _sendUnsubscribe(_ConversationRoute route) {
+    final socket = _socket;
+    if (_closed || socket == null) {
+      return;
     }
-    final sockets = List<NotificationSocket>.of(_activeSockets);
-    await Future.wait<void>(sockets.map(_closeSocket));
+    socket.add(jsonEncode(<String, Object?>{
+      'type': 'unsubscribe',
+      'id': 'unsub_${route.conversationId}',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': route.conversationId},
+    }));
+  }
+
+  void _deliverConversationEvent(ConversationEvent event) {
+    final route = _conversationRoutes[event.conversationId];
+    if (route == null) {
+      return;
+    }
+    var delivered = false;
+    for (final watcher in List<_ConversationWatcher>.of(route.watchers)) {
+      delivered = watcher.add(event) || delivered;
+    }
+    if (delivered) {
+      _failedAttemptsSinceBackfill = 0;
+    }
+  }
+
+  Future<void> _removeConversationWatcher(
+    String conversationId,
+    _ConversationWatcher watcher,
+  ) async {
+    final route = _conversationRoutes[conversationId];
+    if (route == null) {
+      return;
+    }
+    route.watchers.remove(watcher);
+    if (!route.isEmpty) {
+      return;
+    }
+    _conversationRoutes.remove(conversationId);
+    _wakeConnectionLoop();
+    _sendUnsubscribe(route);
+    if (_conversationRoutes.isEmpty) {
+      final socket = _socket;
+      if (socket != null) {
+        await _closeSocket(socket);
+      }
+    }
+  }
+
+  _ConversationRoute? _routeForFrame(Map<String, Object?> frame) {
+    final scope = frame['scope'];
+    if (scope is Map) {
+      final conversationId = scope['conversationId'];
+      if (conversationId is String) {
+        return _conversationRoutes[conversationId];
+      }
+    }
+    final payload = frame['payload'];
+    if (payload is Map) {
+      final conversationId = payload['conversationId'];
+      if (conversationId is String) {
+        return _conversationRoutes[conversationId];
+      }
+    }
+    if (_conversationRoutes.length == 1) {
+      return _conversationRoutes.values.single;
+    }
+    return null;
+  }
+
+  Future<bool> _backfillAllRoutes() async {
+    var advanced = false;
+    for (final route
+        in List<_ConversationRoute>.of(_conversationRoutes.values)) {
+      advanced = await _backfillRoute(route) || advanced;
+    }
+    return advanced;
+  }
+
+  Future<bool> _backfillRoute(_ConversationRoute route) async {
+    if (route.isEmpty) {
+      return false;
+    }
+    final before = route.afterSeq;
+    final backfill =
+        await fetchBackfill(route.conversationId, afterSeq: before);
+    final sorted = List<ConversationEvent>.of(backfill)
+      ..sort((a, b) => a.seq.compareTo(b.seq));
+    var advanced = false;
+    for (final event in sorted) {
+      final currentRoute = _conversationRoutes[event.conversationId];
+      if (currentRoute == null) {
+        continue;
+      }
+      final deliveredBefore = currentRoute.afterSeq;
+      _deliverConversationEvent(event);
+      advanced = currentRoute.afterSeq > deliveredBefore || advanced;
+    }
+    if (advanced) {
+      _failedAttemptsSinceBackfill = 0;
+    }
+    return advanced;
+  }
+
+  Future<void> _failRoute(
+    _ConversationRoute route,
+    DaemonNotificationException error,
+  ) async {
+    _conversationRoutes.remove(route.conversationId);
+    _wakeConnectionLoop();
+    await route.addErrorAndClose(error);
+  }
+
+  Future<void> _failAllRoutes(DaemonNotificationException error) async {
+    final routes = List<_ConversationRoute>.of(_conversationRoutes.values);
+    _conversationRoutes.clear();
+    _wakeConnectionLoop();
+    for (final route in routes) {
+      await route.addErrorAndClose(error);
+    }
   }
 
   Duration _delayForAttempt(int attempt) {
@@ -247,10 +435,102 @@ class DaemonNotificationClient implements NotificationService {
     if (_closed || delay <= Duration.zero) {
       return;
     }
+    final routeChange = _routeChangeCompleter.future;
     await Future.any<void>(<Future<void>>[
       _reconnectDelayWaiter(delay),
       _closedCompleter.future,
+      routeChange,
     ]);
+  }
+
+  void _wakeConnectionLoop() {
+    final completer = _routeChangeCompleter;
+    if (!completer.isCompleted) {
+      completer.complete();
+      _routeChangeCompleter = Completer<void>();
+    }
+  }
+}
+
+class _SocketFrameAction {
+  const _SocketFrameAction._({
+    required this.reconnect,
+    required this.skipDelay,
+  });
+
+  static const continueListening = _SocketFrameAction._(
+    reconnect: false,
+    skipDelay: false,
+  );
+
+  factory _SocketFrameAction.reconnect({required bool skipDelay}) =>
+      _SocketFrameAction._(reconnect: true, skipDelay: skipDelay);
+
+  final bool reconnect;
+  final bool skipDelay;
+}
+
+class _ConversationRoute {
+  _ConversationRoute(this.conversationId);
+
+  final String conversationId;
+  final Set<_ConversationWatcher> watchers = <_ConversationWatcher>{};
+
+  bool get isEmpty => watchers.isEmpty;
+
+  int get afterSeq {
+    var cursor = 0;
+    var initialized = false;
+    for (final watcher in watchers) {
+      if (!initialized || watcher.cursor < cursor) {
+        cursor = watcher.cursor;
+        initialized = true;
+      }
+    }
+    return cursor;
+  }
+
+  Future<void> addErrorAndClose(Object error) async {
+    for (final watcher in List<_ConversationWatcher>.of(watchers)) {
+      watcher.addError(error);
+      await watcher.close();
+    }
+    watchers.clear();
+  }
+
+  Future<void> close() async {
+    for (final watcher in List<_ConversationWatcher>.of(watchers)) {
+      await watcher.close();
+    }
+    watchers.clear();
+  }
+}
+
+class _ConversationWatcher {
+  _ConversationWatcher(this.cursor, this.controller);
+
+  int cursor;
+  final StreamController<ConversationEvent> controller;
+
+  bool add(ConversationEvent event) {
+    if (controller.isClosed || event.seq <= cursor) {
+      return false;
+    }
+    cursor = event.seq;
+    controller.add(event);
+    return true;
+  }
+
+  void addError(Object error) {
+    if (!controller.isClosed) {
+      controller.addError(error);
+    }
+  }
+
+  Future<void> close() async {
+    if (!controller.isClosed) {
+      await controller.close();
+    }
   }
 }
 

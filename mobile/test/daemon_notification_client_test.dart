@@ -70,6 +70,57 @@ void main() {
     await client.close();
   });
 
+  test('multiplexes active conversation subscriptions over one websocket',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final conv1Events = <ConversationEvent>[];
+    final conv2Events = <ConversationEvent>[];
+    final conv1Subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 4)
+        .listen(conv1Events.add);
+    final conv2Subscription = client
+        .watchConversationEvents('conv_2', afterSeq: 9)
+        .listen(conv2Events.add);
+
+    await waitFor(
+        () => sockets.length == 1 && sockets.single.sentJson.length == 2);
+    expect(sockets, hasLength(1));
+    expect(
+      sockets.single.sentJson.map((frame) => frame['scope']).toList(),
+      containsAll(<Map<String, Object?>>[
+        <String, Object?>{'conversationId': 'conv_1'},
+        <String, Object?>{'conversationId': 'conv_2'},
+      ]),
+    );
+
+    sockets.single.serverAddJson(
+        eventFrame(conversationId: 'conv_2', seq: 10, text: 'two'));
+    sockets.single.serverAddJson(
+        eventFrame(conversationId: 'conv_1', seq: 5, text: 'one'));
+    await waitFor(() => conv1Events.length == 1 && conv2Events.length == 1);
+
+    expect(conv1Events.single.conversationId, 'conv_1');
+    expect(conv1Events.single.text, 'one');
+    expect(conv2Events.single.conversationId, 'conv_2');
+    expect(conv2Events.single.text, 'two');
+
+    await conv1Subscription.cancel();
+    await conv2Subscription.cancel();
+    await client.close();
+  });
+
   test(
       'reconnects and resubscribes from backfill cursor after replay truncated',
       () async {
@@ -513,6 +564,41 @@ void main() {
     await subscription.cancel();
   });
 
+  test('route changes wake delayed reconnect', () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration(seconds: 30)],
+      reconnectDelayWaiter: delay.wait,
+    );
+
+    final firstSubscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+    await waitFor(() => sockets.length == 1);
+    await sockets.single.serverFail(const SocketConnectionFailure());
+    await delay.started.future;
+
+    await firstSubscription.cancel();
+    final secondSubscription =
+        client.watchConversationEvents('conv_2', afterSeq: 3).listen((_) {});
+
+    await waitFor(() => sockets.length == 2);
+    expect(sockets[1].sentJson.single['scope'],
+        <String, Object?>{'conversationId': 'conv_2'});
+    expect(sockets[1].sentJson.single['afterSeq'], 3);
+
+    await secondSubscription.cancel();
+    await client.close();
+  });
+
   test('ignores malformed frames and emits later valid events', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(
@@ -671,15 +757,19 @@ ConversationEvent conversationEvent({required int seq}) =>
       'text': 'backfilled',
     });
 
-Map<String, Object?> eventFrame({required int seq, required String text}) =>
+Map<String, Object?> eventFrame({
+  String conversationId = 'conv_1',
+  required int seq,
+  required String text,
+}) =>
     <String, Object?>{
       'type': 'event',
       'topic': 'conversation.events',
-      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'scope': <String, Object?>{'conversationId': conversationId},
       'seq': seq,
       'payload': <String, Object?>{
         'seq': seq,
-        'conversationId': 'conv_1',
+        'conversationId': conversationId,
         'type': 'assistant.message',
         'createdAt': '2026-05-23T05:18:14.000Z',
         'text': text,
