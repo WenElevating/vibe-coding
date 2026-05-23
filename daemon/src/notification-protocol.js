@@ -82,7 +82,13 @@ function normalizeScope(scope) {
 
 function validateTopicScope(topic, scope) {
   if (topic === notificationTopics.CONVERSATION_EVENTS) {
-    if (typeof scope.conversationId !== 'string' || scope.conversationId.length === 0) {
+    const keys = Object.keys(scope);
+    if (
+      keys.length !== 1 ||
+      keys[0] !== 'conversationId' ||
+      typeof scope.conversationId !== 'string' ||
+      scope.conversationId.length === 0
+    ) {
       throw protocolError(notificationErrorCodes.INVALID_MESSAGE, 'conversation.events requires scope.conversationId.');
     }
     return;

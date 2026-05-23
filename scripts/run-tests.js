@@ -2211,6 +2211,17 @@ test('notification protocol rejects invalid subscribe frames', () => {
     })),
     notificationErrorCodes.INVALID_MESSAGE
   );
+
+  assertNotificationProtocolError(
+    () => parseClientFrame(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_1',
+      topic: 'conversation.events',
+      scope: { conversationId: 'conv_1', workspaceId: 'ws_1' },
+      afterSeq: 0
+    })),
+    notificationErrorCodes.INVALID_MESSAGE
+  );
 });
 
 test('notification protocol rejects non-integer subscribe cursors without coercion', () => {
@@ -2273,6 +2284,21 @@ test('notification protocol errors expose codes separately from messages', () =>
       return true;
     }
   );
+});
+
+test('notification protocol parses ack frames', () => {
+  assert.deepEqual(parseClientFrame(JSON.stringify({
+    type: 'ack',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    seq: 8
+  })), {
+    type: 'ack',
+    id: null,
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    seq: 8
+  });
 });
 
 test('notification protocol creates server frames with scope and capabilities', () => {
