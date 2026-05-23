@@ -22,6 +22,9 @@ class NotificationHub {
     heartbeatIntervalMs = 25000,
     maxReplayEvents = 1000,
     replayBatchSize = 100,
+    maxBufferedBytes = 1024 * 1024,
+    maxQueuedFrames = 500,
+    websocketMaxConnectionAgeMs = 60 * 60 * 1000,
     now = () => new Date()
   }) {
     this.auth = auth;
@@ -31,6 +34,9 @@ class NotificationHub {
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.maxReplayEvents = maxReplayEvents;
     this.replayBatchSize = replayBatchSize;
+    this.maxBufferedBytes = maxBufferedBytes;
+    this.maxQueuedFrames = maxQueuedFrames;
+    this.websocketMaxConnectionAgeMs = websocketMaxConnectionAgeMs;
     this.now = now;
     this.connections = new Map();
     this.wss = new WebSocketServer({ noServer: true });
@@ -81,8 +87,11 @@ class NotificationHub {
       ws,
       device,
       subscriptions: new Map(),
+      pendingFrameCount: 0,
       generationCounter: 0,
       alive: true,
+      closed: false,
+      authAgeTimer: null,
       authExpiresAt: device.tokenExpiresAt || device.token_expires_at || null
     };
     this.connections.set(connection.id, connection);
@@ -90,6 +99,13 @@ class NotificationHub {
     ws.on('message', (raw) => this.handleMessage(connection, raw));
     ws.on('close', () => this.closeConnection(connection));
     ws.on('error', () => this.closeConnection(connection));
+    connection.authAgeTimer = setTimeout(() => {
+      this.sendError(connection, {
+        code: notificationErrorCodes.TOKEN_EXPIRED,
+        message: 'WebSocket authorization expired.'
+      }, { bypassBackpressure: true });
+      this.closeWebSocket(connection, 1008, 'TOKEN_EXPIRED');
+    }, this.websocketMaxConnectionAgeMs);
     setImmediate(() => {
       this.send(connection, createHelloFrame({
         connectionId: connection.id,
@@ -103,6 +119,12 @@ class NotificationHub {
   }
 
   closeConnection(connection) {
+    if (connection.closed) return;
+    connection.closed = true;
+    if (connection.authAgeTimer) {
+      clearTimeout(connection.authAgeTimer);
+      connection.authAgeTimer = null;
+    }
     this.connections.delete(connection.id);
     connection.subscriptions.clear();
   }
@@ -112,8 +134,8 @@ class NotificationHub {
       this.unsubscribeAppend();
       this.unsubscribeAppend = null;
     }
-    for (const connection of this.connections.values()) {
-      connection.subscriptions.clear();
+    for (const connection of Array.from(this.connections.values())) {
+      this.closeConnection(connection);
       try {
         if (connection.ws.readyState === WebSocket.OPEN || connection.ws.readyState === WebSocket.CONNECTING) {
           connection.ws.close(1001, 'Notification hub shutting down');
@@ -132,14 +154,46 @@ class NotificationHub {
     }
   }
 
-  send(connection, frame) {
+  closeWebSocket(connection, code, reason) {
+    try {
+      if (connection.ws.readyState === WebSocket.OPEN || connection.ws.readyState === WebSocket.CONNECTING) {
+        connection.ws.close(code, reason);
+      }
+    } catch {
+      // Closing is best-effort; close/error handlers perform final cleanup.
+    }
+  }
+
+  send(connection, frame, { bypassBackpressure = false } = {}) {
     if (connection.ws.readyState !== WebSocket.OPEN) return false;
-    connection.ws.send(JSON.stringify(frame));
+    if (
+      !bypassBackpressure &&
+      (
+        connection.ws.bufferedAmount > this.maxBufferedBytes ||
+        connection.pendingFrameCount > this.maxQueuedFrames
+      )
+    ) {
+      this.sendError(connection, {
+        code: notificationErrorCodes.BACKPRESSURE,
+        message: 'WebSocket client is not keeping up with notification traffic.'
+      }, { bypassBackpressure: true });
+      this.closeWebSocket(connection, 1013, 'BACKPRESSURE');
+      return false;
+    }
+    connection.pendingFrameCount = (connection.pendingFrameCount || 0) + 1;
+    try {
+      connection.ws.send(JSON.stringify(frame), () => {
+        connection.pendingFrameCount = Math.max(0, (connection.pendingFrameCount || 0) - 1);
+      });
+    } catch (error) {
+      connection.pendingFrameCount = Math.max(0, (connection.pendingFrameCount || 0) - 1);
+      throw error;
+    }
     return true;
   }
 
-  sendError(connection, options) {
-    this.send(connection, createErrorFrame(options));
+  sendError(connection, options, sendOptions = {}) {
+    this.send(connection, createErrorFrame(options), sendOptions);
   }
 
   handleMessage(connection, raw) {

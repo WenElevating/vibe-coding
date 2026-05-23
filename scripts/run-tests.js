@@ -565,6 +565,46 @@ test('notification websocket subscribes and replays conversation events after se
   }
 });
 
+test('notification websocket reports replay truncation when afterSeq is too old', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-replay-truncated-') });
+  app.notificationHub.maxReplayEvents = 2;
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-truncated', deviceId: 'ws-device-truncated' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Default' }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
+    const conversationId = created.body.conversation.id;
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'one' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'two' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'three' });
+
+    socket = await openNotificationSocket(port, token);
+    await readWsJson(socket);
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_truncated',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq: 0
+    }));
+    const subscribed = await readWsJson(socket);
+    const error = await readWsJson(socket);
+    assert.equal(subscribed.type, 'subscribed');
+    assert.equal(error.type, 'error');
+    assert.equal(error.code, 'REPLAY_TRUNCATED');
+    assert.deepEqual(error.scope, { conversationId });
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('notification websocket delivers live conversation events after subscribe', async () => {
   const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-live-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -594,6 +634,57 @@ test('notification websocket delivers live conversation events after subscribe',
     const event = await readWsJson(socket);
     assert.equal(event.type, 'event');
     assert.equal(event.payload.text, 'live');
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('notification websocket replaces duplicate subscription for same topic and scope', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-duplicate-sub-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-duplicate', deviceId: 'ws-device-duplicate' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Default' }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
+    const conversationId = created.body.conversation.id;
+    const old = app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'old' });
+
+    socket = await openNotificationSocket(port, token);
+    await readWsJson(socket);
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_first',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq: old.seq - 1
+    }));
+    const firstSubscribed = await readWsJson(socket);
+    const replayed = await readWsJson(socket);
+    assert.equal(firstSubscribed.type, 'subscribed');
+    assert.equal(replayed.type, 'event');
+    assert.equal(replayed.payload.text, 'old');
+
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_second',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq: old.seq
+    }));
+    const secondSubscribed = await readWsJson(socket);
+    assert.equal(secondSubscribed.type, 'subscribed');
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'live-once' });
+    const event = await readWsJson(socket);
+    assert.equal(event.type, 'event');
+    assert.equal(event.payload.text, 'live-once');
+    await expectNoWsMessage(socket);
   } finally {
     if (socket) socket.close();
     await new Promise((resolve) => app.server.close(resolve));
@@ -741,6 +832,67 @@ test('notification hub removes live subscription and sends forbidden when access
   assert.deepEqual(connection.sentFrames.map((frame) => frame.type), ['error']);
   assert.equal(connection.sentFrames[0].code, notificationErrorCodes.FORBIDDEN);
   assert.deepEqual(connection.sentFrames[0].scope, { conversationId: 'conv_1' });
+});
+
+test('notification websocket closes slow clients on backpressure', async () => {
+  const sentFrames = [];
+  let closed = null;
+  const ws = {
+    OPEN: 1,
+    readyState: 1,
+    bufferedAmount: 2,
+    send(data, callback) {
+      sentFrames.push(JSON.parse(String(data)));
+      if (callback) callback();
+    },
+    close(code, reason) {
+      closed = { code, reason };
+    }
+  };
+  const hub = new NotificationHub({
+    auth: null,
+    conversations: null,
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: '1.3.0' },
+    maxBufferedBytes: 1,
+    maxQueuedFrames: 500
+  });
+  const sent = hub.send({
+    id: 'ws_test',
+    ws,
+    subscriptions: new Map(),
+    pendingFrameCount: 0
+  }, { type: 'event', payload: {} });
+
+  assert.equal(sent, false);
+  assert.equal(sentFrames[0].type, 'error');
+  assert.equal(sentFrames[0].code, 'BACKPRESSURE');
+  assert.deepEqual(closed, { code: 1013, reason: 'BACKPRESSURE' });
+});
+
+test('notification websocket closes connections after max connection age', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-auth-age-') });
+  app.notificationHub.websocketMaxConnectionAgeMs = 20;
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-auth-age', deviceId: 'ws-device-auth-age' });
+    socket = await openNotificationSocket(port, paired.body.token);
+    const hello = await readWsJson(socket);
+    const error = await readWsJson(socket);
+    const closeCode = await waitForWsClose(socket);
+
+    assert.equal(hello.type, 'hello');
+    assert.equal(error.type, 'error');
+    assert.equal(error.code, 'TOKEN_EXPIRED');
+    assert.equal(closeCode, 1008);
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
 });
 
 test('app SQLite store persists workspaces and device authorizations', () => {
@@ -4690,6 +4842,19 @@ function readWsJson(socket) {
       clearTimeout(timeout);
       socket.off('message', onMessage);
       reject(error);
+    });
+  });
+}
+
+function expectNoWsMessage(socket, timeoutMs = 100) {
+  if (socket.__pendingMessages && socket.__pendingMessages.length > 0) {
+    return Promise.reject(new Error(`unexpected WebSocket message: ${String(socket.__pendingMessages.shift())}`));
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, timeoutMs);
+    socket.once('message', (data) => {
+      clearTimeout(timeout);
+      reject(new Error(`unexpected WebSocket message: ${String(data)}`));
     });
   });
 }
