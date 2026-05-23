@@ -2882,7 +2882,7 @@ void main() {
     expect(find.byKey(const Key('workbench-message-image-preview-shell')),
         findsNothing);
     expect(find.byIcon(Icons.image_outlined), findsOneWidget);
-    expect(find.text('1 MB'), findsOneWidget);
+    expect(find.text('1.2 MB'), findsOneWidget);
     final borderedAttachmentContainers = tester
         .widgetList<Container>(find.descendant(
             of: find.byKey(const Key('workbench-user-attachment-bubble')),

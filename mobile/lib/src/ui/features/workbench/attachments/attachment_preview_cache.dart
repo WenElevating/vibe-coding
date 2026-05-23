@@ -760,7 +760,7 @@ class LocalAttachmentPreviewCache implements AttachmentPreviewCache {
         return AttachmentPreviewCacheRecord.fromJson(
           Map<String, Object?>.from(item),
         );
-      }).toList(growable: false);
+      }).toList();
     } on Object {
       return <AttachmentPreviewCacheRecord>[];
     }
