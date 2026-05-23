@@ -8,11 +8,14 @@ class DaemonConversationRepository implements ConversationRepository {
   DaemonConversationRepository({
     required DaemonClient client,
     NotificationService? notificationService,
+    Duration fallbackPollInterval = const Duration(seconds: 5),
   })  : _client = client,
-        _notificationService = notificationService;
+        _notificationService = notificationService,
+        _fallbackPollInterval = fallbackPollInterval;
 
   final DaemonClient _client;
   final NotificationService? _notificationService;
+  final Duration _fallbackPollInterval;
 
   @override
   Future<List<ConversationSummary>> listConversations() =>
@@ -80,17 +83,27 @@ class DaemonConversationRepository implements ConversationRepository {
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
-  }) {
+  }) async* {
     final service = _notificationService;
     if (service == null) {
-      return Stream<List<ConversationEvent>>.periodic(
-        const Duration(seconds: 5),
-      )
-          .asyncMap(
-              (_) => fetchConversationEvents(conversationId, afterSeq: afterSeq))
-          .expand((events) => events);
+      var cursor = afterSeq;
+      while (true) {
+        final events = await fetchConversationEvents(
+          conversationId,
+          afterSeq: cursor,
+        );
+        final freshEvents = events
+            .where((event) => event.seq > cursor)
+            .toList()
+          ..sort((a, b) => a.seq.compareTo(b.seq));
+        for (final event in freshEvents) {
+          cursor = event.seq;
+          yield event;
+        }
+        await Future<void>.delayed(_fallbackPollInterval);
+      }
     }
-    return service.watchConversationEvents(conversationId, afterSeq: afterSeq);
+    yield* service.watchConversationEvents(conversationId, afterSeq: afterSeq);
   }
 
   @override

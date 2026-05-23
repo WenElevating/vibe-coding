@@ -69,6 +69,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   StreamSubscription<ConversationEvent>? _conversationEventSubscription;
+  int _conversationEventSubscriptionGeneration = 0;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
@@ -258,6 +259,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _conversationEventSubscriptionGeneration += 1;
     unawaited(_conversationEventSubscription?.cancel());
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
@@ -845,6 +847,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _cancelConversationEventSubscription() async {
+    _conversationEventSubscriptionGeneration += 1;
     final subscription = _conversationEventSubscription;
     _conversationEventSubscription = null;
     await subscription?.cancel();
@@ -856,29 +859,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final conversationId = _activeConversationId;
     if (!mounted || runId == null || conversationId == null) return;
     final afterSeq = _workbenchViewModel.lastSeq;
+    final generation = _conversationEventSubscriptionGeneration;
     _conversationEventSubscription = _workbenchViewModel
         .watchConversationEvents(
             conversationId: conversationId, afterSeq: afterSeq)
-        .listen((event) async {
-      if (!mounted ||
-          conversationId != _activeConversationId ||
-          runId != _activeRunId) {
-        return;
-      }
-      final changed = await _workbenchViewModel.applyConversationEventsAsync(
-        <ConversationEvent>[event],
-        streamOutput: widget.streamOutput,
-        notify: true,
-      );
-      if (!mounted ||
-          conversationId != _activeConversationId ||
-          runId != _activeRunId) {
-        return;
-      }
-      if (changed) {
-        _scrollToBottom();
-      }
-    }, onError: (Object error, StackTrace stack) {
+        .asyncMap((event) => _applyConversationEventFromStream(
+              event,
+              conversationId: conversationId,
+              runId: runId,
+              generation: generation,
+            ))
+        .listen((_) {}, onError: (Object error, StackTrace stack) {
+      if (generation != _conversationEventSubscriptionGeneration) return;
       unawaited(_workbenchViewModel.recordException(
         message: error.toString(),
         stack: stack.toString(),
@@ -888,6 +880,34 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         operation: 'watchConversationEvents',
       ));
     });
+  }
+
+  Future<void> _applyConversationEventFromStream(
+    ConversationEvent event, {
+    required String conversationId,
+    required String runId,
+    required int generation,
+  }) async {
+    if (generation != _conversationEventSubscriptionGeneration ||
+        !mounted ||
+        conversationId != _activeConversationId ||
+        runId != _activeRunId) {
+      return;
+    }
+    final changed = await _workbenchViewModel.applyConversationEventsAsync(
+      <ConversationEvent>[event],
+      streamOutput: widget.streamOutput,
+      notify: true,
+    );
+    if (generation != _conversationEventSubscriptionGeneration ||
+        !mounted ||
+        conversationId != _activeConversationId ||
+        runId != _activeRunId) {
+      return;
+    }
+    if (changed) {
+      _scrollToBottom();
+    }
   }
 
   void _startNewSessionFromList() {

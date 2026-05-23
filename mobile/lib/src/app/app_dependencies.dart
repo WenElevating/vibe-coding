@@ -26,6 +26,10 @@ import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
+typedef NotificationClientFactory = DaemonNotificationClient Function(
+  DaemonClient client,
+);
+
 class AppDependencies {
   AppDependencies({
     required this.network,
@@ -96,7 +100,11 @@ class NetworkDependencies {
 }
 
 class DataDependencies {
-  DataDependencies({required this.connectionConfigRepository});
+  DataDependencies({
+    required this.connectionConfigRepository,
+    NotificationClientFactory? createNotificationClient,
+  }) : createNotificationClient =
+            createNotificationClient ?? _createDefaultNotificationClient;
 
   factory DataDependencies.createDefault() {
     final connectionConfigStore = DaemonConnectionConfigStore();
@@ -107,27 +115,23 @@ class DataDependencies {
   }
 
   final DaemonConnectionConfigRepository connectionConfigRepository;
+  final NotificationClientFactory createNotificationClient;
 
-  ConnectedDataDependencies forDaemonClient(DaemonClient client) =>
-      ConnectedDataDependencies(
-        authRepository: DaemonAuthRepository(client: client),
-        adapterRepository: DaemonAdapterRepository(client: client),
-        conversationRepository: DaemonConversationRepository(
-          client: client,
-          notificationService: DaemonNotificationClient(
-            baseUri: client.baseUri,
-            tokenProvider: () => client.currentToken,
-            fetchBackfill: (conversationId, {required afterSeq}) =>
-                client.fetchConversationEvents(
-              conversationId,
-              afterSeq: afterSeq,
-            ),
-          ),
-        ),
-        diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
-        runRepository: DaemonRunRepository(client: client),
-        workspaceRepository: DaemonWorkspaceRepository(client: client),
-      );
+  ConnectedDataDependencies forDaemonClient(DaemonClient client) {
+    final notificationClient = createNotificationClient(client);
+    return ConnectedDataDependencies(
+      authRepository: DaemonAuthRepository(client: client),
+      adapterRepository: DaemonAdapterRepository(client: client),
+      conversationRepository: DaemonConversationRepository(
+        client: client,
+        notificationService: notificationClient,
+      ),
+      diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
+      runRepository: DaemonRunRepository(client: client),
+      workspaceRepository: DaemonWorkspaceRepository(client: client),
+      dispose: notificationClient.close,
+    );
+  }
 }
 
 class ConnectedDataDependencies {
@@ -138,7 +142,8 @@ class ConnectedDataDependencies {
     required this.diagnosticsRepository,
     required this.runRepository,
     required this.workspaceRepository,
-  });
+    Future<void> Function()? dispose,
+  }) : _dispose = dispose;
 
   final AuthRepository authRepository;
   final AdapterRepository adapterRepository;
@@ -146,7 +151,26 @@ class ConnectedDataDependencies {
   final DiagnosticsRepository diagnosticsRepository;
   final RunRepository runRepository;
   final WorkspaceRepository workspaceRepository;
+  final Future<void> Function()? _dispose;
+  bool _disposed = false;
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _dispose?.call();
+  }
 }
+
+DaemonNotificationClient _createDefaultNotificationClient(DaemonClient client) =>
+    DaemonNotificationClient(
+      baseUri: client.baseUri,
+      tokenProvider: () => client.currentToken,
+      fetchBackfill: (conversationId, {required afterSeq}) =>
+          client.fetchConversationEvents(
+        conversationId,
+        afterSeq: afterSeq,
+      ),
+    );
 
 class DomainDependencies {
   DomainDependencies({required this.connectionWorkflow});

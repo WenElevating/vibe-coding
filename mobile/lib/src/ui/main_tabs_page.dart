@@ -180,6 +180,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client) {
       final oldWorkbenchDependencies = _workbenchDependencies;
+      final oldConnectedData = _connectedData;
       final pageDependencies =
           widget.dependencies.createMainTabsDependencies(widget.client);
       _connectedData = pageDependencies.connectedData;
@@ -197,6 +198,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
         unawaited(_viewModel!.ensureCodingAdaptersLoaded());
       }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
+      unawaited(oldConnectedData.dispose());
       return;
     }
     if (oldWidget.data != widget.data &&
@@ -209,6 +211,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
   @override
   void dispose() {
     _disposeWorkbenchDependencies(_workbenchDependencies);
+    unawaited(_connectedData.dispose());
     _viewModel?.dispose();
     super.dispose();
   }
