@@ -494,6 +494,16 @@ class _NewSessionConversationRepository implements ConversationRepository {
 }
 
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
+  _WidgetTestWorkspaceRepository({
+    List<DirectoryEntrySummary> roots = const <DirectoryEntrySummary>[],
+    Map<String, DirectoryListing> directories =
+        const <String, DirectoryListing>{},
+  })  : _roots = roots,
+        _directories = directories;
+
+  final List<DirectoryEntrySummary> _roots;
+  final Map<String, DirectoryListing> _directories;
+
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
       throw UnimplementedError();
@@ -534,11 +544,11 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
 
   @override
   Future<DirectoryListing> listDirectory(String path) async =>
-      throw UnimplementedError();
+      _directories[path] ??
+      (throw StateError('No test directory listing for $path'));
 
   @override
-  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async =>
-      <DirectoryEntrySummary>[];
+  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async => _roots;
 
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async =>
@@ -2490,6 +2500,52 @@ void main() {
     expect(find.text('创建并使用'), findsOneWidget);
     expect(find.text('Add workspace'), findsNothing);
     expect(find.text('Browse'), findsNothing);
+  });
+
+  testWidgets('directory browser localizes labels and returns to drive list',
+      (WidgetTester tester) async {
+    final repository = _WidgetTestWorkspaceRepository(
+      roots: const <DirectoryEntrySummary>[
+        DirectoryEntrySummary(name: r'D:\', path: r'D:\'),
+      ],
+      directories: const <String, DirectoryListing>{
+        r'D:\': DirectoryListing(
+          path: r'D:\',
+          directories: <DirectoryEntrySummary>[
+            DirectoryEntrySummary(name: 'AIProject', path: r'D:\AIProject'),
+          ],
+        ),
+      },
+    );
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: DirectoryBrowserSheet.forWorkspaceRepository(
+                repository: repository))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择文件夹'), findsOneWidget);
+    expect(find.text('选择磁盘或根目录后继续进入文件夹'), findsOneWidget);
+    expect(find.text('Choose folder'), findsNothing);
+
+    await tester.tap(find.text(r'D:\').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择当前'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择磁盘或根目录后继续进入文件夹'), findsOneWidget);
+    expect(find.text('选择当前'), findsNothing);
   });
 
   testWidgets('completed command card shows duration and success status icon',
