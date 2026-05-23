@@ -130,6 +130,7 @@ The hub owns:
 
 - connection registry;
 - authenticated device identity for each connection;
+- connection auth expiration;
 - topic subscription registry;
 - heartbeat timers;
 - bounded send queues and backpressure decisions;
@@ -151,9 +152,49 @@ This guarantees that if the socket drops immediately after a notification, the
 client can reconnect with its last processed `seq` and replay the same event
 from storage.
 
+Authorization is layered:
+
+```text
+connection authentication
+topic authorization
+event delivery authorization
+```
+
+The upgrade authenticates the bearer token and establishes device identity.
+Each subscribe authorizes the requested topic and scope for that device. Before
+fan-out, the hub must also confirm the subscription is still authorized for the
+scoped resource. If access has been revoked, the hub sends `FORBIDDEN` for that
+subscription and removes it.
+
 ## WebSocket Protocol
 
 All application frames are JSON objects with a `type` field.
+
+Topic-specific identifiers live under a `scope` object. The first topic uses:
+
+```json
+{
+  "topic": "conversation.events",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  }
+}
+```
+
+Future topics should keep the same frame shape and define their own scope keys,
+for example `workspaceId` or `adapterId`. A topic with no narrower scope may use
+an empty object:
+
+```json
+{
+  "topic": "workspace.list.changed",
+  "scope": {}
+}
+```
+
+`afterSeq` is a cursor within a `topic + scope` sequence space, not a global
+daemon sequence. For `conversation.events`, the cursor is the existing
+per-conversation event `seq`.
 
 ### Server Hello
 
@@ -164,7 +205,15 @@ After accepting the connection, the server sends:
   "type": "hello",
   "connectionId": "ws_4f15d3",
   "protocolVersion": 1,
-  "heartbeatIntervalMs": 25000
+  "heartbeatIntervalMs": 25000,
+  "authExpiresAt": "2026-05-30T05:18:14.000Z",
+  "daemonVersion": "1.3.0",
+  "capabilities": {
+    "topics": [
+      "conversation.events"
+    ],
+    "maxReplayEvents": 1000
+  }
 }
 ```
 
@@ -177,7 +226,9 @@ The client subscribes to a conversation event stream:
   "type": "subscribe",
   "id": "req_1",
   "topic": "conversation.events",
-  "conversationId": "conv_32b58034",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  },
   "afterSeq": 241
 }
 ```
@@ -186,7 +237,8 @@ The server validates:
 
 - known topic;
 - JSON shape;
-- authenticated device can access the conversation;
+- valid scope for that topic;
+- authenticated device can access the scoped resource;
 - `afterSeq` is a non-negative integer.
 
 The server replies:
@@ -196,7 +248,9 @@ The server replies:
   "type": "subscribed",
   "id": "req_1",
   "topic": "conversation.events",
-  "conversationId": "conv_32b58034",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  },
   "afterSeq": 241
 }
 ```
@@ -205,13 +259,56 @@ Before forwarding live events, the server sends all persisted conversation
 events with `seq > afterSeq`. The same event frame is used for replayed and live
 events.
 
+Subscription identity is `connectionId + topic + canonical scope`. If a client
+sends a second subscribe for the same topic and scope on the same connection,
+the newer subscribe replaces the earlier one and uses the newer `afterSeq`.
+The server must not keep duplicate subscriptions that would deliver the same
+event twice on the same connection. Any in-flight replay from the replaced
+subscription must be cancelled or guarded by a subscription generation id so it
+cannot keep sending stale replay frames after replacement.
+
+### Replay Ordering
+
+The subscribe path must preserve this invariant:
+
+```text
+No event with seq > afterSeq may be lost between replay and live delivery.
+```
+
+To satisfy it, the daemon must register the subscription before querying
+persisted replay events. While replay is active, live appends for the same
+`topic + scope` must be queued on that subscription instead of being delivered
+ahead of replay. After replay finishes, the daemon flushes queued live events in
+ascending `seq` order, dropping duplicates already sent by replay.
+
+The acceptable result is duplicate events. The unacceptable result is a missing
+sequence. Mobile reducers already ignore events with `seq <= lastSeq`.
+
+Replay must also be bounded. A first implementation should use these defaults:
+
+```text
+maxReplayEvents: 1000
+replayBatchSize: 100
+```
+
+If more than `maxReplayEvents` would be replayed, the daemon sends an error with
+code `REPLAY_TRUNCATED`, removes that subscription, and leaves the client to use
+REST backfill before subscribing again with a newer `afterSeq`.
+
+Replay batches for one subscription must not monopolize the whole connection.
+The daemon should yield between batches so other topics on the same WebSocket can
+deliver live events. Per `topic + scope`, event delivery still remains ordered
+by `seq`.
+
 ### Event
 
 ```json
 {
   "type": "event",
   "topic": "conversation.events",
-  "conversationId": "conv_32b58034",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  },
   "seq": 242,
   "payload": {
     "seq": 242,
@@ -234,7 +331,9 @@ payload remains the existing `ConversationEvent` JSON shape.
   "type": "unsubscribe",
   "id": "req_2",
   "topic": "conversation.events",
-  "conversationId": "conv_32b58034"
+  "scope": {
+    "conversationId": "conv_32b58034"
+  }
 }
 ```
 
@@ -249,7 +348,9 @@ Acknowledgements are diagnostic checkpoints, not delivery guarantees:
 {
   "type": "ack",
   "topic": "conversation.events",
-  "conversationId": "conv_32b58034",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  },
   "seq": 286
 }
 ```
@@ -266,18 +367,28 @@ Recoverable protocol errors are sent as frames:
 {
   "type": "error",
   "id": "req_1",
+  "topic": "conversation.events",
+  "scope": {
+    "conversationId": "conv_32b58034"
+  },
   "code": "FORBIDDEN",
   "message": "Device is not authorized for this conversation."
 }
 ```
 
+`id` is optional because some errors are not responses to a client request. When
+the error is scoped to a subscription, `topic` and `scope` should be included so
+the client can route the failure to the right subscription.
+
 Recommended error codes:
 
 ```text
 AUTH_REQUIRED
+TOKEN_EXPIRED
 FORBIDDEN
 UNKNOWN_TOPIC
 INVALID_MESSAGE
+REPLAY_TRUNCATED
 BACKPRESSURE
 INTERNAL_ERROR
 ```
@@ -291,7 +402,7 @@ If a connection misses the expected pong window, the daemon closes the socket
 and removes its subscriptions.
 
 The daemon must bound pending output per connection. A practical first limit is
-one of:
+the first of:
 
 ```text
 1 MB buffered bytes
@@ -323,6 +434,18 @@ The client owns:
 - reconnecting with exponential backoff;
 - exposing typed streams to repositories or feature coordinators;
 - closing cleanly when the daemon session is closed.
+
+Default reconnect backoff:
+
+```text
+initialDelay: 1 second
+maxDelay: 30 seconds
+jitter: +/-20%
+```
+
+The client should reset the backoff after a stable connection and should not
+retry immediately in a tight loop after protocol errors such as `FORBIDDEN` or
+`UNKNOWN_TOPIC`.
 
 The workbench should consume a stream of `ConversationEvent` values or batches.
 It should continue using the existing reducer path:
@@ -370,6 +493,24 @@ The WebSocket layer should not own refresh-token storage. It should call through
 the same daemon client/session facilities used by HTTP requests, so token
 lifecycle behavior remains consistent.
 
+Long-lived sockets must not outlive their authorization indefinitely. The hub
+should record the access-token expiration used during upgrade and include it in
+connection state. New subscribe requests after expiration are rejected with
+`TOKEN_EXPIRED`, and the server should close the socket with `TOKEN_EXPIRED` at
+or shortly after the token expiry time. Mobile then refreshes through the
+existing HTTP token flow and reconnects.
+
+If the current auth store cannot expose token expiration to the hub in the first
+implementation, the fallback is a bounded WebSocket connection lifetime, for
+example:
+
+```text
+websocketMaxConnectionAgeMs: 3600000
+```
+
+That fallback forces periodic re-authentication until token-expiry metadata is
+available to the WebSocket layer.
+
 ## Diagnostics
 
 Record notification traces so future stalls are diagnosable without guessing.
@@ -395,6 +536,7 @@ For `conversation.events`, trace rows should include:
 ```text
 conversationId
 topic
+scope
 afterSeq
 eventSeq
 eventCount
@@ -415,8 +557,16 @@ Daemon tests:
 - accepts upgrade with a valid token and sends `hello`;
 - rejects unknown topics;
 - rejects unauthorized conversation subscriptions;
+- rejects subscribe after connection auth expiration;
 - `subscribe` replays persisted events with `seq > afterSeq`;
+- duplicate subscribe for the same topic and scope replaces the earlier
+  subscription;
+- subscribe registers before replay and queues live appends during replay, so an
+  event appended during replay is delivered after replay and not lost;
+- oversized replay returns `REPLAY_TRUNCATED` and requires REST backfill;
 - appending a conversation event publishes to active subscribers;
+- revoked conversation access removes an existing subscription before further
+  fan-out;
 - unsubscribe stops delivery for that topic only;
 - missed heartbeat closes the connection and removes subscriptions;
 - backpressure closes a slow connection without losing persisted events.
@@ -429,6 +579,8 @@ Mobile tests:
 - applies replayed and live events through the existing ViewModel path;
 - reconnects with latest applied `lastSeq`;
 - refreshes token after `AUTH_REQUIRED`;
+- refreshes token after `TOKEN_EXPIRED`;
+- uses REST backfill after `REPLAY_TRUNCATED`;
 - falls back to REST backfill after repeated WebSocket failures;
 - closing or switching conversations cancels the old subscription.
 
