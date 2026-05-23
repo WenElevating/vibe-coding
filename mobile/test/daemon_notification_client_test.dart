@@ -206,6 +206,48 @@ void main() {
     await client.close();
   });
 
+  test('refreshes token after auth websocket close and reconnects from cursor',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final tokens = <String>['token_old'];
+    final refreshCalls = <String>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => tokens.last,
+      connector: (_, headers) async {
+        final socket = FakeNotificationSocket();
+        socket.connectHeaders = Map<String, String>.from(headers);
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      refreshAuth: () async {
+        refreshCalls.add('refresh');
+        tokens.add('token_new');
+      },
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => sockets.length == 1);
+    sockets.single.serverAddJson(eventFrame(seq: 8, text: 'before close'));
+    await waitFor(() => events.length == 1);
+    await sockets.single.serverClose(1008, 'Bearer token required');
+
+    await waitFor(() => sockets.length == 2);
+    expect(refreshCalls, <String>['refresh']);
+    expect(sockets[0].connectHeaders['authorization'], 'Bearer token_old');
+    expect(sockets[1].connectHeaders['authorization'], 'Bearer token_new');
+    expect(sockets[1].sentJson.single['afterSeq'], 8);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('reconnects after connector failure and emits later events', () async {
     final sockets = <FakeNotificationSocket>[];
     final delay = ControlledDelay();
@@ -369,10 +411,18 @@ class FakeNotificationSocket implements NotificationSocket {
   final StreamController<Object?> _incoming = StreamController<Object?>();
   final List<Map<String, Object?>> sentJson = <Map<String, Object?>>[];
   Map<String, String> connectHeaders = <String, String>{};
+  int? _closeCode;
+  String? _closeReason;
   int closeCalls = 0;
 
   @override
   Stream<Object?> get stream => _incoming.stream;
+
+  @override
+  int? get closeCode => _closeCode;
+
+  @override
+  String? get closeReason => _closeReason;
 
   @override
   void add(String data) {
@@ -385,6 +435,12 @@ class FakeNotificationSocket implements NotificationSocket {
 
   void serverAddRaw(Object? value) {
     _incoming.add(value);
+  }
+
+  Future<void> serverClose(int code, String reason) async {
+    _closeCode = code;
+    _closeReason = reason;
+    await _incoming.close();
   }
 
   @override

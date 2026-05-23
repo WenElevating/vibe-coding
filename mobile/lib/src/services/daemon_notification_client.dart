@@ -24,6 +24,8 @@ const Duration _fallbackReconnectDelay = Duration(milliseconds: 100);
 
 abstract class NotificationSocket {
   Stream<Object?> get stream;
+  int? get closeCode;
+  String? get closeReason;
   void add(String data);
   Future<void> close([int? code, String? reason]);
 }
@@ -35,6 +37,12 @@ class IoNotificationSocket implements NotificationSocket {
 
   @override
   Stream<Object?> get stream => _socket;
+
+  @override
+  int? get closeCode => _socket.closeCode;
+
+  @override
+  String? get closeReason => _socket.closeReason;
 
   @override
   void add(String data) => _socket.add(data);
@@ -143,6 +151,12 @@ class DaemonNotificationClient implements NotificationService {
             break;
           }
         }
+        if (_isAuthClose(socket)) {
+          if (refreshAuth != null) {
+            await refreshAuth!();
+            skipDelay = true;
+          }
+        }
       } catch (_) {
         // Connector and socket stream failures use the normal reconnect path.
       } finally {
@@ -192,6 +206,20 @@ class DaemonNotificationClient implements NotificationService {
       _closedCompleter.future,
     ]);
   }
+}
+
+bool _isAuthClose(NotificationSocket socket) {
+  if (socket.closeCode != WebSocketStatus.policyViolation) {
+    return false;
+  }
+  final reason = socket.closeReason?.toLowerCase();
+  if (reason == null) {
+    return false;
+  }
+  return reason.contains('bearer token required') ||
+      reason.contains('auth_required') ||
+      reason.contains('token_expired') ||
+      reason.contains('authorization expired');
 }
 
 Map<String, Object?>? _decodeFrame(Object? raw) {
