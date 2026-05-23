@@ -440,6 +440,13 @@ class _UnusedRepository
       throw UnimplementedError();
 
   @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      throw UnimplementedError();
+
+  @override
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,
     String questionId,

@@ -68,7 +68,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final WorkbenchAttachmentPicker _attachmentPicker;
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
-  StreamSubscription<ConversationEvent>? _conversationEventSubscription;
+  StreamSubscription<void>? _conversationEventSubscription;
   int _conversationEventSubscriptionGeneration = 0;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;

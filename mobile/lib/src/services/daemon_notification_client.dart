@@ -427,7 +427,7 @@ class DaemonNotificationClient implements NotificationService {
     if (reconnectDelays.isEmpty) {
       return _fallbackReconnectDelay;
     }
-    final delayIndex = attempt.clamp(0, reconnectDelays.length - 1) as int;
+    final delayIndex = attempt.clamp(0, reconnectDelays.length - 1);
     return reconnectDelays[delayIndex];
   }
 
