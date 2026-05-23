@@ -23,6 +23,16 @@ const { createApp } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
 const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
+const {
+  notificationErrorCodes,
+  canonicalScope,
+  subscriptionKey,
+  parseClientFrame,
+  createHelloFrame,
+  createSubscribedFrame,
+  createEventFrame,
+  createErrorFrame
+} = require('../daemon/src/notification-protocol');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -2161,6 +2171,101 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
     await new Promise((resolve) => restarted.server.close(resolve));
     restarted.conversationSqliteStore.close();
   }
+});
+
+test('notification protocol parses conversation subscribe frames', () => {
+  const frame = parseClientFrame(JSON.stringify({
+    type: 'subscribe',
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 7
+  }));
+
+  assert.deepEqual(frame, {
+    type: 'subscribe',
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 7
+  });
+  assert.equal(canonicalScope(frame.scope), '{"conversationId":"conv_1"}');
+  assert.equal(subscriptionKey(frame.topic, frame.scope), 'conversation.events|{"conversationId":"conv_1"}');
+});
+
+test('notification protocol rejects invalid subscribe frames', () => {
+  assert.throws(
+    () => parseClientFrame(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_1',
+      topic: 'conversation.events',
+      scope: {},
+      afterSeq: -1
+    })),
+    /INVALID_MESSAGE/
+  );
+});
+
+test('notification protocol creates server frames with scope and capabilities', () => {
+  assert.deepEqual(createHelloFrame({
+    connectionId: 'ws_test',
+    heartbeatIntervalMs: 25000,
+    authExpiresAt: '2026-05-30T05:18:14.000Z',
+    daemonVersion: '1.3.0',
+    topics: ['conversation.events'],
+    maxReplayEvents: 1000
+  }), {
+    type: 'hello',
+    connectionId: 'ws_test',
+    protocolVersion: 1,
+    heartbeatIntervalMs: 25000,
+    authExpiresAt: '2026-05-30T05:18:14.000Z',
+    daemonVersion: '1.3.0',
+    capabilities: {
+      topics: ['conversation.events'],
+      maxReplayEvents: 1000
+    }
+  });
+
+  assert.deepEqual(createSubscribedFrame({
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 7
+  }), {
+    type: 'subscribed',
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 7
+  });
+
+  assert.deepEqual(createEventFrame({
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    event: { seq: 8, conversationId: 'conv_1', type: 'assistant.message', text: 'ok' }
+  }), {
+    type: 'event',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    seq: 8,
+    payload: { seq: 8, conversationId: 'conv_1', type: 'assistant.message', text: 'ok' }
+  });
+
+  assert.deepEqual(createErrorFrame({
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    code: notificationErrorCodes.FORBIDDEN,
+    message: 'Device is not authorized for this conversation.'
+  }), {
+    type: 'error',
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    code: 'FORBIDDEN',
+    message: 'Device is not authorized for this conversation.'
+  });
 });
 
 test('Claude conversation adapter asks user via input instead of permission approval', async () => {
