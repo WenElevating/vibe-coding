@@ -538,6 +538,9 @@ class LocalAttachmentPreviewCache implements AttachmentPreviewCache {
                 record.draftLocalPath != null &&
                 !record._commitRetryAttempted;
         final nextRecord = record.copyWith(
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
           attachmentId: attachment.id,
           committedAt: record.committedAt ?? committedAt,
           lastAttemptedAt: shouldRetry ? committedAt : record.lastAttemptedAt,
@@ -957,16 +960,42 @@ class LocalAttachmentPreviewCache implements AttachmentPreviewCache {
     CommittedAttachment attachment,
   ) =>
       identity.name == attachment.name &&
-      identity.mimeType == attachment.mimeType &&
-      identity.sizeBytes == attachment.sizeBytes;
+      identity.sizeBytes == attachment.sizeBytes &&
+      _compatibleAttachmentMimeType(
+        identity.mimeType,
+        attachment.mimeType,
+        attachment.kind,
+      );
 
   bool _recordMetadataMatchesAttachment(
     AttachmentPreviewCacheRecord record,
     CommittedAttachment attachment,
   ) =>
       record.name == attachment.name &&
-      record.mimeType == attachment.mimeType &&
-      record.sizeBytes == attachment.sizeBytes;
+      record.sizeBytes == attachment.sizeBytes &&
+      _compatibleAttachmentMimeType(
+        record.mimeType,
+        attachment.mimeType,
+        attachment.kind,
+      );
+
+  bool _compatibleAttachmentMimeType(
+    String left,
+    String right,
+    AttachmentKind kind,
+  ) {
+    final normalizedLeft = _normalizeMimeType(left);
+    final normalizedRight = _normalizeMimeType(right);
+    if (normalizedLeft == normalizedRight) return true;
+    return kind == AttachmentKind.image &&
+        _isImageMimeType(normalizedLeft) &&
+        _isImageMimeType(normalizedRight);
+  }
+
+  String _normalizeMimeType(String value) =>
+      value.split(';').first.trim().toLowerCase();
+
+  bool _isImageMimeType(String value) => value.startsWith('image/');
 }
 
 class _CommitRetry {

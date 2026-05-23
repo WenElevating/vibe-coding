@@ -363,7 +363,8 @@ void main() {
     expect(viewModel.messages.single.body, 'inspect image');
   });
 
-  test('committed attachment event binds cache identity and resolves local path',
+  test(
+      'committed attachment event binds cache identity and resolves local path',
       () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',
@@ -457,6 +458,75 @@ void main() {
 
     expect(viewModel.messages.single.attachments.single.localPath,
         r'C:\cache\screenshot.png');
+  });
+
+  test(
+      'committed attachment cache miss keeps optimistic local image path when MIME changes',
+      () async {
+    const imageCapableAdapter = AdapterStatus(
+      adapter: 'codex',
+      available: true,
+      status: 'available',
+      capabilityVersion: 'cap_v1',
+      attachmentCapabilities:
+          AttachmentCapabilities(image: AttachmentHandling.native),
+    );
+    final repository = _FakeConversationRepository();
+    final cache = _FakeAttachmentPreviewCache()
+      ..resolveCommittedPreview = false;
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(
+        workspaces: const <WorkspaceSummary>[_workspace],
+        adapters: const <AdapterStatus>[imageCapableAdapter],
+      ),
+      conversationRepository: repository,
+      attachmentPreviewCache: cache,
+    );
+    viewModel.updateActiveConversation(_conversation(
+        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
+    viewModel.addDraftAttachmentForTest(const DraftAttachment(
+      localPath: r'C:\tmp\screenshot.png',
+      name: 'screenshot.png',
+      mimeType: 'image/png',
+      kind: AttachmentKind.image,
+      sizeBytes: 42,
+    ));
+    viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
+    await viewModel.sendExistingConversationPrompt(
+      conversationId: 'conv_1',
+      prompt: 'inspect image',
+    );
+    final clientMessageId = repository.sentRequests.single.clientMessageId;
+
+    await viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          raw: <String, Object?>{'clientMessageId': clientMessageId},
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/jpeg',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(cache.bound, <String>[
+      'conv_1|$clientMessageId|att_0|hash_0',
+    ]);
+    expect(viewModel.messages.single.attachments.single.localPath,
+        r'C:\tmp\screenshot.png');
   });
 
   test('attachment preview cache failure does not block event projection',
@@ -1198,6 +1268,7 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
       <String, CachedAttachmentPreview>{};
   Object? bindError;
   Object? resolveError;
+  bool resolveCommittedPreview = true;
 
   @override
   Future<AttachmentPreviewIdentity> rememberPending({
@@ -1231,6 +1302,7 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
       '$conversationId|$clientMessageId|${attachment.id}|'
       '${identity?.contentHash}',
     );
+    if (!resolveCommittedPreview) return;
     _resolved['$conversationId|${attachment.id}'] = CachedAttachmentPreview(
       attachmentId: attachment.id,
       contentHash: identity?.contentHash ?? 'missing',

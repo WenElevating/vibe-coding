@@ -2834,7 +2834,7 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
-  testWidgets('user message card falls back to metadata on image cache miss',
+  testWidgets('user message card shows image placeholder on cache miss',
       (WidgetTester tester) async {
     final tempDir = Directory.systemTemp.createTempSync('workbench-miss-test-');
     addTearDown(() {
@@ -2878,10 +2878,10 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const Key('workbench-user-text-bubble')), findsOneWidget);
     expect(find.byKey(const Key('workbench-message-image-preview')),
-        findsNothing);
+        findsOneWidget);
     expect(find.byKey(const Key('workbench-message-image-preview-shell')),
-        findsNothing);
-    expect(find.byIcon(Icons.image_outlined), findsOneWidget);
+        findsOneWidget);
+    expect(find.byIcon(Icons.image_outlined), findsNWidgets(2));
     expect(find.text('1.2 MB'), findsOneWidget);
     final borderedAttachmentContainers = tester
         .widgetList<Container>(find.descendant(
@@ -2891,9 +2891,9 @@ void main() {
             container.decoration is BoxDecoration &&
             (container.decoration! as BoxDecoration).border != null)
         .toList(growable: false);
-    expect(borderedAttachmentContainers.length, greaterThanOrEqualTo(2));
+    expect(borderedAttachmentContainers.length, 1);
     expect(borderedAttachmentContainers.map((container) => container.key),
-        isNot(contains(const Key('workbench-message-image-preview-shell'))));
+        <Key>[const Key('workbench-message-image-preview-shell')]);
 
     await tester.pumpWidget(const SizedBox.shrink());
     PaintingBinding.instance.imageCache.clear();
@@ -2966,7 +2966,8 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
-  testWidgets('user message card ignores deleted cached image before viewer tap',
+  testWidgets(
+      'user message card ignores deleted cached image before viewer tap',
       (WidgetTester tester) async {
     final tempDir = Directory.systemTemp
         .createTempSync('workbench-image-viewer-eviction-test-');

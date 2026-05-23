@@ -95,3 +95,30 @@ node scripts/run-tests.js
 ```
 
 - Last verified: 2026-05-22
+
+## Symptom: Sent Image Preview Turns Into Placeholder After Commit
+
+- Symptom: an uploaded image preview renders initially from the optimistic
+  local draft path, then turns into a large image frame with a placeholder icon
+  after the committed `user.message` event arrives.
+- Action: inspect the committed attachment metadata and the mobile preview
+  cache binding path before changing UI rendering. A file can have a `.png`
+  name while daemon byte sniffing records `mimeType=image/jpeg`; mobile preview
+  binding should treat image MIME variants as compatible when name, size, and
+  client message identity still match.
+- Evidence: latest local `conversation_events` rows showed `.png` attachment
+  names committed with `mimeType=image/jpeg`, while mobile picker drafts infer
+  `image/png` from the extension.
+- Verification:
+
+```powershell
+sqlite3 -json data\app\app.sqlite "select conversation_id, seq, payload_json from conversation_events where type='user.message' order by created_at desc, seq desc limit 5;"
+cd mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\attachment_preview_cache_test.dart -r expanded --plain-name "bindCommitted tolerates daemon-sniffed image MIME mismatch"
+```
+
+- Last verified: 2026-05-23

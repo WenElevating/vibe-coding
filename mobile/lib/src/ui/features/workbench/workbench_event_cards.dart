@@ -244,8 +244,7 @@ class _UserMessageCard extends StatelessWidget {
 bool _usesBorderlessImageAttachmentFrame(
         List<CommittedAttachment> attachments) =>
     attachments.isNotEmpty &&
-    attachments
-        .every((attachment) => _cachedImagePreviewFile(attachment) != null);
+    attachments.every((attachment) => attachment.kind == AttachmentKind.image);
 
 class _UserBubbleFrame extends StatelessWidget {
   const _UserBubbleFrame({super.key, required this.child});
@@ -300,7 +299,7 @@ class _MessageAttachmentPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_cachedImagePreviewFile(attachment) != null) {
+    if (attachment.kind == AttachmentKind.image) {
       return _MessageImageAttachmentPreview(attachment: attachment);
     }
     return Tooltip(

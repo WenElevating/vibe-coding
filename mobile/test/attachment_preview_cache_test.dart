@@ -148,6 +148,48 @@ void main() {
     expect(resolvedImage!.contentHash, 'hash_image');
   });
 
+  test('bindCommitted tolerates daemon-sniffed image MIME mismatch', () async {
+    final fixture = await AttachmentPreviewCacheFixture.create(
+      identityProvider: FixedAttachmentPreviewIdentityProvider('hash_image'),
+      thumbnailGenerator: TestCopyingAttachmentThumbnailGenerator(),
+    );
+
+    final imageDraft = await fixture.createDraft(
+      name: 'mislabeled.png',
+      bytes: 'jpeg bytes',
+    );
+    final imageIdentity = await fixture.cache.rememberPending(
+      conversationId: 'conversation-1',
+      clientMessageId: 'client-1',
+      attachmentIndex: 0,
+      draft: imageDraft,
+    );
+    final committedImage = committedAttachment(
+      id: 'attachment-image',
+      name: imageDraft.name,
+      mimeType: 'image/jpeg',
+      sizeBytes: imageDraft.sizeBytes,
+    );
+
+    await fixture.cache.bindCommitted(
+      conversationId: 'conversation-1',
+      clientMessageId: 'client-1',
+      attachments: <CommittedAttachment>[committedImage],
+      pendingIdentities: <AttachmentPreviewIdentity>[imageIdentity],
+    );
+
+    final resolvedImage = await fixture.cache.resolve(
+      conversationId: 'conversation-1',
+      attachment: committedImage,
+    );
+    final records = await fixture.cache.recordsForTest();
+
+    expect(resolvedImage, isNotNull);
+    expect(resolvedImage!.contentHash, 'hash_image');
+    expect(records.single.attachmentId, 'attachment-image');
+    expect(records.single.mimeType, 'image/jpeg');
+  });
+
   test('bindCommitted uses distinct pending identity metadata out of order',
       () async {
     final generator = TestCopyingAttachmentThumbnailGenerator();

@@ -863,7 +863,7 @@ class WorkbenchViewModel extends ChangeNotifier {
           cached = null;
         }
         attachments.add(cached == null
-            ? attachment.copyWith(clearLocalPath: true)
+            ? attachment
             : attachment.copyWith(localPath: cached.cachePath));
       }
       resolvedMessages.add(message.copyWith(attachments: attachments));
@@ -1084,12 +1084,79 @@ class WorkbenchViewModel extends ChangeNotifier {
         final committed = _messages[committedIndex];
         if (committed.attachments.isEmpty && message.attachments.isNotEmpty) {
           _messages[committedIndex] = message;
+        } else if (committed.attachments.isNotEmpty &&
+            message.attachments.isNotEmpty) {
+          _messages[committedIndex] = committed.copyWith(
+            attachments: _mergeOptimisticAttachmentLocalPaths(
+              committed.attachments,
+              message.attachments,
+            ),
+          );
         }
       } else {
         _messages.add(message);
       }
     }
   }
+
+  List<CommittedAttachment> _mergeOptimisticAttachmentLocalPaths(
+    List<CommittedAttachment> committed,
+    List<CommittedAttachment> optimistic,
+  ) {
+    final usedOptimisticIndexes = <int>{};
+    return committed.map((attachment) {
+      if (attachment.localPath != null) return attachment;
+      final matchIndex = _findOptimisticAttachmentMatch(
+        attachment,
+        optimistic,
+        usedOptimisticIndexes,
+      );
+      if (matchIndex == -1) return attachment;
+      usedOptimisticIndexes.add(matchIndex);
+      return attachment.copyWith(localPath: optimistic[matchIndex].localPath);
+    }).toList(growable: false);
+  }
+
+  int _findOptimisticAttachmentMatch(
+    CommittedAttachment attachment,
+    List<CommittedAttachment> optimistic,
+    Set<int> usedIndexes,
+  ) {
+    for (var index = 0; index < optimistic.length; index += 1) {
+      if (usedIndexes.contains(index)) continue;
+      final candidate = optimistic[index];
+      if (candidate.localPath == null) continue;
+      if (candidate.kind == attachment.kind &&
+          candidate.name == attachment.name &&
+          candidate.sizeBytes == attachment.sizeBytes &&
+          _compatibleAttachmentMimeType(
+            candidate.mimeType,
+            attachment.mimeType,
+            attachment.kind,
+          )) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  bool _compatibleAttachmentMimeType(
+    String left,
+    String right,
+    AttachmentKind kind,
+  ) {
+    final normalizedLeft = _normalizeMimeType(left);
+    final normalizedRight = _normalizeMimeType(right);
+    if (normalizedLeft == normalizedRight) return true;
+    return kind == AttachmentKind.image &&
+        _isImageMimeType(normalizedLeft) &&
+        _isImageMimeType(normalizedRight);
+  }
+
+  String _normalizeMimeType(String value) =>
+      value.split(';').first.trim().toLowerCase();
+
+  bool _isImageMimeType(String value) => value.startsWith('image/');
 
   void _upsertCommandMessage(WorkbenchMessage message) {
     final command = message.body.trim();
