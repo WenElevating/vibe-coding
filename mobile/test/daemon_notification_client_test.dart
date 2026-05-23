@@ -69,6 +69,54 @@ void main() {
     await subscription.cancel();
     await client.close();
   });
+
+  test('reconnects and resubscribes from backfill cursor after replay truncated',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final backfillAfterSeq = <int>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillAfterSeq.add(afterSeq);
+        return <ConversationEvent>[
+          conversationEvent(seq: 12),
+        ];
+      },
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => sockets.isNotEmpty);
+    expect(sockets.single.sentJson.single['afterSeq'], 7);
+
+    sockets.single.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'code': 'REPLAY_TRUNCATED',
+      'message': 'requested replay window is no longer available',
+    });
+
+    await waitFor(() => sockets.length == 2);
+    expect(backfillAfterSeq, <int>[7]);
+    expect(events.single.seq, 12);
+    expect(sockets[1].sentJson.single['type'], 'subscribe');
+    expect(sockets[1].sentJson.single['topic'], 'conversation.events');
+    expect(sockets[1].sentJson.single['scope'],
+        <String, Object?>{'conversationId': 'conv_1'});
+    expect(sockets[1].sentJson.single['afterSeq'], 12);
+
+    await subscription.cancel();
+    await client.close();
+  });
 }
 
 class FakeNotificationSocket implements NotificationSocket {
@@ -93,5 +141,29 @@ class FakeNotificationSocket implements NotificationSocket {
   }
 }
 
-Map<String, Object?> jsonObject(String source) =>
-    Map<String, Object?>.from(DaemonNotificationClient.decodeJson(source));
+Map<String, Object?> jsonObject(String source) {
+  final decoded = DaemonNotificationClient.decodeJson(source);
+  if (decoded is! Map) {
+    fail('Expected JSON object, got ${decoded.runtimeType}.');
+  }
+  return Map<String, Object?>.from(decoded);
+}
+
+ConversationEvent conversationEvent({required int seq}) =>
+    ConversationEvent.fromJson(<String, Object?>{
+      'seq': seq,
+      'conversationId': 'conv_1',
+      'type': 'assistant.message',
+      'createdAt': '2026-05-23T05:18:14.000Z',
+      'text': 'backfilled',
+    });
+
+Future<void> waitFor(bool Function() condition) async {
+  for (var attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+  fail('Condition was not met before timeout.');
+}

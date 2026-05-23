@@ -72,6 +72,7 @@ class DaemonNotificationClient implements NotificationService {
     var attempt = 0;
     while (!_closed) {
       NotificationSocket? socket;
+      var reconnectNow = false;
       try {
         final token = tokenProvider();
         socket = await _connector(
@@ -109,6 +110,8 @@ class DaemonNotificationClient implements NotificationService {
               }
               yield event;
             }
+            reconnectNow = true;
+            break;
           } else if (frame['type'] == 'error' &&
               (frame['code'] == 'AUTH_REQUIRED' ||
                   frame['code'] == 'TOKEN_EXPIRED')) {
@@ -121,7 +124,7 @@ class DaemonNotificationClient implements NotificationService {
       if (_closed) {
         break;
       }
-      if (reconnectDelays.isEmpty) {
+      if (reconnectNow || reconnectDelays.isEmpty) {
         continue;
       }
       final delayIndex = attempt.clamp(0, reconnectDelays.length - 1) as int;
