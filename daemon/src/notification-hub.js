@@ -218,6 +218,7 @@ class NotificationHub {
     subscription.queuedLiveEvents = [];
     for (const event of queued) {
       if (!this.isCurrentSubscription(connection, subscription)) return;
+      if (!this.isLiveSubscriptionAuthorized(connection, subscription)) return;
       this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));
     }
   }
@@ -232,11 +233,28 @@ class NotificationHub {
       const key = subscriptionKey(notificationTopics.CONVERSATION_EVENTS, scope);
       const subscription = connection.subscriptions.get(key);
       if (!subscription) continue;
+      if (!this.isLiveSubscriptionAuthorized(connection, subscription)) continue;
       if (subscription.replaying) {
         subscription.queuedLiveEvents.push(event);
         continue;
       }
       this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));
+    }
+  }
+
+  isLiveSubscriptionAuthorized(connection, subscription) {
+    try {
+      this.conversations.requireConversation(subscription.conversationId, connection.device);
+      return true;
+    } catch {
+      connection.subscriptions.delete(subscription.key);
+      this.sendError(connection, {
+        topic: subscription.topic,
+        scope: subscription.scope,
+        code: notificationErrorCodes.FORBIDDEN,
+        message: 'Device is not authorized for this conversation.'
+      });
+      return false;
     }
   }
 }

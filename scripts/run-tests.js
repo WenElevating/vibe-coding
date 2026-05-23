@@ -17,6 +17,7 @@ const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
 const { ConversationManager } = require('../daemon/src/conversation-manager');
 const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+const { NotificationHub } = require('../daemon/src/notification-hub');
 const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
@@ -344,6 +345,22 @@ test('conversation event store appends and replays ordered events', () => {
   assert.equal(store.list('missing', 0).length, 0);
 });
 
+test('conversation event store isolates append listener failures', () => {
+  const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+  const observed = [];
+  store.onAppend(() => {
+    observed.push('first');
+    throw new Error('listener failed');
+  });
+  store.onAppend((event) => {
+    observed.push(`second:${event.seq}`);
+  });
+
+  assert.doesNotThrow(() => store.append('conv_1', 'assistant.message', { text: 'hello' }));
+  assert.deepEqual(observed, ['first', 'second:1']);
+  assert.equal(store.list('conv_1', 0)[0].text, 'hello');
+});
+
 test('SQLite conversation store persists conversations and events across instances', () => {
   const fs = require('node:fs');
   const os = require('node:os');
@@ -582,6 +599,148 @@ test('notification websocket delivers live conversation events after subscribe',
     await new Promise((resolve) => app.server.close(resolve));
     app.appSqliteStore.close();
   }
+});
+
+test('notification hub queues live appends during replay and flushes without missing sequence', async () => {
+  const replayEvents = [
+    { seq: 2, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:00.000Z', text: 'replay-1' },
+    { seq: 3, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:01.000Z', text: 'replay-2' }
+  ];
+  const liveEvent = {
+    seq: 4,
+    conversationId: 'conv_1',
+    type: 'assistant.message',
+    createdAt: '2026-05-23T00:00:02.000Z',
+    text: 'live-during-replay'
+  };
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => ({ id: 'conv_1' }),
+      listEvents: () => replayEvents
+    },
+    version: { daemonVersion: 'test' },
+    replayBatchSize: 1
+  });
+  const connection = createNotificationHubTestConnection();
+  hub.connections.set(connection.id, connection);
+  let publishedLive = false;
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    if (frame.type === 'event' && frame.seq === 2 && !publishedLive) {
+      publishedLive = true;
+      hub.publishConversationEvent(liveEvent);
+    }
+    return true;
+  };
+
+  await hub.subscribe(connection, {
+    type: 'subscribe',
+    id: 'req_replay_live',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 1
+  });
+
+  assert.deepEqual(
+    connection.sentFrames.filter((frame) => frame.type === 'event').map((frame) => frame.seq),
+    [2, 3, 4]
+  );
+});
+
+test('notification hub duplicate subscribe stops stale replay generation', async () => {
+  const replayEvents = [
+    { seq: 2, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:00.000Z', text: 'old-1' },
+    { seq: 3, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:01.000Z', text: 'old-2' }
+  ];
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => ({ id: 'conv_1' }),
+      listEvents: (_conversationId, afterSeq) => (afterSeq >= 3 ? [] : replayEvents)
+    },
+    version: { daemonVersion: 'test' },
+    replayBatchSize: 1
+  });
+  const connection = createNotificationHubTestConnection();
+  let replacementSubscribe = null;
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    if (frame.type === 'event' && frame.seq === 2 && !replacementSubscribe) {
+      replacementSubscribe = hub.subscribe(connection, {
+        type: 'subscribe',
+        id: 'req_new',
+        topic: 'conversation.events',
+        scope: { conversationId: 'conv_1' },
+        afterSeq: 3
+      });
+    }
+    return true;
+  };
+
+  await hub.subscribe(connection, {
+    type: 'subscribe',
+    id: 'req_old',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 1
+  });
+  if (replacementSubscribe) await replacementSubscribe;
+
+  assert.deepEqual(
+    connection.sentFrames.filter((frame) => frame.type === 'subscribed').map((frame) => frame.id),
+    ['req_old', 'req_new']
+  );
+  assert.deepEqual(
+    connection.sentFrames.filter((frame) => frame.type === 'event').map((frame) => frame.seq),
+    [2]
+  );
+});
+
+test('notification hub removes live subscription and sends forbidden when access is revoked', () => {
+  let authorized = true;
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => {
+        if (!authorized) {
+          const error = new Error('conversation not found');
+          error.status = 404;
+          throw error;
+        }
+        return { id: 'conv_1' };
+      },
+      listEvents: () => []
+    },
+    version: { daemonVersion: 'test' }
+  });
+  const connection = createNotificationHubTestConnection();
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    return true;
+  };
+  const subscription = {
+    key: subscriptionKey('conversation.events', { conversationId: 'conv_1' }),
+    generation: 1,
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    conversationId: 'conv_1',
+    replaying: false,
+    queuedLiveEvents: []
+  };
+  connection.subscriptions.set(subscription.key, subscription);
+  hub.connections.set(connection.id, connection);
+
+  authorized = false;
+  hub.publishConversationEvent({
+    seq: 2,
+    conversationId: 'conv_1',
+    type: 'assistant.message',
+    createdAt: '2026-05-23T00:00:00.000Z',
+    text: 'blocked'
+  });
+
+  assert.equal(connection.subscriptions.has(subscription.key), false);
+  assert.deepEqual(connection.sentFrames.map((frame) => frame.type), ['error']);
+  assert.equal(connection.sentFrames[0].code, notificationErrorCodes.FORBIDDEN);
+  assert.deepEqual(connection.sentFrames[0].scope, { conversationId: 'conv_1' });
 });
 
 test('app SQLite store persists workspaces and device authorizations', () => {
@@ -4489,6 +4648,17 @@ async function request(port, method, path, body, token) {
 
 function wsUrl(port, path = '/api/notifications/ws') {
   return `ws://127.0.0.1:${port}${path}`;
+}
+
+function createNotificationHubTestConnection() {
+  return {
+    id: 'ws_test',
+    ws: { readyState: WebSocket.OPEN, send() {} },
+    device: { id: 'device_test', allowedWorkspaceIds: new Set(['default']) },
+    subscriptions: new Map(),
+    generationCounter: 0,
+    sentFrames: []
+  };
 }
 
 function openNotificationSocket(port, token) {

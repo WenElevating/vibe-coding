@@ -30,7 +30,13 @@ class ConversationEventStore {
     if (this.persistentStore) this.persistentStore.appendEvent(event);
     list.push(event);
     this.events.set(conversationId, list);
-    for (const listener of this.appendListeners) listener(event);
+    for (const listener of this.appendListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Append listeners are best-effort notifications after persistence.
+      }
+    }
     return event;
   }
 
