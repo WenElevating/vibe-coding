@@ -52,6 +52,19 @@ class IoNotificationSocket implements NotificationSocket {
       _socket.close(code, reason);
 }
 
+class DaemonNotificationException implements Exception {
+  const DaemonNotificationException({
+    required this.code,
+    required this.message,
+  });
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => 'DaemonNotificationException($code): $message';
+}
+
 class DaemonNotificationClient implements NotificationService {
   DaemonNotificationClient({
     required this.baseUri,
@@ -158,6 +171,12 @@ class DaemonNotificationClient implements NotificationService {
               skipDelay = true;
             }
             break;
+          } else if (frame['type'] == 'error' &&
+              _isNonRetryableNotificationError(frame['code'])) {
+            throw DaemonNotificationException(
+              code: _notificationErrorCode(frame),
+              message: _notificationErrorMessage(frame),
+            );
           }
         }
         if (!authRecovered && _isAuthClose(socket)) {
@@ -166,6 +185,8 @@ class DaemonNotificationClient implements NotificationService {
             skipDelay = true;
           }
         }
+      } on DaemonNotificationException {
+        rethrow;
       } catch (_) {
         socketFailed = true;
         // Connector and socket stream failures use the normal reconnect path.
@@ -231,6 +252,24 @@ class DaemonNotificationClient implements NotificationService {
       _closedCompleter.future,
     ]);
   }
+}
+
+bool _isNonRetryableNotificationError(Object? code) {
+  return code == 'FORBIDDEN' ||
+      code == 'UNKNOWN_TOPIC' ||
+      code == 'INVALID_MESSAGE';
+}
+
+String _notificationErrorCode(Map<String, Object?> frame) {
+  final code = frame['code'];
+  return code is String && code.isNotEmpty ? code : 'UNKNOWN';
+}
+
+String _notificationErrorMessage(Map<String, Object?> frame) {
+  final message = frame['message'];
+  return message is String && message.isNotEmpty
+      ? message
+      : 'Notification stream rejected the subscription.';
 }
 
 bool _isAuthClose(NotificationSocket socket) {

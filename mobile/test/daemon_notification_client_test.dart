@@ -299,6 +299,43 @@ void main() {
     await client.close();
   });
 
+  test('surfaces forbidden protocol errors without reconnecting', () async {
+    final sockets = <FakeNotificationSocket>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final errors = <Object>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen((_) {}, onError: errors.add);
+
+    await waitFor(() => sockets.length == 1);
+    sockets.single.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'code': 'FORBIDDEN',
+      'message': 'Device is not authorized for this conversation.',
+    });
+
+    await waitFor(() => errors.isNotEmpty);
+    expect(sockets.length, 1);
+    expect(errors.single, isA<DaemonNotificationException>());
+    expect((errors.single as DaemonNotificationException).code, 'FORBIDDEN');
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('reconnects after connector failure and emits later events', () async {
     final sockets = <FakeNotificationSocket>[];
     final delay = ControlledDelay();

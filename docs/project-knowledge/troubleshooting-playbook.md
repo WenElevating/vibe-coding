@@ -164,6 +164,7 @@ flutter test --no-pub test\attachment_preview_cache_test.dart -r expanded --plai
 - Symptom: daemon persists later `conversation_events`, but the foreground transcript does not update over the WebSocket notification path.
 - Action: inspect WebSocket notification trace rows first. Confirm the active `topic + scope`, latest applied `seq`, reconnect status, and whether REST backfill ran after `REPLAY_TRUNCATED`, `TOKEN_EXPIRED`, or socket close. If persisted seq advances while mobile seq does not, force reconnect from the last applied seq before changing reducer logic.
   A successful socket upgrade alone must not reset the mobile failed-attempt backfill counter; reset that counter only after an event is applied or REST backfill advances the cursor, otherwise connect-then-fail loops can starve the repair path.
+  Non-retryable protocol errors such as `FORBIDDEN`, `UNKNOWN_TOPIC`, and `INVALID_MESSAGE` should surface through the stream error path instead of leaving a subscribed UI silently waiting forever.
 - Verification:
 
 ```powershell
