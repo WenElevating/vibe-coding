@@ -384,6 +384,52 @@ void main() {
     await client.close();
   });
 
+  test(
+      'uses REST backfill after repeated socket stream failures and advances cursor',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final backfillAfterSeq = <int>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillAfterSeq.add(afterSeq);
+        return <ConversationEvent>[
+          conversationEvent(seq: afterSeq + 1),
+        ];
+      },
+      backfillAfterFailedAttempts: 3,
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => sockets.length == 1);
+    await sockets[0].serverFail(const SocketConnectionFailure());
+    await waitFor(() => sockets.length == 2);
+    await sockets[1].serverFail(const SocketConnectionFailure());
+    await waitFor(() => sockets.length == 3);
+    await sockets[2].serverFail(const SocketConnectionFailure());
+
+    await waitFor(() => events.length == 1);
+    expect(backfillAfterSeq, <int>[7]);
+    expect(events.single.seq, 8);
+
+    await waitFor(() => sockets.length == 4);
+    expect(sockets[3].sentJson.single['afterSeq'], 8);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('close actively closes current socket', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(
@@ -527,6 +573,11 @@ class FakeNotificationSocket implements NotificationSocket {
 
   void serverAddRaw(Object? value) {
     _incoming.add(value);
+  }
+
+  Future<void> serverFail(Object error) async {
+    _incoming.addError(error);
+    await _incoming.close();
   }
 
   Future<void> serverClose(int code, String reason) async {

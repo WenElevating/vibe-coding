@@ -111,7 +111,6 @@ class DaemonNotificationClient implements NotificationService {
         if (_closed) {
           break;
         }
-        failedAttemptsSinceBackfill = 0;
         _activeSockets.add(socket);
         socket.add(jsonEncode(<String, Object?>{
           'type': 'subscribe',
@@ -134,6 +133,7 @@ class DaemonNotificationClient implements NotificationService {
             if (event.seq > cursor) {
               cursor = event.seq;
             }
+            failedAttemptsSinceBackfill = 0;
             yield event;
           } else if (frame['type'] == 'error' &&
               frame['code'] == 'REPLAY_TRUNCATED') {
@@ -144,6 +144,7 @@ class DaemonNotificationClient implements NotificationService {
               if (event.seq > cursor) {
                 cursor = event.seq;
               }
+              failedAttemptsSinceBackfill = 0;
               yield event;
             }
             skipDelay = cursor > previousCursor;
