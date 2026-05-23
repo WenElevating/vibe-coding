@@ -41,6 +41,7 @@ class NotificationHub {
     this.connections = new Map();
     this.wss = new WebSocketServer({ noServer: true });
     this.unsubscribeAppend = null;
+    this.onReplayBatchSent = null;
   }
 
   start() {
@@ -264,6 +265,9 @@ class NotificationHub {
       for (const event of events.slice(index, index + this.replayBatchSize)) {
         sentSeqs.add(event.seq);
         this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));
+      }
+      if (this.onReplayBatchSent) {
+        this.onReplayBatchSent({ connection, subscription });
       }
       await new Promise((resolve) => setImmediate(resolve));
     }

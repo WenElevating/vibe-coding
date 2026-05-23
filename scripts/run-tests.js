@@ -605,6 +605,56 @@ test('notification websocket reports replay truncation when afterSeq is too old'
   }
 });
 
+test('notification websocket queues live events appended during replay', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-replay-gap-') });
+  app.notificationHub.replayBatchSize = 1;
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-replay-gap', deviceId: 'ws-device-replay-gap' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', { workspacePath: process.cwd(), name: 'Default' }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', { workspaceId, adapter: 'claude' }, token);
+    const conversationId = created.body.conversation.id;
+    const startedSeq = app.conversationEventStore.list(conversationId, 0).at(-1).seq;
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'one' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'two' });
+
+    let appendedDuringReplay = false;
+    app.notificationHub.onReplayBatchSent = ({ subscription }) => {
+      if (!appendedDuringReplay && subscription.conversationId === conversationId) {
+        appendedDuringReplay = true;
+        app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'three' });
+      }
+    };
+
+    socket = await openNotificationSocket(port, token);
+    await readWsJson(socket);
+    socket.send(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_gap',
+      topic: 'conversation.events',
+      scope: { conversationId },
+      afterSeq: startedSeq
+    }));
+    await readWsJson(socket);
+    const first = await readWsJson(socket);
+    const second = await readWsJson(socket);
+    const third = await readWsJson(socket);
+    assert.deepEqual(
+      [first.payload.text, second.payload.text, third.payload.text],
+      ['one', 'two', 'three']
+    );
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
 test('notification websocket delivers live conversation events after subscribe', async () => {
   const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-live-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));

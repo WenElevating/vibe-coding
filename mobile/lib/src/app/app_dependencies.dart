@@ -170,6 +170,7 @@ DaemonNotificationClient _createDefaultNotificationClient(DaemonClient client) =
         conversationId,
         afterSeq: afterSeq,
       ),
+      refreshAuth: client.refreshToken,
     );
 
 class DomainDependencies {

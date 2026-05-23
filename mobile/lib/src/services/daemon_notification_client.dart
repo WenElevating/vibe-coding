@@ -10,6 +10,7 @@ typedef NotificationBackfillFetcher = Future<List<ConversationEvent>> Function(
   String conversationId, {
   required int afterSeq,
 });
+typedef NotificationAuthRefresher = Future<void> Function();
 typedef NotificationSocketConnector = Future<NotificationSocket> Function(
   Uri uri,
   Map<String, String> headers,
@@ -48,6 +49,7 @@ class DaemonNotificationClient implements NotificationService {
     required this.baseUri,
     required this.tokenProvider,
     required this.fetchBackfill,
+    this.refreshAuth,
     NotificationSocketConnector? connector,
     NotificationReconnectDelayWaiter? reconnectDelayWaiter,
     this.reconnectDelays = const <Duration>[
@@ -65,6 +67,7 @@ class DaemonNotificationClient implements NotificationService {
   final Uri baseUri;
   final NotificationTokenProvider tokenProvider;
   final NotificationBackfillFetcher fetchBackfill;
+  final NotificationAuthRefresher? refreshAuth;
   final NotificationSocketConnector _connector;
   final NotificationReconnectDelayWaiter _reconnectDelayWaiter;
   final List<Duration> reconnectDelays;
@@ -133,6 +136,10 @@ class DaemonNotificationClient implements NotificationService {
           } else if (frame['type'] == 'error' &&
               (frame['code'] == 'AUTH_REQUIRED' ||
                   frame['code'] == 'TOKEN_EXPIRED')) {
+            if (refreshAuth != null) {
+              await refreshAuth!();
+              skipDelay = true;
+            }
             break;
           }
         }

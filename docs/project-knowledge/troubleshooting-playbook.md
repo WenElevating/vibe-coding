@@ -158,3 +158,21 @@ flutter test --no-pub test\attachment_preview_cache_test.dart -r expanded --plai
 ```
 
 - Last verified: 2026-05-23
+
+## Symptom: Workbench WebSocket Stream Appears Stalled
+
+- Symptom: daemon persists later `conversation_events`, but the foreground transcript does not update over the WebSocket notification path.
+- Action: inspect WebSocket notification trace rows first. Confirm the active `topic + scope`, latest applied `seq`, reconnect status, and whether REST backfill ran after `REPLAY_TRUNCATED`, `TOKEN_EXPIRED`, or socket close. If persisted seq advances while mobile seq does not, force reconnect from the last applied seq before changing reducer logic.
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+cd mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\daemon_notification_client_test.dart test\coding_workbench_controller_test.dart -r expanded
+```
+
+- Last verified: 2026-05-23
