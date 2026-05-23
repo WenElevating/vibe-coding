@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/speech_input_contract.dart';
+import '../../../services/speech_text_post_processor.dart';
 
 enum VoiceInputState {
   idle,
@@ -18,11 +19,14 @@ class VoiceInputController extends ChangeNotifier {
   VoiceInputController({
     required SpeechInputService service,
     Duration initializeTimeout = const Duration(seconds: 5),
+    SpeechTextPostProcessor textPostProcessor = const SpeechTextPostProcessor(),
   })  : _service = service,
-        _initializeTimeout = initializeTimeout;
+        _initializeTimeout = initializeTimeout,
+        _textPostProcessor = textPostProcessor;
 
   SpeechInputService _service;
   final Duration _initializeTimeout;
+  final SpeechTextPostProcessor _textPostProcessor;
   VoiceInputState _state = VoiceInputState.idle;
   String _partialText = '';
   String _baseText = '';
@@ -102,13 +106,14 @@ class VoiceInputController extends ChangeNotifier {
     _setState(VoiceInputState.stopping);
     try {
       final finalText = await _service.stop();
+      final processedFinalText = _textPostProcessor.processFinalText(finalText);
       final preview = previewValue();
       final mergeBase = currentPrompt.text == preview.text
           ? _baseValue()
           : _normalizedValue(currentPrompt);
-      final merged = finalText.trim().isEmpty || !_receivedPartial
+      final merged = processedFinalText.trim().isEmpty || !_receivedPartial
           ? currentPrompt
-          : mergeVoiceTextValue(mergeBase, finalText);
+          : mergeVoiceTextValue(mergeBase, processedFinalText);
       _partialText = '';
       _receivedPartial = false;
       _baseText = merged.text;
@@ -207,9 +212,11 @@ class VoiceInputViewModel extends ChangeNotifier {
   VoiceInputViewModel({
     required SpeechInputService service,
     Duration initializeTimeout = const Duration(seconds: 5),
+    SpeechTextPostProcessor textPostProcessor = const SpeechTextPostProcessor(),
   }) : _controller = VoiceInputController(
           service: service,
           initializeTimeout: initializeTimeout,
+          textPostProcessor: textPostProcessor,
         ) {
     _controller.addListener(notifyListeners);
   }
@@ -281,12 +288,10 @@ class VoiceInputViewModel extends ChangeNotifier {
 
 ({int start, int end}) _normalizedRange(TextSelection selection, int length) {
   final normalized = _normalizedSelection(selection, length);
-  final start = normalized.start < normalized.end
-      ? normalized.start
-      : normalized.end;
-  final end = normalized.start < normalized.end
-      ? normalized.end
-      : normalized.start;
+  final start =
+      normalized.start < normalized.end ? normalized.start : normalized.end;
+  final end =
+      normalized.start < normalized.end ? normalized.end : normalized.start;
   return (start: start, end: end);
 }
 

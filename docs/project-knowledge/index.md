@@ -55,6 +55,7 @@ boundary first before loading more knowledge.
 - [Conversation title is daemon-owned metadata](decisions/2026-05-22-stable-conversation-title.md)
 - [Workbench transcript is bottom anchored](decisions/2026-05-22-bottom-anchored-transcript.md)
 - [Attachment previews are mobile-owned cache](decisions/2026-05-22-mobile-owned-attachment-preview-cache.md)
+- [Voice input post-processing is final-text only](decisions/2026-05-23-voice-input-final-text-post-processing.md)
 
 ## Verification
 

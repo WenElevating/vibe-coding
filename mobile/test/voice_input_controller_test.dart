@@ -119,6 +119,23 @@ void main() {
   });
 
   test(
+      'stop post-processes final Chinese text without changing partial preview',
+      () async {
+    final service = _FakeSpeechInputService()..stopText = '帮我看一下这个文件然后提交代码';
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed context');
+    service.onPartial?.call('帮我看一下这个文件然后提交代码');
+
+    expect(controller.previewText(), 'typed context\n帮我看一下这个文件然后提交代码');
+
+    final merged =
+        await controller.stop(currentPrompt: controller.previewText());
+
+    expect(merged, 'typed context\n帮我看一下这个文件，然后提交代码。');
+  });
+
+  test(
       'second voice session with no new speech does not append previous result',
       () async {
     final service = _FakeSpeechInputService();
