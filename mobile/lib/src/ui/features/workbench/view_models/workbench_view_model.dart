@@ -26,7 +26,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   static const String _unsupportedModelUpdateMessage =
       'existing conversation model updates require a newer daemon';
   static const int _maxDraftAttachments = 4;
-  static const int _maxPollTraceEntries = 200;
+  static const int _maxEventTraceEntries = 200;
   static const int _claudeImageBytesLimit = 5 * 1024 * 1024;
   static const int _defaultImageBytesLimit = 10 * 1024 * 1024;
   static const int _textDocumentBytesLimit = 1024 * 1024;
@@ -76,8 +76,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   ConversationSummary? _activeConversation;
   final List<WorkbenchMessage> _messages = <WorkbenchMessage>[];
   final List<ConversationEvent> _conversationEvents = <ConversationEvent>[];
-  final List<WorkbenchPollTraceEntry> _pollTraceEntries =
-      <WorkbenchPollTraceEntry>[];
+  final List<WorkbenchEventTraceEntry> _eventTraceEntries =
+      <WorkbenchEventTraceEntry>[];
   final List<DraftAttachment> _draftAttachments = <DraftAttachment>[];
   final Map<String, List<AttachmentPreviewIdentity>>
       _pendingAttachmentPreviewIdentities =
@@ -114,8 +114,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<WorkbenchMessage> get messages => List.unmodifiable(_messages);
   List<ConversationEvent> get conversationEvents =>
       List.unmodifiable(_conversationEvents);
-  List<WorkbenchPollTraceEntry> get pollTraceEntries =>
-      List.unmodifiable(_pollTraceEntries);
+  List<WorkbenchEventTraceEntry> get eventTraceEntries =>
+      List.unmodifiable(_eventTraceEntries);
   List<DraftAttachment> get draftAttachments =>
       List.unmodifiable(_draftAttachments);
   ConversationViewState get conversationState => _conversationState;
@@ -264,7 +264,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _conversationState.pendingPartial.isNotEmpty ||
         _lastSeq != 0 ||
         _resolvedApprovalIds.isNotEmpty ||
-        _pollTraceEntries.isNotEmpty ||
+        _eventTraceEntries.isNotEmpty ||
         (clearActiveConversation &&
             (_activeRunId != null ||
                 _activeConversationId != null ||
@@ -278,7 +278,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _conversationState = const ConversationViewState();
     _lastSeq = 0;
     _resolvedApprovalIds.clear();
-    _pollTraceEntries.clear();
+    _eventTraceEntries.clear();
     if (clearActiveConversation) {
       _activeRunId = null;
       _activeConversationId = null;
@@ -716,7 +716,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   Future<ConversationSummary> sendExistingConversationPrompt({
     required String conversationId,
     required String prompt,
-    Future<void> Function()? restartPolling,
+    Future<void> Function()? restartEventSubscription,
   }) {
     final repository = _requireConversationRepository();
     final send = _sendConversationMessageWithDrafts(
@@ -724,7 +724,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       conversationId,
       prompt,
     );
-    final restart = restartPolling?.call();
+    final restart = restartEventSubscription?.call();
     if (restart == null) return send;
     return Future.wait<Object?>(<Future<Object?>>[
       restart.then<Object?>((_) => null),
@@ -1014,11 +1014,11 @@ class WorkbenchViewModel extends ChangeNotifier {
         metadata: <String, Object?>{'operation': operation},
       );
 
-  Future<void> recordPollTrace(WorkbenchPollTraceEntry entry) async {
-    _pollTraceEntries.add(entry);
-    if (_pollTraceEntries.length > _maxPollTraceEntries) {
-      _pollTraceEntries.removeRange(
-          0, _pollTraceEntries.length - _maxPollTraceEntries);
+  Future<void> recordEventTrace(WorkbenchEventTraceEntry entry) async {
+    _eventTraceEntries.add(entry);
+    if (_eventTraceEntries.length > _maxEventTraceEntries) {
+      _eventTraceEntries.removeRange(
+          0, _eventTraceEntries.length - _maxEventTraceEntries);
     }
     final repository = _diagnosticsRepository;
     if (repository == null) return;
@@ -1033,7 +1033,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         metadata: entry.toMetadata(),
       );
     } catch (_) {
-      // Poll tracing must never interfere with the conversation polling loop.
+      // Event tracing must never interfere with the notification stream.
     }
   }
 

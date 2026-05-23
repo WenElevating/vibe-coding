@@ -724,33 +724,6 @@ void main() {
     expect(isActiveConversationStatus('interrupted'), isFalse);
   });
 
-  test('terminal poll drain keeps one extra poll after completion events', () {
-    expect(
-      shouldKeepPollingForTerminalDrain(
-        isRunningCli: true,
-        changed: false,
-        drainPending: false,
-      ),
-      isTrue,
-    );
-    expect(
-      shouldKeepPollingForTerminalDrain(
-        isRunningCli: false,
-        changed: true,
-        drainPending: false,
-      ),
-      isTrue,
-    );
-    expect(
-      shouldKeepPollingForTerminalDrain(
-        isRunningCli: false,
-        changed: false,
-        drainPending: true,
-      ),
-      isFalse,
-    );
-  });
-
   test('pending status does not report completed tool activity', () {
     final l10n = AppLocalizationsZh();
     final events = <ConversationEvent>[
@@ -1109,26 +1082,26 @@ void main() {
       path: '/api/conversations',
       conversationId: 'conv_1',
       runId: 'run_1',
-      operation: 'poll_events',
+      operation: 'watch_events',
     );
 
     expect(traceId, 'trace_1');
     expect(repository.calls, <String>[
-      'boom|stack|/api/conversations|GET|conv_1|run_1|error|poll_events|null|null|null|null|null|null|null',
+      'boom|stack|/api/conversations|GET|conv_1|run_1|error|watch_events|null|null|null|null|null|null|null',
     ]);
   });
 
-  test('workbench view model records poll trace metadata', () async {
+  test('workbench view model records event trace metadata', () async {
     final repository = _FakeDiagnosticsRepository();
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
       diagnosticsRepository: repository,
     );
 
-    await viewModel.recordPollTrace(WorkbenchPollTraceEntry(
+    await viewModel.recordEventTrace(WorkbenchEventTraceEntry(
       conversationId: 'conv_1',
       runId: 'run_1',
-      path: '/api/conversations/conv_1/events?afterSeq=7',
+      path: '/api/notifications/ws',
       afterSeq: 7,
       returnedCount: 3,
       durationMs: 42,
@@ -1137,10 +1110,10 @@ void main() {
       terminalDrainPending: false,
     ));
 
-    expect(viewModel.pollTraceEntries, hasLength(1));
-    expect(viewModel.pollTraceEntries.single.afterSeq, 7);
+    expect(viewModel.eventTraceEntries, hasLength(1));
+    expect(viewModel.eventTraceEntries.single.afterSeq, 7);
     expect(repository.calls, <String>[
-      'pollConversationEvents: success|null|/api/conversations/conv_1/events?afterSeq=7|GET|conv_1|run_1|info|pollConversationEvents|7|3|42|false|true|false|null',
+      'watchConversationEvents: success|null|/api/notifications/ws|GET|conv_1|run_1|info|watchConversationEvents|7|3|42|false|true|false|null',
     ]);
   });
 

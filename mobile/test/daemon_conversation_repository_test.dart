@@ -5,66 +5,70 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/services/notification_service.dart';
+import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 
 void main() {
-  test('fallback watch advances cursor and does not re-emit old events',
-      () async {
-    final requestedAfterSeq = <String?>[];
+  test('watchConversationEvents delegates to notification service', () async {
+    var fetchedEvents = false;
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenStore: MemoryTokenStore(),
       httpClient: MockClient((request) async {
-        requestedAfterSeq.add(request.url.queryParameters['afterSeq']);
+        fetchedEvents = true;
         return http.Response(
-          jsonEncode(const <String, Object?>{
-            'events': <Object?>[
-              <String, Object?>{
-                'seq': 4,
-                'conversationId': 'conv_1',
-                'type': 'assistant.message',
-                'createdAt': '2026-05-23T05:18:14.000Z',
-                'text': 'old',
-              },
-              <String, Object?>{
-                'seq': 6,
-                'conversationId': 'conv_1',
-                'type': 'assistant.message',
-                'createdAt': '2026-05-23T05:18:15.000Z',
-                'text': 'new',
-              },
-              <String, Object?>{
-                'seq': 5,
-                'conversationId': 'conv_1',
-                'type': 'assistant.message',
-                'createdAt': '2026-05-23T05:18:16.000Z',
-                'text': 'also old',
-              },
-            ],
-          }),
+          jsonEncode(const <String, Object?>{'events': <Object?>[]}),
           200,
         );
       }),
     );
+    final notificationService = _FakeNotificationService();
     final repository = DaemonConversationRepository(
       client: client,
-      fallbackPollInterval: Duration.zero,
+      notificationService: notificationService,
     );
 
-    final events = <int>[];
+    final events = <ConversationEvent>[];
     late StreamSubscription<void> subscription;
     subscription = repository
         .watchConversationEvents('conv_1', afterSeq: 5)
-        .map((event) => event.seq)
         .listen(events.add);
+    notificationService.controller.add(ConversationEvent(
+      seq: 6,
+      conversationId: 'conv_1',
+      type: 'assistant.message',
+      createdAt: DateTime.parse('2026-05-23T05:18:15.000Z'),
+      text: 'new',
+    ));
 
-    await waitFor(() => requestedAfterSeq.length >= 2);
+    await waitFor(() => events.length == 1);
     await subscription.cancel();
     client.close();
 
-    expect(events, <int>[6]);
-    expect(requestedAfterSeq.take(2), <String?>['5', '6']);
+    expect(fetchedEvents, isFalse);
+    expect(notificationService.calls, <String>['conv_1:5']);
+    expect(notificationService.cancelled, isTrue);
+    expect(events.single.seq, 6);
   });
+}
+
+class _FakeNotificationService implements NotificationService {
+  late final StreamController<ConversationEvent> controller =
+      StreamController<ConversationEvent>(onCancel: () {
+    cancelled = true;
+  });
+  final List<String> calls = <String>[];
+  bool cancelled = false;
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    calls.add('$conversationId:$afterSeq');
+    return controller.stream;
+  }
 }
 
 Future<void> waitFor(bool Function() condition) async {

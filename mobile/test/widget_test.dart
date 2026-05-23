@@ -429,6 +429,82 @@ class _LazyConversationRepository implements ConversationRepository {
       );
 }
 
+class _LifecycleConversationRepository implements ConversationRepository {
+  final List<int> afterSeqs = <int>[];
+  int cancelCalls = 0;
+  int watchCalls = 0;
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> cancelConversation(String conversationId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> createConversation({
+    required String workspaceId,
+    String adapter = 'claude',
+    String permissionMode = 'default',
+    String? model,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) async =>
+      const <ConversationEvent>[];
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    watchCalls += 1;
+    afterSeqs.add(afterSeq);
+    late final StreamController<ConversationEvent> controller;
+    controller = StreamController<ConversationEvent>(
+      onCancel: () {
+        cancelCalls += 1;
+      },
+    );
+    return controller.stream;
+  }
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      const <ConversationSummary>[];
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> sendConversationMessage(
+    String conversationId,
+    ConversationMessageSendRequest request,
+  ) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async =>
+      throw UnimplementedError();
+}
+
 class _NewSessionConversationRepository implements ConversationRepository {
   final sendCompleter = Completer<ConversationSummary>();
 
@@ -1539,6 +1615,118 @@ void main() {
     expect(find.text('message 0'), findsNothing);
   });
 
+  testWidgets(
+      'workbench lifecycle restarts event subscription after background',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository();
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    void backgroundApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    }
+
+    void resumeApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }
+
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_lifecycle',
+              workspaceId: 'workspace_1',
+              status: 'running',
+              sessionBinding: 'confirmed',
+              userMessageCount: 1,
+              title: 'Lifecycle task',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Lifecycle task'));
+    await pumpUntilWatchCalls(1);
+
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    backgroundApp();
+    await tester.pump(const Duration(seconds: 5));
+    resumeApp();
+    await tester.pump();
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    backgroundApp();
+    await tester.pump(const Duration(seconds: 29));
+    expect(conversationRepository.cancelCalls, 0);
+    await tester.pump(const Duration(seconds: 2));
+    expect(conversationRepository.cancelCalls, 1);
+
+    resumeApp();
+    await pumpUntilWatchCalls(2);
+    expect(conversationRepository.watchCalls, 2);
+    expect(conversationRepository.afterSeqs, <int>[0, 0]);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('opening short existing conversation keeps transcript near top',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(393, 852);
@@ -2353,7 +2541,7 @@ void main() {
     expect(items, isEmpty);
   });
 
-  test('approval response resumes polling only for active conversations', () {
+  test('approval response restarts events only for active conversations', () {
     const capabilities = ConversationCapabilities(
       longLivedProcess: true,
       waitingInput: true,
@@ -2380,8 +2568,8 @@ void main() {
       updatedAt: '2026-05-03T00:00:01.000Z',
     );
 
-    expect(debugShouldPollAfterApproval(running), isTrue);
-    expect(debugShouldPollAfterApproval(idle), isFalse);
+    expect(debugShouldRestartEventsAfterApproval(running), isTrue);
+    expect(debugShouldRestartEventsAfterApproval(idle), isFalse);
   });
 
   test('historical sessions do not count as explicit workspace selection', () {

@@ -4,7 +4,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
 import 'conversation_reducer.dart';
 
-bool shouldPollAfterApproval(ConversationSummary conversation) =>
+bool shouldRestartEventsAfterApproval(ConversationSummary conversation) =>
     conversation.status == 'running' || conversation.status == 'waiting_input';
 
 bool hasExplicitWorkspaceSelectionState({

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -7,6 +9,7 @@ import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
+import '../data/services/notification_service.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../shell/shell.dart';
@@ -77,8 +80,8 @@ String debugConversationPendingStatusText(String status,
         lookupAppLocalizations(locale), status, events);
 
 @visibleForTesting
-bool debugShouldPollAfterApproval(ConversationSummary conversation) =>
-    shouldPollAfterApproval(conversation);
+bool debugShouldRestartEventsAfterApproval(ConversationSummary conversation) =>
+    shouldRestartEventsAfterApproval(conversation);
 
 @visibleForTesting
 bool debugHasExplicitWorkspaceSelection({
@@ -505,8 +508,9 @@ Widget buildCodingWorkbenchEntryPreview() {
                 adapterRepository: DaemonAdapterRepository(client: client),
                 asrModelManager:
                     AsrModelManager(client: client.createAsrModelClient()),
-                conversationRepository:
-                    DaemonConversationRepository(client: client),
+                conversationRepository: DaemonConversationRepository(
+                    client: client,
+                    notificationService: const _EmptyNotificationService()),
                 diagnosticsRepository:
                     DaemonDiagnosticsRepository(client: client),
                 runRepository: DaemonRunRepository(client: client),
@@ -514,4 +518,13 @@ Widget buildCodingWorkbenchEntryPreview() {
                     const DisabledSpeechInputService(),
                 workspaceRepository: DaemonWorkspaceRepository(client: client),
               ))));
+}
+
+class _EmptyNotificationService implements NotificationService {
+  const _EmptyNotificationService();
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(String conversationId,
+          {required int afterSeq}) =>
+      const Stream<ConversationEvent>.empty();
 }

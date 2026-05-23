@@ -60,6 +60,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   static const String _routeSessions = 'sessions';
   static const String _routeConversation = 'conversation';
   static const int _conversationTitleMaxLength = 18;
+  static const Duration _backgroundEventDisconnectDelay = Duration(seconds: 30);
 
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
@@ -70,6 +71,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   StreamSubscription<void>? _conversationEventSubscription;
+  Timer? _backgroundEventDisconnectTimer;
+  bool _conversationEventsSuspendedForBackground = false;
   int _conversationEventSubscriptionGeneration = 0;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
@@ -260,6 +263,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cancelBackgroundEventDisconnectTimer();
     _conversationEventSubscriptionGeneration += 1;
     unawaited(_conversationEventSubscription?.cancel());
     if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
@@ -286,6 +290,23 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     super.didChangeAppLifecycleState(state);
     if (state != AppLifecycleState.resumed && _voiceInput.isBusy) {
       unawaited(_cancelVoiceInput());
+    }
+    switch (state) {
+      case AppLifecycleState.resumed:
+        final shouldRestartEvents = _conversationEventsSuspendedForBackground;
+        _conversationEventsSuspendedForBackground = false;
+        _cancelBackgroundEventDisconnectTimer();
+        if (shouldRestartEvents) {
+          unawaited(_restartConversationEventSubscription());
+        }
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _scheduleBackgroundEventDisconnect();
+        break;
+      case AppLifecycleState.inactive:
+        break;
     }
   }
 
@@ -766,7 +787,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             await _workbenchViewModel.sendExistingConversationPrompt(
           conversationId: existingConversationId,
           prompt: prompt,
-          restartPolling: _restartConversationEventSubscription,
+          restartEventSubscription: _restartConversationEventSubscription,
         );
         if (mounted) {
           setState(() {
@@ -840,11 +861,34 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  Future<void> _cancelConversationEventSubscription() async {
+  Future<void> _cancelConversationEventSubscription({
+    bool suspendedForBackground = false,
+  }) async {
+    _cancelBackgroundEventDisconnectTimer();
+    _conversationEventsSuspendedForBackground = suspendedForBackground;
     _conversationEventSubscriptionGeneration += 1;
     final subscription = _conversationEventSubscription;
     _conversationEventSubscription = null;
     await subscription?.cancel();
+  }
+
+  void _cancelBackgroundEventDisconnectTimer() {
+    _backgroundEventDisconnectTimer?.cancel();
+    _backgroundEventDisconnectTimer = null;
+  }
+
+  void _scheduleBackgroundEventDisconnect() {
+    if (_conversationEventSubscription == null ||
+        _backgroundEventDisconnectTimer != null) {
+      return;
+    }
+    _backgroundEventDisconnectTimer =
+        Timer(_backgroundEventDisconnectDelay, () {
+      _backgroundEventDisconnectTimer = null;
+      unawaited(_cancelConversationEventSubscription(
+        suspendedForBackground: true,
+      ));
+    });
   }
 
   Future<void> _restartConversationEventSubscription() async {
@@ -945,7 +989,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             notify: false);
       });
       final conversation = _activeConversation;
-      if (conversation != null && shouldPollAfterApproval(conversation)) {
+      if (conversation != null &&
+          shouldRestartEventsAfterApproval(conversation)) {
         await _restartConversationEventSubscription();
       }
     } catch (err) {

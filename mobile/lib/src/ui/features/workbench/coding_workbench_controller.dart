@@ -19,16 +19,6 @@ bool isActiveConversationStatus(String? status) {
       status == 'waiting_approval';
 }
 
-bool shouldKeepPollingForTerminalDrain({
-  required bool isRunningCli,
-  required bool changed,
-  required bool drainPending,
-}) {
-  if (isRunningCli) return true;
-  if (drainPending) return false;
-  return changed;
-}
-
 bool shouldApplyConversationSendAcknowledgement({
   required int sendStartSeq,
   required int currentSeq,
@@ -48,8 +38,8 @@ bool shouldApplyConversationSendAcknowledgement({
   return true;
 }
 
-class WorkbenchPollTraceEntry {
-  const WorkbenchPollTraceEntry({
+class WorkbenchEventTraceEntry {
+  const WorkbenchEventTraceEntry({
     required this.conversationId,
     required this.runId,
     required this.path,
@@ -81,10 +71,10 @@ class WorkbenchPollTraceEntry {
     return 'success';
   }
 
-  String get message => 'pollConversationEvents: $status';
+  String get message => 'watchConversationEvents: $status';
 
   Map<String, Object?> toMetadata() => <String, Object?>{
-        'operation': 'pollConversationEvents',
+        'operation': 'watchConversationEvents',
         'afterSeq': afterSeq,
         'returnedCount': returnedCount,
         'durationMs': durationMs,

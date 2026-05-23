@@ -7,15 +7,12 @@ import '../services/notification_service.dart';
 class DaemonConversationRepository implements ConversationRepository {
   DaemonConversationRepository({
     required DaemonClient client,
-    NotificationService? notificationService,
-    Duration fallbackPollInterval = const Duration(seconds: 5),
+    required NotificationService notificationService,
   })  : _client = client,
-        _notificationService = notificationService,
-        _fallbackPollInterval = fallbackPollInterval;
+        _notificationService = notificationService;
 
   final DaemonClient _client;
-  final NotificationService? _notificationService;
-  final Duration _fallbackPollInterval;
+  final NotificationService _notificationService;
 
   @override
   Future<List<ConversationSummary>> listConversations() =>
@@ -83,28 +80,11 @@ class DaemonConversationRepository implements ConversationRepository {
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
-  }) async* {
-    final service = _notificationService;
-    if (service == null) {
-      var cursor = afterSeq;
-      while (true) {
-        final events = await fetchConversationEvents(
-          conversationId,
-          afterSeq: cursor,
-        );
-        final freshEvents = events
-            .where((event) => event.seq > cursor)
-            .toList()
-          ..sort((a, b) => a.seq.compareTo(b.seq));
-        for (final event in freshEvents) {
-          cursor = event.seq;
-          yield event;
-        }
-        await Future<void>.delayed(_fallbackPollInterval);
-      }
-    }
-    yield* service.watchConversationEvents(conversationId, afterSeq: afterSeq);
-  }
+  }) =>
+      _notificationService.watchConversationEvents(
+        conversationId,
+        afterSeq: afterSeq,
+      );
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
