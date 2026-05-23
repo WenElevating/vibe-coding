@@ -60,6 +60,7 @@ class DaemonNotificationClient implements NotificationService {
     this.refreshAuth,
     NotificationSocketConnector? connector,
     NotificationReconnectDelayWaiter? reconnectDelayWaiter,
+    this.backfillAfterFailedAttempts = 3,
     this.reconnectDelays = const <Duration>[
       Duration(seconds: 1),
       Duration(seconds: 2),
@@ -68,7 +69,8 @@ class DaemonNotificationClient implements NotificationService {
       Duration(seconds: 16),
       Duration(seconds: 30),
     ],
-  }) : _connector = connector ?? _connectIoSocket,
+  })  : assert(backfillAfterFailedAttempts > 0),
+        _connector = connector ?? _connectIoSocket,
         _reconnectDelayWaiter =
             reconnectDelayWaiter ?? ((delay) => Future<void>.delayed(delay));
 
@@ -78,6 +80,7 @@ class DaemonNotificationClient implements NotificationService {
   final NotificationAuthRefresher? refreshAuth;
   final NotificationSocketConnector _connector;
   final NotificationReconnectDelayWaiter _reconnectDelayWaiter;
+  final int backfillAfterFailedAttempts;
   final List<Duration> reconnectDelays;
 
   bool _closed = false;
@@ -93,10 +96,12 @@ class DaemonNotificationClient implements NotificationService {
   }) async* {
     var cursor = afterSeq;
     var attempt = 0;
+    var failedAttemptsSinceBackfill = 0;
     while (!_closed) {
       NotificationSocket? socket;
       var skipDelay = false;
       var authRecovered = false;
+      var socketFailed = false;
       try {
         final token = tokenProvider();
         socket = await _connector(
@@ -106,6 +111,7 @@ class DaemonNotificationClient implements NotificationService {
         if (_closed) {
           break;
         }
+        failedAttemptsSinceBackfill = 0;
         _activeSockets.add(socket);
         socket.add(jsonEncode(<String, Object?>{
           'type': 'subscribe',
@@ -160,11 +166,27 @@ class DaemonNotificationClient implements NotificationService {
           }
         }
       } catch (_) {
+        socketFailed = true;
         // Connector and socket stream failures use the normal reconnect path.
       } finally {
         if (socket != null) {
           _activeSockets.remove(socket);
           await _closeSocket(socket);
+        }
+      }
+      if (!_closed && socketFailed) {
+        failedAttemptsSinceBackfill += 1;
+        if (failedAttemptsSinceBackfill >= backfillAfterFailedAttempts) {
+          failedAttemptsSinceBackfill = 0;
+          final backfill =
+              await fetchBackfill(conversationId, afterSeq: cursor);
+          for (final event in backfill) {
+            if (event.seq <= cursor) {
+              continue;
+            }
+            cursor = event.seq;
+            yield event;
+          }
         }
       }
       if (_closed) {

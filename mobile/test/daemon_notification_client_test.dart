@@ -70,7 +70,8 @@ void main() {
     await client.close();
   });
 
-  test('reconnects and resubscribes from backfill cursor after replay truncated',
+  test(
+      'reconnects and resubscribes from backfill cursor after replay truncated',
       () async {
     final sockets = <FakeNotificationSocket>[];
     final backfillAfterSeq = <int>[];
@@ -206,7 +207,8 @@ void main() {
     await client.close();
   });
 
-  test('does not refresh twice when token expired frame is followed by auth close',
+  test(
+      'does not refresh twice when token expired frame is followed by auth close',
       () async {
     final sockets = <FakeNotificationSocket>[];
     final tokens = <String>['token_old'];
@@ -338,6 +340,50 @@ void main() {
     await client.close();
   });
 
+  test(
+      'uses REST backfill after repeated connector failures and advances cursor',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final backfillAfterSeq = <int>[];
+    var attempts = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      connector: (_, __) async {
+        attempts += 1;
+        if (attempts <= 3) {
+          throw const SocketConnectionFailure();
+        }
+        final socket = FakeNotificationSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillAfterSeq.add(afterSeq);
+        return <ConversationEvent>[
+          conversationEvent(seq: afterSeq + 1),
+        ];
+      },
+      backfillAfterFailedAttempts: 3,
+      reconnectDelays: const <Duration>[Duration.zero],
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => events.length == 1);
+    expect(backfillAfterSeq, <int>[7]);
+    expect(events.single.seq, 8);
+
+    await waitFor(() => sockets.length == 1);
+    expect(sockets.single.sentJson.single['afterSeq'], 8);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('close actively closes current socket', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(
@@ -347,9 +393,8 @@ void main() {
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
     );
 
-    final subscription = client
-        .watchConversationEvents('conv_1', afterSeq: 7)
-        .listen((_) {});
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
     await waitFor(() => socket.sentJson.isNotEmpty);
 
     await client.close();
@@ -373,9 +418,8 @@ void main() {
       reconnectDelayWaiter: delay.wait,
     );
 
-    final subscription = client
-        .watchConversationEvents('conv_1', afterSeq: 7)
-        .listen((_) {});
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
     final done = subscription.asFuture<void>();
 
     await delay.started.future;
@@ -434,9 +478,8 @@ void main() {
       reconnectDelayWaiter: delay.wait,
     );
 
-    final subscription = client
-        .watchConversationEvents('conv_1', afterSeq: 7)
-        .listen((_) {});
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
 
     await waitFor(() => sockets.length == 1);
     sockets.single.serverAddJson(<String, Object?>{

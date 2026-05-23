@@ -41,14 +41,24 @@ class NotificationHub {
     this.connections = new Map();
     this.wss = new WebSocketServer({ noServer: true });
     this.unsubscribeAppend = null;
+    this.heartbeatTimer = null;
     this.onReplayBatchSent = null;
   }
 
   start() {
-    if (this.unsubscribeAppend) return;
-    this.unsubscribeAppend = this.conversationEventStore.onAppend((event) => {
-      this.publishConversationEvent(event);
-    });
+    if (!this.unsubscribeAppend) {
+      this.unsubscribeAppend = this.conversationEventStore.onAppend((event) => {
+        this.publishConversationEvent(event);
+      });
+    }
+    if (!this.heartbeatTimer && this.heartbeatIntervalMs > 0) {
+      this.heartbeatTimer = setInterval(() => {
+        this.runHeartbeat();
+      }, this.heartbeatIntervalMs);
+      if (typeof this.heartbeatTimer.unref === 'function') {
+        this.heartbeatTimer.unref();
+      }
+    }
   }
 
   attach(server) {
@@ -133,7 +143,46 @@ class NotificationHub {
     connection.subscriptions.clear();
   }
 
+  runHeartbeat() {
+    for (const connection of Array.from(this.connections.values())) {
+      if (connection.closed) continue;
+      if (!connection.alive) {
+        this.terminateConnection(connection);
+        continue;
+      }
+      connection.alive = false;
+      try {
+        if (typeof connection.ws.ping === 'function') {
+          connection.ws.ping();
+        }
+      } catch {
+        this.terminateConnection(connection);
+      }
+    }
+  }
+
+  terminateConnection(connection) {
+    try {
+      if (typeof connection.ws.terminate === 'function') {
+        connection.ws.terminate();
+      } else if (
+        connection.ws.readyState === WebSocket.OPEN ||
+        connection.ws.readyState === WebSocket.CONNECTING
+      ) {
+        connection.ws.close(1001, 'Heartbeat missed');
+      }
+    } catch {
+      // Termination is best-effort; closeConnection performs local cleanup.
+    } finally {
+      this.closeConnection(connection);
+    }
+  }
+
   close() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     if (this.unsubscribeAppend) {
       this.unsubscribeAppend();
       this.unsubscribeAppend = null;

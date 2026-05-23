@@ -884,6 +884,48 @@ test('notification hub removes live subscription and sends forbidden when access
   assert.deepEqual(connection.sentFrames[0].scope, { conversationId: 'conv_1' });
 });
 
+test('notification hub heartbeat terminates missed-pong connections and removes subscriptions', () => {
+  let pingCalls = 0;
+  let terminateCalls = 0;
+  const hub = new NotificationHub({
+    conversations: null,
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: 'test' },
+    heartbeatIntervalMs: 25000
+  });
+  const connection = createNotificationHubTestConnection();
+  connection.ws = {
+    readyState: WebSocket.OPEN,
+    ping() {
+      pingCalls += 1;
+    },
+    terminate() {
+      terminateCalls += 1;
+    }
+  };
+  connection.alive = true;
+  connection.closed = false;
+  connection.subscriptions.set(
+    subscriptionKey('conversation.events', { conversationId: 'conv_1' }),
+    { topic: 'conversation.events' }
+  );
+  hub.connections.set(connection.id, connection);
+
+  hub.runHeartbeat();
+
+  assert.equal(pingCalls, 1);
+  assert.equal(terminateCalls, 0);
+  assert.equal(connection.alive, false);
+  assert.equal(hub.connections.size, 1);
+
+  hub.runHeartbeat();
+
+  assert.equal(pingCalls, 1);
+  assert.equal(terminateCalls, 1);
+  assert.equal(hub.connections.size, 0);
+  assert.equal(connection.subscriptions.size, 0);
+});
+
 test('notification websocket closes slow clients on backpressure', async () => {
   const sentFrames = [];
   let closed = null;
