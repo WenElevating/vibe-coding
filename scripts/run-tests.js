@@ -6,6 +6,7 @@ process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
+const WebSocket = require('ws');
 const { AuthManager, hashDeviceId, verifyToken } = require('../daemon/src/auth');
 const { validateRunCreate, assertNoV1TerminalRequest, eventTypes } = require('../daemon/src/protocol');
 const { EventStore } = require('../daemon/src/event-store');
@@ -445,6 +446,42 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
     assert.equal(adapterNames.includes('synthetic-text'), false);
     assert.equal(adapterNames.includes('claude'), true);
   } finally {
+    app.appSqliteStore.close();
+  }
+});
+
+test('notification websocket rejects missing bearer token', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-auth-missing-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const socket = new WebSocket(wsUrl(port));
+    const closeCode = await waitForWsClose(socket);
+    assert.equal(closeCode, 1008);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('notification websocket accepts bearer token and sends hello', async () => {
+  const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-hello-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-test', deviceId: 'ws-device-1' });
+    socket = await openNotificationSocket(port, paired.body.token);
+    const hello = await readWsJson(socket);
+    assert.equal(hello.type, 'hello');
+    assert.equal(hello.protocolVersion, 1);
+    assert.equal(hello.daemonVersion, app.version.daemonVersion);
+    assert.deepEqual(hello.capabilities.topics, ['conversation.events']);
+    assert.equal(hello.capabilities.maxReplayEvents, 1000);
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
     app.appSqliteStore.close();
   }
 });
@@ -4350,6 +4387,47 @@ async function request(port, method, path, body, token) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+function wsUrl(port, path = '/api/notifications/ws') {
+  return `ws://127.0.0.1:${port}${path}`;
+}
+
+function openNotificationSocket(port, token) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(wsUrl(port), {
+      headers: token ? { authorization: `Bearer ${token}` } : {}
+    });
+    socket.__pendingMessages = [];
+    socket.on('message', (data) => {
+      socket.__pendingMessages.push(data);
+    });
+    socket.once('open', () => resolve(socket));
+    socket.once('error', reject);
+  });
+}
+
+function readWsJson(socket) {
+  if (socket.__pendingMessages && socket.__pendingMessages.length > 0) {
+    return Promise.resolve(JSON.parse(String(socket.__pendingMessages.shift())));
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('timed out waiting for WebSocket message')), 1000);
+    const onMessage = () => {
+      clearTimeout(timeout);
+      resolve(JSON.parse(String(socket.__pendingMessages.shift())));
+    };
+    socket.once('message', onMessage);
+    socket.once('error', (error) => {
+      clearTimeout(timeout);
+      socket.off('message', onMessage);
+      reject(error);
+    });
+  });
+}
+
+function waitForWsClose(socket) {
+  return new Promise((resolve) => socket.once('close', resolve));
 }
 
 async function requestRaw(port, method, path, body, token, extraHeaders = {}) {

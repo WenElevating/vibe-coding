@@ -32,6 +32,7 @@ const { DiagnosticBundleService } = require('./diagnostic-bundle');
 const { versionInfo } = require('./version');
 const { createServer } = require('./server');
 const { AsrModelAsset } = require('./asr-model-asset');
+const { NotificationHub } = require('./notification-hub');
 
 function loadOrCreateSecrets(dbPath) {
   const secretsPath = path.join(path.dirname(dbPath), '.daemon-secrets.json');
@@ -109,7 +110,9 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset });
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, config, version, asrModelAsset, attachmentScratchCleanup };
+  const notificationHub = new NotificationHub({ auth, conversations, version });
+  notificationHub.attach(server);
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand }) {
