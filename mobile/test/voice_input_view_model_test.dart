@@ -44,7 +44,7 @@ void main() {
     service.onPartial?.call('partial');
 
     expect(viewModel.state, VoiceInputState.listening);
-    expect(viewModel.previewText(), 'typed\npartial');
+    expect(viewModel.previewText(), 'typedpartial');
   });
 
   test('finishForSend stops listening input', () async {
@@ -55,9 +55,9 @@ void main() {
     await viewModel.start(currentPrompt: 'typed');
     service.onPartial?.call('partial');
     final merged =
-        await viewModel.finishForSend(currentPrompt: 'typed\npartial');
+        await viewModel.finishForSend(currentPrompt: 'typedpartial');
 
-    expect(merged, 'typed\nfinal');
+    expect(merged, 'typedfinal');
     expect(service.stopCalls, 1);
     expect(viewModel.state, VoiceInputState.idle);
   });

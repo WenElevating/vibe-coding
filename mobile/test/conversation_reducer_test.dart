@@ -423,6 +423,33 @@ void main() {
     expect(state.messages, isEmpty);
   });
 
+  test('ConversationViewState promotes Codex file changes to diff messages',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-23T00:00:00.000Z',
+        'text': 'File changed: updated mobile/test/example_test.dart',
+        'noticeKind': 'codex_file_change',
+        'visible': true,
+        'changes': [
+          {
+            'path': 'mobile/test/example_test.dart',
+            'kind': 'update',
+            'diff': '@@ -1 +1 @@\n-old\n+new'
+          }
+        ]
+      })
+    ]);
+
+    expect(state.messages.single.role, 'file_change');
+    expect(state.messages.single.fileChanges.single.path,
+        'mobile/test/example_test.dart');
+    expect(state.messages.single.fileChanges.single.diff, contains('+new'));
+  });
+
   test('ConversationViewState routes reconnect notices to pending status', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

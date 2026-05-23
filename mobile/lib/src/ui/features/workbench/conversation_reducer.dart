@@ -25,6 +25,7 @@ class ConversationMessage {
     this.suggestions = const <String>[],
     this.attachments = const <CommittedAttachment>[],
     this.clientMessageId,
+    this.fileChanges = const <ConversationFileChange>[],
   });
 
   final String role;
@@ -50,6 +51,19 @@ class ConversationMessage {
   final List<String> suggestions;
   final List<CommittedAttachment> attachments;
   final String? clientMessageId;
+  final List<ConversationFileChange> fileChanges;
+}
+
+class ConversationFileChange {
+  const ConversationFileChange({
+    required this.path,
+    required this.kind,
+    this.diff,
+  });
+
+  final String path;
+  final String kind;
+  final String? diff;
 }
 
 class ConversationViewState {
@@ -203,6 +217,15 @@ class ConversationViewState {
           if (event.raw['visible'] == false) break;
           if (isHiddenSystemNotice(event)) break;
           if (isTransitionSystemNotice(event)) break;
+          if (isCodexFileChangeNotice(event)) {
+            nextMessages.add(ConversationMessage(
+              role: 'file_change',
+              text: event.text ?? event.summary ?? '',
+              eventSeq: event.seq,
+              fileChanges: conversationFileChangesFromEvent(event),
+            ));
+            break;
+          }
           nextMessages.add(ConversationMessage(
             role: 'notice',
             text: event.text ?? event.summary ?? '',
@@ -311,6 +334,34 @@ bool isTransitionSystemNotice(ConversationEvent event) {
   if (text.contains('stream disconnected')) return true;
   if (text.contains('stream closed before response.completed')) return true;
   return false;
+}
+
+bool isCodexFileChangeNotice(ConversationEvent event) {
+  if (event.type != 'system.notice') return false;
+  return '${event.raw['noticeKind'] ?? ''}'.toLowerCase() ==
+      'codex_file_change';
+}
+
+List<ConversationFileChange> conversationFileChangesFromEvent(
+    ConversationEvent event) {
+  final changes = event.raw['changes'];
+  if (changes is! Iterable) return const <ConversationFileChange>[];
+  final parsed = <ConversationFileChange>[];
+  for (final item in changes) {
+    if (item is! Map) continue;
+    final path = item['path'];
+    if (path is! String || path.trim().isEmpty) continue;
+    final kind = item['kind'];
+    final diff = item['diff'];
+    parsed.add(ConversationFileChange(
+      path: path.trim(),
+      kind: kind is String && kind.trim().isNotEmpty ? kind.trim() : 'change',
+      diff: diff is String && diff.trim().isNotEmpty ? diff : null,
+    ));
+  }
+  return parsed.isEmpty
+      ? const <ConversationFileChange>[]
+      : List<ConversationFileChange>.unmodifiable(parsed);
 }
 
 void _upsertCommandMessage(

@@ -39,18 +39,18 @@ class _FakeSpeechInputService implements SpeechInputService {
 }
 
 void main() {
-  test('stop appends voice text at end with newline', () async {
+  test('stop appends voice text at end without inserting newline', () async {
     final service = _FakeSpeechInputService();
     final controller = VoiceInputController(service: service);
 
     await controller.start(currentPrompt: 'typed context');
     service.onPartial?.call('partial');
 
-    expect(controller.previewText(), 'typed context\npartial');
+    expect(controller.previewText(), 'typed contextpartial');
 
     final merged = await controller.stop(currentPrompt: 'typed context');
 
-    expect(merged, 'typed context\nvoice result');
+    expect(merged, 'typed contextvoice result');
     expect(service.startCalls, 1);
     expect(service.stopCalls, 1);
     expect(controller.state, VoiceInputState.idle);
@@ -101,7 +101,7 @@ void main() {
 
     final merged = await controller.stop(currentPrompt: preview);
 
-    expect(merged, 'typed context\npartial');
+    expect(merged, 'typed contextpartial');
     expect(controller.state, VoiceInputState.idle);
   });
 
@@ -115,7 +115,7 @@ void main() {
     final merged =
         await controller.stop(currentPrompt: controller.previewText());
 
-    expect(merged, 'typed context\nfinal');
+    expect(merged, 'typed contextfinal');
   });
 
   test(
@@ -127,12 +127,12 @@ void main() {
     await controller.start(currentPrompt: 'typed context');
     service.onPartial?.call('帮我看一下这个文件然后提交代码');
 
-    expect(controller.previewText(), 'typed context\n帮我看一下这个文件然后提交代码');
+    expect(controller.previewText(), 'typed context帮我看一下这个文件然后提交代码');
 
     final merged =
         await controller.stop(currentPrompt: controller.previewText());
 
-    expect(merged, 'typed context\n帮我看一下这个文件，然后提交代码。');
+    expect(merged, 'typed context帮我看一下这个文件，然后提交代码。');
   });
 
   test(

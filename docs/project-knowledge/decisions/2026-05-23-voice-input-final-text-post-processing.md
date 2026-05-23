@@ -25,6 +25,10 @@ while the user is speaking. The first implementation is conservative: normalize
 common coding terms, add simple Chinese punctuation, and avoid semantic
 rewrites.
 
+Final and partial voice text are merged at the captured text cursor without
+inserting an automatic newline. If the user wants a new line, the prompt should
+already contain that line break before voice input is appended.
+
 ## Alternatives
 
 - Daemon-side MacBERT CSC: rejected for the first implementation because it is

@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
@@ -8,6 +10,7 @@ const { textAttachmentWrapper } = require('./attachment-validation');
 
 const DEFAULT_MAX_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES = 64 * 1024;
+const DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES = 32 * 1024;
 const CODEX_DETECTION_TIMEOUT_MS = 30000;
 
 class CodexConversationAdapter {
@@ -196,7 +199,8 @@ class CodexConversationHandle {
     this.validJsonStarted = true;
     const event = mapCodexEvent(raw, {
       maxAggregatedOutputBytes: this.adapter.maxAggregatedOutputBytes,
-      workspacePath: this.workspacePath
+      workspacePath: this.workspacePath,
+      includeFileChangeDiff: true
     });
     if (!event) return;
     if (event.sessionId) this.sessionId = event.sessionId;
@@ -524,7 +528,15 @@ function safeJsonStringify(value) {
 }
 
 function mapCodexFileChangeEvent(raw, item, options = {}) {
-  const changes = normalizeCodexFileChanges(item.changes, options.workspacePath);
+  const changes = normalizeCodexFileChanges(
+    item.changes,
+    options.workspacePath,
+    {
+      ...options,
+      includeFileChangeDiff:
+        raw.type === 'item.completed' && options.includeFileChangeDiff === true
+    }
+  );
   if (changes.length === 0) return null;
   if (raw.type !== 'item.completed') {
     return {
@@ -546,21 +558,93 @@ function mapCodexFileChangeEvent(raw, item, options = {}) {
   };
 }
 
-function normalizeCodexFileChanges(changes, workspacePath) {
+function normalizeCodexFileChanges(changes, workspacePath, options = {}) {
   if (!Array.isArray(changes)) return [];
   const normalized = [];
   for (const change of changes) {
     if (!change || typeof change !== 'object') continue;
     const rawPath = typeof change.path === 'string' ? change.path.trim() : '';
     if (!rawPath) continue;
-    normalized.push({
+    const normalizedChange = {
       path: relativeCodexFilePath(rawPath, workspacePath),
       kind: typeof change.kind === 'string' && change.kind.trim()
         ? change.kind.trim()
         : 'change'
-    });
+    };
+    const diff = codexFileChangeDiff(change, rawPath, workspacePath, options);
+    if (diff) normalizedChange.diff = diff;
+    normalized.push(normalizedChange);
   }
   return normalized;
+}
+
+function codexFileChangeDiff(change, rawPath, workspacePath, options = {}) {
+  const maxBytes = Number.isInteger(options.maxFileChangeDiffBytes) && options.maxFileChangeDiffBytes > 0
+    ? options.maxFileChangeDiffBytes
+    : DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES;
+  if (typeof change.diff === 'string' && change.diff.trim()) {
+    return truncateText(stripAnsi(change.diff), maxBytes).text;
+  }
+  if (options.includeFileChangeDiff !== true) return '';
+  const gitDiff = workspaceGitDiffForFile(rawPath, workspacePath, maxBytes);
+  if (gitDiff) return gitDiff;
+  if (['add', 'added'].includes(String(change.kind || '').toLowerCase())) {
+    return addedFilePreview(rawPath, workspacePath, maxBytes);
+  }
+  return '';
+}
+
+function workspaceGitDiffForFile(rawPath, workspacePath, maxBytes) {
+  const resolved = resolveWorkspaceFilePath(rawPath, workspacePath);
+  if (!resolved) return '';
+  const relativePath = path.relative(path.resolve(workspacePath), resolved);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return '';
+  const result = spawnSync('git', ['diff', '--no-ext-diff', '--unified=20', '--', relativePath], {
+    cwd: workspacePath,
+    encoding: 'utf8',
+    timeout: 2000,
+    windowsHide: true,
+    maxBuffer: maxBytes * 2
+  });
+  if (result.error || result.status === null) return '';
+  return truncateText(stripAnsi(result.stdout || ''), maxBytes).text.trim();
+}
+
+function addedFilePreview(rawPath, workspacePath, maxBytes) {
+  const resolved = resolveWorkspaceFilePath(rawPath, workspacePath);
+  if (!resolved) return '';
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile() || stat.size > maxBytes) return '';
+    const content = fs.readFileSync(resolved, 'utf8');
+    const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const preview = lines
+      .slice(0, 80)
+      .map((line) => `+${line}`)
+      .join('\n');
+    return preview ? `@@ new file preview @@\n${preview}` : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveWorkspaceFilePath(rawPath, workspacePath) {
+  if (!workspacePath || !String(workspacePath).trim()) return null;
+  const workspaceRoot = path.resolve(workspacePath);
+  const candidate = path.isAbsolute(rawPath)
+    ? path.resolve(rawPath)
+    : path.resolve(workspaceRoot, rawPath);
+  const comparableRoot =
+    process.platform === 'win32' ? workspaceRoot.toLowerCase() : workspaceRoot;
+  const comparableCandidate =
+    process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+  if (
+    comparableCandidate === comparableRoot ||
+    comparableCandidate.startsWith(`${comparableRoot}${path.sep}`)
+  ) {
+    return candidate;
+  }
+  return null;
 }
 
 function relativeCodexFilePath(filePath, workspacePath) {

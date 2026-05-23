@@ -169,13 +169,12 @@ class VoiceInputController extends ChangeNotifier {
     final before = text.substring(0, range.start);
     final after = text.substring(range.end);
     if (after.isEmpty) {
-      final trimmedBefore = before.trimRight();
-      if (trimmedBefore.isEmpty) {
+      if (before.isEmpty) {
         return TextEditingValue(
             text: trimmedVoice,
             selection: TextSelection.collapsed(offset: trimmedVoice.length));
       }
-      final merged = '$trimmedBefore\n$trimmedVoice';
+      final merged = '$before$trimmedVoice';
       return TextEditingValue(
           text: merged,
           selection: TextSelection.collapsed(offset: merged.length));

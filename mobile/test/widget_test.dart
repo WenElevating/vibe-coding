@@ -32,6 +32,8 @@ import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+void _noopString(String _) {}
+
 class _LocalizedSettingsLabelApp extends StatefulWidget {
   const _LocalizedSettingsLabelApp();
 
@@ -2660,6 +2662,44 @@ void main() {
 
     expect(find.text('claude running'), findsNothing);
     expect(find.text('Claude requesting'), findsNothing);
+  });
+
+  testWidgets('file change card shows edited path and diff preview',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                        'file_change',
+                        'File changes',
+                        'File changed: updated mobile/test/example_test.dart',
+                        fileChanges: <ConversationFileChange>[
+                          ConversationFileChange(
+                              path: 'mobile/test/example_test.dart',
+                              kind: 'update',
+                              diff:
+                                  '@@ -1,3 +1,3 @@\n-  old expectation\n+  new expectation')
+                        ]),
+                    onApproval: _noopString,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edited example_test.dart'), findsOneWidget);
+    expect(find.text('mobile/test/example_test.dart'), findsOneWidget);
+    expect(find.text('@@ -1,3 +1,3 @@'), findsOneWidget);
+    expect(find.text('-  old expectation'), findsOneWidget);
+    expect(find.text('+  new expectation'), findsOneWidget);
+    expect(find.text('System notice'), findsNothing);
   });
 
   testWidgets('thinking card title uses active locale',

@@ -81,20 +81,34 @@ flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded --p
 ## Symptom: Codex Conversation Hides File Changes And Looks Stalled
 
 - Symptom: Codex says it is changing backend/mobile code, but the workbench
-  transcript shows no visible file-change cards and the pending sentinel appears
-  stuck during that gap.
+  transcript shows no visible file-change cards, or shows weak generic
+  `System notice` rows such as `File changed: updated path`. The pending
+  sentinel can appear stuck as `正在运行 command_execution...` during a real
+  long-running command.
 - Action: inspect persisted `conversation_events` for `system.notice` rows with
-  `noticeKind=codex_unknown_event`, `visible=0`, `raw.type=item.completed`, and
-  `raw.item.type=file_change`. The Codex adapter should map completed
-  `file_change` items to a visible `codex_file_change` notice with normalized
-  relative paths.
+  `noticeKind=codex_unknown_event` or `noticeKind=codex_file_change`. Unknown
+  completed `raw.item.type=file_change` events should be mapped to visible
+  `codex_file_change` notices with normalized relative paths. Mobile should
+  preserve `changes` as structured `file_change` messages instead of projecting
+  them as generic notices, and pending `command_execution` text should show the
+  actual command from `tool.started.input.command` when present. If later
+  content only appears after reopening the conversation, compare mobile poll
+  trace rows against persisted event `seq`: a gap means the page stopped
+  polling even though daemon events continued. Recover polling after send
+  acknowledgement timeouts, keep stale terminal acknowledgements from
+  overwriting active reducer state, and avoid overlapping poll cycles from
+  `Timer.periodic`.
 - Verification:
 
 ```powershell
 node scripts/run-tests.js
 ```
 
-- Last verified: 2026-05-22
+- Additional targeted Flutter coverage lives in `conversation_reducer_test.dart`
+  and `coding_workbench_controller_test.dart`; run the relevant tests manually
+  if the local Flutter tool times out in an agent run.
+
+- Last verified: 2026-05-23
 
 ## Symptom: Codex CLI Events Are Persisted But Invisible
 

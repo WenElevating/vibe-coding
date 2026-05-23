@@ -36,8 +36,13 @@ bool shouldApplyConversationSendAcknowledgement({
   required String reducerStatus,
 }) {
   if (currentSeq <= sendStartSeq) return true;
-  if (isActiveConversationStatus(acknowledgementStatus) &&
-      !isActiveConversationStatus(reducerStatus)) {
+  final acknowledgementActive =
+      isActiveConversationStatus(acknowledgementStatus);
+  final reducerActive = isActiveConversationStatus(reducerStatus);
+  if (acknowledgementActive && !reducerActive) {
+    return false;
+  }
+  if (!acknowledgementActive && reducerActive) {
     return false;
   }
   return true;

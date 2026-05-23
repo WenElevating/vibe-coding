@@ -720,6 +720,26 @@ void main() {
     );
   });
 
+  test('pending status shows command text for running Codex commands', () {
+    final l10n = AppLocalizationsZh();
+    final events = <ConversationEvent>[
+      _event(
+        seq: 1,
+        type: 'tool.started',
+        toolUseId: 'cmd_1',
+        toolName: 'command_execution',
+        input: const <String, Object?>{
+          'command': 'flutter test test\\voice_input_controller_test.dart',
+        },
+      ),
+    ];
+
+    expect(
+      conversationPendingStatusText(l10n, 'running', events),
+      contains('flutter test test\\voice_input_controller_test.dart'),
+    );
+  });
+
   test('send acknowledgement does not overwrite terminal event state', () {
     expect(
       shouldApplyConversationSendAcknowledgement(
@@ -738,6 +758,15 @@ void main() {
         reducerStatus: 'idle',
       ),
       isTrue,
+    );
+    expect(
+      shouldApplyConversationSendAcknowledgement(
+        sendStartSeq: 10,
+        currentSeq: 12,
+        acknowledgementStatus: 'idle',
+        reducerStatus: 'running',
+      ),
+      isFalse,
     );
     expect(
       shouldApplyConversationSendAcknowledgement(

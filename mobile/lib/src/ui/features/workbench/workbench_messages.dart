@@ -54,8 +54,7 @@ String conversationPendingStatusText(
     if (event.type == 'tool.started') {
       if (hasToolUseId && !activeTool) continue;
       if (!hasToolUseId && toolCompletionSeen) continue;
-      return l10n.workbenchPendingRunningTool(
-          event.toolName ?? l10n.workbenchPendingToolFallback);
+      return l10n.workbenchPendingRunningTool(_pendingToolLabel(l10n, event));
     }
     if (event.type == 'tool.output') {
       if (hasToolUseId && !activeTool) continue;
@@ -72,6 +71,30 @@ String conversationPendingStatusText(
     }
   }
   return l10n.workbenchPendingWaitingNextEvent;
+}
+
+String _pendingToolLabel(AppLocalizations l10n, ConversationEvent event) {
+  final command = event.input['command'];
+  if (command is String &&
+      command.trim().isNotEmpty &&
+      (event.toolName == null || event.toolName == 'command_execution')) {
+    return _compactCommandLabel(command.trim());
+  }
+  return event.toolName ?? l10n.workbenchPendingToolFallback;
+}
+
+String _compactCommandLabel(String command) {
+  var value = command.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final lower = value.toLowerCase();
+  final commandMarker = lower.indexOf('-command ');
+  if (commandMarker >= 0 && commandMarker + 9 < value.length) {
+    value = value.substring(commandMarker + 9).trim();
+    if ((value.startsWith("'") && value.endsWith("'")) ||
+        (value.startsWith('"') && value.endsWith('"'))) {
+      value = value.substring(1, value.length - 1).trim();
+    }
+  }
+  return value.length > 72 ? '${value.substring(0, 69)}...' : value;
 }
 
 List<ConversationMessage> messagesForConversationSnapshot(
@@ -162,6 +185,14 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
         'isError': message.isError,
         if (message.input.isNotEmpty) 'input': message.input,
         'suggestions': message.suggestions,
+        if (message.fileChanges.isNotEmpty)
+          'changes': message.fileChanges
+              .map((change) => <String, Object?>{
+                    'path': change.path,
+                    'kind': change.kind,
+                    if (change.diff != null) 'diff': change.diff,
+                  })
+              .toList(growable: false),
         if (message.output != null) 'output': message.output,
         if (message.attachments.isNotEmpty)
           'attachments': message.attachments.map((item) => item.name).toList(),
@@ -189,6 +220,11 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
     case 'notice':
       return WorkbenchMessage('notice', 'System notice', message.text,
           event: event, runId: 'conversation');
+    case 'file_change':
+      return WorkbenchMessage('file_change', 'File changes', message.text,
+          event: event,
+          runId: 'conversation',
+          fileChanges: message.fileChanges);
     case 'approval':
       return WorkbenchMessage(
           'approval', 'Permission confirmation', message.text,
@@ -263,7 +299,8 @@ class WorkbenchMessage {
       this.totalCount,
       this.suggestions = const <String>[],
       this.attachments = const <CommittedAttachment>[],
-      this.clientMessageId});
+      this.clientMessageId,
+      this.fileChanges = const <ConversationFileChange>[]});
   final String role;
   final String title;
   final String body;
@@ -279,6 +316,7 @@ class WorkbenchMessage {
   final List<String> suggestions;
   final List<CommittedAttachment> attachments;
   final String? clientMessageId;
+  final List<ConversationFileChange> fileChanges;
   factory WorkbenchMessage.user(
     String text, {
     List<CommittedAttachment> attachments = const <CommittedAttachment>[],
@@ -294,7 +332,8 @@ class WorkbenchMessage {
           bool? isError,
           Duration? duration,
           List<CommittedAttachment>? attachments,
-          String? clientMessageId}) =>
+          String? clientMessageId,
+          List<ConversationFileChange>? fileChanges}) =>
       WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
@@ -307,7 +346,8 @@ class WorkbenchMessage {
           totalCount: totalCount,
           suggestions: suggestions,
           attachments: attachments ?? this.attachments,
-          clientMessageId: clientMessageId ?? this.clientMessageId);
+          clientMessageId: clientMessageId ?? this.clientMessageId,
+          fileChanges: fileChanges ?? this.fileChanges);
 
   static WorkbenchMessage? fromEvent(AgentEvent event, bool streamOutput) {
     final parsed = _parseVisibleText(event);

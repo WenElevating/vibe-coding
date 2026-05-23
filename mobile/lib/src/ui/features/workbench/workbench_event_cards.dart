@@ -72,12 +72,14 @@ class WorkbenchMessageCard extends StatelessWidget {
     final isApproval = message.role == 'approval';
     final isCommand = message.role == 'command';
     final isDiff = message.role == 'diff';
+    final isFileChange = message.role == 'file_change';
     final isTool = isCommand || isDiff;
     if (message.role == 'task_progress') {
       return _TaskProgressCard(message: message);
     }
     if (isCommand) return _CommandEventCard(message: message);
     if (isDiff) return _DiffEventCard(message: message);
+    if (isFileChange) return _FileChangeEventCard(message: message);
     if (message.role == 'thinking') {
       return _ThinkingEventCard(message: message, expanded: expandThinking);
     }
@@ -1635,6 +1637,232 @@ class _DiffEventCard extends StatelessWidget {
       meta: 'diff summary',
       trailing: null,
       child: _EventCodeLine(text: message.body, ok: true));
+}
+
+class _FileChangeEventCard extends StatelessWidget {
+  const _FileChangeEventCard({required this.message});
+  final WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final changes = message.fileChanges;
+    final title = changes.length == 1
+        ? _fileChangeTitle(changes.single)
+        : 'Edited ${changes.length} files';
+    return _AgentEventCard(
+        icon: Icons.edit_note_rounded,
+        title: title,
+        meta: 'workspace change',
+        trailing: null,
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: changes.isEmpty
+                ? <Widget>[_FileChangeFallback(text: message.body)]
+                : changes
+                    .take(4)
+                    .map<Widget>((change) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _FileChangeEntry(change: change)))
+                    .followedBy(changes.length > 4
+                        ? <Widget>[
+                            Text('+${changes.length - 4} more file(s)',
+                                style: const TextStyle(
+                                    color: theme.faint,
+                                    fontSize: 11,
+                                    fontFamily: 'Consolas'))
+                          ]
+                        : const <Widget>[])
+                    .toList(growable: false)));
+  }
+
+  static String _fileChangeTitle(ConversationFileChange change) {
+    final kind = change.kind.toLowerCase();
+    final verb = switch (kind) {
+      'add' || 'added' => 'Added',
+      'delete' || 'deleted' || 'remove' || 'removed' => 'Deleted',
+      _ => 'Edited',
+    };
+    return '$verb ${_shortPathName(change.path)}';
+  }
+}
+
+class _FileChangeEntry extends StatelessWidget {
+  const _FileChangeEntry({required this.change});
+  final ConversationFileChange change;
+
+  @override
+  Widget build(BuildContext context) {
+    final diff = change.diff?.trim();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: _fileChangeColor(change.kind).withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(
+                    color:
+                        _fileChangeColor(change.kind).withValues(alpha: .22))),
+            child: Icon(_fileChangeIcon(change.kind),
+                size: 13, color: _fileChangeColor(change.kind))),
+        const SizedBox(width: 9),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_fileChangeKindLabel(change.kind),
+              style: const TextStyle(
+                  color: theme.text,
+                  fontSize: 11.5,
+                  height: 1.1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0)),
+          const SizedBox(height: 3),
+          Text(change.path,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: theme.muted,
+                  fontSize: 11.5,
+                  height: 1.25,
+                  fontFamily: 'Consolas',
+                  letterSpacing: 0)),
+        ])),
+      ]),
+      if (diff != null && diff.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        _FileChangeDiffPreview(diff: diff),
+      ],
+    ]);
+  }
+}
+
+class _FileChangeDiffPreview extends StatelessWidget {
+  const _FileChangeDiffPreview({required this.diff});
+  final String diff;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = _previewDiffLines(diff);
+    return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        decoration: BoxDecoration(
+            color: const Color(0xFF0B0C0E),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withValues(alpha: .055))),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: lines
+                .map((line) => Text(line.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: line.color,
+                        fontSize: 11,
+                        height: 1.35,
+                        fontFamily: 'Consolas',
+                        letterSpacing: 0)))
+                .toList(growable: false)));
+  }
+}
+
+class _FileChangeFallback extends StatelessWidget {
+  const _FileChangeFallback({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => _EventCodeLine(text: text, ok: true);
+}
+
+class _DiffPreviewLine {
+  const _DiffPreviewLine(this.text, this.color);
+  final String text;
+  final Color color;
+}
+
+List<_DiffPreviewLine> _previewDiffLines(String diff) {
+  final normalized = diff.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  final source = normalized
+      .split('\n')
+      .where((line) =>
+          line.trim().isNotEmpty &&
+          !line.startsWith('diff --git ') &&
+          !line.startsWith('index ') &&
+          !line.startsWith('--- ') &&
+          !line.startsWith('+++ '))
+      .toList(growable: false);
+  final visible = source.take(14).map((line) {
+    if (line.startsWith('+')) {
+      return _DiffPreviewLine(line, theme.green);
+    }
+    if (line.startsWith('-')) {
+      return _DiffPreviewLine(line, theme.red);
+    }
+    if (line.startsWith('@@')) {
+      return _DiffPreviewLine(line, const Color(0xFF9CA7FF));
+    }
+    return _DiffPreviewLine(line, theme.muted);
+  }).toList(growable: false);
+  return visible.isEmpty
+      ? const <_DiffPreviewLine>[]
+      : List<_DiffPreviewLine>.unmodifiable(visible);
+}
+
+String _shortPathName(String path) {
+  final parts = path.replaceAll('\\', '/').split('/');
+  return parts.isEmpty ? path : parts.last;
+}
+
+String _fileChangeKindLabel(String kind) {
+  switch (kind.toLowerCase()) {
+    case 'add':
+    case 'added':
+      return 'Added';
+    case 'delete':
+    case 'deleted':
+    case 'remove':
+    case 'removed':
+      return 'Deleted';
+    case 'update':
+    case 'updated':
+    case 'modify':
+    case 'modified':
+      return 'Edited';
+    default:
+      return 'Changed';
+  }
+}
+
+IconData _fileChangeIcon(String kind) {
+  switch (kind.toLowerCase()) {
+    case 'add':
+    case 'added':
+      return Icons.add_rounded;
+    case 'delete':
+    case 'deleted':
+    case 'remove':
+    case 'removed':
+      return Icons.remove_rounded;
+    default:
+      return Icons.edit_rounded;
+  }
+}
+
+Color _fileChangeColor(String kind) {
+  switch (kind.toLowerCase()) {
+    case 'add':
+    case 'added':
+      return theme.green;
+    case 'delete':
+    case 'deleted':
+    case 'remove':
+    case 'removed':
+      return theme.red;
+    default:
+      return theme.amber;
+  }
 }
 
 class _ApprovalEventCard extends StatelessWidget {

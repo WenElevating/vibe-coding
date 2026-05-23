@@ -3024,6 +3024,37 @@ test('Codex event mapper normalizes thread, assistant, tool, file changes, decli
   assert.equal(unknown.visible, false);
 });
 
+test('Codex file change mapper enriches completed changes with git diff previews', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-file-change-diff-'));
+  const gitAvailable = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (gitAvailable.status !== 0) return;
+  const runGit = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (runGit(['init']).status !== 0) return;
+  fs.writeFileSync(path.join(root, 'example.txt'), 'old line\n', 'utf8');
+  if (runGit(['add', 'example.txt']).status !== 0) return;
+  if (runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'init']).status !== 0) return;
+  fs.writeFileSync(path.join(root, 'example.txt'), 'old line\nnew line\n', 'utf8');
+
+  const event = mapCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_diff',
+      type: 'file_change',
+      changes: [{ path: path.join(root, 'example.txt'), kind: 'update' }],
+      status: 'completed'
+    }
+  }, { workspacePath: root, includeFileChangeDiff: true });
+
+  assert.equal(event.noticeKind, 'codex_file_change');
+  assert.equal(event.changes[0].path, 'example.txt');
+  assert.match(event.changes[0].diff, /@@/);
+  assert.match(event.changes[0].diff, /\+new line/);
+});
+
 test('Codex mapper normalizes MCP tool calls into visible tool events', () => {
   const started = mapCodexEvent({
     type: 'item.started',

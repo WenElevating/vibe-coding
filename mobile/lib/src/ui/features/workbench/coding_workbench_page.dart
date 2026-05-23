@@ -69,6 +69,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
   Timer? _poller;
+  bool _pollInFlight = false;
   bool _terminalPollDrainPending = false;
   String? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
@@ -170,7 +171,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Future<void> _openSession(SessionItem item) async {
     _poller?.cancel();
     setState(() {
-      _resetConversationState(bottomAnchorTranscript: item.conversation != null);
+      _resetConversationState(
+          bottomAnchorTranscript: item.conversation != null);
       _workbenchViewModel.openSession(item, notify: false);
       _workbenchViewModel.clearOperationError(notify: false);
     });
@@ -795,6 +797,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         setState(() {
           _workbenchViewModel.clearOperationError(notify: false);
         });
+        await _restartConversationPolling();
         return;
       }
       final traced = await _recordWorkbenchException(
@@ -823,6 +826,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _poller?.cancel();
       return;
     }
+    if (_pollInFlight) return;
+    _pollInFlight = true;
     final afterSeq = _workbenchViewModel.lastSeq;
     final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
     final startedAt = DateTime.now();
@@ -912,6 +917,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         });
       }
       _poller?.cancel();
+    } finally {
+      _pollInFlight = false;
     }
   }
 
