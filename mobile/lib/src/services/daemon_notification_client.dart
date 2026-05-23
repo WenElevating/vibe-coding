@@ -248,7 +248,7 @@ class DaemonNotificationClient implements NotificationService {
         _failedAttemptsSinceBackfill += 1;
         if (_failedAttemptsSinceBackfill >=
             config.backfillAfterFailedAttempts) {
-          await _backfillAllRoutes();
+          await _tryBackfillAllRoutes();
         }
       }
       if (_closed || _conversationRoutes.isEmpty) {
@@ -283,7 +283,7 @@ class DaemonNotificationClient implements NotificationService {
     if (code == NotificationProtocol.errorReplayTruncated) {
       final route = _routeForFrame(frame);
       if (route != null) {
-        final advanced = await _backfillRoute(route);
+        final advanced = await _tryBackfillRoute(route);
         return _SocketFrameAction.reconnect(skipDelay: advanced);
       }
       return _SocketFrameAction.reconnect(skipDelay: false);
@@ -414,6 +414,14 @@ class DaemonNotificationClient implements NotificationService {
     return results.any((advanced) => advanced);
   }
 
+  Future<bool> _tryBackfillAllRoutes() async {
+    try {
+      return await _backfillAllRoutes();
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> _backfillRoute(_ConversationRoute route) async {
     if (route.isEmpty) {
       return false;
@@ -437,6 +445,14 @@ class DaemonNotificationClient implements NotificationService {
       _failedAttemptsSinceBackfill = 0;
     }
     return advanced;
+  }
+
+  Future<bool> _tryBackfillRoute(_ConversationRoute route) async {
+    try {
+      return await _backfillRoute(route);
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _failRoute(

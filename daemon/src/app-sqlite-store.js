@@ -504,7 +504,7 @@ class AppSqliteStore {
 
   getDeviceByAccessTokenHash(tokenHash) {
     const row = this.db.prepare(`
-      SELECT d.id, d.device_id_hash, d.label, d.status, d.created_at, d.last_seen_at
+      SELECT d.id, d.device_id_hash, d.label, d.status, d.created_at, d.last_seen_at, t.expires_at AS token_expires_at
       FROM devices d
       INNER JOIN device_tokens t ON t.device_id = d.id
       WHERE d.status = 'active' AND t.token_type = 'access' AND t.revoked_at IS NULL AND t.expires_at > ? AND t.token_hash = ?
@@ -679,6 +679,7 @@ function deserializeDevice(row) {
     status: row.status,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
+    tokenExpiresAt: row.token_expires_at || null,
     allowedWorkspaceIds: new Set()
   };
 }

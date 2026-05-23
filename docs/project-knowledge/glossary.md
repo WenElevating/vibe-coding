@@ -31,7 +31,7 @@ conversations, runs, adapters, and other current app data.
 
 Mobile feature ViewModel that owns workbench route state, active conversation
 identity, conversation event projection, composer state, operation state, and
-poll trace metadata.
+event trace metadata.
 
 ## Conversation title
 

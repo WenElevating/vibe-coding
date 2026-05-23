@@ -491,8 +491,39 @@ test('notification websocket accepts bearer token and sends hello', async () => 
     assert.equal(hello.type, 'hello');
     assert.equal(hello.protocolVersion, 1);
     assert.equal(hello.daemonVersion, app.version.daemonVersion);
+    assert.equal(hello.authExpiresAt, paired.body.accessTokenExpiresAt);
     assert.deepEqual(hello.capabilities.topics, ['conversation.events']);
     assert.equal(hello.capabilities.maxReplayEvents, 1000);
+  } finally {
+    if (socket) socket.close();
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('notification websocket closes when the access token expires', async () => {
+  const app = createApp({
+    port: 0,
+    devAdapters: true,
+    accessTokenTtlMs: 200,
+    appDbPath: tempConversationDbPath('app-db-ws-token-expiry-')
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  let socket;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'ws-token-expiry', deviceId: 'ws-device-token-expiry' });
+    socket = await openNotificationSocket(port, paired.body.token);
+    const hello = await readWsJson(socket);
+    const error = await readWsJson(socket);
+    const closeCode = await waitForWsClose(socket);
+
+    assert.equal(hello.type, 'hello');
+    assert.equal(hello.authExpiresAt, paired.body.accessTokenExpiresAt);
+    assert.equal(error.type, 'error');
+    assert.equal(error.code, notificationErrorCodes.TOKEN_EXPIRED);
+    assert.equal(closeCode, 1008);
   } finally {
     if (socket) socket.close();
     await new Promise((resolve) => app.server.close(resolve));
@@ -898,6 +929,10 @@ test('notification hub removes live subscription and sends forbidden when access
     version: { daemonVersion: 'test' }
   });
   const connection = createNotificationHubTestConnection();
+  let closed = null;
+  connection.ws.close = (code, reason) => {
+    closed = { code, reason };
+  };
   hub.send = (_connection, frame) => {
     connection.sentFrames.push(frame);
     return true;
@@ -927,6 +962,93 @@ test('notification hub removes live subscription and sends forbidden when access
   assert.deepEqual(connection.sentFrames.map((frame) => frame.type), ['error']);
   assert.equal(connection.sentFrames[0].code, notificationErrorCodes.FORBIDDEN);
   assert.deepEqual(connection.sentFrames[0].scope, { conversationId: 'conv_1' });
+  assert.equal(closed, null);
+});
+
+test('notification hub maps initial subscription access failures to forbidden', async () => {
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => {
+        const error = new Error('conversation not found');
+        error.status = 404;
+        error.code = 'NOT_FOUND';
+        throw error;
+      },
+      listEvents: () => []
+    },
+    version: { daemonVersion: 'test' }
+  });
+  const connection = createNotificationHubTestConnection();
+  let closed = null;
+  connection.ws.close = (code, reason) => {
+    closed = { code, reason };
+  };
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    return true;
+  };
+
+  hub.handleMessage(connection, JSON.stringify({
+    type: 'subscribe',
+    id: 'req_missing',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_missing' },
+    afterSeq: 0
+  }));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(connection.subscriptions.size, 0);
+  assert.deepEqual(connection.sentFrames.map((frame) => frame.type), ['error']);
+  assert.equal(connection.sentFrames[0].id, 'req_missing');
+  assert.equal(connection.sentFrames[0].code, notificationErrorCodes.FORBIDDEN);
+  assert.deepEqual(connection.sentFrames[0].scope, { conversationId: 'conv_missing' });
+  assert.equal(closed, null);
+});
+
+test('notification hub removes subscription when replay lookup fails', async () => {
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => ({ id: 'conv_1' }),
+      listEvents: () => {
+        const error = new Error('database is busy');
+        error.code = 'SQLITE_BUSY';
+        throw error;
+      }
+    },
+    version: { daemonVersion: 'test' }
+  });
+  const connection = createNotificationHubTestConnection();
+  let closed = null;
+  connection.ws.close = (code, reason) => {
+    closed = { code, reason };
+  };
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    return true;
+  };
+
+  hub.handleMessage(connection, JSON.stringify({
+    type: 'subscribe',
+    id: 'req_replay_failure',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 0
+  }));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(connection.subscriptions.size, 0);
+  assert.equal(hub.conversationSubscriptions.has('conv_1'), false);
+  assert.deepEqual(
+    connection.sentFrames.map((frame) => frame.type),
+    ['subscribed', 'error']
+  );
+  assert.equal(connection.sentFrames[1].id, 'req_replay_failure');
+  assert.equal(connection.sentFrames[1].code, notificationErrorCodes.INTERNAL_ERROR);
+  assert.deepEqual(connection.sentFrames[1].scope, { conversationId: 'conv_1' });
+  assert.deepEqual(closed, {
+    code: 1011,
+    reason: notificationErrorCodes.INTERNAL_ERROR
+  });
 });
 
 test('notification hub heartbeat terminates missed-pong connections and removes subscriptions', () => {
@@ -9231,9 +9353,9 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
     const recorded = await request(port, 'POST', '/api/exceptions', {
       source: 'mobile',
       message: 'SocketException: Write failed',
-      path: '/api/conversations/conv_1/events?afterSeq=44',
+      path: '/api/notifications/ws',
       conversationId: 'conv_1',
-      metadata: { operation: 'pollConversationEvents' }
+      metadata: { operation: 'watchConversationEvents' }
     }, token);
     assert.equal(recorded.status, 201);
     assert.match(recorded.body.traceId, /^trc_/);

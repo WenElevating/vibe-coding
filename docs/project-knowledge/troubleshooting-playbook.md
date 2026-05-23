@@ -64,7 +64,7 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening ex
   until `conversation.completed` or a terminal assistant message. The pending
   status text must correlate `tool.started` and `tool.completed` by
   `toolUseId`, and send acknowledgements must not overwrite terminal state that
-  arrived through event polling.
+  arrived through the conversation event stream.
 - Verification:
 
 ```powershell
@@ -92,12 +92,11 @@ flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded --p
   preserve `changes` as structured `file_change` messages instead of projecting
   them as generic notices, and pending `command_execution` text should show the
   actual command from `tool.started.input.command` when present. If later
-  content only appears after reopening the conversation, compare mobile poll
+  content only appears after reopening the conversation, compare mobile event
   trace rows against persisted event `seq`: a gap means the page stopped
-  polling even though daemon events continued. Recover polling after send
-  acknowledgement timeouts, keep stale terminal acknowledgements from
-  overwriting active reducer state, and avoid overlapping poll cycles from
-  `Timer.periodic`.
+  receiving foreground events even though daemon events continued. Restart the
+  event subscription after send acknowledgement timeouts and keep stale terminal
+  acknowledgements from overwriting active reducer state.
 - Verification:
 
 ```powershell
@@ -166,6 +165,8 @@ flutter test --no-pub test\attachment_preview_cache_test.dart -r expanded --plai
   A successful socket upgrade alone must not reset the mobile failed-attempt backfill counter; reset that counter only after an event is applied or REST backfill advances the cursor, otherwise connect-then-fail loops can starve the repair path.
   Non-retryable protocol errors such as `FORBIDDEN`, `UNKNOWN_TOPIC`, and `INVALID_MESSAGE` should surface through the stream error path instead of leaving a subscribed UI silently waiting forever.
   The mobile notification client is session-level multiplexed: route changes must wake any delayed reconnect wait, otherwise switching conversations after a socket failure can wait for the full backoff before opening the next subscription.
+  REST backfill failures during reconnect repair must be contained inside the notification client. A failed backfill means the cursor did not advance; it should not escape the connection loop or restart immediately without the normal reconnect delay.
+  Daemon replay lookup failures after subscription registration must remove the subscription, emit `INTERNAL_ERROR`, and close the WebSocket with 1011 so the mobile client does not keep listening on a route that the hub has already removed.
 - Verification:
 
 ```powershell
@@ -178,4 +179,4 @@ $env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
 flutter test --no-pub test\daemon_notification_client_test.dart test\coding_workbench_controller_test.dart -r expanded
 ```
 
-- Last verified: 2026-05-23
+- Last verified: 2026-05-24

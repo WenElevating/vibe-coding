@@ -637,6 +637,42 @@ void main() {
     await client.close();
   });
 
+  test('failed recovery backfill still waits before reconnecting', () async {
+    final delay = ControlledDelay();
+    var attempts = 0;
+    var backfillCalls = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillCalls += 1;
+        throw StateError('backfill unavailable');
+      },
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          throw const SocketConnectionFailure();
+        },
+        backfillAfterFailedAttempts: 1,
+        reconnectDelays: const <Duration>[Duration(seconds: 30)],
+        reconnectDelayWaiter: delay.wait,
+      ),
+    );
+
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+    final done = subscription.asFuture<void>();
+
+    await delay.started.future.timeout(const Duration(milliseconds: 100));
+
+    expect(attempts, 1);
+    expect(backfillCalls, 1);
+
+    await client.close();
+    await done.timeout(const Duration(milliseconds: 100));
+    await subscription.cancel();
+  });
+
   test('close actively closes current socket', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(

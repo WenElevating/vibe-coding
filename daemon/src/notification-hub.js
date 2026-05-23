@@ -125,7 +125,7 @@ class NotificationHub {
       } finally {
         this.closeWebSocket(connection, 1008, notificationErrorCodes.TOKEN_EXPIRED);
       }
-    }, this.websocketMaxConnectionAgeMs);
+    }, this.connectionAuthTimeoutMs(connection.authExpiresAt));
     setImmediate(() => {
       this.send(connection, createHelloFrame({
         connectionId: connection.id,
@@ -278,19 +278,49 @@ class NotificationHub {
     }
     if (frame.type === 'subscribe') {
       this.subscribe(connection, frame).catch((error) => {
+        const code = this.notificationErrorCodeFor(error);
         this.sendError(connection, {
           id: frame.id,
           topic: frame.topic,
           scope: frame.scope,
-          code: error.code || notificationErrorCodes.INTERNAL_ERROR,
+          code,
           message: error.message
         });
+        if (code === notificationErrorCodes.INTERNAL_ERROR) {
+          this.closeWebSocket(connection, 1011, notificationErrorCodes.INTERNAL_ERROR);
+        }
       });
       return;
     }
     if (frame.type === 'unsubscribe') {
       this.removeSubscription(connection, subscriptionKey(frame.topic, frame.scope));
     }
+  }
+
+  connectionAuthTimeoutMs(authExpiresAt) {
+    const maxAge = Number.isFinite(this.websocketMaxConnectionAgeMs)
+      ? Math.max(0, this.websocketMaxConnectionAgeMs)
+      : 0;
+    const expiresAtMs = Date.parse(authExpiresAt || '');
+    if (!Number.isFinite(expiresAtMs)) return maxAge;
+    const now = this.now();
+    const nowMs = now instanceof Date ? now.getTime() : Number(now);
+    if (!Number.isFinite(nowMs)) return maxAge;
+    return Math.min(maxAge, Math.max(0, expiresAtMs - nowMs));
+  }
+
+  notificationErrorCodeFor(error) {
+    if (
+      error?.code === 'NOT_FOUND' ||
+      error?.status === 403 ||
+      error?.status === 404
+    ) {
+      return notificationErrorCodes.FORBIDDEN;
+    }
+    if (Object.values(notificationErrorCodes).includes(error?.code)) {
+      return error.code;
+    }
+    return notificationErrorCodes.INTERNAL_ERROR;
   }
 
   async subscribe(connection, frame) {
@@ -307,20 +337,25 @@ class NotificationHub {
       queuedLiveEvents: []
     };
     this.addSubscription(connection, subscription);
-    this.send(connection, createSubscribedFrame(frame));
-    const replayEvents = this.conversations.listEvents(conversation.id, frame.afterSeq, connection.device);
-    if (replayEvents.length > this.maxReplayEvents) {
+    try {
+      this.send(connection, createSubscribedFrame(frame));
+      const replayEvents = this.conversations.listEvents(conversation.id, frame.afterSeq, connection.device);
+      if (replayEvents.length > this.maxReplayEvents) {
+        this.removeSubscription(connection, key);
+        this.sendError(connection, {
+          id: frame.id,
+          topic: frame.topic,
+          scope: frame.scope,
+          code: notificationErrorCodes.REPLAY_TRUNCATED,
+          message: `Replay has ${replayEvents.length} events, which exceeds ${this.maxReplayEvents}.`
+        });
+        return;
+      }
+      await this.sendReplayBatches(connection, subscription, replayEvents);
+    } catch (error) {
       this.removeSubscription(connection, key);
-      this.sendError(connection, {
-        id: frame.id,
-        topic: frame.topic,
-        scope: frame.scope,
-        code: notificationErrorCodes.REPLAY_TRUNCATED,
-        message: `Replay has ${replayEvents.length} events, which exceeds ${this.maxReplayEvents}.`
-      });
-      return;
+      throw error;
     }
-    await this.sendReplayBatches(connection, subscription, replayEvents);
   }
 
   async sendReplayBatches(connection, subscription, events) {
