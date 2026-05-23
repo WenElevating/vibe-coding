@@ -100,11 +100,14 @@ class NotificationHub {
     ws.on('close', () => this.closeConnection(connection));
     ws.on('error', () => this.closeConnection(connection));
     connection.authAgeTimer = setTimeout(() => {
-      this.sendError(connection, {
-        code: notificationErrorCodes.TOKEN_EXPIRED,
-        message: 'WebSocket authorization expired.'
-      }, { bypassBackpressure: true });
-      this.closeWebSocket(connection, 1008, 'TOKEN_EXPIRED');
+      try {
+        this.sendError(connection, {
+          code: notificationErrorCodes.TOKEN_EXPIRED,
+          message: 'WebSocket authorization expired.'
+        }, { bypassBackpressure: true });
+      } finally {
+        this.closeWebSocket(connection, 1008, 'TOKEN_EXPIRED');
+      }
     }, this.websocketMaxConnectionAgeMs);
     setImmediate(() => {
       this.send(connection, createHelloFrame({
@@ -170,7 +173,7 @@ class NotificationHub {
       !bypassBackpressure &&
       (
         connection.ws.bufferedAmount > this.maxBufferedBytes ||
-        connection.pendingFrameCount > this.maxQueuedFrames
+        connection.pendingFrameCount >= this.maxQueuedFrames
       )
     ) {
       this.sendError(connection, {

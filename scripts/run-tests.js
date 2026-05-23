@@ -870,6 +870,43 @@ test('notification websocket closes slow clients on backpressure', async () => {
   assert.deepEqual(closed, { code: 1013, reason: 'BACKPRESSURE' });
 });
 
+test('notification websocket closes clients at queued frame limit without buffered bytes', async () => {
+  const sentFrames = [];
+  let closed = null;
+  const ws = {
+    OPEN: 1,
+    readyState: 1,
+    bufferedAmount: 0,
+    send(data, callback) {
+      sentFrames.push(JSON.parse(String(data)));
+      if (callback) callback();
+    },
+    close(code, reason) {
+      closed = { code, reason };
+    }
+  };
+  const hub = new NotificationHub({
+    auth: null,
+    conversations: null,
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: '1.3.0' },
+    maxBufferedBytes: 1024 * 1024,
+    maxQueuedFrames: 1
+  });
+  const sent = hub.send({
+    id: 'ws_queue_limit',
+    ws,
+    subscriptions: new Map(),
+    pendingFrameCount: 1
+  }, { type: 'event', payload: {} });
+
+  assert.equal(sent, false);
+  assert.equal(sentFrames.length, 1);
+  assert.equal(sentFrames[0].type, 'error');
+  assert.equal(sentFrames[0].code, 'BACKPRESSURE');
+  assert.deepEqual(closed, { code: 1013, reason: 'BACKPRESSURE' });
+});
+
 test('notification websocket closes connections after max connection age', async () => {
   const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-auth-age-') });
   app.notificationHub.websocketMaxConnectionAgeMs = 20;
