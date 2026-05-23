@@ -267,6 +267,12 @@ event twice on the same connection. Any in-flight replay from the replaced
 subscription must be cancelled or guarded by a subscription generation id so it
 cannot keep sending stale replay frames after replacement.
 
+The generation id should be a simple per-connection monotonically increasing
+integer stored on the subscription record. Each subscribe replacement increments
+the connection counter and writes the new value to the record. Replay workers
+capture the generation id at start and compare it with the current subscription
+record before sending each dequeued replay batch; a mismatch stops that replay.
+
 ### Replay Ordering
 
 The subscribe path must preserve this invariant:
