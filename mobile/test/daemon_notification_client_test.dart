@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -22,9 +23,11 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async => socket,
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration(milliseconds: 1)],
+      config: NotificationClientConfig(
+        connector: (_, __) async => socket,
+        reconnectDelays: const <Duration>[Duration(milliseconds: 1)],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -76,13 +79,15 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final conv1Events = <ConversationEvent>[];
@@ -129,18 +134,20 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async {
         backfillAfterSeq.add(afterSeq);
         return <ConversationEvent>[
           conversationEvent(seq: 12),
         ];
       },
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -176,7 +183,6 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async => socket,
       fetchBackfill: (conversationId, {required afterSeq}) async {
         backfillCalls.add('$conversationId:$afterSeq');
         return <ConversationEvent>[
@@ -189,6 +195,7 @@ void main() {
           ),
         ];
       },
+      config: NotificationClientConfig(connector: (_, __) async => socket),
     );
     final events = <ConversationEvent>[];
     final subscription = client
@@ -218,18 +225,20 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => tokens.last,
-      connector: (_, headers) async {
-        final socket = FakeNotificationSocket();
-        socket.connectHeaders = Map<String, String>.from(headers);
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
       refreshAuth: () async {
         refreshCalls.add('refresh');
         tokens.add('token_new');
       },
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, headers) async {
+          final socket = FakeNotificationSocket();
+          socket.connectHeaders = Map<String, String>.from(headers);
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -267,18 +276,20 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => tokens.last,
-      connector: (_, headers) async {
-        final socket = FakeNotificationSocket();
-        socket.connectHeaders = Map<String, String>.from(headers);
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
       refreshAuth: () async {
         refreshCalls.add('refresh');
         tokens.add('token_new');
       },
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, headers) async {
+          final socket = FakeNotificationSocket();
+          socket.connectHeaders = Map<String, String>.from(headers);
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -316,18 +327,20 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => tokens.last,
-      connector: (_, headers) async {
-        final socket = FakeNotificationSocket();
-        socket.connectHeaders = Map<String, String>.from(headers);
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
       refreshAuth: () async {
         refreshCalls.add('refresh');
         tokens.add('token_new');
       },
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, headers) async {
+          final socket = FakeNotificationSocket();
+          socket.connectHeaders = Map<String, String>.from(headers);
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -338,7 +351,7 @@ void main() {
     await waitFor(() => sockets.length == 1);
     sockets.single.serverAddJson(eventFrame(seq: 8, text: 'before close'));
     await waitFor(() => events.length == 1);
-    await sockets.single.serverClose(1008, 'Bearer token required');
+    await sockets.single.serverClose(1008, 'AUTH_REQUIRED');
 
     await waitFor(() => sockets.length == 2);
     expect(refreshCalls, <String>['refresh']);
@@ -350,18 +363,54 @@ void main() {
     await client.close();
   });
 
+  test('does not refresh token from natural-language close reasons', () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    final refreshCalls = <String>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      refreshAuth: () async {
+        refreshCalls.add('refresh');
+      },
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(seconds: 30)],
+        reconnectDelayWaiter: delay.wait,
+      ),
+    );
+
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+
+    await waitFor(() => sockets.length == 1);
+    await sockets.single.serverClose(1008, 'Bearer token required');
+    await delay.started.future;
+
+    expect(refreshCalls, isEmpty);
+    await client.close();
+    await subscription.cancel();
+  });
+
   test('surfaces forbidden protocol errors without reconnecting', () async {
     final sockets = <FakeNotificationSocket>[];
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final errors = <Object>[];
@@ -394,18 +443,20 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        attempts += 1;
-        if (attempts == 1) {
-          throw const SocketConnectionFailure();
-        }
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
-      reconnectDelayWaiter: delay.wait,
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          if (attempts == 1) {
+            throw const SocketConnectionFailure();
+          }
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+        reconnectDelayWaiter: delay.wait,
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -437,23 +488,25 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        attempts += 1;
-        if (attempts <= 3) {
-          throw const SocketConnectionFailure();
-        }
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async {
         backfillAfterSeq.add(afterSeq);
         return <ConversationEvent>[
           conversationEvent(seq: afterSeq + 1),
         ];
       },
-      backfillAfterFailedAttempts: 3,
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          if (attempts <= 3) {
+            throw const SocketConnectionFailure();
+          }
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        backfillAfterFailedAttempts: 3,
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -480,19 +533,21 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async {
         backfillAfterSeq.add(afterSeq);
         return <ConversationEvent>[
           conversationEvent(seq: afterSeq + 1),
         ];
       },
-      backfillAfterFailedAttempts: 3,
-      reconnectDelays: const <Duration>[Duration.zero],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        backfillAfterFailedAttempts: 3,
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
     );
 
     final events = <ConversationEvent>[];
@@ -518,13 +573,77 @@ void main() {
     await client.close();
   });
 
+  test('backfills active routes concurrently after socket failures', () async {
+    final allowFirstConnect = Completer<void>();
+    final firstBackfillStarted = Completer<void>();
+    final releaseBackfills = Completer<void>();
+    final sockets = <FakeNotificationSocket>[];
+    final backfillStarts = <String>[];
+    var attempts = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (conversationId, {required afterSeq}) async {
+        backfillStarts.add(conversationId);
+        if (!firstBackfillStarted.isCompleted) {
+          firstBackfillStarted.complete();
+        }
+        await releaseBackfills.future;
+        return <ConversationEvent>[
+          ConversationEvent.fromJson(<String, Object?>{
+            'seq': afterSeq + 1,
+            'conversationId': conversationId,
+            'type': 'assistant.message',
+            'createdAt': '2026-05-23T05:18:14.000Z',
+            'text': conversationId,
+          }),
+        ];
+      },
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          if (attempts == 1) {
+            await allowFirstConnect.future;
+            throw const SocketConnectionFailure();
+          }
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        backfillAfterFailedAttempts: 1,
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
+    );
+
+    final conv1Subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+    final conv2Subscription =
+        client.watchConversationEvents('conv_2', afterSeq: 3).listen((_) {});
+
+    allowFirstConnect.complete();
+    await firstBackfillStarted.future;
+    await Future<void>.delayed(Duration.zero);
+    final startedBeforeAnyBackfillCompletes = List<String>.of(backfillStarts);
+    releaseBackfills.complete();
+
+    expect(
+      startedBeforeAnyBackfillCompletes,
+      unorderedEquals(<String>['conv_1', 'conv_2']),
+    );
+    await waitFor(() => sockets.length == 1);
+
+    await conv1Subscription.cancel();
+    await conv2Subscription.cancel();
+    await client.close();
+  });
+
   test('close actively closes current socket', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async => socket,
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(connector: (_, __) async => socket),
     );
 
     final subscription =
@@ -543,13 +662,15 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        attempts += 1;
-        throw const SocketConnectionFailure();
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration(seconds: 30)],
-      reconnectDelayWaiter: delay.wait,
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          throw const SocketConnectionFailure();
+        },
+        reconnectDelays: const <Duration>[Duration(seconds: 30)],
+        reconnectDelayWaiter: delay.wait,
+      ),
     );
 
     final subscription =
@@ -570,14 +691,16 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration(seconds: 30)],
-      reconnectDelayWaiter: delay.wait,
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(seconds: 30)],
+        reconnectDelayWaiter: delay.wait,
+      ),
     );
 
     final firstSubscription =
@@ -604,8 +727,8 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async => socket,
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(connector: (_, __) async => socket),
     );
 
     final events = <ConversationEvent>[];
@@ -637,14 +760,16 @@ void main() {
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      connector: (_, __) async {
-        final socket = FakeNotificationSocket();
-        sockets.add(socket);
-        return socket;
-      },
       fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
-      reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
-      reconnectDelayWaiter: delay.wait,
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+        reconnectDelayWaiter: delay.wait,
+      ),
     );
 
     final subscription =
@@ -741,7 +866,7 @@ class SocketConnectionFailure implements Exception {
 }
 
 Map<String, Object?> jsonObject(String source) {
-  final decoded = DaemonNotificationClient.decodeJson(source);
+  final decoded = jsonDecode(source);
   if (decoded is! Map) {
     fail('Expected JSON object, got ${decoded.runtimeType}.');
   }

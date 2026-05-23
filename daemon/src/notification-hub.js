@@ -13,6 +13,10 @@ const {
   createErrorFrame
 } = require('./notification-protocol');
 
+function createWebSocketConnectionId() {
+  return `ws_${crypto.randomUUID()}`;
+}
+
 class NotificationHub {
   constructor({
     auth,
@@ -39,6 +43,8 @@ class NotificationHub {
     this.websocketMaxConnectionAgeMs = websocketMaxConnectionAgeMs;
     this.now = now;
     this.connections = new Map();
+    this.conversationSubscriptions = new Map();
+    this.serializedFrames = new WeakMap();
     this.wss = new WebSocketServer({ noServer: true });
     this.unsubscribeAppend = null;
     this.heartbeatTimer = null;
@@ -73,7 +79,7 @@ class NotificationHub {
         device = this.auth.authenticate(req.headers.authorization);
       } catch {
         this.wss.handleUpgrade(req, socket, head, (ws) => {
-          ws.close(1008, 'Bearer token required');
+          ws.close(1008, notificationErrorCodes.AUTH_REQUIRED);
         });
         return;
       }
@@ -94,7 +100,7 @@ class NotificationHub {
 
   acceptConnection(ws, device) {
     const connection = {
-      id: `ws_${crypto.randomUUID()}`,
+      id: createWebSocketConnectionId(),
       ws,
       device,
       subscriptions: new Map(),
@@ -103,7 +109,7 @@ class NotificationHub {
       alive: true,
       closed: false,
       authAgeTimer: null,
-      authExpiresAt: device.tokenExpiresAt || device.token_expires_at || null
+      authExpiresAt: device.tokenExpiresAt || null
     };
     this.connections.set(connection.id, connection);
     ws.on('pong', () => { connection.alive = true; });
@@ -117,7 +123,7 @@ class NotificationHub {
           message: 'WebSocket authorization expired.'
         }, { bypassBackpressure: true });
       } finally {
-        this.closeWebSocket(connection, 1008, 'TOKEN_EXPIRED');
+        this.closeWebSocket(connection, 1008, notificationErrorCodes.TOKEN_EXPIRED);
       }
     }, this.websocketMaxConnectionAgeMs);
     setImmediate(() => {
@@ -140,11 +146,11 @@ class NotificationHub {
       connection.authAgeTimer = null;
     }
     this.connections.delete(connection.id);
-    connection.subscriptions.clear();
+    this.removeAllSubscriptions(connection);
   }
 
   runHeartbeat() {
-    for (const connection of Array.from(this.connections.values())) {
+    for (const connection of this.connections.values()) {
       if (connection.closed) continue;
       if (!connection.alive) {
         this.terminateConnection(connection);
@@ -187,7 +193,7 @@ class NotificationHub {
       this.unsubscribeAppend();
       this.unsubscribeAppend = null;
     }
-    for (const connection of Array.from(this.connections.values())) {
+    for (const connection of this.connections.values()) {
       this.closeConnection(connection);
       try {
         if (connection.ws.readyState === WebSocket.OPEN || connection.ws.readyState === WebSocket.CONNECTING) {
@@ -200,6 +206,7 @@ class NotificationHub {
       }
     }
     this.connections.clear();
+    this.conversationSubscriptions.clear();
     try {
       this.wss.close();
     } catch {
@@ -235,7 +242,7 @@ class NotificationHub {
     }
     connection.pendingFrameCount = (connection.pendingFrameCount || 0) + 1;
     try {
-      connection.ws.send(JSON.stringify(frame), () => {
+      connection.ws.send(this.serializeFrame(frame), () => {
         connection.pendingFrameCount = Math.max(0, (connection.pendingFrameCount || 0) - 1);
       });
     } catch (error) {
@@ -243,6 +250,15 @@ class NotificationHub {
       throw error;
     }
     return true;
+  }
+
+  serializeFrame(frame) {
+    let serialized = this.serializedFrames.get(frame);
+    if (!serialized) {
+      serialized = JSON.stringify(frame);
+      this.serializedFrames.set(frame, serialized);
+    }
+    return serialized;
   }
 
   sendError(connection, options, sendOptions = {}) {
@@ -273,7 +289,7 @@ class NotificationHub {
       return;
     }
     if (frame.type === 'unsubscribe') {
-      connection.subscriptions.delete(subscriptionKey(frame.topic, frame.scope));
+      this.removeSubscription(connection, subscriptionKey(frame.topic, frame.scope));
     }
   }
 
@@ -290,11 +306,11 @@ class NotificationHub {
       replaying: true,
       queuedLiveEvents: []
     };
-    connection.subscriptions.set(key, subscription);
+    this.addSubscription(connection, subscription);
     this.send(connection, createSubscribedFrame(frame));
     const replayEvents = this.conversations.listEvents(conversation.id, frame.afterSeq, connection.device);
     if (replayEvents.length > this.maxReplayEvents) {
-      connection.subscriptions.delete(key);
+      this.removeSubscription(connection, key);
       this.sendError(connection, {
         id: frame.id,
         topic: frame.topic,
@@ -342,17 +358,23 @@ class NotificationHub {
   }
 
   publishConversationEvent(event) {
-    for (const connection of this.connections.values()) {
-      const scope = { conversationId: event.conversationId };
-      const key = subscriptionKey(notificationTopics.CONVERSATION_EVENTS, scope);
-      const subscription = connection.subscriptions.get(key);
-      if (!subscription) continue;
+    const subscriptions = this.conversationSubscriptions.get(event.conversationId);
+    if (!subscriptions || subscriptions.size === 0) return;
+    const frame = createEventFrame({
+      topic: notificationTopics.CONVERSATION_EVENTS,
+      scope: { conversationId: event.conversationId },
+      event
+    });
+    for (const subscription of subscriptions) {
+      const connection = subscription.connection;
+      if (!connection || connection.closed) continue;
+      if (!this.isCurrentSubscription(connection, subscription)) continue;
       if (!this.isLiveSubscriptionAuthorized(connection, subscription)) continue;
       if (subscription.replaying) {
         subscription.queuedLiveEvents.push(event);
         continue;
       }
-      this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));
+      this.send(connection, frame);
     }
   }
 
@@ -361,7 +383,7 @@ class NotificationHub {
       this.conversations.requireConversation(subscription.conversationId, connection.device);
       return true;
     } catch {
-      connection.subscriptions.delete(subscription.key);
+      this.removeSubscription(connection, subscription.key);
       this.sendError(connection, {
         topic: subscription.topic,
         scope: subscription.scope,
@@ -370,6 +392,40 @@ class NotificationHub {
       });
       return false;
     }
+  }
+
+  addSubscription(connection, subscription) {
+    this.removeSubscription(connection, subscription.key);
+    subscription.connection = connection;
+    connection.subscriptions.set(subscription.key, subscription);
+    let subscriptions = this.conversationSubscriptions.get(subscription.conversationId);
+    if (!subscriptions) {
+      subscriptions = new Set();
+      this.conversationSubscriptions.set(subscription.conversationId, subscriptions);
+    }
+    subscriptions.add(subscription);
+  }
+
+  removeSubscription(connection, key) {
+    const subscription = connection.subscriptions.get(key);
+    if (!subscription) return false;
+    connection.subscriptions.delete(key);
+    const subscriptions = this.conversationSubscriptions.get(subscription.conversationId);
+    if (subscriptions) {
+      subscriptions.delete(subscription);
+      if (subscriptions.size === 0) {
+        this.conversationSubscriptions.delete(subscription.conversationId);
+      }
+    }
+    subscription.connection = null;
+    return true;
+  }
+
+  removeAllSubscriptions(connection) {
+    for (const key of Array.from(connection.subscriptions.keys())) {
+      this.removeSubscription(connection, key);
+    }
+    connection.subscriptions.clear();
   }
 }
 

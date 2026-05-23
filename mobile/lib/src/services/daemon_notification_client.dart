@@ -21,6 +21,43 @@ typedef NotificationReconnectDelayWaiter = Future<void> Function(
 
 // Empty reconnectDelays still back off so persistent failures cannot spin.
 const Duration _fallbackReconnectDelay = Duration(milliseconds: 100);
+const List<Duration> _defaultReconnectDelays = <Duration>[
+  Duration(seconds: 1),
+  Duration(seconds: 2),
+  Duration(seconds: 4),
+  Duration(seconds: 8),
+  Duration(seconds: 16),
+  Duration(seconds: 30),
+];
+
+class NotificationProtocol {
+  const NotificationProtocol._();
+
+  static const topicConversationEvents = 'conversation.events';
+
+  static const errorAuthRequired = 'AUTH_REQUIRED';
+  static const errorBackpressure = 'BACKPRESSURE';
+  static const errorClosed = 'CLOSED';
+  static const errorForbidden = 'FORBIDDEN';
+  static const errorInvalidMessage = 'INVALID_MESSAGE';
+  static const errorReplayTruncated = 'REPLAY_TRUNCATED';
+  static const errorTokenExpired = 'TOKEN_EXPIRED';
+  static const errorUnknownTopic = 'UNKNOWN_TOPIC';
+}
+
+class NotificationClientConfig {
+  const NotificationClientConfig({
+    this.connector,
+    this.reconnectDelayWaiter,
+    this.backfillAfterFailedAttempts = 3,
+    this.reconnectDelays = _defaultReconnectDelays,
+  }) : assert(backfillAfterFailedAttempts > 0);
+
+  final NotificationSocketConnector? connector;
+  final NotificationReconnectDelayWaiter? reconnectDelayWaiter;
+  final int backfillAfterFailedAttempts;
+  final List<Duration> reconnectDelays;
+}
 
 abstract class NotificationSocket {
   Stream<Object?> get stream;
@@ -71,30 +108,18 @@ class DaemonNotificationClient implements NotificationService {
     required this.tokenProvider,
     required this.fetchBackfill,
     this.refreshAuth,
-    NotificationSocketConnector? connector,
-    NotificationReconnectDelayWaiter? reconnectDelayWaiter,
-    this.backfillAfterFailedAttempts = 3,
-    this.reconnectDelays = const <Duration>[
-      Duration(seconds: 1),
-      Duration(seconds: 2),
-      Duration(seconds: 4),
-      Duration(seconds: 8),
-      Duration(seconds: 16),
-      Duration(seconds: 30),
-    ],
-  })  : assert(backfillAfterFailedAttempts > 0),
-        _connector = connector ?? _connectIoSocket,
-        _reconnectDelayWaiter =
-            reconnectDelayWaiter ?? ((delay) => Future<void>.delayed(delay));
+    this.config = const NotificationClientConfig(),
+  })  : _connector = config.connector ?? _connectIoSocket,
+        _reconnectDelayWaiter = config.reconnectDelayWaiter ??
+            ((delay) => Future<void>.delayed(delay));
 
   final Uri baseUri;
   final NotificationTokenProvider tokenProvider;
   final NotificationBackfillFetcher fetchBackfill;
   final NotificationAuthRefresher? refreshAuth;
+  final NotificationClientConfig config;
   final NotificationSocketConnector _connector;
   final NotificationReconnectDelayWaiter _reconnectDelayWaiter;
-  final int backfillAfterFailedAttempts;
-  final List<Duration> reconnectDelays;
 
   bool _closed = false;
   NotificationSocket? _socket;
@@ -106,8 +131,6 @@ class DaemonNotificationClient implements NotificationService {
   final Completer<void> _closedCompleter = Completer<void>();
   Completer<void> _routeChangeCompleter = Completer<void>();
 
-  static Object? decodeJson(String source) => jsonDecode(source);
-
   @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
@@ -115,7 +138,7 @@ class DaemonNotificationClient implements NotificationService {
   }) {
     if (_closed) {
       return Stream<ConversationEvent>.error(const DaemonNotificationException(
-        code: 'CLOSED',
+        code: NotificationProtocol.errorClosed,
         message: 'Notification client is closed.',
       ));
     }
@@ -223,7 +246,8 @@ class DaemonNotificationClient implements NotificationService {
       }
       if (!_closed && socketFailed && _conversationRoutes.isNotEmpty) {
         _failedAttemptsSinceBackfill += 1;
-        if (_failedAttemptsSinceBackfill >= backfillAfterFailedAttempts) {
+        if (_failedAttemptsSinceBackfill >=
+            config.backfillAfterFailedAttempts) {
           await _backfillAllRoutes();
         }
       }
@@ -256,7 +280,7 @@ class DaemonNotificationClient implements NotificationService {
       return _SocketFrameAction.continueListening;
     }
     final code = frame['code'];
-    if (code == 'REPLAY_TRUNCATED') {
+    if (code == NotificationProtocol.errorReplayTruncated) {
       final route = _routeForFrame(frame);
       if (route != null) {
         final advanced = await _backfillRoute(route);
@@ -264,7 +288,8 @@ class DaemonNotificationClient implements NotificationService {
       }
       return _SocketFrameAction.reconnect(skipDelay: false);
     }
-    if (code == 'AUTH_REQUIRED' || code == 'TOKEN_EXPIRED') {
+    if (code == NotificationProtocol.errorAuthRequired ||
+        code == NotificationProtocol.errorTokenExpired) {
       if (refreshAuth != null) {
         await refreshAuth!();
         return _SocketFrameAction.reconnect(skipDelay: true);
@@ -291,13 +316,7 @@ class DaemonNotificationClient implements NotificationService {
     if (_closed || route.isEmpty || socket == null) {
       return;
     }
-    socket.add(jsonEncode(<String, Object?>{
-      'type': 'subscribe',
-      'id': 'sub_${route.conversationId}',
-      'topic': 'conversation.events',
-      'scope': <String, Object?>{'conversationId': route.conversationId},
-      'afterSeq': route.afterSeq,
-    }));
+    _sendScopedFrame('subscribe', route, afterSeq: route.afterSeq);
   }
 
   void _sendUnsubscribe(_ConversationRoute route) {
@@ -305,11 +324,27 @@ class DaemonNotificationClient implements NotificationService {
     if (_closed || socket == null) {
       return;
     }
-    socket.add(jsonEncode(<String, Object?>{
-      'type': 'unsubscribe',
-      'id': 'unsub_${route.conversationId}',
-      'topic': 'conversation.events',
+    _sendScopedFrame('unsubscribe', route);
+  }
+
+  void _sendScopedFrame(
+    String type,
+    _ConversationRoute route, {
+    int? afterSeq,
+  }) {
+    final socket = _socket;
+    if (_closed || socket == null) {
+      return;
+    }
+    final frame = <String, Object?>{
+      'type': type,
+      'id': '${type == 'subscribe' ? 'sub' : 'unsub'}_${route.conversationId}',
+      'topic': NotificationProtocol.topicConversationEvents,
       'scope': <String, Object?>{'conversationId': route.conversationId},
+      if (afterSeq != null) 'afterSeq': afterSeq,
+    };
+    socket.add(jsonEncode(<String, Object?>{
+      ...frame,
     }));
   }
 
@@ -372,12 +407,11 @@ class DaemonNotificationClient implements NotificationService {
   }
 
   Future<bool> _backfillAllRoutes() async {
-    var advanced = false;
-    for (final route
-        in List<_ConversationRoute>.of(_conversationRoutes.values)) {
-      advanced = await _backfillRoute(route) || advanced;
-    }
-    return advanced;
+    final results = await Future.wait<bool>(
+      List<_ConversationRoute>.of(_conversationRoutes.values)
+          .map(_backfillRoute),
+    );
+    return results.any((advanced) => advanced);
   }
 
   Future<bool> _backfillRoute(_ConversationRoute route) async {
@@ -424,6 +458,7 @@ class DaemonNotificationClient implements NotificationService {
   }
 
   Duration _delayForAttempt(int attempt) {
+    final reconnectDelays = config.reconnectDelays;
     if (reconnectDelays.isEmpty) {
       return _fallbackReconnectDelay;
     }
@@ -535,9 +570,9 @@ class _ConversationWatcher {
 }
 
 bool _isNonRetryableNotificationError(Object? code) {
-  return code == 'FORBIDDEN' ||
-      code == 'UNKNOWN_TOPIC' ||
-      code == 'INVALID_MESSAGE';
+  return code == NotificationProtocol.errorForbidden ||
+      code == NotificationProtocol.errorUnknownTopic ||
+      code == NotificationProtocol.errorInvalidMessage;
 }
 
 String _notificationErrorCode(Map<String, Object?> frame) {
@@ -556,14 +591,12 @@ bool _isAuthClose(NotificationSocket socket) {
   if (socket.closeCode != WebSocketStatus.policyViolation) {
     return false;
   }
-  final reason = socket.closeReason?.toLowerCase();
+  final reason = socket.closeReason;
   if (reason == null) {
     return false;
   }
-  return reason.contains('bearer token required') ||
-      reason.contains('auth_required') ||
-      reason.contains('token_expired') ||
-      reason.contains('authorization expired');
+  return reason == NotificationProtocol.errorAuthRequired ||
+      reason == NotificationProtocol.errorTokenExpired;
 }
 
 Map<String, Object?>? _decodeFrame(Object? raw) {
@@ -572,7 +605,7 @@ Map<String, Object?>? _decodeFrame(Object? raw) {
     if (decoded is! Map) {
       return null;
     }
-    return Map<String, Object?>.from(decoded);
+    return decoded.cast<String, Object?>();
   } catch (_) {
     return null;
   }

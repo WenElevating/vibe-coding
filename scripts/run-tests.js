@@ -4,7 +4,10 @@ process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'test-only-auth
 process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device-id-pepper';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const WebSocket = require('ws');
 const { AuthManager, hashDeviceId, verifyToken } = require('../daemon/src/auth');
@@ -40,9 +43,6 @@ const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function createKnowledgeFixture(files) {
-  const fs = require('node:fs');
-  const os = require('node:os');
-  const path = require('node:path');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-knowledge-check-'));
   for (const [relativePath, content] of Object.entries(files)) {
     const filePath = path.join(root, relativePath);
@@ -53,9 +53,6 @@ function createKnowledgeFixture(files) {
 }
 
 function tempConversationDbPath(prefix = 'conversation-app-') {
-  const fs = require('node:fs');
-  const os = require('node:os');
-  const path = require('node:path');
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
 
@@ -836,6 +833,54 @@ test('notification hub duplicate subscribe stops stale replay generation', async
   );
 });
 
+test('notification hub live publish only touches subscribers for the conversation', async () => {
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: (_conversationId) => ({ id: _conversationId }),
+      listEvents: () => []
+    },
+    version: { daemonVersion: 'test' }
+  });
+  const subscribed = createNotificationHubTestConnection();
+  subscribed.id = 'ws_subscribed';
+  const unrelated = createNotificationHubTestConnection();
+  unrelated.id = 'ws_unrelated';
+  let unrelatedSubscriptionLookups = 0;
+  unrelated.subscriptions = {
+    get() {
+      unrelatedSubscriptionLookups += 1;
+      return undefined;
+    }
+  };
+  hub.connections.set(subscribed.id, subscribed);
+  hub.connections.set(unrelated.id, unrelated);
+  hub.send = (connection, frame) => {
+    connection.sentFrames.push(frame);
+    return true;
+  };
+
+  await hub.subscribe(subscribed, {
+    type: 'subscribe',
+    id: 'req_sub',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 0
+  });
+  hub.publishConversationEvent({
+    seq: 1,
+    conversationId: 'conv_1',
+    type: 'assistant.message',
+    createdAt: '2026-05-23T00:00:00.000Z',
+    text: 'live'
+  });
+
+  assert.equal(unrelatedSubscriptionLookups, 0);
+  assert.deepEqual(
+    subscribed.sentFrames.filter((frame) => frame.type === 'event').map((frame) => frame.seq),
+    [1]
+  );
+});
+
 test('notification hub removes live subscription and sends forbidden when access is revoked', () => {
   let authorized = true;
   const hub = new NotificationHub({
@@ -866,7 +911,7 @@ test('notification hub removes live subscription and sends forbidden when access
     replaying: false,
     queuedLiveEvents: []
   };
-  connection.subscriptions.set(subscription.key, subscription);
+  hub.addSubscription(connection, subscription);
   hub.connections.set(connection.id, connection);
 
   authorized = false;

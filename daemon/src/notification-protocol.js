@@ -1,5 +1,7 @@
 'use strict';
 
+const { canonicalizeForHash } = require('./canonical-json');
+
 const protocolVersion = 1;
 
 const notificationTopics = Object.freeze({
@@ -97,7 +99,7 @@ function validateTopicScope(topic, scope) {
 }
 
 function canonicalScope(scope) {
-  return JSON.stringify(normalizeScope(scope));
+  return canonicalizeForHash(normalizeScope(scope));
 }
 
 function subscriptionKey(topic, scope) {

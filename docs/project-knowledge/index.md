@@ -56,6 +56,7 @@ boundary first before loading more knowledge.
 - [Workbench transcript is bottom anchored](decisions/2026-05-22-bottom-anchored-transcript.md)
 - [Attachment previews are mobile-owned cache](decisions/2026-05-22-mobile-owned-attachment-preview-cache.md)
 - [Voice input post-processing is final-text only](decisions/2026-05-23-voice-input-final-text-post-processing.md)
+- [Workbench conversation events use WebSocket notifications](decisions/2026-05-23-websocket-notification-gateway.md)
 
 ## Verification
 

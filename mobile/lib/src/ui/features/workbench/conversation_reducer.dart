@@ -81,13 +81,79 @@ class ConversationViewState {
 
   ConversationViewState apply(Iterable<ConversationEvent> events,
       {bool streamOutput = false}) {
-    final newEvents = events.where((e) => e.seq > lastSeq).toList();
+    final iterator = events.iterator;
+    if (!iterator.moveNext()) return this;
+    final firstEvent = iterator.current;
+    if (!iterator.moveNext()) {
+      if (firstEvent.seq <= lastSeq) return this;
+      if (firstEvent.type == 'assistant.partial') {
+        return _applySingleAssistantPartial(firstEvent,
+            streamOutput: streamOutput);
+      }
+      return _applyFreshEvents(<ConversationEvent>[firstEvent],
+          streamOutput: streamOutput);
+    }
+    final newEvents = <ConversationEvent>[];
+    if (firstEvent.seq > lastSeq) newEvents.add(firstEvent);
+    final secondEvent = iterator.current;
+    if (secondEvent.seq > lastSeq) newEvents.add(secondEvent);
+    while (iterator.moveNext()) {
+      final event = iterator.current;
+      if (event.seq > lastSeq) newEvents.add(event);
+    }
     if (newEvents.isEmpty) return this;
+    if (newEvents.length == 1 && newEvents.single.type == 'assistant.partial') {
+      return _applySingleAssistantPartial(newEvents.single,
+          streamOutput: streamOutput);
+    }
+    newEvents.sort((a, b) => a.seq.compareTo(b.seq));
+    return _applyFreshEvents(newEvents, streamOutput: streamOutput);
+  }
+
+  ConversationViewState _applySingleAssistantPartial(
+    ConversationEvent event, {
+    required bool streamOutput,
+  }) {
+    final partial = _mergeAssistantPartial(pendingPartial, event.text ?? '');
+    if (!streamOutput || partial.trim().isEmpty) {
+      return ConversationViewState(
+        messages: messages,
+        lastSeq: event.seq,
+        status: status,
+        pendingPartial: partial,
+      );
+    }
+    final streamMessage = ConversationMessage(
+        role: 'assistant_stream', text: partial, eventSeq: event.seq);
+    final streamIndex =
+        messages.indexWhere((message) => message.role == 'assistant_stream');
+    if (streamIndex < 0) {
+      return ConversationViewState(
+        messages: <ConversationMessage>[...messages, streamMessage],
+        lastSeq: event.seq,
+        status: status,
+        pendingPartial: partial,
+      );
+    }
+    final nextMessages = List<ConversationMessage>.of(messages);
+    nextMessages[streamIndex] = streamMessage;
+    return ConversationViewState(
+      messages: nextMessages,
+      lastSeq: event.seq,
+      status: status,
+      pendingPartial: partial,
+    );
+  }
+
+  ConversationViewState _applyFreshEvents(
+    List<ConversationEvent> newEvents, {
+    required bool streamOutput,
+  }) {
     final nextMessages = <ConversationMessage>[...messages];
     var nextSeq = lastSeq;
     var nextStatus = status;
     var partial = pendingPartial;
-    for (final event in newEvents..sort((a, b) => a.seq.compareTo(b.seq))) {
+    for (final event in newEvents) {
       if (event.seq <= nextSeq) continue;
       nextSeq = event.seq;
       switch (event.type) {
@@ -113,10 +179,12 @@ class ConversationViewState {
         case 'assistant.partial':
           partial = _mergeAssistantPartial(partial, event.text ?? '');
           if (streamOutput && partial.trim().isNotEmpty) {
-            nextMessages
-                .removeWhere((message) => message.role == 'assistant_stream');
-            nextMessages.add(ConversationMessage(
-                role: 'assistant_stream', text: partial, eventSeq: event.seq));
+            _upsertAssistantStreamMessage(
+                nextMessages,
+                ConversationMessage(
+                    role: 'assistant_stream',
+                    text: partial,
+                    eventSeq: event.seq));
           }
           break;
         case 'assistant.message':
@@ -391,6 +459,17 @@ void _upsertCommandMessage(
   } else {
     messages.add(command);
   }
+}
+
+void _upsertAssistantStreamMessage(
+    List<ConversationMessage> messages, ConversationMessage streamMessage) {
+  final index =
+      messages.indexWhere((message) => message.role == 'assistant_stream');
+  if (index < 0) {
+    messages.add(streamMessage);
+    return;
+  }
+  messages[index] = streamMessage;
 }
 
 void _appendCommandOutput(

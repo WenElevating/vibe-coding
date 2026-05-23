@@ -59,6 +59,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   static const String _routeWorkspaces = 'workspaces';
   static const String _routeSessions = 'sessions';
   static const String _routeConversation = 'conversation';
+  static const int _conversationTitleMaxLength = 18;
 
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
@@ -393,11 +394,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.effectiveConversationStatus == 'running';
 
   bool get _isBusyCli =>
-      _activeConversationId != null &&
-      isActiveConversationStatus(
-          _workbenchViewModel.effectiveConversationStatus) &&
-      _workbenchViewModel.effectiveConversationStatus != 'waiting_input' &&
-      _workbenchViewModel.effectiveConversationStatus != 'waiting_approval';
+      _isRunningCli ||
+      (_activeConversationId != null &&
+          _workbenchViewModel.effectiveConversationStatus == 'sending');
 
   bool get _isConversationAdapterLocked =>
       _activeConversationId != null || _sending;
@@ -570,13 +569,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   String _pendingStatusText(AppLocalizations l10n) =>
-      _conversationPendingStatusText(l10n,
+      conversationPendingStatusText(l10n,
           _workbenchViewModel.effectiveConversationStatus, _conversationEvents);
-
-  String _conversationPendingStatusText(AppLocalizations l10n, String status,
-      Iterable<ConversationEvent> events) {
-    return conversationPendingStatusText(l10n, status, events);
-  }
 
   void _applyConversationSendAcknowledgement(
     ConversationSummary conversation, {
@@ -888,26 +882,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     required String runId,
     required int generation,
   }) async {
-    if (generation != _conversationEventSubscriptionGeneration ||
-        !mounted ||
-        conversationId != _activeConversationId ||
-        runId != _activeRunId) {
+    bool isStillCurrent() =>
+        generation == _conversationEventSubscriptionGeneration &&
+        mounted &&
+        conversationId == _activeConversationId &&
+        runId == _activeRunId;
+
+    if (!isStillCurrent()) {
       return;
     }
     final changed = await _workbenchViewModel.applyConversationEventsAsync(
       <ConversationEvent>[event],
       streamOutput: widget.streamOutput,
       notify: true,
-      isCurrent: () =>
-          generation == _conversationEventSubscriptionGeneration &&
-          mounted &&
-          conversationId == _activeConversationId &&
-          runId == _activeRunId,
+      isCurrent: isStillCurrent,
     );
-    if (generation != _conversationEventSubscriptionGeneration ||
-        !mounted ||
-        conversationId != _activeConversationId ||
-        runId != _activeRunId) {
+    if (!isStillCurrent()) {
       return;
     }
     if (changed) {
@@ -1263,8 +1253,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String _conversationTitle(AppLocalizations l10n) {
     final persistedTitle = _activeConversation?.title?.trim();
     if (persistedTitle != null && persistedTitle.isNotEmpty) {
-      if (persistedTitle.length <= 18) return persistedTitle;
-      return '${persistedTitle.substring(0, 18)}…';
+      return _truncateConversationTitle(persistedTitle);
     }
     final userMessage = _messages.where((message) => message.role == 'user');
     if (userMessage.isEmpty) return l10n.workbenchNewSessionTitle;
@@ -1275,8 +1264,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             ? first.attachments.first.name
             : '';
     if (text.isEmpty) return l10n.workbenchNewSessionTitle;
-    if (text.length <= 18) return text;
-    return '${text.substring(0, 18)}…';
+    return _truncateConversationTitle(text);
+  }
+
+  String _truncateConversationTitle(String title) {
+    if (title.length <= _conversationTitleMaxLength) return title;
+    return '${title.substring(0, _conversationTitleMaxLength)}…';
   }
 }
 
