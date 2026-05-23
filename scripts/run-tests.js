@@ -2193,8 +2193,15 @@ test('notification protocol parses conversation subscribe frames', () => {
   assert.equal(subscriptionKey(frame.topic, frame.scope), 'conversation.events|{"conversationId":"conv_1"}');
 });
 
+function assertNotificationProtocolError(fn, code) {
+  assert.throws(fn, (error) => {
+    assert.equal(error.code, code);
+    return true;
+  });
+}
+
 test('notification protocol rejects invalid subscribe frames', () => {
-  assert.throws(
+  assertNotificationProtocolError(
     () => parseClientFrame(JSON.stringify({
       type: 'subscribe',
       id: 'req_1',
@@ -2202,7 +2209,69 @@ test('notification protocol rejects invalid subscribe frames', () => {
       scope: {},
       afterSeq: -1
     })),
-    /INVALID_MESSAGE/
+    notificationErrorCodes.INVALID_MESSAGE
+  );
+});
+
+test('notification protocol rejects non-integer subscribe cursors without coercion', () => {
+  assert.equal(parseClientFrame(JSON.stringify({
+    type: 'subscribe',
+    id: 'req_1',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' }
+  })).afterSeq, 0);
+
+  for (const afterSeq of ['7', '', null, 1.5, -1, [], {}]) {
+    assertNotificationProtocolError(
+      () => parseClientFrame(JSON.stringify({
+        type: 'subscribe',
+        id: 'req_1',
+        topic: 'conversation.events',
+        scope: { conversationId: 'conv_1' },
+        afterSeq
+      })),
+      notificationErrorCodes.INVALID_MESSAGE
+    );
+  }
+});
+
+test('notification protocol rejects non-integer ack cursors without coercion', () => {
+  for (const seq of ['7', '', null, 1.5, -1, [], {}]) {
+    assertNotificationProtocolError(
+      () => parseClientFrame(JSON.stringify({
+        type: 'ack',
+        topic: 'conversation.events',
+        scope: { conversationId: 'conv_1' },
+        seq
+      })),
+      notificationErrorCodes.INVALID_MESSAGE
+    );
+  }
+
+  assertNotificationProtocolError(
+    () => parseClientFrame(JSON.stringify({
+      type: 'ack',
+      topic: 'conversation.events',
+      scope: { conversationId: 'conv_1' }
+    })),
+    notificationErrorCodes.INVALID_MESSAGE
+  );
+});
+
+test('notification protocol errors expose codes separately from messages', () => {
+  assert.throws(
+    () => parseClientFrame(JSON.stringify({
+      type: 'subscribe',
+      id: 'req_1',
+      topic: 'conversation.events',
+      scope: {},
+      afterSeq: 0
+    })),
+    (error) => {
+      assert.equal(error.code, notificationErrorCodes.INVALID_MESSAGE);
+      assert.equal(error.message, 'conversation.events requires scope.conversationId.');
+      return true;
+    }
   );
 });
 

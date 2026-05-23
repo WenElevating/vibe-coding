@@ -36,10 +36,7 @@ function parseClientFrame(raw) {
 
 function parseSubscribe(message) {
   const frame = parseScopedRequest(message, 'subscribe');
-  const afterSeq = Number(message.afterSeq || 0);
-  if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
-    throw protocolError(notificationErrorCodes.INVALID_MESSAGE, 'afterSeq must be a non-negative integer.');
-  }
+  const afterSeq = parseOptionalSequence(message.afterSeq, 'afterSeq');
   return { ...frame, afterSeq };
 }
 
@@ -62,11 +59,20 @@ function parseScopedRequest(message, expectedType) {
 
 function parseAck(message) {
   const frame = parseScopedRequest(message, 'ack');
-  const seq = Number(message.seq);
-  if (!Number.isSafeInteger(seq) || seq < 0) {
-    throw protocolError(notificationErrorCodes.INVALID_MESSAGE, 'ack seq must be a non-negative integer.');
-  }
+  const seq = parseRequiredSequence(message.seq, 'ack seq');
   return { ...frame, seq };
+}
+
+function parseOptionalSequence(value, fieldName) {
+  if (value === undefined) return 0;
+  return parseRequiredSequence(value, fieldName);
+}
+
+function parseRequiredSequence(value, fieldName) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw protocolError(notificationErrorCodes.INVALID_MESSAGE, `${fieldName} must be a non-negative integer.`);
+  }
+  return value;
 }
 
 function normalizeScope(scope) {
@@ -131,7 +137,7 @@ function createErrorFrame({ id = null, topic = null, scope = null, code, message
 }
 
 function protocolError(code, message) {
-  const error = new Error(`${code}: ${message}`);
+  const error = new Error(message);
   error.code = code;
   return error;
 }
