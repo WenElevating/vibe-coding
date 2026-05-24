@@ -9329,6 +9329,18 @@ test('android update endpoints serve manifest, 304, HEAD, full APK, and range AP
     assert.equal(cached.status, 304);
     assert.equal(cached.body.length, 0);
 
+    const cachedFromList = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token, {
+      'if-none-match': `"old", ${fixture.manifest.etag}`
+    });
+    assert.equal(cachedFromList.status, 304);
+    assert.equal(cachedFromList.body.length, 0);
+
+    const cachedFromWildcard = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token, {
+      'if-none-match': '*'
+    });
+    assert.equal(cachedFromWildcard.status, 304);
+    assert.equal(cachedFromWildcard.body.length, 0);
+
     const head = await requestRaw(port, 'HEAD', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token);
     assert.equal(head.status, 200);
     assert.equal(Number(head.headers['content-length']), fixture.apkBytes.length);
@@ -9459,10 +9471,91 @@ test('android update service reloads newly published artifacts without daemon re
   }
 });
 
+test('android update service rejects digest mismatches and invalid APK URLs before publishing', () => {
+  const fixture = createAndroidUpdateFixture({ apkBytes: Buffer.from('release-a') });
+  try {
+    fs.writeFileSync(path.join(fixture.root, fixture.manifest.fileName), Buffer.from('release-b'));
+    const corrupted = createApp({
+      port: 0,
+      devAdapters: false,
+      appDbPath: tempConversationDbPath('app-db-update-corrupt-'),
+      androidUpdateArtifactDir: fixture.root
+    });
+    assert.equal(corrupted.appUpdates.available, false);
+    corrupted.appSqliteStore.close();
+
+    const validBytes = Buffer.from('release-a');
+    fs.writeFileSync(path.join(fixture.root, fixture.manifest.fileName), validBytes);
+    fs.writeFileSync(path.join(fixture.root, 'latest.json'), JSON.stringify({
+      ...fixture.manifest,
+      sha256: nodeCrypto.createHash('sha256').update(validBytes).digest('hex'),
+      sizeBytes: validBytes.length,
+      apkUrl: 'https://updates.example.test/app.apk'
+    }), 'utf8');
+    const externalUrl = createApp({
+      port: 0,
+      devAdapters: false,
+      appDbPath: tempConversationDbPath('app-db-update-external-url-'),
+      androidUpdateArtifactDir: fixture.root
+    });
+    assert.equal(externalUrl.appUpdates.available, false);
+    externalUrl.appSqliteStore.close();
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('android update service rejects symlinked APK targets outside artifact directory', () => {
+  const fixture = createAndroidUpdateFixture({ apkBytes: Buffer.from('safe-apk') });
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-outside-'));
+  try {
+    const target = path.join(outside, 'outside.apk');
+    fs.writeFileSync(target, Buffer.from('safe-apk'));
+    const link = path.join(fixture.root, 'linked.apk');
+    try {
+      fs.symlinkSync(target, link, 'file');
+    } catch {
+      return;
+    }
+    fs.writeFileSync(path.join(fixture.root, 'latest.json'), JSON.stringify({
+      ...fixture.manifest,
+      fileName: 'linked.apk'
+    }), 'utf8');
+    const app = createApp({
+      port: 0,
+      devAdapters: false,
+      appDbPath: tempConversationDbPath('app-db-update-symlink-'),
+      androidUpdateArtifactDir: fixture.root
+    });
+    assert.equal(app.appUpdates.available, false);
+    app.appSqliteStore.close();
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('android update service registers stream error handlers for APK responses', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
   assert.match(source, /createReadStream/);
   assert.match(source, /\.on\('error'/);
+});
+
+test('android update service streams only from fd-bound verified APK bytes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
+  const streamStart = source.indexOf('streamApk(res, fd');
+  const streamBody = source.slice(streamStart, source.indexOf('\n  _verifyDigest', streamStart));
+
+  assert.match(source, /openVerifiedApk\(\)/);
+  assert.match(source, /streamApk\(res, openedApk\.fd/);
+  assert.match(source, /fs\.openSync\(this\.apkPath, 'r'\)/);
+  assert.match(source, /fs\.fstatSync\(fd\)/);
+  assert.match(source, /_verifyDigest\(fd, stats, this\.manifest\.sha256\)/);
+  assert.match(source, /sha256ForFd\(apkPath, stats\.size\)/);
+  assert.equal(source.includes('_digestCache'), false);
+  assert.notEqual(streamStart, -1);
+  assert.match(streamBody, /createReadStream\([^)]*fd/);
+  assert.match(streamBody, /autoClose: true/);
 });
 
 test('android update APK endpoint rejects retained non-latest versions and path escape', async () => {
@@ -9536,11 +9629,30 @@ test('prepare android update writes latest manifest and sha sidecar', async () =
     assert.equal(manifest.schemaVersion, 1);
     assert.equal(manifest.versionCode, 2);
     assert.equal(manifest.apkUrl, '/api/app-updates/android/apk/2');
+    assert.match(manifest.fileName, /-[a-f0-9]{12}\.apk$/);
     assert.equal(fs.existsSync(path.join(out, manifest.fileName)), true);
     assert.equal(fs.existsSync(path.join(out, `${manifest.fileName}.sha256`)), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('prepare android update publishes artifacts by atomic final rename', () => {
+  const helper = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts/prepare-android-update.js'),
+    'utf8'
+  );
+  const copyIndex = helper.indexOf('fs.copyFileSync(apkPath');
+  const apkRenameIndex = helper.indexOf('fs.renameSync(apkTemp, apkFinal)');
+  const shaRenameIndex = helper.indexOf('fs.renameSync(shaTemp, shaFinal)');
+  const manifestRenameIndex = helper.indexOf('fs.renameSync(manifestTemp, manifestFinal)');
+
+  assert.equal(copyIndex, -1, 'APK copy must not write directly to the final published path');
+  assert.notEqual(apkRenameIndex, -1);
+  assert.notEqual(shaRenameIndex, -1);
+  assert.notEqual(manifestRenameIndex, -1);
+  assert.ok(apkRenameIndex < shaRenameIndex, 'APK must be published before sidecar');
+  assert.ok(shaRenameIndex < manifestRenameIndex, 'latest.json must be published last');
 });
 
 test('android release build requires private signing and portable NDK lookup', () => {
@@ -9553,6 +9665,8 @@ test('android release build requires private signing and portable NDK lookup', (
   assert.equal(buildGradle.includes('signingConfigs.getByName("debug")'), false);
   assert.match(buildGradle, /throw GradleException\([^)]*key\.properties/);
   assert.match(buildGradle, /signingConfigs\.getByName\("releasePrivate"\)/);
+  assert.match(buildGradle, /enableV1Signing\s*=\s*true/);
+  assert.equal(buildGradle.includes('TODO: Specify your own unique Application ID'), false);
 });
 
 test('android installer native bridge abandons failed sessions after creation', () => {
@@ -9580,7 +9694,52 @@ test('android installer native bridge abandons failed sessions after creation', 
   );
 });
 
-test('android installer recovery maps session info instead of hardcoding pending state', () => {
+test('android installer status receiver is private and session-scoped', () => {
+  const activity = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
+    'utf8'
+  );
+  const manifest = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/AndroidManifest.xml'),
+    'utf8'
+  );
+  const receiverIndex = activity.indexOf('private fun registerInstallReceiver');
+  const receiverBody = activity.slice(receiverIndex, activity.indexOf('\n    private fun confirmationIntent', receiverIndex));
+
+  assert.notEqual(receiverIndex, -1);
+  assert.match(activity, /private val installStatusPermission/);
+  assert.match(activity, /private val pendingInstallSessionIds/);
+  assert.match(receiverBody, /installStatusPermission/);
+  assert.equal(receiverBody.includes('registerReceiver(installReceiver, filter)'), false);
+  assert.match(activity, /if \(!pendingInstallSessionIds\.contains\(sessionId\)\) return/);
+  assert.match(activity, /pendingInstallSessionIds\.remove\(sessionId\)/);
+  assert.match(manifest, /android:name="\$\{applicationId\}\.permission\.APP_UPDATE_INSTALL_STATUS"/);
+  assert.match(manifest, /android:protectionLevel="signature"/);
+}
+);
+
+test('android installer pending action is emitted only after confirmation UI opens', () => {
+  const activity = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
+    'utf8'
+  );
+  const pendingIndex = activity.indexOf('if (status == PackageInstaller.STATUS_PENDING_USER_ACTION)');
+  const pendingBody = activity.slice(pendingIndex, activity.indexOf('\n            val mapped = when', pendingIndex));
+  const nullIndex = pendingBody.indexOf('if (confirmation == null)');
+  const startIndex = pendingBody.indexOf('context.startActivity(confirmation)');
+  const eventIndex = pendingBody.indexOf('sendInstallEvent("pendingUserAction"');
+
+  assert.notEqual(pendingIndex, -1);
+  assert.notEqual(nullIndex, -1);
+  assert.notEqual(startIndex, -1);
+  assert.notEqual(eventIndex, -1);
+  assert.ok(startIndex < eventIndex, 'pending event must be emitted only after confirmation UI starts');
+  assert.match(pendingBody, /catch \(error: Exception\)/);
+  assert.match(pendingBody, /sendInstallEvent\(\s*"failed"/);
+  assert.match(pendingBody, /pendingInstallSessionIds\.remove\(sessionId\)/);
+});
+
+test('android installer recovery does not report unreplayable confirmation as pending', () => {
   const activity = fs.readFileSync(
     path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
     'utf8'
@@ -9588,20 +9747,17 @@ test('android installer recovery maps session info instead of hardcoding pending
   const recoverIndex = activity.indexOf('private fun recoverSession');
   const recoverBody = activity.slice(recoverIndex, activity.indexOf('\n    private fun availableBytes', recoverIndex));
   const recoverableIndex = activity.indexOf('private fun isRecoverableInstallerSession');
-  const recoverableBody = activity.slice(recoverableIndex, activity.indexOf('\n    private fun sessionRecoveryMessage', recoverableIndex));
+  const recoverableBody = activity.slice(recoverableIndex, activity.indexOf('\n    private fun isSessionCommitted', recoverableIndex));
   const committedIndex = activity.indexOf('private fun isSessionCommitted');
   const committedBody = activity.slice(committedIndex, activity.indexOf('\n    private fun isSessionSealed', committedIndex));
   const sealedIndex = activity.indexOf('private fun isSessionSealed');
   const sealedBody = activity.slice(sealedIndex, activity.indexOf('\n    private fun availableBytes', sealedIndex));
 
   assert.notEqual(recoverIndex, -1);
-  assert.match(recoverBody, /when/);
   assert.match(recoverBody, /getSessionInfo\(sessionId\) \?: return null/);
+  assert.match(recoverBody, /return null/);
   assert.equal(recoverBody.includes('info.isActive ||'), false);
-  assert.match(recoverBody, /isRecoverableInstallerSession\(info\)\s*->\s*"pendingUserAction"/);
-  assert.match(recoverBody, /"appPackageName"\s+to\s+info\.appPackageName/);
-  assert.equal(recoverBody.includes('"message" to (info.appPackageName'), false);
-  assert.equal(recoverBody.includes('"status" to "pendingUserAction"'), false);
+  assert.equal(recoverBody.includes('"pendingUserAction"'), false);
   assert.notEqual(recoverableIndex, -1);
   assert.match(recoverableBody, /info\.isActive/);
   assert.match(recoverableBody, /isSessionCommitted\(info\)/);
@@ -9640,8 +9796,8 @@ test('android update install recovery is wired through ViewModel and app lifecyc
     path.join(__dirname, '..', 'mobile/lib/src/ui/main_tabs_page.dart'),
     'utf8'
   );
-  const downloader = fs.readFileSync(
-    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+  const workflow = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/workflows/app_update_workflow.dart'),
     'utf8'
   );
 
@@ -9654,13 +9810,36 @@ test('android update install recovery is wired through ViewModel and app lifecyc
   assert.match(installBody, /state\.status == AppUpdateStatus\.installing/);
   assert.match(installBody, /state\.status == AppUpdateStatus\.awaitingUserConfirmation/);
   assert.match(installBody, /return;/);
+  assert.match(viewModel, /workflow\.startInstall\(/);
   assert.match(viewModel, /Future<void> recoverInstallSession\(\) async/);
-  assert.match(viewModel, /downloader\.readInstallSession\(manifest\)/);
-  assert.match(viewModel, /installer\.recoverInstallSession\(session\.sessionId\)/);
-  assert.match(downloader, /Future<AppUpdateInstallSessionRecord\?> readInstallSession/);
+  assert.match(viewModel, /workflow\.recoverInstall\(/);
+  assert.equal(viewModel.includes('workflow.readInstallSession'), false);
+  assert.equal(viewModel.includes('workflow.recoverInstallSession'), false);
+  assert.match(workflow, /Future<AppUpdateRecoveryResult> recoverInstall\(/);
+  assert.match(workflow, /await _downloader\.readInstallSession\(manifest\)/);
+  assert.match(workflow, /await _installer\.recoverInstallSession\(session\.sessionId\)/);
+  assert.match(workflow, /sessionId: session\.sessionId/);
   assert.match(mainTabs, /with WidgetsBindingObserver/);
   assert.match(mainTabs, /Platform\.isAndroid/);
   assert.match(mainTabs, /viewModel\.recoverInstallSession\(\)/);
+});
+
+test('android update ViewModel depends on workflow boundary instead of services', () => {
+  const viewModel = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/ui/features/settings/view_models/app_update_view_model.dart'),
+    'utf8'
+  );
+  const appDependencies = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/app/app_dependencies.dart'),
+    'utf8'
+  );
+
+  const importLines = viewModel.split('\n').filter((line) => line.trim().startsWith('import '));
+  assert.equal(importLines.some((line) => line.includes('/services/') || line.includes('src/services/')), false);
+  assert.match(viewModel, /workflows\/app_update_workflow\.dart/);
+  assert.equal(viewModel.includes('AppUpdateDownloader'), false);
+  assert.equal(viewModel.includes('PackageInstallerService'), false);
+  assert.match(appDependencies, /AppUpdateWorkflow\(/);
 });
 
 test('android update downloader contains ready APK cache races before fetching', () => {
@@ -9677,6 +9856,19 @@ test('android update downloader contains ready APK cache races before fetching',
   assert.match(helperBody, /on FileSystemException/);
   assert.match(helperBody, /return null/);
   assert.match(downloadBody, /final readyApk = await _reuseReadyApk/);
+});
+
+test('android update downloader serializes version-scoped mutations and hashes off the caller isolate', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+
+  assert.match(downloader, /final Map<String, _ActiveAppUpdateDownload> _downloadsByKey/);
+  assert.match(downloader, /_downloadKey\(manifest, daemonBaseUri\)/);
+  assert.match(downloader, /_awaitActiveDownloadsForVersion\(versionCode/);
+  assert.match(downloader, /whenComplete\(\(\)\s*=>\s*_downloadsByKey\.remove\(downloadKey\)\)/s);
+  assert.match(downloader, /Isolate\.run/);
 });
 
 test('android update downloader cancels response stream when file write fails', () => {

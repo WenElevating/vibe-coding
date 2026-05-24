@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -255,6 +256,97 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('overlapping downloads for same version share one stream owner',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-inflight-');
+    final bytes = utf8.encode('concurrent-apk');
+    final manifest = _manifest(bytes, versionCode: 12);
+    var requests = 0;
+    final streamController = StreamController<List<int>>();
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        requests += 1;
+        return http.StreamedResponse(streamController.stream, 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final first = manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+    final second = manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+    await pumpEventQueue();
+    streamController.add(bytes);
+    await streamController.close();
+
+    final results = await Future.wait(<Future<AppUpdateDownloadResult>>[
+      first,
+      second,
+    ]);
+
+    expect(requests, 1);
+    expect(results[0].state, AppUpdateDownloadState.readyToInstall);
+    expect(results[1].state, AppUpdateDownloadState.readyToInstall);
+    await temp.delete(recursive: true);
+  });
+
+  test('same version downloads with different manifests do not share results',
+      () async {
+    final temp =
+        await Directory.systemTemp.createTemp('app-update-inflight-change-');
+    final firstBytes = utf8.encode('first-apk');
+    final secondBytes = utf8.encode('second-apk');
+    final firstManifest = _manifest(firstBytes, versionCode: 13);
+    final secondManifest =
+        _manifest(secondBytes, versionCode: 13, etag: '"etag-13-b"');
+    final streams = <StreamController<List<int>>>[];
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        final controller = StreamController<List<int>>();
+        streams.add(controller);
+        return http.StreamedResponse(controller.stream, 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final first = manager.download(
+      firstManifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+    await pumpEventQueue();
+    expect(streams.length, 1);
+    final second = manager.download(
+      secondManifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+    await pumpEventQueue();
+    expect(streams.length, 1);
+
+    streams[0].add(firstBytes);
+    await streams[0].close();
+    final firstResult = await first;
+    await pumpEventQueue();
+    expect(streams.length, 2);
+    streams[1].add(secondBytes);
+    await streams[1].close();
+    final secondResult = await second;
+
+    expect(firstResult.state, AppUpdateDownloadState.readyToInstall);
+    expect(secondResult.state, AppUpdateDownloadState.readyToInstall);
+    final cachedApk = File(_updateFile(
+      Directory(_updateDir(temp)),
+      'app-update-13.apk',
+    ));
+    expect(await cachedApk.readAsBytes(), secondBytes);
+    await temp.delete(recursive: true);
+  });
+
   test('reconciliation prefers verified apk over partial for same version',
       () async {
     final temp = await Directory.systemTemp.createTemp('app-update-reconcile-');
@@ -360,9 +452,15 @@ void main() {
       availableBytes: () async => 1000000,
     );
 
-    await manager.clearInstallSession(manifest);
+    await manager.clearInstallSession(manifest, sessionId: 13);
 
-    final metadata =
+    var metadata =
+        jsonDecode(await metadataFile.readAsString()) as Map<String, Object?>;
+    expect(metadata['installSessionId'], 77);
+
+    await manager.clearInstallSession(manifest, sessionId: 77);
+
+    metadata =
         jsonDecode(await metadataFile.readAsString()) as Map<String, Object?>;
     expect(metadata.containsKey('installSessionId'), false);
     expect(await apk.exists(), true);
@@ -370,7 +468,11 @@ void main() {
   });
 }
 
-AppUpdateManifest _manifest(List<int> bytes, {int versionCode = 2}) {
+AppUpdateManifest _manifest(
+  List<int> bytes, {
+  int versionCode = 2,
+  String? etag,
+}) {
   return AppUpdateManifest(
     schemaVersion: 1,
     platform: 'android',
@@ -383,7 +485,7 @@ AppUpdateManifest _manifest(List<int> bytes, {int versionCode = 2}) {
     apkUrl: '/api/app-updates/android/apk/$versionCode',
     sha256: AppUpdateDownloadManager.sha256HexForTest(bytes),
     sizeBytes: bytes.length,
-    etag: '"etag-$versionCode"',
+    etag: etag ?? '"etag-$versionCode"',
     publishedAt: DateTime.utc(2026, 5, 24),
   );
 }

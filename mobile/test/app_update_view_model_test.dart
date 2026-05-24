@@ -7,6 +7,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
+import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 
 void main() {
   test(
@@ -16,11 +17,12 @@ void main() {
       final viewModel = AppUpdateViewModel(
         installedVersionCode: 3,
         installedVersionName: '1.3.0',
-        repository: _FakeRepository(
-          _manifest(versionCode: 4, minSupportedVersionCode: 4),
+        workflow: _workflow(
+          repository: _FakeRepository(
+            _manifest(versionCode: 4, minSupportedVersionCode: 4),
+          ),
+          installer: installer,
         ),
-        installer: installer,
-        downloader: _FakeDownloader(),
         daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
       );
       addTearDown(viewModel.dispose);
@@ -40,12 +42,14 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: _FakeDownloader(
-        result: AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.readyToInstall,
-          file: readyFile,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -67,12 +71,14 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: _FakeDownloader(
-        result: AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.readyToInstall,
-          file: readyFile,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -110,9 +116,11 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: downloader,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
       recordDiagnostic: (event, metadata) {
         diagnostics.add(event);
@@ -148,12 +156,14 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: _FakeDownloader(
-        result: AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.readyToInstall,
-          file: readyFile,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -185,12 +195,14 @@ void main() {
       final viewModel = AppUpdateViewModel(
         installedVersionCode: 1,
         installedVersionName: '1.0.0',
-        repository: _FakeRepository(_manifest()),
-        installer: installer,
-        downloader: _FakeDownloader(
-          result: AppUpdateDownloadResult(
-            state: AppUpdateDownloadState.readyToInstall,
-            file: readyFile,
+        workflow: _workflow(
+          repository: _FakeRepository(_manifest()),
+          installer: installer,
+          downloader: _FakeDownloader(
+            result: AppUpdateDownloadResult(
+              state: AppUpdateDownloadState.readyToInstall,
+              file: readyFile,
+            ),
           ),
         ),
         daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -230,12 +242,14 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: _FakeDownloader(
-        result: AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.readyToInstall,
-          file: readyFile,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -256,6 +270,74 @@ void main() {
     expect(installer.installCalls, 1);
     installCompleter.complete(7);
     await firstInstall;
+  });
+
+  test('install in-flight guard covers async permission check delay', () async {
+    final canInstallCompleter = Completer<bool>();
+    final installer = _FakeInstaller(canInstallCompleter: canInstallCompleter);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    final firstInstall = viewModel.install();
+    final secondInstall = viewModel.install();
+    await pumpEventQueue();
+    canInstallCompleter.complete(true);
+    await Future.wait(<Future<void>>[firstInstall, secondInstall]);
+
+    expect(installer.installCalls, 1);
+  });
+
+  test('install permission channel failure returns to retryable state',
+      () async {
+    final installer = _FakeInstaller(
+      canInstallError: StateError('permission channel failed'),
+    );
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.errorMessage, contains('permission channel failed'));
+    expect(installer.installCalls, 0);
   });
 
   test(
@@ -280,9 +362,11 @@ void main() {
       final viewModel = AppUpdateViewModel(
         installedVersionCode: 1,
         installedVersionName: '1.0.0',
-        repository: _FakeRepository(manifest),
-        installer: installer,
-        downloader: downloader,
+        workflow: _workflow(
+          repository: _FakeRepository(manifest),
+          installer: installer,
+          downloader: downloader,
+        ),
         daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
       );
       addTearDown(viewModel.dispose);
@@ -297,6 +381,77 @@ void main() {
       expect(viewModel.state.manifest, manifest);
     },
   );
+
+  test('check is ignored while download is active', () async {
+    final downloadCompleter = Completer<AppUpdateDownloadResult>();
+    final installer = _FakeInstaller();
+    final repository = _FakeRepository(_manifest());
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: repository,
+        installer: installer,
+        downloader: _FakeDownloader(downloadCompleter: downloadCompleter),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    final downloadFuture = viewModel.download();
+    await pumpEventQueue();
+
+    await viewModel.checkForUpdates();
+
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+    expect(repository.fetchCalls, 1);
+    downloadCompleter.complete(
+      const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed),
+    );
+    await downloadFuture;
+  });
+
+  test('check is ignored while waiting for Android confirmation', () async {
+    final installer = _FakeInstaller();
+    final repository = _FakeRepository(_manifest());
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: repository,
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+
+    await viewModel.checkForUpdates();
+
+    expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+    expect(repository.fetchCalls, 1);
+  });
 
   test('recovery does not overwrite an active download', () async {
     final downloadCompleter = Completer<AppUpdateDownloadResult>();
@@ -318,9 +473,11 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest(versionCode: 12)),
-      installer: installer,
-      downloader: downloader,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest(versionCode: 12)),
+        installer: installer,
+        downloader: downloader,
+      ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     addTearDown(viewModel.dispose);
@@ -344,17 +501,93 @@ void main() {
     await downloadFuture;
   });
 
+  test('recovery clears stale install metadata when native session is gone',
+      () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 13);
+    final downloader = _FakeDownloader(
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 13,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.recoverInstallSession();
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.downloadedFile?.path, readyFile.path);
+    expect(downloader.clearedSessionManifest, manifest);
+    expect(downloader.clearedSessionId, 13);
+    expect(viewModel.state.errorMessage, contains('no longer active'));
+  });
+
+  test('stale native recovery does not overwrite a newer install attempt',
+      () async {
+    final recoveryCompleter = Completer<AndroidInstallEvent?>();
+    final installer = _FakeInstaller(recoverCompleter: recoveryCompleter);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 14);
+    final downloader = _FakeDownloader(
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 13,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    final recovery = viewModel.recoverInstallSession();
+    await pumpEventQueue();
+    expect(installer.recoveredSessionId, 13);
+
+    await viewModel.install();
+    expect(installer.installCalls, 0);
+
+    recoveryCompleter.complete(null);
+    await recovery;
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(downloader.clearedSessionId, 13);
+    expect(downloader.recordedSessionId, isNull);
+  });
+
   test('recovery failure is surfaced as failed state', () async {
     final installer = _FakeInstaller();
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(
-        _manifest(),
-        fetchError: StateError('daemon unavailable'),
+      workflow: _workflow(
+        repository: _FakeRepository(
+          _manifest(),
+          fetchError: StateError('daemon unavailable'),
+        ),
+        installer: installer,
       ),
-      installer: installer,
-      downloader: _FakeDownloader(),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     addTearDown(viewModel.dispose);
@@ -380,9 +613,11 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(manifest),
-      installer: installer,
-      downloader: downloader,
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     addTearDown(viewModel.dispose);
@@ -416,9 +651,11 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: downloader,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     addTearDown(viewModel.dispose);
@@ -441,12 +678,14 @@ void main() {
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _FakeRepository(_manifest()),
-      installer: installer,
-      downloader: _FakeDownloader(
-        result: AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.readyToInstall,
-          file: missingFile,
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: missingFile,
+          ),
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -478,6 +717,18 @@ void main() {
   );
 }
 
+AppUpdateWorkflow _workflow({
+  required AppUpdateRepository repository,
+  required PackageInstallerService installer,
+  AppUpdateDownloader? downloader,
+}) {
+  return AppUpdateWorkflow(
+    repository: repository,
+    installerService: installer,
+    downloaderService: downloader ?? _FakeDownloader(),
+  );
+}
+
 AppUpdateManifest _manifest({
   int versionCode = 2,
   int minSupportedVersionCode = 1,
@@ -504,9 +755,11 @@ class _FakeRepository implements AppUpdateRepository {
 
   final AppUpdateManifest manifest;
   final Object? fetchError;
+  int fetchCalls = 0;
 
   @override
   Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async {
+    fetchCalls += 1;
     final fetchError = this.fetchError;
     if (fetchError != null) throw fetchError;
     return manifest;
@@ -525,12 +778,18 @@ class _FakeInstaller implements PackageInstallerService {
     this.sessionId = 7,
     this.recoveredEvent,
     this.installCompleter,
+    this.canInstallCompleter,
+    this.recoverCompleter,
+    this.canInstallError,
   });
 
   final bool canInstall;
   final int sessionId;
   final AndroidInstallEvent? recoveredEvent;
   final Completer<int>? installCompleter;
+  final Completer<bool>? canInstallCompleter;
+  final Completer<AndroidInstallEvent?>? recoverCompleter;
+  final Object? canInstallError;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   String? installedPath;
   int installCalls = 0;
@@ -547,7 +806,13 @@ class _FakeInstaller implements PackageInstallerService {
   Future<int> availableBytes() async => 1000000;
 
   @override
-  Future<bool> canRequestPackageInstalls() async => canInstall;
+  Future<bool> canRequestPackageInstalls() async {
+    final error = canInstallError;
+    if (error != null) throw error;
+    final completer = canInstallCompleter;
+    if (completer != null) return completer.future;
+    return canInstall;
+  }
 
   @override
   Future<int> installApk(String filePath) async {
@@ -564,6 +829,8 @@ class _FakeInstaller implements PackageInstallerService {
   @override
   Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async {
     recoveredSessionId = sessionId;
+    final recoverCompleter = this.recoverCompleter;
+    if (recoverCompleter != null) return recoverCompleter.future;
     return recoveredEvent;
   }
 }
@@ -585,6 +852,7 @@ class _FakeDownloader implements AppUpdateDownloader {
   AppUpdateManifest? recordedManifest;
   AppUpdateManifest? readSessionManifest;
   AppUpdateManifest? clearedSessionManifest;
+  int? clearedSessionId;
 
   @override
   Future<AppUpdateDownloadResult> download(
@@ -611,8 +879,12 @@ class _FakeDownloader implements AppUpdateDownloader {
   }
 
   @override
-  Future<void> clearInstallSession(AppUpdateManifest manifest) async {
+  Future<void> clearInstallSession(
+    AppUpdateManifest manifest, {
+    int? sessionId,
+  }) async {
     clearedSessionManifest = manifest;
+    clearedSessionId = sessionId;
   }
 
   @override

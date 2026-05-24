@@ -20,10 +20,14 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val methodChannelName = "lan_ai_cli_control/app_update_installer"
     private val eventChannelName = "lan_ai_cli_control/app_update_installer/events"
-    private val installAction = "com.example.lan_ai_cli_control.APP_UPDATE_INSTALL_STATUS"
+    private val installAction: String
+        get() = "$packageName.APP_UPDATE_INSTALL_STATUS"
+    private val installStatusPermission: String
+        get() = "$packageName.permission.APP_UPDATE_INSTALL_STATUS"
 
     private var eventSink: EventChannel.EventSink? = null
     private var receiverRegistered = false
+    private val pendingInstallSessionIds = mutableSetOf<Int>()
 
     private val installReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -32,14 +36,35 @@ class MainActivity : FlutterActivity() {
                 PackageInstaller.STATUS_FAILURE
             )
             val sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+            if (!pendingInstallSessionIds.contains(sessionId)) return
             val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
             val installedPackageName = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME)
 
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                 val confirmation = confirmationIntent(intent)
-                sendInstallEvent("pendingUserAction", sessionId, message, installedPackageName)
-                confirmation?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (confirmation != null) context.startActivity(confirmation)
+                if (confirmation == null) {
+                    pendingInstallSessionIds.remove(sessionId)
+                    sendInstallEvent(
+                        "failed",
+                        sessionId,
+                        "Android installer confirmation was unavailable.",
+                        installedPackageName
+                    )
+                    return
+                }
+                confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                try {
+                    context.startActivity(confirmation)
+                    sendInstallEvent("pendingUserAction", sessionId, message, installedPackageName)
+                } catch (error: Exception) {
+                    pendingInstallSessionIds.remove(sessionId)
+                    sendInstallEvent(
+                        "failed",
+                        sessionId,
+                        error.message ?: "Android installer confirmation could not be opened.",
+                        installedPackageName
+                    )
+                }
                 return
             }
 
@@ -48,6 +73,7 @@ class MainActivity : FlutterActivity() {
                 PackageInstaller.STATUS_FAILURE_ABORTED -> "cancelled"
                 else -> "failed"
             }
+            pendingInstallSessionIds.remove(sessionId)
             sendInstallEvent(mapped, sessionId, message, installedPackageName)
         }
     }
@@ -157,9 +183,11 @@ class MainActivity : FlutterActivity() {
                 flags
             )
 
+            pendingInstallSessionIds.add(sessionId)
             activeSession.commit(pendingIntent.intentSender)
             return sessionId
         } catch (error: Exception) {
+            pendingInstallSessionIds.remove(sessionId)
             try {
                 installer.abandonSession(sessionId)
             } catch (_: Exception) {
@@ -174,16 +202,8 @@ class MainActivity : FlutterActivity() {
     private fun recoverSession(sessionId: Int): Map<String, Any?>? {
         if (sessionId < 0) return null
         val info = packageManager.packageInstaller.getSessionInfo(sessionId) ?: return null
-        val status = when {
-            isRecoverableInstallerSession(info) -> "pendingUserAction"
-            else -> "cancelled"
-        }
-        return mapOf(
-            "status" to status,
-            "sessionId" to sessionId,
-            "appPackageName" to info.appPackageName,
-            "message" to sessionRecoveryMessage(status)
-        )
+        if (isRecoverableInstallerSession(info)) return null
+        return null
     }
 
     private fun isRecoverableInstallerSession(info: PackageInstaller.SessionInfo): Boolean {
@@ -191,13 +211,6 @@ class MainActivity : FlutterActivity() {
         if (isSessionCommitted(info)) return true
         if (isSessionSealed(info)) return true
         return false
-    }
-
-    private fun sessionRecoveryMessage(status: String): String {
-        return when (status) {
-            "pendingUserAction" -> "Package installer session is awaiting user confirmation."
-            else -> "Package installer session is no longer recoverable. Try installing the downloaded APK again."
-        }
     }
 
     private fun isSessionCommitted(info: PackageInstaller.SessionInfo): Boolean {
@@ -241,10 +254,16 @@ class MainActivity : FlutterActivity() {
     private fun registerInstallReceiver() {
         val filter = IntentFilter(installAction)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(installReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(
+                installReceiver,
+                filter,
+                installStatusPermission,
+                null,
+                Context.RECEIVER_NOT_EXPORTED
+            )
         } else {
             @Suppress("DEPRECATION")
-            registerReceiver(installReceiver, filter)
+            registerReceiver(installReceiver, filter, installStatusPermission, null)
         }
         receiverRegistered = true
     }

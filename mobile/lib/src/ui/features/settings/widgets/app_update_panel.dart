@@ -30,13 +30,22 @@ class AppUpdatePanel extends StatelessWidget {
       AppUpdateStatus.downloading => 'Downloading update',
       AppUpdateStatus.paused => 'Download paused',
       AppUpdateStatus.verifying => 'Verifying update',
-      AppUpdateStatus.readyToInstall => 'Update ready to install',
-      AppUpdateStatus.installPermissionNeeded => 'Install permission needed',
+      AppUpdateStatus.readyToInstall => state.mandatory
+          ? 'Required update ready to install'
+          : 'Update ready to install',
+      AppUpdateStatus.installPermissionNeeded => state.mandatory
+          ? 'Required update install permission needed'
+          : 'Install permission needed',
       AppUpdateStatus.installing => 'Opening Android installer',
-      AppUpdateStatus.awaitingUserConfirmation => 'Confirm update install',
+      AppUpdateStatus.awaitingUserConfirmation => state.mandatory
+          ? 'Confirm required update install'
+          : 'Confirm update install',
       AppUpdateStatus.installSucceeded => 'Update installed',
-      AppUpdateStatus.installCancelled => 'Install cancelled',
-      AppUpdateStatus.installFailed => 'Install failed',
+      AppUpdateStatus.installCancelled => state.mandatory
+          ? 'Required update install cancelled'
+          : 'Install cancelled',
+      AppUpdateStatus.installFailed =>
+        state.mandatory ? 'Required update install failed' : 'Install failed',
       AppUpdateStatus.failed => 'Update failed',
       AppUpdateStatus.checking => 'Checking for updates',
       AppUpdateStatus.cancelled => 'Update discarded',
@@ -84,7 +93,8 @@ class AppUpdatePanel extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _Button('Check', Icons.refresh_rounded, onCheck),
+              if (_canCheck(state.status))
+                _Button('Check', Icons.refresh_rounded, onCheck),
               if (state.status == AppUpdateStatus.available ||
                   state.status == AppUpdateStatus.paused ||
                   state.status == AppUpdateStatus.cancelled ||
@@ -92,7 +102,7 @@ class AppUpdatePanel extends StatelessWidget {
                   state.status == AppUpdateStatus.installCancelled)
                 _Button('Download', Icons.download_rounded, onDownload),
               if (state.status == AppUpdateStatus.readyToInstall ||
-                  state.status == AppUpdateStatus.awaitingUserConfirmation ||
+                  state.status == AppUpdateStatus.installPermissionNeeded ||
                   state.status == AppUpdateStatus.installCancelled)
                 _Button('Install', Icons.install_mobile_rounded, onInstall),
               if (state.status == AppUpdateStatus.installPermissionNeeded)
@@ -113,6 +123,14 @@ class AppUpdatePanel extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _canCheck(AppUpdateStatus status) {
+  return status != AppUpdateStatus.checking &&
+      status != AppUpdateStatus.downloading &&
+      status != AppUpdateStatus.verifying &&
+      status != AppUpdateStatus.installing &&
+      status != AppUpdateStatus.awaitingUserConfirmation;
 }
 
 class _Button extends StatelessWidget {

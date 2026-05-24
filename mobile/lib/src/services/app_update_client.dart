@@ -4,16 +4,14 @@ import 'package:http/http.dart' as http;
 
 import '../data/models/app_update_models.dart';
 
-typedef AuthorizedRawGet =
-    Future<http.Response> Function(
-      String path, {
-      required Map<String, String> headers,
-    });
+typedef AuthorizedRawGet = Future<http.Response> Function(
+  String path, {
+  required Map<String, String> headers,
+});
 
-typedef AuthorizedStreamSend =
-    Future<http.StreamedResponse> Function(
-      http.BaseRequest Function(Uri baseUri, Map<String, String> headers) build,
-    );
+typedef AuthorizedStreamSend = Future<http.StreamedResponse> Function(
+  http.BaseRequest Function(Uri baseUri, Map<String, String> headers) build,
+);
 
 class AppUpdateLatestResult {
   const AppUpdateLatestResult({
@@ -32,19 +30,19 @@ class AppUpdateClient {
     required this.baseUri,
     required http.Client httpClient,
     required String? Function() tokenProvider,
-  }) : _httpClient = httpClient,
-       _tokenProvider = tokenProvider,
-       _authorizedGet = null,
-       _authorizedStreamSend = null;
+  })  : _httpClient = httpClient,
+        _tokenProvider = tokenProvider,
+        _authorizedGet = null,
+        _authorizedStreamSend = null;
 
   AppUpdateClient.authorized({
     required this.baseUri,
     required AuthorizedRawGet authorizedGet,
     required AuthorizedStreamSend authorizedStreamSend,
-  }) : _authorizedGet = authorizedGet,
-       _authorizedStreamSend = authorizedStreamSend,
-       _httpClient = null,
-       _tokenProvider = null;
+  })  : _authorizedGet = authorizedGet,
+        _authorizedStreamSend = authorizedStreamSend,
+        _httpClient = null,
+        _tokenProvider = null;
 
   final Uri baseUri;
   final http.Client? _httpClient;
@@ -84,11 +82,12 @@ class AppUpdateClient {
     int? rangeStart,
     String? ifRange,
   }) {
+    final sameOriginApkUri = _sameOriginApkUri(apkUri);
     final authorizedStreamSend = _authorizedStreamSend;
     if (authorizedStreamSend != null) {
       return authorizedStreamSend((_, headers) {
         return _apkRequest(
-          apkUri,
+          sameOriginApkUri,
           headers: headers,
           rangeStart: rangeStart,
           ifRange: ifRange,
@@ -102,7 +101,7 @@ class AppUpdateClient {
     }
     return httpClient.send(
       _apkRequest(
-        apkUri,
+        sameOriginApkUri,
         headers: _headers(),
         rangeStart: rangeStart,
         ifRange: ifRange,
@@ -141,6 +140,19 @@ class AppUpdateClient {
       if (ifRange != null) request.headers['if-range'] = ifRange;
     }
     return request;
+  }
+
+  Uri _sameOriginApkUri(Uri apkUri) {
+    final resolved = baseUri.resolveUri(apkUri);
+    if (resolved.scheme != baseUri.scheme ||
+        resolved.authority != baseUri.authority) {
+      throw ArgumentError.value(
+        apkUri,
+        'apkUri',
+        'APK downloads must use the paired daemon origin.',
+      );
+    }
+    return resolved;
   }
 
   Map<String, String> _headers() {

@@ -32,6 +32,7 @@ import '../ui/features/run_detail/run_detail.dart';
 import '../ui/features/settings/settings.dart';
 import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
+import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
 typedef NotificationClientFactory = DaemonNotificationClient Function(
@@ -178,7 +179,8 @@ class ConnectedDataDependencies {
   }
 }
 
-DaemonNotificationClient _createDefaultNotificationClient(DaemonClient client) =>
+DaemonNotificationClient _createDefaultNotificationClient(
+        DaemonClient client) =>
     DaemonNotificationClient(
       baseUri: client.baseUri,
       tokenProvider: () => client.currentToken,
@@ -250,12 +252,14 @@ class FeatureDependencies {
           return AppUpdateViewModel(
             installedVersionCode: installedVersionCode,
             installedVersionName: installedVersionName,
-            repository: connectedData.appUpdateRepository,
-            installer: installer,
-            downloader: AppUpdateDownloadManager(
-              cacheDirectory: cacheDirectory,
-              openStream: appUpdateClient.openApkStream,
-              availableBytes: installer.availableBytes,
+            workflow: AppUpdateWorkflow(
+              repository: connectedData.appUpdateRepository,
+              installerService: installer,
+              downloaderService: AppUpdateDownloadManager(
+                cacheDirectory: cacheDirectory,
+                openStream: appUpdateClient.openApkStream,
+                availableBytes: installer.availableBytes,
+              ),
             ),
             daemonBaseUri: client.baseUri,
           );

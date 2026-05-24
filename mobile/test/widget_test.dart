@@ -25,6 +25,7 @@ import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
 import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
+import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
@@ -455,7 +456,10 @@ class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
   int readSessionCalls = 0;
 
   @override
-  Future<void> clearInstallSession(AppUpdateManifest manifest) async {}
+  Future<void> clearInstallSession(
+    AppUpdateManifest manifest, {
+    int? sessionId,
+  }) async {}
 
   @override
   Future<void> discard(int versionCode) async {}
@@ -2047,9 +2051,11 @@ void main() {
     final appUpdateViewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
-      repository: _WidgetAppUpdateRepository(manifest),
-      installer: installer,
-      downloader: downloader,
+      workflow: AppUpdateWorkflow(
+        repository: _WidgetAppUpdateRepository(manifest),
+        installerService: installer,
+        downloaderService: downloader,
+      ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     addTearDown(appUpdateViewModel.dispose);

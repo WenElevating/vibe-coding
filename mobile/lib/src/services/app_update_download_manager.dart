@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -33,7 +34,8 @@ abstract class AppUpdateDownloader {
 
   Future<void> recordInstallSession(AppUpdateManifest manifest, int sessionId);
 
-  Future<void> clearInstallSession(AppUpdateManifest manifest);
+  Future<void> clearInstallSession(AppUpdateManifest manifest,
+      {int? sessionId});
 
   Future<void> discard(int versionCode);
 }
@@ -83,6 +85,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   final AppUpdateStreamOpener _openStream;
   final Future<int> Function() _availableBytes;
   final DateTime Function() _now;
+  final Map<String, _ActiveAppUpdateDownload> _downloadsByKey = {};
 
   @override
   Future<AppUpdateDownloadResult> download(
@@ -96,7 +99,26 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         message: validationError,
       );
     }
+    final versionCode = manifest.versionCode!;
+    final downloadKey = _downloadKey(manifest, daemonBaseUri);
+    final activeDownload = _downloadsByKey[downloadKey];
+    if (activeDownload != null) return activeDownload.future;
+    await _awaitActiveDownloadsForVersion(versionCode, exceptKey: downloadKey);
+    final pendingDownload = _downloadsByKey[downloadKey];
+    if (pendingDownload != null) return pendingDownload.future;
 
+    final download = _downloadWithoutGuard(manifest, daemonBaseUri);
+    _downloadsByKey[downloadKey] = _ActiveAppUpdateDownload(
+      versionCode: versionCode,
+      future: download,
+    );
+    return download.whenComplete(() => _downloadsByKey.remove(downloadKey));
+  }
+
+  Future<AppUpdateDownloadResult> _downloadWithoutGuard(
+    AppUpdateManifest manifest,
+    Uri daemonBaseUri,
+  ) async {
     try {
       await reconcile(manifest);
 
@@ -202,6 +224,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
 
   @override
   Future<void> discard(int versionCode) async {
+    await _awaitActiveDownloadsForVersion(versionCode);
     final paths = await _pathsFor(versionCode);
     await _deleteIfExists(paths.part);
     await _deleteIfExists(paths.metadata);
@@ -235,6 +258,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     if (validationError != null) {
       throw AppUpdateDownloadException(validationError);
     }
+    await _awaitActiveDownloadsForVersion(manifest.versionCode!);
     final paths = await _pathsFor(manifest.versionCode!);
     final metadata = await _readMetadata(paths.metadata);
     await _writeMetadata(
@@ -246,8 +270,12 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }
 
   @override
-  Future<void> clearInstallSession(AppUpdateManifest manifest) async {
+  Future<void> clearInstallSession(
+    AppUpdateManifest manifest, {
+    int? sessionId,
+  }) async {
     if (_validateDownloadableManifest(manifest) != null) return;
+    await _awaitActiveDownloadsForVersion(manifest.versionCode!);
     final paths = await _pathsFor(manifest.versionCode!);
     final metadata = await _readMetadata(paths.metadata);
     if (metadata == null ||
@@ -255,7 +283,27 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         !_metadataMatches(metadata, manifest)) {
       return;
     }
+    if (sessionId != null && metadata.installSessionId != sessionId) return;
     await _writeMetadata(paths.metadata, manifest, metadata.downloadedBytes);
+  }
+
+  Future<void> _awaitActiveDownloadsForVersion(
+    int versionCode, {
+    String? exceptKey,
+  }) async {
+    final activeDownloads = _downloadsByKey.entries
+        .where((entry) =>
+            entry.key != exceptKey && entry.value.versionCode == versionCode)
+        .map((entry) => entry.value.future)
+        .toList(growable: false);
+    for (final activeDownload in activeDownloads) {
+      try {
+        await activeDownload;
+      } catch (_) {
+        // Waiting here is only a cache mutation barrier. The original download
+        // operation owns reporting its failure to the caller.
+      }
+    }
   }
 
   static String sha256HexForTest(List<int> bytes) =>
@@ -521,8 +569,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }
 
   Future<String> _sha256Hex(File file) async {
-    final digest = await sha256.bind(file.openRead()).first;
-    return digest.toString();
+    return Isolate.run(() => _sha256HexForFilePath(file.path));
   }
 
   Future<_AppUpdatePaths> _pathsFor(int versionCode) async {
@@ -569,10 +616,36 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     return null;
   }
 
+  String _downloadKey(AppUpdateManifest manifest, Uri daemonBaseUri) {
+    return [
+      manifest.versionCode,
+      manifest.sha256,
+      manifest.etag,
+      manifest.apkUrl,
+      daemonBaseUri.scheme,
+      daemonBaseUri.authority,
+    ].join('|');
+  }
+
   String _joinPath(String parent, String child) {
     if (parent.endsWith(Platform.pathSeparator)) return '$parent$child';
     return '$parent${Platform.pathSeparator}$child';
   }
+}
+
+class _ActiveAppUpdateDownload {
+  const _ActiveAppUpdateDownload({
+    required this.versionCode,
+    required this.future,
+  });
+
+  final int versionCode;
+  final Future<AppUpdateDownloadResult> future;
+}
+
+Future<String> _sha256HexForFilePath(String filePath) async {
+  final digest = await sha256.bind(File(filePath).openRead()).first;
+  return digest.toString();
 }
 
 class _AppUpdatePaths {

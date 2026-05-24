@@ -68,6 +68,29 @@ void main() {
     expect(response.statusCode, 206);
   });
 
+  test('authorized apk stream rejects cross-origin URL before auth transport',
+      () async {
+    var transportCalled = false;
+    final updateClient = AppUpdateClient.authorized(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      authorizedGet: (path, {required headers}) async {
+        throw UnimplementedError();
+      },
+      authorizedStreamSend: (build) async {
+        transportCalled = true;
+        return http.StreamedResponse(Stream<List<int>>.empty(), 200);
+      },
+    );
+
+    expect(
+      () => updateClient.openApkStream(
+        Uri.parse('https://evil.example.test/app.apk'),
+      ),
+      throwsArgumentError,
+    );
+    expect(transportCalled, false);
+  });
+
   test('repository keeps cached manifest on 304 not modified', () async {
     final manifest = _manifest(versionCode: 4);
     final client = _FakeAppUpdateClient(<AppUpdateLatestResult>[

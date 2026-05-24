@@ -34,7 +34,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // This package name is the private APK update identity; changing it breaks in-place updates.
         applicationId = "com.example.lan_ai_cli_control"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -51,7 +51,7 @@ android {
                 keyPassword = keyProperties["keyPassword"] as String
                 storeFile = rootProject.file(keyProperties["storeFile"] as String)
                 storePassword = keyProperties["storePassword"] as String
-                enableV1Signing = false
+                enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
             }

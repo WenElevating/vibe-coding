@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const apkContentType = 'application/vnd.android.package-archive';
 
@@ -37,22 +38,32 @@ class AppUpdateService {
       this._markUnavailable();
       return;
     }
-    const resolved = path.resolve(this.artifactDir, fileName);
-    if (!isWithinDirectory(this.artifactDir, resolved)) {
-      this._markUnavailable();
-      return;
-    }
-    if (!fs.existsSync(resolved)) {
-      this._markUnavailable();
-      return;
-    }
 
-    const stats = fs.statSync(resolved);
+    const resolved = path.resolve(this.artifactDir, fileName);
+    let realArtifactDir;
+    let realApkPath;
+    let stats;
+    try {
+      realArtifactDir = fs.realpathSync.native(this.artifactDir);
+      realApkPath = fs.realpathSync.native(resolved);
+      if (!isWithinDirectory(realArtifactDir, realApkPath)) {
+        this._markUnavailable();
+        return;
+      }
+      stats = fs.statSync(realApkPath);
+    } catch {
+      this._markUnavailable();
+      return;
+    }
     if (!stats.isFile()) {
       this._markUnavailable();
       return;
     }
     if (stats.size !== manifest.sizeBytes) {
+      this._markUnavailable();
+      return;
+    }
+    if (!this._verifyDigest(realApkPath, stats, manifest.sha256)) {
       this._markUnavailable();
       return;
     }
@@ -64,7 +75,7 @@ class AppUpdateService {
       etag,
       fileName
     };
-    this.apkPath = resolved;
+    this.apkPath = realApkPath;
     this.available = true;
   }
 
@@ -81,7 +92,7 @@ class AppUpdateService {
       return;
     }
     const etag = this.manifest.etag;
-    if (req.headers['if-none-match'] === etag) {
+    if (ifNoneMatchIncludes(req.headers['if-none-match'], etag)) {
       res.writeHead(304, { etag });
       res.end();
       return;
@@ -107,6 +118,11 @@ class AppUpdateService {
     }
 
     const total = this.manifest.sizeBytes;
+    const openedApk = this.openVerifiedApk();
+    if (!openedApk) {
+      notFound(res);
+      return;
+    }
     const commonHeaders = {
       'content-type': apkContentType,
       'accept-ranges': 'bytes',
@@ -117,6 +133,7 @@ class AppUpdateService {
     if (req.method === 'HEAD') {
       res.writeHead(200, { ...commonHeaders, 'content-length': total });
       res.end();
+      fs.closeSync(openedApk.fd);
       return;
     }
 
@@ -125,12 +142,13 @@ class AppUpdateService {
     if (range && range.unsatisfiable) {
       res.writeHead(416, { ...commonHeaders, 'content-range': `bytes */${total}` });
       res.end();
+      fs.closeSync(openedApk.fd);
       return;
     }
 
     if (!range) {
       res.writeHead(200, { ...commonHeaders, 'content-length': total });
-      this.streamApk(res, this.apkPath);
+      this.streamApk(res, openedApk.fd);
       return;
     }
 
@@ -139,16 +157,73 @@ class AppUpdateService {
       'content-length': range.end - range.start + 1,
       'content-range': `bytes ${range.start}-${range.end}/${total}`
     });
-    this.streamApk(res, this.apkPath, { start: range.start, end: range.end });
+    this.streamApk(res, openedApk.fd, { start: range.start, end: range.end });
   }
 
-  streamApk(res, apkPath, options = {}) {
-    const stream = fs.createReadStream(apkPath, options);
+  streamApk(res, fd, options = {}) {
+    const stream = fs.createReadStream(null, { ...options, fd, autoClose: true });
     stream.on('error', (error) => {
       res.destroy(error);
     });
     stream.pipe(res);
   }
+
+  openVerifiedApk() {
+    if (!this.available || !this.apkPath) return null;
+    let fd;
+    try {
+      fd = fs.openSync(this.apkPath, 'r');
+      const realArtifactDir = fs.realpathSync.native(this.artifactDir);
+      const realApkPath = fs.realpathSync.native(this.apkPath);
+      if (!isWithinDirectory(realArtifactDir, realApkPath)) {
+        fs.closeSync(fd);
+        return null;
+      }
+      const stats = fs.fstatSync(fd);
+      const pathStats = fs.statSync(realApkPath);
+      if (pathStats.dev !== stats.dev || pathStats.ino !== stats.ino) {
+        fs.closeSync(fd);
+        return null;
+      }
+      if (!stats.isFile() || stats.size !== this.manifest.sizeBytes) {
+        fs.closeSync(fd);
+        return null;
+      }
+      if (!this._verifyDigest(fd, stats, this.manifest.sha256)) {
+        fs.closeSync(fd);
+        return null;
+      }
+      return { fd, stats };
+    } catch {
+      if (fd != null) {
+        try {
+          fs.closeSync(fd);
+        } catch {}
+      }
+      return null;
+    }
+  }
+
+  _verifyDigest(apkPath, stats, expectedSha256) {
+    const actualSha256 = typeof apkPath === 'number'
+      ? sha256ForFd(apkPath, stats.size)
+      : crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
+    const matches = actualSha256.toLowerCase() === expectedSha256.toLowerCase();
+    return matches;
+  }
+}
+
+function sha256ForFd(fd, size) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (position < size) {
+    const bytesRead = fs.readSync(fd, buffer, 0, Math.min(buffer.length, size - position), position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+  return hash.digest('hex');
 }
 
 function unavailableManifest() {
@@ -169,10 +244,15 @@ function validateManifest(manifest) {
   if (!Number.isSafeInteger(manifest.minSupportedVersionCode) || manifest.minSupportedVersionCode < 0) throw new Error('android update manifest minSupportedVersionCode is invalid');
   if (typeof manifest.mandatory !== 'boolean') throw new Error('android update manifest mandatory is required');
   if (typeof manifest.apkUrl !== 'string' || manifest.apkUrl.trim() === '') throw new Error('android update manifest apkUrl is required');
+  if (manifest.apkUrl !== expectedApkUrl(manifest.versionCode)) throw new Error('android update manifest apkUrl is invalid');
   if (typeof manifest.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(manifest.sha256)) throw new Error('android update manifest sha256 is invalid');
   if (!Number.isSafeInteger(manifest.sizeBytes) || manifest.sizeBytes <= 0) throw new Error('android update manifest sizeBytes is invalid');
   if (manifest.etag != null && (typeof manifest.etag !== 'string' || manifest.etag.trim() === '')) throw new Error('android update manifest etag is invalid');
   if (manifest.fileName != null && (typeof manifest.fileName !== 'string' || manifest.fileName.trim() === '')) throw new Error('android update manifest fileName is invalid');
+}
+
+function expectedApkUrl(versionCode) {
+  return `/api/app-updates/android/apk/${versionCode}`;
 }
 
 function resolveManifestFileName(manifest) {
@@ -189,6 +269,14 @@ function isWithinDirectory(rootDir, targetPath) {
   const root = path.resolve(rootDir);
   const relative = path.relative(root, path.resolve(targetPath));
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function ifNoneMatchIncludes(header, etag) {
+  if (!header) return false;
+  return String(header)
+    .split(',')
+    .map((item) => item.trim())
+    .some((item) => item === '*' || item === etag);
 }
 
 function parseRange(header, total) {

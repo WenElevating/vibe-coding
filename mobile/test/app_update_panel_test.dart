@@ -57,10 +57,11 @@ void main() {
     );
 
     expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
-    expect(find.textContaining('Required'), findsNothing);
+    expect(find.textContaining('Required'), findsOneWidget);
   });
 
-  testWidgets('panel keeps install action while waiting for confirmation', (
+  testWidgets(
+      'panel offers discard but no install while waiting for confirmation', (
     tester,
   ) async {
     const state = AppUpdateState(
@@ -86,8 +87,9 @@ void main() {
     );
 
     expect(find.textContaining('Confirm'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Install'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Discard'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Check'), findsNothing);
   });
 
   testWidgets('panel keeps retry actions after install cancellation', (
@@ -115,9 +117,39 @@ void main() {
       ),
     );
 
+    expect(find.textContaining('Required'), findsOneWidget);
     expect(find.textContaining('Install cancelled'), findsOneWidget);
     expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
     expect(find.widgetWithText(TextButton, 'Discard'), findsOneWidget);
+  });
+
+  testWidgets('panel can retry install after permission settings', (
+    tester,
+  ) async {
+    const state = AppUpdateState(
+      status: AppUpdateStatus.installPermissionNeeded,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppUpdatePanel(
+            state: state,
+            onCheck: () {},
+            onDownload: () {},
+            onInstall: () {},
+            onOpenPermissionSettings: () {},
+            onDiscard: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.widgetWithText(TextButton, 'Open settings'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
   });
 
   testWidgets('panel can restart after discarded update state', (

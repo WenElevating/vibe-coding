@@ -30,9 +30,17 @@ function main() {
   fs.mkdirSync(outDir, { recursive: true });
   const bytes = fs.readFileSync(apkPath);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-  const fileName = sanitizeFileName(`${packageName}-${versionName}+${versionCode}.apk`);
-  fs.copyFileSync(apkPath, path.join(outDir, fileName));
-  fs.writeFileSync(path.join(outDir, `${fileName}.sha256`), `${sha256}  ${fileName}\n`, 'utf8');
+  const fileName = sanitizeFileName(`${packageName}-${versionName}+${versionCode}-${sha256.slice(0, 12)}.apk`);
+  const apkFinal = path.join(outDir, fileName);
+  const shaFinal = path.join(outDir, `${fileName}.sha256`);
+  const manifestFinal = path.join(outDir, 'latest.json');
+  const tempSuffix = `.tmp-${process.pid}-${Date.now()}`;
+  const apkTemp = path.join(outDir, `${fileName}${tempSuffix}`);
+  const shaTemp = path.join(outDir, `${fileName}.sha256${tempSuffix}`);
+  const manifestTemp = path.join(outDir, `latest.json${tempSuffix}`);
+
+  fs.writeFileSync(apkTemp, bytes);
+  fs.writeFileSync(shaTemp, `${sha256}  ${fileName}\n`, 'utf8');
 
   const manifest = {
     schemaVersion: 1,
@@ -51,8 +59,11 @@ function main() {
     fileName
   };
 
-  fs.writeFileSync(path.join(outDir, 'latest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  console.log(`Wrote ${path.join(outDir, 'latest.json')}`);
+  fs.writeFileSync(manifestTemp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  fs.renameSync(apkTemp, apkFinal);
+  fs.renameSync(shaTemp, shaFinal);
+  fs.renameSync(manifestTemp, manifestFinal);
+  console.log(`Wrote ${manifestFinal}`);
 }
 
 function parseArgs(items) {

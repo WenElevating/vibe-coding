@@ -4,9 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/models/app_update_models.dart';
-import '../../../../domain/repositories/app_update_repository.dart';
-import '../../../../services/android_package_installer.dart';
-import '../../../../services/app_update_download_manager.dart';
+import '../../../../workflows/app_update_workflow.dart';
 
 enum AppUpdateStatus {
   idle,
@@ -69,9 +67,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   AppUpdateViewModel({
     required this.installedVersionCode,
     required this.installedVersionName,
-    required this.repository,
-    required this.installer,
-    required this.downloader,
+    required this.workflow,
     required this.daemonBaseUri,
     this.recordDiagnostic,
   }) : state = AppUpdateState(
@@ -79,28 +75,28 @@ class AppUpdateViewModel extends ChangeNotifier {
           installedVersionName: installedVersionName,
           installedVersionCode: installedVersionCode,
         ) {
-    _installSubscription = installer.events.listen(_handleInstallEvent);
+    _installSubscription = workflow.installEvents.listen(_handleInstallEvent);
   }
 
   final int installedVersionCode;
   final String installedVersionName;
-  final AppUpdateRepository repository;
-  final PackageInstallerService installer;
-  final AppUpdateDownloader downloader;
+  final AppUpdateWorkflow workflow;
   final Uri daemonBaseUri;
   final void Function(String event, Map<String, Object?> metadata)?
       recordDiagnostic;
   late final StreamSubscription<AndroidInstallEvent> _installSubscription;
   bool _disposed = false;
   bool _recoveringInstallSession = false;
+  bool _installInFlight = false;
 
   AppUpdateState state;
 
   Future<void> checkForUpdates() async {
+    if (_recoveringInstallSession || _isActiveOperation(state.status)) return;
     _recordDiagnostic('update.check.started', const <String, Object?>{});
     _set(state.copyWith(status: AppUpdateStatus.checking));
     try {
-      final manifest = await repository.fetchLatest();
+      final manifest = await workflow.fetchLatest();
       if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
         _set(
           state.copyWith(
@@ -130,7 +126,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     if (manifest == null) return;
     _set(state.copyWith(status: AppUpdateStatus.downloading));
     try {
-      final result = await downloader.download(manifest, daemonBaseUri);
+      final result = await workflow.download(manifest, daemonBaseUri);
       if (_isStoragePreflightFailure(result)) {
         _recordDiagnostic('update.storage.preflight_failed', {
           'versionCode': manifest.versionCode,
@@ -158,6 +154,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> install() async {
+    if (_installInFlight || _recoveringInstallSession) return;
     if (state.status == AppUpdateStatus.installing ||
         state.status == AppUpdateStatus.awaitingUserConfirmation) {
       return;
@@ -165,41 +162,43 @@ class AppUpdateViewModel extends ChangeNotifier {
     final file = state.downloadedFile;
     final manifest = state.manifest;
     if (file == null) return;
-    if (!await _downloadedFileExists(file)) {
-      _set(
-        AppUpdateState(
-          status: AppUpdateStatus.available,
-          installedVersionName: installedVersionName,
-          installedVersionCode: installedVersionCode,
-          manifest: manifest,
-          mandatory: state.mandatory,
-          errorMessage:
-              'Downloaded APK is no longer available. Download the update again.',
-        ),
-      );
-      return;
-    }
-    if (!await installer.canRequestPackageInstalls()) {
-      _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
-      return;
-    }
-    _set(state.copyWith(status: AppUpdateStatus.installing));
+    _installInFlight = true;
     try {
-      final sessionId = await installer.installApk(file.path);
-      if (sessionId < 0) {
-        _set(
-          state.copyWith(
-            status: AppUpdateStatus.readyToInstall,
-            errorMessage:
-                'Android installer did not return a valid installer session.',
-          ),
-        );
-        return;
+      _set(state.copyWith(status: AppUpdateStatus.installing));
+      final result = await workflow.startInstall(
+        manifest: manifest,
+        file: file,
+      );
+      switch (result.state) {
+        case AppUpdateInstallStartState.missingFile:
+          _set(
+            AppUpdateState(
+              status: AppUpdateStatus.available,
+              installedVersionName: installedVersionName,
+              installedVersionCode: installedVersionCode,
+              manifest: manifest,
+              mandatory: state.mandatory,
+              errorMessage: result.message,
+            ),
+          );
+          return;
+        case AppUpdateInstallStartState.permissionNeeded:
+          _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
+          return;
+        case AppUpdateInstallStartState.invalidSession:
+          _set(
+            state.copyWith(
+              status: AppUpdateStatus.readyToInstall,
+              errorMessage: result.message,
+            ),
+          );
+          return;
+        case AppUpdateInstallStartState.committed:
+          _recordDiagnostic('update.install.committed', {
+            'sessionId': result.sessionId,
+          });
+          return;
       }
-      if (manifest != null) {
-        await downloader.recordInstallSession(manifest, sessionId);
-      }
-      _recordDiagnostic('update.install.committed', {'sessionId': sessionId});
     } catch (error) {
       _set(
         state.copyWith(
@@ -207,6 +206,8 @@ class AppUpdateViewModel extends ChangeNotifier {
           errorMessage: '$error',
         ),
       );
+    } finally {
+      _installInFlight = false;
     }
   }
 
@@ -215,35 +216,42 @@ class AppUpdateViewModel extends ChangeNotifier {
     if (!_canRecoverInstallSession()) return;
     _recoveringInstallSession = true;
     try {
-      final manifest = await repository.fetchLatest();
-      if (!_canRecoverInstallSession()) return;
-      if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
-        return;
-      }
-      final session = await downloader.readInstallSession(manifest);
-      if (!_canRecoverInstallSession()) return;
-      if (session == null) return;
-      _set(
-        state.copyWith(
-          status: AppUpdateStatus.readyToInstall,
-          manifest: manifest,
-          mandatory: manifest.isMandatoryFor(installedVersionCode),
-          downloadedFile: session.file,
-        ),
+      final recovery = await workflow.recoverInstall(
+        installedVersionCode: installedVersionCode,
       );
-      final event = await installer.recoverInstallSession(session.sessionId);
-      if (event == null) {
-        _set(
-          state.copyWith(
-            status: AppUpdateStatus.readyToInstall,
-            errorMessage:
-                'Android installer session is no longer active. Try installing the downloaded APK again.',
-          ),
-        );
-        return;
+      if (!_canRecoverInstallSession()) return;
+      switch (recovery.state) {
+        case AppUpdateRecoveryState.noUpdate:
+        case AppUpdateRecoveryState.noSession:
+          return;
+        case AppUpdateRecoveryState.staleSession:
+          final manifest = recovery.manifest;
+          if (manifest == null) return;
+          _set(
+            state.copyWith(
+              status: AppUpdateStatus.readyToInstall,
+              manifest: manifest,
+              mandatory: manifest.isMandatoryFor(installedVersionCode),
+              downloadedFile: recovery.file,
+              errorMessage: recovery.message,
+            ),
+          );
+          return;
+        case AppUpdateRecoveryState.installerEvent:
+          final manifest = recovery.manifest;
+          final event = recovery.event;
+          if (manifest == null || event == null) return;
+          _set(
+            state.copyWith(
+              status: AppUpdateStatus.readyToInstall,
+              manifest: manifest,
+              mandatory: manifest.isMandatoryFor(installedVersionCode),
+              downloadedFile: recovery.file,
+            ),
+          );
+          _handleInstallEvent(event);
+          return;
       }
-      if (state.status != AppUpdateStatus.readyToInstall) return;
-      _handleInstallEvent(event);
     } catch (error) {
       _recordDiagnostic('update.install.recovery_failed', {'error': '$error'});
       if (_canRecoverInstallSession()) {
@@ -263,7 +271,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     final manifest = state.manifest;
     final versionCode = manifest?.versionCode;
     if (versionCode != null) {
-      await downloader.discard(versionCode);
+      await workflow.discard(versionCode);
     }
     _recordDiagnostic('update.discard', {'versionCode': versionCode});
     final nextStatus =
@@ -282,12 +290,12 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> openInstallPermissionSettings() {
-    return installer.openInstallPermissionSettings();
+    return workflow.openInstallPermissionSettings();
   }
 
   void _handleInstallEvent(AndroidInstallEvent event) {
     if (event.status == AndroidInstallStatus.cancelled) {
-      _clearInstallSession();
+      _clearInstallSession(sessionId: event.sessionId);
       _set(
         state.copyWith(
           status: AppUpdateStatus.installCancelled,
@@ -306,7 +314,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     };
     if (event.status == AndroidInstallStatus.success ||
         event.status == AndroidInstallStatus.failed) {
-      _clearInstallSession();
+      _clearInstallSession(sessionId: event.sessionId);
     }
     _set(state.copyWith(status: status, errorMessage: event.message));
   }
@@ -317,10 +325,23 @@ class AppUpdateViewModel extends ChangeNotifier {
         state.status == AppUpdateStatus.failed;
   }
 
-  void _clearInstallSession() {
+  void _clearInstallSession({int? sessionId}) {
     final manifest = state.manifest;
     if (manifest == null) return;
-    unawaited(downloader.clearInstallSession(manifest));
+    unawaited(_clearInstallSessionNow(manifest, sessionId: sessionId));
+  }
+
+  Future<void> _clearInstallSessionNow(
+    AppUpdateManifest manifest, {
+    int? sessionId,
+  }) async {
+    try {
+      await workflow.clearInstallSession(manifest, sessionId: sessionId);
+    } catch (error) {
+      _recordDiagnostic('update.install.clear_session_failed', {
+        'error': '$error',
+      });
+    }
   }
 
   bool _isStoragePreflightFailure(AppUpdateDownloadResult result) {
@@ -328,12 +349,12 @@ class AppUpdateViewModel extends ChangeNotifier {
         (result.message ?? '').toLowerCase().contains('storage');
   }
 
-  Future<bool> _downloadedFileExists(File file) async {
-    try {
-      return await file.exists();
-    } on FileSystemException {
-      return false;
-    }
+  bool _isActiveOperation(AppUpdateStatus status) {
+    return status == AppUpdateStatus.checking ||
+        status == AppUpdateStatus.downloading ||
+        status == AppUpdateStatus.verifying ||
+        status == AppUpdateStatus.installing ||
+        status == AppUpdateStatus.awaitingUserConfirmation;
   }
 
   void _recordDiagnostic(String event, Map<String, Object?> metadata) {

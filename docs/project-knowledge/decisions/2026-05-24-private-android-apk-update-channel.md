@@ -17,17 +17,16 @@ the APK version currently referenced by that manifest. Mobile downloads with
 Range and If-Range resume, verifies `sha256`, and installs through
 `PackageInstaller.Session`.
 
-On Android installer recovery, an existing `PackageInstaller.SessionInfo` is
-treated as recoverable when it is active, committed, or sealed. `isCommitted`
-is only available on API 29+, and `isSealed` is only available on API 26+, so
-the Android bridge must guard those calls. On API 24/25, an inactive recovered
-session is not treated as recoverable because the platform exposes no
-sealed/committed bit and the app cannot replay the PackageInstaller
-confirmation intent from `SessionInfo` alone. A missing or non-recoverable
-session returns no pending state and lets Dart return to a retryable install
-state. A recovered or live pending-user-action event must expose a user action
-to retry installation rather than leaving the UI in an indefinite `installing`
-state.
+On Android installer recovery, `PackageInstaller.SessionInfo` alone is not
+treated as a recoverable pending confirmation because the platform does not
+expose a replayable confirmation `Intent` from that object. The Android bridge
+may inspect active, committed, or sealed session bits for diagnostics and must
+guard `isCommitted` on API 29+ and `isSealed` on API 26+, but it must not report
+`pendingUserAction` unless it has a live confirmation intent that can actually
+be started. Missing, stale, or unreplayable sessions return no native pending
+state. Dart then clears only the matching persisted `installSessionId`, keeps
+the verified APK cache, and returns to a retryable install state instead of
+leaving the UI in an indefinite `installing` or non-actionable pending state.
 
 On Dart recovery, the app reads the persisted `installSessionId` from matching
 download metadata only after the cached APK still verifies against the current
