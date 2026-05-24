@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -2097,6 +2098,8 @@ class PendingSentinel extends StatefulWidget {
 class _PendingSentinelState extends State<PendingSentinel>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  Timer? _elapsedTimer;
+  var _elapsedSeconds = 0;
 
   @override
   void initState() {
@@ -2104,10 +2107,17 @@ class _PendingSentinelState extends State<PendingSentinel>
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 850))
       ..repeat();
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _elapsedSeconds += 1;
+      });
+    });
   }
 
   @override
   void dispose() {
+    _elapsedTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -2140,7 +2150,18 @@ class _PendingSentinelState extends State<PendingSentinel>
                             fontSize: 13)),
                     const SizedBox(height: 5),
                     AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 240),
+                        duration: const Duration(milliseconds: 220),
+                        transitionBuilder: (child, animation) {
+                          final slide = Tween<Offset>(
+                                  begin: const Offset(0, .18), end: Offset.zero)
+                              .animate(CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutCubic));
+                          return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                  position: slide, child: child));
+                        },
                         child: Text(widget.statusText,
                             key: ValueKey(widget.statusText),
                             maxLines: 1,
@@ -2150,9 +2171,52 @@ class _PendingSentinelState extends State<PendingSentinel>
                                 fontSize: 12,
                                 height: 1.3))),
                   ])),
-              _PulseBars(progress: _controller.value),
+              const SizedBox(width: 10),
+              _ElapsedTimerPill(text: _formatPendingElapsed(_elapsedSeconds)),
+              const SizedBox(width: 10),
+              SizedBox(
+                  width: 18,
+                  height: 24,
+                  child:
+                      Center(child: _PulseBars(progress: _controller.value))),
             ]));
       });
+}
+
+String _formatPendingElapsed(int seconds) {
+  final normalized = seconds < 0 ? 0 : seconds;
+  final hours = normalized ~/ 3600;
+  final minutes = (normalized % 3600) ~/ 60;
+  final remainingSeconds = normalized % 60;
+  final twoDigitMinutes = minutes.toString().padLeft(2, '0');
+  final twoDigitSeconds = remainingSeconds.toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:$twoDigitMinutes:$twoDigitSeconds';
+  }
+  return '$twoDigitMinutes:$twoDigitSeconds';
+}
+
+class _ElapsedTimerPill extends StatelessWidget {
+  const _ElapsedTimerPill({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      constraints: const BoxConstraints(minWidth: 44),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+          color: theme.purple.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: theme.purple.withValues(alpha: .14))),
+      child: Text(text,
+          maxLines: 1,
+          style: TextStyle(
+              color: theme.text.withValues(alpha: .78),
+              fontSize: 11,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              fontWeight: FontWeight.w700,
+              height: 1)));
 }
 
 class _RunningOrb extends StatelessWidget {

@@ -183,12 +183,50 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.clearOperationError(notify: false);
     });
     _workbenchViewModel.showConversation(_workspaceForId(item.run.workspaceId));
-    if (item.conversation != null) {
+    final conversation = item.conversation;
+    if (conversation != null) {
+      final generation = _conversationEventSubscriptionGeneration;
+      await _loadStoredConversationEvents(
+        conversationId: conversation.id,
+        runId: item.run.id,
+        generation: generation,
+        streamOutput: widget.streamOutput &&
+            isActiveConversationStatus(conversation.status),
+      );
+      if (!_isCurrentConversationEventTarget(
+        conversationId: conversation.id,
+        runId: item.run.id,
+        generation: generation,
+      )) {
+        return;
+      }
       await _restartConversationEventSubscription();
     }
     if (!mounted) return;
     _goToConversation();
     _scrollToBottom(jump: true);
+  }
+
+  Future<void> _loadStoredConversationEvents({
+    required String conversationId,
+    required String runId,
+    required int generation,
+    required bool streamOutput,
+  }) async {
+    final events = await _workbenchViewModel.fetchConversationEvents(
+      conversationId: conversationId,
+      afterSeq: _workbenchViewModel.lastSeq,
+    );
+    await _workbenchViewModel.applyConversationEventsAsync(
+      events,
+      streamOutput: streamOutput,
+      notify: true,
+      isCurrent: () => _isCurrentConversationEventTarget(
+        conversationId: conversationId,
+        runId: runId,
+        generation: generation,
+      ),
+    );
   }
 
   WorkspaceSummary _workspaceForId(String workspaceId) {
@@ -925,11 +963,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     required String runId,
     required int generation,
   }) async {
-    bool isStillCurrent() =>
-        generation == _conversationEventSubscriptionGeneration &&
-        mounted &&
-        conversationId == _activeConversationId &&
-        runId == _activeRunId;
+    bool isStillCurrent() => _isCurrentConversationEventTarget(
+          conversationId: conversationId,
+          runId: runId,
+          generation: generation,
+        );
 
     if (!isStillCurrent()) {
       return;
@@ -947,6 +985,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _scrollToBottom();
     }
   }
+
+  bool _isCurrentConversationEventTarget({
+    required String conversationId,
+    required String runId,
+    required int generation,
+  }) =>
+      generation == _conversationEventSubscriptionGeneration &&
+      mounted &&
+      conversationId == _activeConversationId &&
+      runId == _activeRunId;
 
   void _startNewSessionFromList() {
     final workspace = _routeWorkspace;

@@ -429,6 +429,33 @@ class _LazyConversationRepository implements ConversationRepository {
       );
 }
 
+class _StoredHistoryConversationRepository extends _LazyConversationRepository {
+  _StoredHistoryConversationRepository(super.messages);
+
+  final List<int> fetchAfterSeqs = <int>[];
+  final List<int> watchAfterSeqs = <int>[];
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) async {
+    fetchAfterSeqs.add(afterSeq);
+    return messages
+        .where((event) => event.seq > afterSeq)
+        .toList(growable: false);
+  }
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    watchAfterSeqs.add(afterSeq);
+    return const Stream<ConversationEvent>.empty();
+  }
+}
+
 class _LifecycleConversationRepository implements ConversationRepository {
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
@@ -1622,6 +1649,124 @@ void main() {
 
     expect(find.text('latest visible sentinel'), findsOneWidget);
     expect(find.text('message 0'), findsNothing);
+  });
+
+  testWidgets(
+      'opening historical conversation loads stored events before watch',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final messages = <ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_history',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-16T00:00:00.000Z',
+        'status': 'running'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_history',
+        'type': 'user.message',
+        'createdAt': '2026-05-16T00:00:01.000Z',
+        'text': 'historical prompt'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_history',
+        'type': 'tool.started',
+        'createdAt': '2026-05-16T00:00:02.000Z',
+        'toolUseId': 'tool_1',
+        'toolName': 'command_execution',
+        'input': {'command': 'dir'}
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_history',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-16T00:00:03.000Z',
+        'toolUseId': 'tool_1',
+        'toolName': 'command_execution',
+        'exitCode': 0
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 5,
+        'conversationId': 'conv_history',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-16T00:00:04.000Z',
+        'text': 'historical answer'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 6,
+        'conversationId': 'conv_history',
+        'type': 'conversation.completed',
+        'createdAt': '2026-05-16T00:00:05.000Z'
+      }),
+    ];
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository =
+        _StoredHistoryConversationRepository(messages);
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_history',
+              workspaceId: 'workspace_1',
+              status: 'completed',
+              sessionBinding: 'confirmed',
+              userMessageCount: 1,
+              title: 'Historical task',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Historical task'));
+    await tester.pumpAndSettle();
+
+    expect(conversationRepository.fetchAfterSeqs, <int>[0]);
+    expect(conversationRepository.watchAfterSeqs, <int>[6]);
+    expect(find.text('historical prompt'), findsOneWidget);
+    expect(find.text('historical answer'), findsOneWidget);
+    expect(find.text('00:00'), findsNothing);
   });
 
   testWidgets(
@@ -2985,6 +3130,18 @@ void main() {
 
     expect(find.text('claude running'), findsNothing);
     expect(find.text('Claude requesting'), findsNothing);
+  });
+
+  testWidgets('pending sentinel shows elapsed running time',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildPendingSentinelPreview());
+    await tester.pump();
+
+    expect(find.text('00:00'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text('00:02'), findsOneWidget);
   });
 
   testWidgets('file change card shows edited path and diff preview',
