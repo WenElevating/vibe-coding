@@ -29,6 +29,14 @@ state. A recovered or live pending-user-action event must expose a user action
 to retry installation rather than leaving the UI in an indefinite `installing`
 state.
 
+On Dart recovery, the app reads the persisted `installSessionId` from matching
+download metadata only after the cached APK still verifies against the current
+manifest. `MainTabsPage` triggers that recovery on Android when the update
+ViewModel is created and when the app resumes. While the UI is waiting for
+Android user confirmation, `install()` must not create another
+`PackageInstaller.Session` for the same APK; the existing session must resolve
+or the user must discard/retry from a non-pending state.
+
 The update channel is authenticated through the paired-device daemon boundary.
 The current daemon auth model does not have app-level permission categories, so
 an `appUpdate` permission split is deferred until such a permission system

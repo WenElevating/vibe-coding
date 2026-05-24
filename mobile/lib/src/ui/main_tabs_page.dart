@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -190,7 +191,8 @@ class _EmptyStateRow extends StatelessWidget {
       );
 }
 
-class _MainTabsPageState extends State<MainTabsPage> {
+class _MainTabsPageState extends State<MainTabsPage>
+    with WidgetsBindingObserver {
   MainTabsViewModel? _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
@@ -206,6 +208,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final pageDependencies =
         widget.dependencies.createMainTabsDependencies(widget.client);
     _connectedData = pageDependencies.connectedData;
@@ -260,6 +263,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeWorkbenchDependencies(_workbenchDependencies);
     _disposeAppUpdateViewModel();
     unawaited(_connectedData.dispose());
@@ -267,6 +271,12 @@ class _MainTabsPageState extends State<MainTabsPage> {
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _recoverAppUpdateInstallSession();
+    }
+  }
 
   Future<void> _createAppUpdateViewModel() async {
     final generation = ++_appUpdateGeneration;
@@ -285,6 +295,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
         return;
       }
       setState(() => _appUpdateViewModel = viewModel);
+      _recoverAppUpdateInstallSession();
     } catch (_) {
       if (!mounted || generation != _appUpdateGeneration) return;
       setState(() => _appUpdateViewModel = null);
@@ -295,6 +306,13 @@ class _MainTabsPageState extends State<MainTabsPage> {
     _appUpdateGeneration += 1;
     _appUpdateViewModel?.dispose();
     _appUpdateViewModel = null;
+  }
+
+  void _recoverAppUpdateInstallSession() {
+    if (!Platform.isAndroid) return;
+    final viewModel = _appUpdateViewModel;
+    if (viewModel == null) return;
+    unawaited(viewModel.recoverInstallSession());
   }
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {

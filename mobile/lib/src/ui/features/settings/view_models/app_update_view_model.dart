@@ -92,6 +92,7 @@ class AppUpdateViewModel extends ChangeNotifier {
       recordDiagnostic;
   late final StreamSubscription<AndroidInstallEvent> _installSubscription;
   bool _disposed = false;
+  bool _recoveringInstallSession = false;
 
   AppUpdateState state;
 
@@ -157,6 +158,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> install() async {
+    if (state.status == AppUpdateStatus.awaitingUserConfirmation) return;
     final file = state.downloadedFile;
     final manifest = state.manifest;
     if (file == null) return;
@@ -202,6 +204,43 @@ class AppUpdateViewModel extends ChangeNotifier {
           errorMessage: '$error',
         ),
       );
+    }
+  }
+
+  Future<void> recoverInstallSession() async {
+    if (_recoveringInstallSession) return;
+    _recoveringInstallSession = true;
+    try {
+      final manifest = await repository.fetchLatest();
+      if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
+        return;
+      }
+      final session = await downloader.readInstallSession(manifest);
+      if (session == null) return;
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.readyToInstall,
+          manifest: manifest,
+          mandatory: manifest.isMandatoryFor(installedVersionCode),
+          downloadedFile: session.file,
+        ),
+      );
+      final event = await installer.recoverInstallSession(session.sessionId);
+      if (event == null) {
+        _set(
+          state.copyWith(
+            status: AppUpdateStatus.readyToInstall,
+            errorMessage:
+                'Android installer session is no longer active. Try installing the downloaded APK again.',
+          ),
+        );
+        return;
+      }
+      _handleInstallEvent(event);
+    } catch (error) {
+      _recordDiagnostic('update.install.recovery_failed', {'error': '$error'});
+    } finally {
+      _recoveringInstallSession = false;
     }
   }
 

@@ -27,6 +27,10 @@ abstract class AppUpdateDownloader {
     Uri daemonBaseUri,
   );
 
+  Future<AppUpdateInstallSessionRecord?> readInstallSession(
+    AppUpdateManifest manifest,
+  );
+
   Future<void> recordInstallSession(AppUpdateManifest manifest, int sessionId);
 
   Future<void> discard(int versionCode);
@@ -38,6 +42,16 @@ class AppUpdateDownloadResult {
   final AppUpdateDownloadState state;
   final File? file;
   final String? message;
+}
+
+class AppUpdateInstallSessionRecord {
+  const AppUpdateInstallSessionRecord({
+    required this.sessionId,
+    required this.file,
+  });
+
+  final int sessionId;
+  final File file;
 }
 
 class AppUpdateDownloadException implements Exception {
@@ -190,6 +204,24 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     await _deleteIfExists(paths.part);
     await _deleteIfExists(paths.metadata);
     await _deleteIfExists(paths.apk);
+  }
+
+  @override
+  Future<AppUpdateInstallSessionRecord?> readInstallSession(
+    AppUpdateManifest manifest,
+  ) async {
+    if (_validateDownloadableManifest(manifest) != null) return null;
+    final paths = await _pathsFor(manifest.versionCode!);
+    final metadata = await _readMetadata(paths.metadata);
+    final sessionId = metadata?.installSessionId;
+    if (metadata == null ||
+        sessionId == null ||
+        !_metadataMatches(metadata, manifest)) {
+      return null;
+    }
+    final readyApk = await _reuseReadyApk(paths, manifest);
+    if (readyApk == null) return null;
+    return AppUpdateInstallSessionRecord(sessionId: sessionId, file: readyApk);
   }
 
   @override

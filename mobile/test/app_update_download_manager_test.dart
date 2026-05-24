@@ -300,6 +300,38 @@ void main() {
     expect(await Directory(_updateDir(temp)).exists(), false);
     await temp.delete(recursive: true);
   });
+
+  test('reads matching install session metadata for ready apk', () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-session-');
+    final bytes = utf8.encode('ready-apk');
+    final manifest = _manifest(bytes, versionCode: 9);
+    final dir = Directory(_updateDir(temp))..createSync(recursive: true);
+    final apk = File(_updateFile(dir, 'app-update-9.apk'));
+    await apk.writeAsBytes(bytes);
+    await File(_updateFile(dir, 'app-update-9.json')).writeAsString(jsonEncode({
+      'versionCode': 9,
+      'versionName': '1.4.0',
+      'apkUrl': manifest.apkUrl,
+      'sha256': manifest.sha256,
+      'sizeBytes': bytes.length,
+      'etag': manifest.etag,
+      'downloadedBytes': bytes.length,
+      'updatedAt': '2026-05-24T10:00:00.000Z',
+      'installSessionId': 77,
+    }));
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.empty(), 200),
+      availableBytes: () async => 1000000,
+    );
+
+    final session = await manager.readInstallSession(manifest);
+
+    expect(session?.sessionId, 77);
+    expect(session?.file.path, apk.path);
+    await temp.delete(recursive: true);
+  });
 }
 
 AppUpdateManifest _manifest(List<int> bytes, {int versionCode = 2}) {

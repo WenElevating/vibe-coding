@@ -9631,6 +9631,30 @@ test('android update downloader writes metadata from checked non-null manifest f
   assert.match(writeBody, /if \([^)]*etag == null/s);
 });
 
+test('android update install recovery is wired through ViewModel and app lifecycle', () => {
+  const viewModel = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/ui/features/settings/view_models/app_update_view_model.dart'),
+    'utf8'
+  );
+  const mainTabs = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/ui/main_tabs_page.dart'),
+    'utf8'
+  );
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+
+  assert.match(viewModel, /state\.status == AppUpdateStatus\.awaitingUserConfirmation\)\s+return/);
+  assert.match(viewModel, /Future<void> recoverInstallSession\(\) async/);
+  assert.match(viewModel, /downloader\.readInstallSession\(manifest\)/);
+  assert.match(viewModel, /installer\.recoverInstallSession\(session\.sessionId\)/);
+  assert.match(downloader, /Future<AppUpdateInstallSessionRecord\?> readInstallSession/);
+  assert.match(mainTabs, /with WidgetsBindingObserver/);
+  assert.match(mainTabs, /Platform\.isAndroid/);
+  assert.match(mainTabs, /viewModel\.recoverInstallSession\(\)/);
+});
+
 test('android update downloader contains ready APK cache races before fetching', () => {
   const downloader = fs.readFileSync(
     path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),

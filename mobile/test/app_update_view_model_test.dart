@@ -213,6 +213,52 @@ void main() {
       expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
       expect(viewModel.state.downloadedFile?.path, readyFile.path);
       expect(viewModel.state.errorMessage, 'Confirm install in Android.');
+      expect(installer.installCalls, 1);
+
+      await viewModel.install();
+
+      expect(installer.installCalls, 1);
+      expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+    },
+  );
+
+  test(
+    'recovers persisted install session into pending confirmation state',
+    () async {
+      final installer = _FakeInstaller(
+        recoveredEvent: const AndroidInstallEvent(
+          status: AndroidInstallStatus.pendingUserAction,
+          sessionId: 11,
+          message: 'Package installer session is awaiting user confirmation.',
+        ),
+      );
+      final readyFile = await _readyApk();
+      addTearDown(() => readyFile.parent.delete(recursive: true));
+      final manifest = _manifest(versionCode: 11);
+      final downloader = _FakeDownloader(
+        installSession: AppUpdateInstallSessionRecord(
+          sessionId: 11,
+          file: readyFile,
+        ),
+      );
+      final viewModel = AppUpdateViewModel(
+        installedVersionCode: 1,
+        installedVersionName: '1.0.0',
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+        daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      );
+      addTearDown(viewModel.dispose);
+      addTearDown(installer.close);
+
+      await viewModel.recoverInstallSession();
+
+      expect(downloader.readSessionManifest, manifest);
+      expect(installer.recoveredSessionId, 11);
+      expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+      expect(viewModel.state.downloadedFile?.path, readyFile.path);
+      expect(viewModel.state.manifest, manifest);
     },
   );
 
@@ -329,12 +375,19 @@ Future<File> _readyApk() async {
 }
 
 class _FakeInstaller implements PackageInstallerService {
-  _FakeInstaller({this.canInstall = true, this.sessionId = 7});
+  _FakeInstaller({
+    this.canInstall = true,
+    this.sessionId = 7,
+    this.recoveredEvent,
+  });
 
   final bool canInstall;
   final int sessionId;
+  final AndroidInstallEvent? recoveredEvent;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   String? installedPath;
+  int installCalls = 0;
+  int? recoveredSessionId;
 
   void emit(AndroidInstallEvent event) => _events.add(event);
 
@@ -351,6 +404,7 @@ class _FakeInstaller implements PackageInstallerService {
 
   @override
   Future<int> installApk(String filePath) async {
+    installCalls += 1;
     installedPath = filePath;
     return sessionId;
   }
@@ -359,8 +413,10 @@ class _FakeInstaller implements PackageInstallerService {
   Future<void> openInstallPermissionSettings() async {}
 
   @override
-  Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async =>
-      null;
+  Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async {
+    recoveredSessionId = sessionId;
+    return recoveredEvent;
+  }
 }
 
 class _FakeDownloader implements AppUpdateDownloader {
@@ -368,12 +424,15 @@ class _FakeDownloader implements AppUpdateDownloader {
     this.result = const AppUpdateDownloadResult(
       state: AppUpdateDownloadState.readyToInstall,
     ),
+    this.installSession,
   });
 
   AppUpdateDownloadResult result;
+  AppUpdateInstallSessionRecord? installSession;
   int? discardedVersionCode;
   int? recordedSessionId;
   AppUpdateManifest? recordedManifest;
+  AppUpdateManifest? readSessionManifest;
 
   @override
   Future<AppUpdateDownloadResult> download(
@@ -395,5 +454,13 @@ class _FakeDownloader implements AppUpdateDownloader {
   ) async {
     recordedManifest = manifest;
     recordedSessionId = sessionId;
+  }
+
+  @override
+  Future<AppUpdateInstallSessionRecord?> readInstallSession(
+    AppUpdateManifest manifest,
+  ) async {
+    readSessionManifest = manifest;
+    return installSession;
   }
 }
