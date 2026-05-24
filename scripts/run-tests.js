@@ -9435,9 +9435,17 @@ test('android update service reloads newly published artifacts without daemon re
     });
     const token = paired.body.token;
 
-    const unavailable = await request(port, 'GET', '/api/app-updates/android/latest', null, token);
+    const unavailable = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token);
     assert.equal(unavailable.status, 200);
-    assert.equal(unavailable.body.available, false);
+    assert.equal(unavailable.headers.etag, undefined);
+    assert.equal(unavailable.headers['cache-control'], 'no-store');
+    assert.equal(JSON.parse(unavailable.body.toString('utf8')).available, false);
+
+    const unavailableCached = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token, {
+      'if-none-match': '"android-update-none"'
+    });
+    assert.equal(unavailableCached.status, 200);
+    assert.equal(JSON.parse(unavailableCached.body.toString('utf8')).available, false);
 
     const fixture = createAndroidUpdateFixture({ root, versionCode: 7, apkBytes: Buffer.from('fresh-apk') });
     const latest = await request(port, 'GET', '/api/app-updates/android/latest', null, token);
@@ -9579,16 +9587,47 @@ test('android installer recovery maps session info instead of hardcoding pending
   );
   const recoverIndex = activity.indexOf('private fun recoverSession');
   const recoverBody = activity.slice(recoverIndex, activity.indexOf('\n    private fun availableBytes', recoverIndex));
+  const recoverableIndex = activity.indexOf('private fun isRecoverableInstallerSession');
+  const recoverableBody = activity.slice(recoverableIndex, activity.indexOf('\n    private fun sessionRecoveryMessage', recoverableIndex));
+  const committedIndex = activity.indexOf('private fun isSessionCommitted');
+  const committedBody = activity.slice(committedIndex, activity.indexOf('\n    private fun isSessionSealed', committedIndex));
+  const sealedIndex = activity.indexOf('private fun isSessionSealed');
+  const sealedBody = activity.slice(sealedIndex, activity.indexOf('\n    private fun availableBytes', sealedIndex));
 
   assert.notEqual(recoverIndex, -1);
   assert.match(recoverBody, /when/);
-  assert.match(recoverBody, /info\.isActive/);
+  assert.match(recoverBody, /getSessionInfo\(sessionId\) \?: return null/);
   assert.equal(recoverBody.includes('info.isActive ||'), false);
-  assert.equal(recoverBody.includes('isSessionSealed'), false);
-  assert.match(recoverBody, /info\.isActive\s*->\s*"pendingUserAction"/);
+  assert.match(recoverBody, /isRecoverableInstallerSession\(info\)\s*->\s*"pendingUserAction"/);
   assert.match(recoverBody, /"appPackageName"\s+to\s+info\.appPackageName/);
   assert.equal(recoverBody.includes('"message" to (info.appPackageName'), false);
   assert.equal(recoverBody.includes('"status" to "pendingUserAction"'), false);
+  assert.notEqual(recoverableIndex, -1);
+  assert.match(recoverableBody, /info\.isActive/);
+  assert.match(recoverableBody, /isSessionCommitted\(info\)/);
+  assert.match(recoverableBody, /isSessionSealed\(info\)/);
+  assert.match(recoverableBody, /Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.O/);
+  assert.notEqual(committedIndex, -1);
+  assert.match(committedBody, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.Q/);
+  assert.match(committedBody, /info\.isCommitted/);
+  assert.notEqual(sealedIndex, -1);
+  assert.match(sealedBody, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O/);
+  assert.match(sealedBody, /info\.isSealed/);
+});
+
+test('android update downloader writes metadata from checked non-null manifest fields', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+  const writeIndex = downloader.indexOf('Future<void> _writeMetadata(');
+  const writeBody = downloader.slice(writeIndex, downloader.indexOf('\n  bool _metadataMatches', writeIndex));
+
+  assert.notEqual(writeIndex, -1);
+  assert.equal(writeBody.includes('manifest.etag!'), false);
+  assert.equal(writeBody.includes('manifest.versionCode!'), false);
+  assert.match(writeBody, /final etag = manifest\.etag;/);
+  assert.match(writeBody, /if \([^)]*etag == null/s);
 });
 
 test('android update downloader contains ready APK cache races before fetching', () => {

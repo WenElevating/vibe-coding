@@ -430,13 +430,29 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     int downloadedBytes, {
     int? installSessionId,
   }) async {
+    final versionCode = manifest.versionCode;
+    final versionName = manifest.versionName;
+    final apkUrl = manifest.apkUrl;
+    final sha256 = manifest.sha256;
+    final sizeBytes = manifest.sizeBytes;
+    final etag = manifest.etag;
+    if (versionCode == null ||
+        versionName == null ||
+        apkUrl == null ||
+        sha256 == null ||
+        sizeBytes == null ||
+        etag == null) {
+      throw const AppUpdateDownloadException(
+        'Android update manifest is missing required download fields.',
+      );
+    }
     final metadata = AppUpdateDownloadMetadata(
-      versionCode: manifest.versionCode!,
-      versionName: manifest.versionName!,
-      apkUrl: manifest.apkUrl!,
-      sha256: manifest.sha256!,
-      sizeBytes: manifest.sizeBytes!,
-      etag: manifest.etag!,
+      versionCode: versionCode,
+      versionName: versionName,
+      apkUrl: apkUrl,
+      sha256: sha256,
+      sizeBytes: sizeBytes,
+      etag: etag,
       downloadedBytes: downloadedBytes,
       updatedAt: _now().toUtc(),
       installSessionId: installSessionId,

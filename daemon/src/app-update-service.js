@@ -76,7 +76,11 @@ class AppUpdateService {
 
   sendLatest(req, res) {
     this.load();
-    const etag = this.manifest.etag || '"android-update-none"';
+    if (!this.available) {
+      json(res, 200, this.manifest, { 'cache-control': 'no-store' });
+      return;
+    }
+    const etag = this.manifest.etag;
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, { etag });
       res.end();

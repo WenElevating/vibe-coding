@@ -17,11 +17,15 @@ the APK version currently referenced by that manifest. Mobile downloads with
 Range and If-Range resume, verifies `sha256`, and installs through
 `PackageInstaller.Session`.
 
-On Android installer recovery, only an active `PackageInstaller.SessionInfo`
-may be treated as still waiting for user action. A sealed session is not enough
-to prove the install prompt is still pending; inactive recovered sessions should
-return to a retryable install state with a clear message instead of leaving the
-UI in `installing`.
+On Android installer recovery, an existing `PackageInstaller.SessionInfo` is
+treated as recoverable when it is active, committed, or sealed. `isCommitted`
+is only available on API 29+, and `isSealed` is only available on API 26+, so
+the Android bridge must guard those calls. On API 24/25, if
+`getSessionInfo(sessionId)` still returns a session but the platform exposes no
+sealed/committed bit, recovery is conservative and maps the session to pending
+user action until a real-device smoke proves a narrower rule is safe. A missing
+session returns no recovered event and lets Dart return to a retryable install
+state.
 
 The update channel is authenticated through the paired-device daemon boundary.
 The current daemon auth model does not have app-level permission categories, so

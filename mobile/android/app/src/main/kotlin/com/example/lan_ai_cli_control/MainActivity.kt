@@ -175,19 +175,37 @@ class MainActivity : FlutterActivity() {
         if (sessionId < 0) return null
         val info = packageManager.packageInstaller.getSessionInfo(sessionId) ?: return null
         val status = when {
-            info.isActive -> "pendingUserAction"
+            isRecoverableInstallerSession(info) -> "pendingUserAction"
             else -> "cancelled"
-        }
-        val message = when (status) {
-            "pendingUserAction" -> "Package installer session is still active."
-            else -> "Package installer session ended before completion. Try installing the downloaded APK again."
         }
         return mapOf(
             "status" to status,
             "sessionId" to sessionId,
             "appPackageName" to info.appPackageName,
-            "message" to message
+            "message" to sessionRecoveryMessage(status)
         )
+    }
+
+    private fun isRecoverableInstallerSession(info: PackageInstaller.SessionInfo): Boolean {
+        if (info.isActive) return true
+        if (isSessionCommitted(info)) return true
+        if (isSessionSealed(info)) return true
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+    }
+
+    private fun sessionRecoveryMessage(status: String): String {
+        return when (status) {
+            "pendingUserAction" -> "Package installer session is awaiting user confirmation."
+            else -> "Package installer session is no longer recoverable. Try installing the downloaded APK again."
+        }
+    }
+
+    private fun isSessionCommitted(info: PackageInstaller.SessionInfo): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info.isCommitted
+    }
+
+    private fun isSessionSealed(info: PackageInstaller.SessionInfo): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && info.isSealed
     }
 
     private fun availableBytes(): Long {
