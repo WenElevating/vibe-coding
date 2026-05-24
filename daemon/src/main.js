@@ -32,6 +32,7 @@ const { DiagnosticBundleService } = require('./diagnostic-bundle');
 const { versionInfo } = require('./version');
 const { createServer } = require('./server');
 const { AsrModelAsset } = require('./asr-model-asset');
+const { AppUpdateService } = require('./app-update-service');
 const { NotificationHub } = require('./notification-hub');
 
 function loadOrCreateSecrets(dbPath) {
@@ -64,7 +65,8 @@ function createApp({
   appDbPath = process.env.APP_DB_PATH || conversationDbPath || defaultAppDbPath(),
   accessTokenTtlMs = undefined,
   refreshTokenTtlMs = undefined,
-  asrModelAsset = new AsrModelAsset()
+  asrModelAsset = new AsrModelAsset(),
+  androidUpdateArtifactDir = process.env.ANDROID_UPDATE_ARTIFACT_DIR
 } = {}) {
   const fileSecrets = loadOrCreateSecrets(appDbPath);
   const authTokenSecret = process.env.AUTH_TOKEN_SECRET || fileSecrets.authTokenSecret;
@@ -109,11 +111,12 @@ function createApp({
   });
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset });
+  const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates });
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
   notificationHub.attach(server);
   notificationHub.start();
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, attachmentScratchCleanup };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand }) {

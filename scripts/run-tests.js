@@ -4,6 +4,7 @@ process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'test-only-auth
 process.env.DEVICE_ID_PEPPER = process.env.DEVICE_ID_PEPPER || 'test-only-device-id-pepper';
 
 const assert = require('node:assert/strict');
+const nodeCrypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -54,6 +55,33 @@ function createKnowledgeFixture(files) {
 
 function tempConversationDbPath(prefix = 'conversation-app-') {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
+}
+
+function createAndroidUpdateFixture({ versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-fixture-'));
+  const apkName = `lan_ai_cli_control-1.4.0+${versionCode}.apk`;
+  const apkPath = path.join(root, apkName);
+  fs.writeFileSync(apkPath, apkBytes);
+  const sha256 = nodeCrypto.createHash('sha256').update(apkBytes).digest('hex');
+  const manifest = {
+    schemaVersion: 1,
+    platform: 'android',
+    packageName: 'com.example.lan_ai_cli_control',
+    versionName: '1.4.0',
+    versionCode,
+    minSupportedVersionCode: 1,
+    mandatory: false,
+    apkUrl: `/api/app-updates/android/apk/${versionCode}`,
+    sha256,
+    sizeBytes: apkBytes.length,
+    etag: `"android-apk-${versionCode}-${sha256.slice(0, 12)}"`,
+    releaseNotes: 'test update',
+    publishedAt: '2026-05-24T10:00:00.000Z',
+    fileName: apkName
+  };
+  fs.writeFileSync(path.join(root, 'latest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+  fs.writeFileSync(path.join(root, `${apkName}.sha256`), `${sha256}  ${apkName}\n`, 'utf8');
+  return { root, apkBytes, manifest };
 }
 
 test('project knowledge check validates links and active entry metadata', () => {
@@ -9264,6 +9292,127 @@ test('V1.3 diagnostic export is authenticated, redacted, and audited', async () 
     assert.equal(app.auditLog.list().some((record) => record.type === 'diagnostic.export'), true);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
+test('android update endpoints serve manifest, 304, HEAD, full APK, and range APK', async () => {
+  const fixture = createAndroidUpdateFixture();
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath: tempConversationDbPath('app-db-update-api-'),
+    androidUpdateArtifactDir: fixture.root
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+
+  try {
+    const unauthenticated = await request(port, 'GET', '/api/app-updates/android/latest');
+    assert.equal(unauthenticated.status, 401);
+
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'test',
+      deviceId: 'device-update'
+    });
+    const token = paired.body.token;
+
+    const latest = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token);
+    assert.equal(latest.status, 200);
+    assert.equal(latest.headers.etag, fixture.manifest.etag);
+    assert.equal(JSON.parse(latest.body.toString('utf8')).schemaVersion, 1);
+
+    const cached = await requestRaw(port, 'GET', '/api/app-updates/android/latest', null, token, {
+      'if-none-match': fixture.manifest.etag
+    });
+    assert.equal(cached.status, 304);
+    assert.equal(cached.body.length, 0);
+
+    const head = await requestRaw(port, 'HEAD', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token);
+    assert.equal(head.status, 200);
+    assert.equal(Number(head.headers['content-length']), fixture.apkBytes.length);
+    assert.equal(head.headers['accept-ranges'], 'bytes');
+    assert.equal(head.headers['content-type'], 'application/vnd.android.package-archive');
+    assert.equal(head.body.length, 0);
+
+    const full = await requestRaw(port, 'GET', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.etag, fixture.manifest.etag);
+    assert.deepEqual(full.body, fixture.apkBytes);
+
+    const range = await requestRaw(port, 'GET', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token, {
+      range: 'bytes=2-',
+      'if-range': fixture.manifest.etag
+    });
+    assert.equal(range.status, 206);
+    assert.equal(range.headers['content-range'], `bytes 2-${fixture.apkBytes.length - 1}/${fixture.apkBytes.length}`);
+    assert.deepEqual(range.body, fixture.apkBytes.subarray(2));
+
+    const staleIfRange = await requestRaw(port, 'GET', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token, {
+      range: 'bytes=2-',
+      'if-range': '"stale"'
+    });
+    assert.equal(staleIfRange.status, 200);
+    assert.deepEqual(staleIfRange.body, fixture.apkBytes);
+
+    const invalidRange = await requestRaw(port, 'GET', `/api/app-updates/android/apk/${fixture.manifest.versionCode}`, null, token, {
+      range: `bytes=${fixture.apkBytes.length}-`
+    });
+    assert.equal(invalidRange.status, 416);
+    assert.equal(invalidRange.headers['content-range'], `bytes */${fixture.apkBytes.length}`);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('android update APK endpoint rejects retained non-latest versions and path escape', async () => {
+  const fixture = createAndroidUpdateFixture({ versionCode: 5 });
+  fs.writeFileSync(path.join(fixture.root, 'lan_ai_cli_control-1.3.0+3.apk'), Buffer.from('old'));
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath: tempConversationDbPath('app-db-update-retained-'),
+    androidUpdateArtifactDir: fixture.root
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'test',
+      deviceId: 'device-retained'
+    });
+    const token = paired.body.token;
+
+    const old = await requestRaw(port, 'GET', '/api/app-updates/android/apk/3', null, token);
+    assert.equal(old.status, 404);
+
+    const escapeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-escape-'));
+    fs.writeFileSync(path.join(escapeRoot, 'evil.apk'), Buffer.from('evil'));
+    fs.writeFileSync(path.join(fixture.root, 'latest.json'), JSON.stringify({
+      ...fixture.manifest,
+      sizeBytes: 4,
+      sha256: nodeCrypto.createHash('sha256').update(Buffer.from('evil')).digest('hex'),
+      fileName: path.relative(fixture.root, path.join(escapeRoot, 'evil.apk'))
+    }), 'utf8');
+    const invalidApp = createApp({
+      port: 0,
+      devAdapters: false,
+      appDbPath: tempConversationDbPath('app-db-update-invalid-'),
+      androidUpdateArtifactDir: fixture.root
+    });
+    assert.equal(invalidApp.appUpdates.available, false);
+    invalidApp.appSqliteStore.close();
+    fs.rmSync(escapeRoot, { recursive: true, force: true });
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+    fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
