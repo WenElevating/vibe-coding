@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-05-23
-- Last verified: 2026-05-23
+- Last verified: 2026-05-24
 
 ## Context
 
@@ -40,6 +40,9 @@ existing subscription.
 - Foreground WebSocket subscription lifecycle belongs to the workbench UI
   owner; repository code should expose the stream boundary but not decide app
   lifecycle policy.
+- Mobile recovery logic must not attribute ambiguous server frames to the only
+  active conversation. Route-specific errors and replay recovery need an
+  explicit `scope.conversationId` or `payload.conversationId`.
 
 ## Evidence
 
@@ -62,6 +65,7 @@ dart run tool\check_architecture_imports.dart
 dart analyze lib test
 flutter test --no-pub test\daemon_notification_client_test.dart test\daemon_conversation_repository_test.dart test\coding_workbench_controller_test.dart -r expanded
 flutter test --no-pub test\widget_test.dart -r expanded --plain-name "workbench lifecycle restarts event subscription after background"
+flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "unscoped replay truncated does not backfill the only active route"
 ```
 
 ## Re-evaluate When

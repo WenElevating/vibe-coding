@@ -401,9 +401,6 @@ class DaemonNotificationClient implements NotificationService {
         return _conversationRoutes[conversationId];
       }
     }
-    if (_conversationRoutes.length == 1) {
-      return _conversationRoutes.values.single;
-    }
     return null;
   }
 

@@ -160,6 +160,8 @@ void main() {
 
     sockets.single.serverAddJson(<String, Object?>{
       'type': 'error',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
       'code': 'REPLAY_TRUNCATED',
       'message': 'requested replay window is no longer available',
     });
@@ -175,6 +177,58 @@ void main() {
 
     await subscription.cancel();
     await client.close();
+  });
+
+  test('unscoped replay truncated does not backfill the only active route',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    final backfillAfterSeq = <int>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillAfterSeq.add(afterSeq);
+        return <ConversationEvent>[conversationEvent(seq: afterSeq + 1)];
+      },
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+        reconnectDelayWaiter: delay.wait,
+      ),
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => sockets.length == 1);
+    sockets.single.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'code': 'REPLAY_TRUNCATED',
+      'message': 'Replay scope missing.',
+    });
+
+    try {
+      await waitFor(
+        () => backfillAfterSeq.isNotEmpty || delay.started.isCompleted,
+      );
+      expect(backfillAfterSeq, isEmpty);
+      expect(events, isEmpty);
+      delay.complete();
+
+      await waitFor(() => sockets.length == 2);
+      expect(sockets[1].sentJson.single['afterSeq'], 7);
+    } finally {
+      delay.complete();
+      await subscription.cancel();
+      await client.close();
+    }
   });
 
   test('uses REST backfill after replay truncated error', () async {
@@ -856,10 +910,14 @@ void main() {
       () async {
     final sockets = <FakeNotificationSocket>[];
     final delay = ControlledDelay();
+    final backfillAfterSeq = <int>[];
     final client = DaemonNotificationClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenProvider: () => 'token_1',
-      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      fetchBackfill: (_, {required afterSeq}) async {
+        backfillAfterSeq.add(afterSeq);
+        return <ConversationEvent>[];
+      },
       config: NotificationClientConfig(
         connector: (_, __) async {
           final socket = FakeNotificationSocket();
@@ -877,10 +935,13 @@ void main() {
     await waitFor(() => sockets.length == 1);
     sockets.single.serverAddJson(<String, Object?>{
       'type': 'error',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
       'code': 'REPLAY_TRUNCATED',
     });
 
     await delay.started.future;
+    expect(backfillAfterSeq, <int>[7]);
     expect(sockets.length, 1);
     delay.complete();
 

@@ -376,6 +376,8 @@ class NotificationHub {
       await new Promise((resolve) => setImmediate(resolve));
     }
     if (!this.isCurrentSubscription(connection, subscription)) return;
+    // Keep this flip and the queued drain synchronous. If an await is inserted
+    // here, live events can bypass queued replay ordering via publishConversationEvent.
     subscription.replaying = false;
     const queued = subscription.queuedLiveEvents
       .filter((event) => !sentSeqs.has(event.seq))
