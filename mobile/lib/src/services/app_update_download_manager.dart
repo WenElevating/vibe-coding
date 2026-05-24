@@ -1,0 +1,458 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+
+import '../data/models/app_update_models.dart';
+
+typedef AppUpdateStreamOpener =
+    Future<http.StreamedResponse> Function(
+      Uri uri, {
+      int? rangeStart,
+      String? ifRange,
+    });
+
+enum AppUpdateDownloadState {
+  downloading,
+  paused,
+  verifying,
+  readyToInstall,
+  failed,
+}
+
+class AppUpdateDownloadResult {
+  const AppUpdateDownloadResult({
+    required this.state,
+    this.file,
+    this.message,
+  });
+
+  final AppUpdateDownloadState state;
+  final File? file;
+  final String? message;
+}
+
+class AppUpdateDownloadException implements Exception {
+  const AppUpdateDownloadException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class AppUpdateDownloadManager {
+  AppUpdateDownloadManager({
+    required Directory cacheDirectory,
+    required AppUpdateStreamOpener openStream,
+    required Future<int> Function() availableBytes,
+    DateTime Function() now = DateTime.now,
+  }) : _cacheDirectory = cacheDirectory,
+       _openStream = openStream,
+       _availableBytes = availableBytes,
+       _now = now;
+
+  static const int _storageSafetyMarginBytes = 5 * 1024 * 1024;
+  static const String _updateDirectoryName = 'app_updates';
+
+  final Directory _cacheDirectory;
+  final AppUpdateStreamOpener _openStream;
+  final Future<int> Function() _availableBytes;
+  final DateTime Function() _now;
+
+  Future<AppUpdateDownloadResult> download(
+    AppUpdateManifest manifest,
+    Uri daemonBaseUri,
+  ) async {
+    final validationError = _validateDownloadableManifest(manifest);
+    if (validationError != null) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: validationError,
+      );
+    }
+
+    try {
+      await reconcile(manifest);
+
+      final paths = await _pathsFor(manifest.versionCode!);
+      if (await paths.apk.exists()) {
+        final verified = await _fileMatchesManifest(paths.apk, manifest);
+        if (verified) {
+          return AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: paths.apk,
+          );
+        }
+        await _deleteIfExists(paths.apk);
+        await _deleteIfExists(paths.metadata);
+      }
+
+      final resumeLength = await _resumeLength(paths, manifest);
+      if (resumeLength == manifest.sizeBytes) {
+        return await _verifyAndPromote(paths, manifest);
+      }
+
+      final available = await _availableBytes();
+      final requiredBytes =
+          (manifest.sizeBytes! - resumeLength).clamp(0, manifest.sizeBytes!) +
+          _storageSafetyMarginBytes;
+      if (available < requiredBytes) {
+        return const AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.failed,
+          message: 'Insufficient storage available for update download.',
+        );
+      }
+
+      await _writeMetadata(paths.metadata, manifest, resumeLength);
+
+      final apkUri = manifest.resolveApkUri(daemonBaseUri);
+      final responseResult = await _downloadFromDaemon(
+        manifest: manifest,
+        apkUri: apkUri,
+        paths: paths,
+        resumeLength: resumeLength,
+      );
+      if (responseResult != null) return responseResult;
+
+      return await _verifyAndPromote(paths, manifest);
+    } on AppUpdateDownloadException catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: error.message,
+      );
+    } on SocketException catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message: 'Network disconnected while downloading update: $error',
+      );
+    } on TimeoutException catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message: 'Update download timed out: $error',
+      );
+    } on FileSystemException catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: 'Could not write update download: $error',
+      );
+    } on FormatException catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: error.message,
+      );
+    }
+  }
+
+  Future<void> reconcile(AppUpdateManifest manifest) async {
+    final paths = await _pathsFor(manifest.versionCode);
+    if (manifest.versionCode == null) return;
+
+    if (await paths.apk.exists() && await paths.part.exists()) {
+      await _deleteIfExists(paths.part);
+    }
+
+    final metadata = await _readMetadata(paths.metadata);
+    if (metadata != null && !_metadataMatches(metadata, manifest)) {
+      await _deleteIfExists(paths.part);
+      await _deleteIfExists(paths.metadata);
+      await _deleteIfExists(paths.apk);
+      return;
+    }
+
+    if (metadata == null && await paths.part.exists()) {
+      await _deleteIfExists(paths.part);
+      return;
+    }
+
+    if (await paths.part.exists()) {
+      final length = await paths.part.length();
+      if (manifest.sizeBytes != null && length > manifest.sizeBytes!) {
+        await _deleteIfExists(paths.part);
+        await _deleteIfExists(paths.metadata);
+      }
+    }
+  }
+
+  Future<void> discard(int versionCode) async {
+    final paths = await _pathsFor(versionCode);
+    await _deleteIfExists(paths.part);
+    await _deleteIfExists(paths.metadata);
+    await _deleteIfExists(paths.apk);
+  }
+
+  static String sha256HexForTest(List<int> bytes) =>
+      sha256.convert(bytes).toString();
+
+  Future<AppUpdateDownloadResult?> _downloadFromDaemon({
+    required AppUpdateManifest manifest,
+    required Uri apkUri,
+    required _AppUpdatePaths paths,
+    required int resumeLength,
+  }) async {
+    var currentResumeLength = resumeLength;
+    var canRestart = true;
+
+    while (true) {
+      final response = await _openStream(
+        apkUri,
+        rangeStart: currentResumeLength > 0 ? currentResumeLength : null,
+        ifRange: currentResumeLength > 0 ? manifest.etag : null,
+      );
+      final statusCode = response.statusCode;
+
+      if (statusCode == 416 && currentResumeLength > 0 && canRestart) {
+        await response.stream.drain<void>();
+        await _deleteIfExists(paths.part);
+        await _deleteIfExists(paths.metadata);
+        final available = await _availableBytes();
+        final requiredBytes =
+            manifest.sizeBytes! + _storageSafetyMarginBytes;
+        if (available < requiredBytes) {
+          return const AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.failed,
+            message: 'Insufficient storage available for update download.',
+          );
+        }
+        currentResumeLength = 0;
+        canRestart = false;
+        await _writeMetadata(paths.metadata, manifest, 0);
+        continue;
+      }
+
+      if (statusCode == 200 || statusCode == 206) {
+        if (statusCode == 206 && currentResumeLength <= 0) {
+          await response.stream.drain<void>();
+          return const AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.failed,
+            message: 'Update server returned partial content without a resume.',
+          );
+        }
+
+        final writeMode = statusCode == 206 && currentResumeLength > 0
+            ? FileMode.append
+            : FileMode.write;
+        final initialBytes = writeMode == FileMode.append
+            ? currentResumeLength
+            : 0;
+        if (writeMode == FileMode.write) {
+          await _deleteIfExists(paths.part);
+        }
+        final downloadedBytes = await _writeStream(
+          response.stream,
+          paths.part,
+          mode: writeMode,
+          initialBytes: initialBytes,
+        );
+        await _writeMetadata(paths.metadata, manifest, downloadedBytes);
+        return null;
+      }
+
+      if (statusCode >= 500 && statusCode <= 599) {
+        await response.stream.drain<void>();
+        return AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.paused,
+          message: 'Update server returned $statusCode; download can retry.',
+        );
+      }
+
+      final body = await response.stream.transform(utf8.decoder).join();
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: body.isEmpty
+            ? 'Update server returned $statusCode.'
+            : 'Update server returned $statusCode: $body',
+      );
+    }
+  }
+
+  Future<AppUpdateDownloadResult> _verifyAndPromote(
+    _AppUpdatePaths paths,
+    AppUpdateManifest manifest,
+  ) async {
+    if (!await paths.part.exists()) {
+      return const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: 'Downloaded APK file is missing.',
+      );
+    }
+
+    final actualLength = await paths.part.length();
+    if (actualLength != manifest.sizeBytes) {
+      await _deleteIfExists(paths.part);
+      await _deleteIfExists(paths.metadata);
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message:
+            'Downloaded APK size mismatch: expected ${manifest.sizeBytes}, got $actualLength.',
+      );
+    }
+
+    final actualSha256 = await _sha256Hex(paths.part);
+    if (actualSha256.toLowerCase() != manifest.sha256!.toLowerCase()) {
+      await _deleteIfExists(paths.part);
+      await _deleteIfExists(paths.metadata);
+      return const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: 'Downloaded APK integrity check failed.',
+      );
+    }
+
+    await _deleteIfExists(paths.apk);
+    final apk = await paths.part.rename(paths.apk.path);
+    await _writeMetadata(paths.metadata, manifest, manifest.sizeBytes!);
+    return AppUpdateDownloadResult(
+      state: AppUpdateDownloadState.readyToInstall,
+      file: apk,
+    );
+  }
+
+  Future<int> _writeStream(
+    Stream<List<int>> stream,
+    File file, {
+    required FileMode mode,
+    required int initialBytes,
+  }) async {
+    await file.parent.create(recursive: true);
+    final sink = file.openWrite(mode: mode);
+    var downloadedBytes = initialBytes;
+    try {
+      await for (final chunk in stream) {
+        sink.add(chunk);
+        downloadedBytes += chunk.length;
+      }
+      await sink.flush();
+      return downloadedBytes;
+    } finally {
+      await sink.close();
+    }
+  }
+
+  Future<int> _resumeLength(
+    _AppUpdatePaths paths,
+    AppUpdateManifest manifest,
+  ) async {
+    if (!await paths.part.exists()) return 0;
+    final metadata = await _readMetadata(paths.metadata);
+    if (metadata == null || !_metadataMatches(metadata, manifest)) {
+      await _deleteIfExists(paths.part);
+      await _deleteIfExists(paths.metadata);
+      return 0;
+    }
+    final length = await paths.part.length();
+    if (length <= 0 || length >= manifest.sizeBytes!) {
+      return length == manifest.sizeBytes! ? length : 0;
+    }
+    return length;
+  }
+
+  Future<bool> _fileMatchesManifest(
+    File file,
+    AppUpdateManifest manifest,
+  ) async {
+    if (!await file.exists()) return false;
+    if (await file.length() != manifest.sizeBytes) return false;
+    final actualSha256 = await _sha256Hex(file);
+    return actualSha256.toLowerCase() == manifest.sha256!.toLowerCase();
+  }
+
+  Future<AppUpdateDownloadMetadata?> _readMetadata(File file) async {
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      return AppUpdateDownloadMetadata.fromJson(
+        Map<String, Object?>.from(decoded as Map),
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> _writeMetadata(
+    File file,
+    AppUpdateManifest manifest,
+    int downloadedBytes,
+  ) async {
+    final metadata = AppUpdateDownloadMetadata(
+      versionCode: manifest.versionCode!,
+      versionName: manifest.versionName!,
+      apkUrl: manifest.apkUrl!,
+      sha256: manifest.sha256!,
+      sizeBytes: manifest.sizeBytes!,
+      etag: manifest.etag!,
+      downloadedBytes: downloadedBytes,
+      updatedAt: _now().toUtc(),
+    );
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(metadata.toJson()));
+  }
+
+  bool _metadataMatches(
+    AppUpdateDownloadMetadata metadata,
+    AppUpdateManifest manifest,
+  ) {
+    return metadata.versionCode == manifest.versionCode &&
+        metadata.versionName == manifest.versionName &&
+        metadata.apkUrl == manifest.apkUrl &&
+        metadata.sha256.toLowerCase() == manifest.sha256?.toLowerCase() &&
+        metadata.sizeBytes == manifest.sizeBytes &&
+        metadata.etag == manifest.etag;
+  }
+
+  Future<String> _sha256Hex(File file) async {
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
+
+  Future<_AppUpdatePaths> _pathsFor(int? versionCode) async {
+    final directory = Directory(
+      _joinPath(_cacheDirectory.path, _updateDirectoryName),
+    );
+    await directory.create(recursive: true);
+    final suffix = versionCode == null ? 'unknown' : '$versionCode';
+    final base = _joinPath(directory.path, 'app-update-$suffix');
+    return _AppUpdatePaths(
+      part: File('$base.apk.part'),
+      metadata: File('$base.json'),
+      apk: File('$base.apk'),
+    );
+  }
+
+  Future<void> _deleteIfExists(File file) async {
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  String? _validateDownloadableManifest(AppUpdateManifest manifest) {
+    if (!manifest.available) return 'No Android update is available.';
+    if (manifest.versionCode == null ||
+        manifest.versionName == null ||
+        manifest.apkUrl == null ||
+        manifest.sha256 == null ||
+        manifest.sizeBytes == null ||
+        manifest.etag == null) {
+      return 'Android update manifest is missing required download fields.';
+    }
+    return null;
+  }
+
+  String _joinPath(String parent, String child) {
+    if (parent.endsWith(Platform.pathSeparator)) return '$parent$child';
+    return '$parent${Platform.pathSeparator}$child';
+  }
+}
+
+class _AppUpdatePaths {
+  const _AppUpdatePaths({
+    required this.part,
+    required this.metadata,
+    required this.apk,
+  });
+
+  final File part;
+  final File metadata;
+  final File apk;
+}
