@@ -89,4 +89,15 @@ void main() {
     });
     expect(calls[4].arguments, <String, Object?>{'sessionId': 42});
   });
+
+  test('installer wrapper reuses one native event stream', () {
+    const methodChannel = MethodChannel('test/app_update_installer_cache');
+    const eventChannel = EventChannel('test/app_update_installer_cache/events');
+    final installer = AndroidPackageInstaller(
+      methodChannel: methodChannel,
+      eventChannel: eventChannel,
+    );
+
+    expect(identical(installer.events, installer.events), true);
+  });
 }

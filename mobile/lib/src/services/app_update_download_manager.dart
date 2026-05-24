@@ -7,12 +7,11 @@ import 'package:http/http.dart' as http;
 
 import '../data/models/app_update_models.dart';
 
-typedef AppUpdateStreamOpener =
-    Future<http.StreamedResponse> Function(
-      Uri uri, {
-      int? rangeStart,
-      String? ifRange,
-    });
+typedef AppUpdateStreamOpener = Future<http.StreamedResponse> Function(
+  Uri uri, {
+  int? rangeStart,
+  String? ifRange,
+});
 
 enum AppUpdateDownloadState {
   downloading,
@@ -56,10 +55,10 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     required AppUpdateStreamOpener openStream,
     required Future<int> Function() availableBytes,
     DateTime Function() now = DateTime.now,
-  }) : _cacheDirectory = cacheDirectory,
-       _openStream = openStream,
-       _availableBytes = availableBytes,
-       _now = now;
+  })  : _cacheDirectory = cacheDirectory,
+        _openStream = openStream,
+        _availableBytes = availableBytes,
+        _now = now;
 
   static const int _storageSafetyMarginBytes = 5 * 1024 * 1024;
   static const String _updateDirectoryName = 'app_updates';
@@ -105,7 +104,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       final available = await _availableBytes();
       final requiredBytes =
           (manifest.sizeBytes! - resumeLength).clamp(0, manifest.sizeBytes!) +
-          _storageSafetyMarginBytes;
+              _storageSafetyMarginBytes;
       if (available < requiredBytes) {
         return const AppUpdateDownloadResult(
           state: AppUpdateDownloadState.failed,
@@ -154,8 +153,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }
 
   Future<void> reconcile(AppUpdateManifest manifest) async {
-    final paths = await _pathsFor(manifest.versionCode);
     if (manifest.versionCode == null) return;
+    final paths = await _pathsFor(manifest.versionCode);
 
     if (await paths.apk.exists() && await paths.part.exists()) {
       await _deleteIfExists(paths.part);
@@ -258,9 +257,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         final writeMode = statusCode == 206 && currentResumeLength > 0
             ? FileMode.append
             : FileMode.write;
-        final initialBytes = writeMode == FileMode.append
-            ? currentResumeLength
-            : 0;
+        final initialBytes =
+            writeMode == FileMode.append ? currentResumeLength : 0;
         if (writeMode == FileMode.write) {
           await _deleteIfExists(paths.part);
         }
@@ -341,14 +339,19 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }) async {
     await file.parent.create(recursive: true);
     final sink = file.openWrite(mode: mode);
+    final iterator = StreamIterator<List<int>>(stream);
     var downloadedBytes = initialBytes;
     try {
-      await for (final chunk in stream) {
+      while (await iterator.moveNext()) {
+        final chunk = iterator.current;
         sink.add(chunk);
         downloadedBytes += chunk.length;
       }
       await sink.flush();
       return downloadedBytes;
+    } catch (_) {
+      await iterator.cancel();
+      rethrow;
     } finally {
       await sink.close();
     }

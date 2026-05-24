@@ -9,7 +9,6 @@ android {
     namespace = "com.example.lan_ai_cli_control"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358"
-    ndkPath = "D:\\Android\\Sdk\\ndk\\28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -22,6 +21,14 @@ android {
 
     val keyPropertiesFile = rootProject.file("key.properties")
     val keyProperties = java.util.Properties()
+    val releaseBuildRequested = gradle.startParameter.taskNames.any {
+        it.contains("Release", ignoreCase = true)
+    }
+    if (releaseBuildRequested && !keyPropertiesFile.exists()) {
+        throw GradleException(
+            "Release APK updates require android/key.properties with the private release signing key."
+        )
+    }
     if (keyPropertiesFile.exists()) {
         keyPropertiesFile.inputStream().use { keyProperties.load(it) }
     }
@@ -53,11 +60,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keyPropertiesFile.exists()) {
-                signingConfigs.getByName("releasePrivate")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("releasePrivate")
         }
     }
 }

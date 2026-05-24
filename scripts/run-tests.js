@@ -9446,6 +9446,55 @@ test('prepare android update writes latest manifest and sha sidecar', async () =
   }
 });
 
+test('android release build requires private signing and portable NDK lookup', () => {
+  const buildGradle = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/build.gradle.kts'),
+    'utf8'
+  );
+
+  assert.equal(buildGradle.includes('ndkPath'), false);
+  assert.equal(buildGradle.includes('signingConfigs.getByName("debug")'), false);
+  assert.match(buildGradle, /throw GradleException\([^)]*key\.properties/);
+  assert.match(buildGradle, /signingConfigs\.getByName\("releasePrivate"\)/);
+});
+
+test('android installer native bridge abandons failed sessions after creation', () => {
+  const activity = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
+    'utf8'
+  );
+  const createSessionIndex = activity.indexOf('installer.createSession(params)');
+  const tryIndex = activity.indexOf('try {', createSessionIndex);
+  const openSessionIndex = activity.indexOf('installer.openSession(sessionId)', createSessionIndex);
+  const abandonIndex = activity.indexOf('installer.abandonSession(sessionId)', createSessionIndex);
+  const commitIndex = activity.indexOf('activeSession.commit(pendingIntent.intentSender)', createSessionIndex);
+  const committedEventIndex = activity.indexOf('sendInstallEvent("committed"', createSessionIndex);
+
+  assert.notEqual(createSessionIndex, -1);
+  assert.notEqual(tryIndex, -1);
+  assert.notEqual(openSessionIndex, -1);
+  assert.notEqual(abandonIndex, -1);
+  assert.notEqual(commitIndex, -1);
+  assert.notEqual(committedEventIndex, -1);
+  assert.ok(tryIndex < openSessionIndex, 'openSession must be inside the abandon-protected try block');
+  assert.ok(openSessionIndex < abandonIndex, 'failed open/write/commit paths must abandon the session');
+  assert.ok(commitIndex < committedEventIndex, 'committed event must not be sent before session.commit succeeds');
+});
+
+test('android update downloader cancels response stream when file write fails', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+  const writeStreamIndex = downloader.indexOf('Future<int> _writeStream(');
+  const writeStreamBody = downloader.slice(writeStreamIndex, downloader.indexOf('\n  Future<int> _resumeLength', writeStreamIndex));
+
+  assert.notEqual(writeStreamIndex, -1);
+  assert.match(writeStreamBody, /final iterator = StreamIterator<List<int>>\(stream\)/);
+  assert.match(writeStreamBody, /await iterator\.cancel\(\)/);
+  assert.equal(writeStreamBody.includes('await for (final chunk in stream)'), false);
+});
+
 test('ASR model API returns metadata and supports full and ranged downloads', async () => {
   const fs = require('node:fs');
   const os = require('node:os');

@@ -131,12 +131,14 @@ class MainActivity : FlutterActivity() {
             setAppPackageName(packageName)
         }
         val sessionId = installer.createSession(params)
-        val session = installer.openSession(sessionId)
+        var session: PackageInstaller.Session? = null
         try {
+            val activeSession = installer.openSession(sessionId)
+            session = activeSession
             apk.inputStream().use { input ->
-                session.openWrite("app_update_$sessionId.apk", 0, apk.length()).use { output ->
+                activeSession.openWrite("app_update_$sessionId.apk", 0, apk.length()).use { output ->
                     input.copyTo(output)
-                    session.fsync(output)
+                    activeSession.fsync(output)
                 }
             }
 
@@ -154,14 +156,18 @@ class MainActivity : FlutterActivity() {
                 flags
             )
 
+            activeSession.commit(pendingIntent.intentSender)
             sendInstallEvent("committed", sessionId, null)
-            session.commit(pendingIntent.intentSender)
             return sessionId
         } catch (error: Exception) {
-            installer.abandonSession(sessionId)
+            try {
+                installer.abandonSession(sessionId)
+            } catch (_: Exception) {
+                // Preserve the original install failure for Dart callers.
+            }
             throw error
         } finally {
-            session.close()
+            session?.close()
         }
     }
 

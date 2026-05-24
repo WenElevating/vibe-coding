@@ -54,18 +54,19 @@ class AndroidPackageInstaller implements PackageInstallerService {
     EventChannel eventChannel = const EventChannel(
       'lan_ai_cli_control/app_update_installer/events',
     ),
-  }) : _methodChannel = methodChannel,
-       _eventChannel = eventChannel;
+  })  : _methodChannel = methodChannel,
+        _eventChannel = eventChannel;
 
   final MethodChannel _methodChannel;
   final EventChannel _eventChannel;
 
+  late final Stream<AndroidInstallEvent> _events = _eventChannel
+      .receiveBroadcastStream()
+      .map((event) =>
+          AndroidInstallEvent.fromJson(Map<Object?, Object?>.from(event)));
+
   @override
-  Stream<AndroidInstallEvent> get events {
-    return _eventChannel.receiveBroadcastStream().map((event) {
-      return AndroidInstallEvent.fromJson(Map<Object?, Object?>.from(event));
-    });
-  }
+  Stream<AndroidInstallEvent> get events => _events;
 
   @override
   Future<bool> canRequestPackageInstalls() async {

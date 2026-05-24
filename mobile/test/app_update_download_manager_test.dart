@@ -45,8 +45,8 @@ void main() {
     expect(result.state, AppUpdateDownloadState.readyToInstall);
     expect(seenHeaders['rangeStart'], '5');
     expect(seenHeaders['ifRange'], manifest.etag);
-    expect(await File(_updateFile(dir, 'app-update-2.apk')).readAsBytes(),
-        bytes);
+    expect(
+        await File(_updateFile(dir, 'app-update-2.apk')).readAsBytes(), bytes);
     expect(await part.exists(), false);
     await temp.delete(recursive: true);
   });
@@ -119,7 +119,8 @@ void main() {
       'versionCode': 4,
       'versionName': '1.4.0',
       'apkUrl': manifest.apkUrl,
-      'sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      'sha256':
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
       'sizeBytes': bytes.length,
       'etag': '"old"',
       'downloadedBytes': 5,
@@ -140,8 +141,8 @@ void main() {
 
     expect(result.state, AppUpdateDownloadState.readyToInstall);
     expect(requestedRange, isNull);
-    expect(await File(_updateFile(dir, 'app-update-4.apk')).readAsBytes(),
-        bytes);
+    expect(
+        await File(_updateFile(dir, 'app-update-4.apk')).readAsBytes(), bytes);
     await temp.delete(recursive: true);
   });
 
@@ -177,8 +178,8 @@ void main() {
 
     expect(result.state, AppUpdateDownloadState.readyToInstall);
     expect(seenRanges, <int?>[5]);
-    expect(await File(_updateFile(dir, 'app-update-5.apk')).readAsBytes(),
-        bytes);
+    expect(
+        await File(_updateFile(dir, 'app-update-5.apk')).readAsBytes(), bytes);
     await temp.delete(recursive: true);
   });
 
@@ -217,8 +218,8 @@ void main() {
 
     expect(result.state, AppUpdateDownloadState.readyToInstall);
     expect(seenRanges, <int?>[5, null]);
-    expect(await File(_updateFile(dir, 'app-update-6.apk')).readAsBytes(),
-        bytes);
+    expect(
+        await File(_updateFile(dir, 'app-update-6.apk')).readAsBytes(), bytes);
     await temp.delete(recursive: true);
   });
 
@@ -254,7 +255,8 @@ void main() {
     await temp.delete(recursive: true);
   });
 
-  test('reconciliation prefers verified apk over partial for same version', () async {
+  test('reconciliation prefers verified apk over partial for same version',
+      () async {
     final temp = await Directory.systemTemp.createTemp('app-update-reconcile-');
     final bytes = utf8.encode('verified');
     final manager = AppUpdateDownloadManager(
@@ -274,6 +276,28 @@ void main() {
 
     expect(await apk.exists(), true);
     expect(await part.exists(), false);
+    await temp.delete(recursive: true);
+  });
+
+  test(
+      'reconciliation ignores unavailable manifest without creating unknown files',
+      () async {
+    final temp =
+        await Directory.systemTemp.createTemp('app-update-unavailable-');
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.empty(), 200),
+      availableBytes: () async => 1000000,
+    );
+
+    await manager.reconcile(const AppUpdateManifest(
+      schemaVersion: 1,
+      platform: 'android',
+      available: false,
+    ));
+
+    expect(await Directory(_updateDir(temp)).exists(), false);
     await temp.delete(recursive: true);
   });
 }
