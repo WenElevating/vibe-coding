@@ -20,6 +20,12 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    val keyPropertiesFile = rootProject.file("key.properties")
+    val keyProperties = java.util.Properties()
+    if (keyPropertiesFile.exists()) {
+        keyPropertiesFile.inputStream().use { keyProperties.load(it) }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.lan_ai_cli_control"
@@ -31,11 +37,27 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("releasePrivate") {
+            if (keyPropertiesFile.exists()) {
+                keyAlias = keyProperties["keyAlias"] as String
+                keyPassword = keyProperties["keyPassword"] as String
+                storeFile = rootProject.file(keyProperties["storeFile"] as String)
+                storePassword = keyProperties["storePassword"] as String
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keyPropertiesFile.exists()) {
+                signingConfigs.getByName("releasePrivate")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

@@ -31,6 +31,9 @@ mobile/pubspec.lock
 mobile/.flutter
 mobile/lib/l10n/app_localizations*.dart
 mobile/android/local.properties
+mobile/android/key.properties
+mobile/android/app/*.jks
+mobile/android/app/*.keystore
 mobile/windows/flutter/generated_plugin_registrant.cc
 mobile/windows/flutter/generated_plugins.cmake
 

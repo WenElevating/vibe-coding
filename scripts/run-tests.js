@@ -9416,6 +9416,36 @@ test('android update APK endpoint rejects retained non-latest versions and path 
   }
 });
 
+test('prepare android update writes latest manifest and sha sidecar', async () => {
+  const childProcess = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-helper-'));
+  const apk = path.join(root, 'app-release.apk');
+  const out = path.join(root, 'artifacts');
+  fs.writeFileSync(apk, Buffer.from('release-apk'));
+
+  const result = childProcess.spawnSync(process.execPath, [
+    path.join(process.cwd(), 'scripts', 'prepare-android-update.js'),
+    '--apk', apk,
+    '--out', out,
+    '--version-name', '1.4.0',
+    '--version-code', '2',
+    '--package', 'com.example.lan_ai_cli_control',
+    '--release-notes', 'test release'
+  ], { encoding: 'utf8' });
+
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    const manifest = JSON.parse(fs.readFileSync(path.join(out, 'latest.json'), 'utf8'));
+    assert.equal(manifest.schemaVersion, 1);
+    assert.equal(manifest.versionCode, 2);
+    assert.equal(manifest.apkUrl, '/api/app-updates/android/apk/2');
+    assert.equal(fs.existsSync(path.join(out, manifest.fileName)), true);
+    assert.equal(fs.existsSync(path.join(out, `${manifest.fileName}.sha256`)), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('ASR model API returns metadata and supports full and ranged downloads', async () => {
   const fs = require('node:fs');
   const os = require('node:os');

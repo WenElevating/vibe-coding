@@ -1,0 +1,4 @@
+storePassword=replace-me
+keyPassword=replace-me
+keyAlias=lan-ai-cli-control
+storeFile=app/release-upload-key.jks
