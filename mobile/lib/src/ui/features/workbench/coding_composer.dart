@@ -188,6 +188,7 @@ class CodingComposer extends StatelessWidget {
                           onCancel: onVoiceCancel),
                       const SizedBox(width: 12),
                       _SendPromptButton(
+                          key: const ValueKey('workbench-send-prompt-button'),
                           enabled: canSend,
                           busy: sending,
                           running: running,
@@ -391,7 +392,8 @@ class ComposerWorkspaceCloud extends StatelessWidget {
 
 class _SendPromptButton extends StatelessWidget {
   const _SendPromptButton(
-      {required this.enabled,
+      {super.key,
+      required this.enabled,
       required this.busy,
       required this.running,
       required this.onTap});

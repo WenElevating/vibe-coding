@@ -787,7 +787,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             await _workbenchViewModel.sendExistingConversationPrompt(
           conversationId: existingConversationId,
           prompt: prompt,
-          restartEventSubscription: _restartConversationEventSubscription,
         );
         if (mounted) {
           setState(() {

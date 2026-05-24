@@ -716,20 +716,13 @@ class WorkbenchViewModel extends ChangeNotifier {
   Future<ConversationSummary> sendExistingConversationPrompt({
     required String conversationId,
     required String prompt,
-    Future<void> Function()? restartEventSubscription,
   }) {
     final repository = _requireConversationRepository();
-    final send = _sendConversationMessageWithDrafts(
+    return _sendConversationMessageWithDrafts(
       repository,
       conversationId,
       prompt,
     );
-    final restart = restartEventSubscription?.call();
-    if (restart == null) return send;
-    return Future.wait<Object?>(<Future<Object?>>[
-      restart.then<Object?>((_) => null),
-      send.then<Object?>((conversation) => conversation),
-    ]).then((results) => results[1] as ConversationSummary);
   }
 
   Future<ConversationSummary> _sendConversationMessageWithDrafts(

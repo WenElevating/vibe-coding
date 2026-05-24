@@ -433,6 +433,7 @@ class _LifecycleConversationRepository implements ConversationRepository {
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
   int watchCalls = 0;
+  String? sentText;
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -494,8 +495,16 @@ class _LifecycleConversationRepository implements ConversationRepository {
   Future<ConversationSummary> sendConversationMessage(
     String conversationId,
     ConversationMessageSendRequest request,
-  ) async =>
-      throw UnimplementedError();
+  ) async {
+    sentText = request.text;
+    return _conversationSummary(
+      id: conversationId,
+      workspaceId: 'workspace_1',
+      status: 'running',
+      sessionBinding: 'confirmed',
+      userMessageCount: 2,
+    );
+  }
 
   @override
   Future<ConversationSummary> updateConversationModel(
@@ -1723,6 +1732,118 @@ void main() {
     await pumpUntilWatchCalls(2);
     expect(conversationRepository.watchCalls, 2);
     expect(conversationRepository.afterSeqs, <int>[0, 0]);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('sending existing conversation keeps current event subscription',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository();
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilTextField() async {
+      for (var attempt = 0;
+          attempt < 20 && find.byType(TextField).evaluate().isEmpty;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilSentText() async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.sentText == null;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_send_existing',
+              workspaceId: 'workspace_1',
+              status: 'idle',
+              sessionBinding: 'confirmed',
+              userMessageCount: 1,
+              title: 'Follow-up task',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Follow-up task'));
+    await pumpUntilWatchCalls(1);
+
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    await pumpUntilTextField();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'continue');
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await pumpUntilSentText();
+
+    expect(conversationRepository.sentText, 'continue');
+    final composer = tester.widget<TextField>(find.byType(TextField));
+    expect(composer.controller?.text, isEmpty);
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

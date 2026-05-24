@@ -180,3 +180,31 @@ flutter test --no-pub test\daemon_notification_client_test.dart test\coding_work
 ```
 
 - Last verified: 2026-05-24
+
+## Symptom: Workbench Send Reports StreamSink Is Closed
+
+- Symptom: a prompt or attachment send succeeds in daemon persistence, but
+  mobile records `Bad state: StreamSink is closed` under `operation=sendMessage`
+  and leaves the draft visible as a failed send.
+- Action: verify persisted `conversation_events` before debugging attachment
+  upload. If the user message and later assistant message are present, inspect
+  mobile event subscription lifecycle. Sending to an existing conversation
+  should not cancel/restart the current WebSocket event subscription; only new
+  conversation navigation, acknowledgement timeout recovery, lifecycle resume,
+  and approval recovery should restart it. Also check that cancelling the last
+  watcher clears the cached notification socket reference before closing it, so
+  a quick resubscribe cannot write `subscribe` to an already closed sink.
+- Related files:
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart),
+  [daemon_notification_client.dart](../../mobile/lib/src/services/daemon_notification_client.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+dart analyze lib test
+flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "resubscribing after last watcher cancel waits for a fresh socket"
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "sending existing conversation keeps current event subscription"
+```
+
+- Last verified: 2026-05-24

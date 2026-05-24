@@ -758,6 +758,69 @@ void main() {
     await client.close();
   });
 
+  test('resubscribing after last watcher cancel waits for a fresh socket',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    var connectCount = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          connectCount += 1;
+          final socket = FakeNotificationSocket(
+            clientCloseCompletesStream: connectCount != 1,
+            throwOnAddAfterClose: true,
+          );
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
+    );
+
+    final firstSubscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+    await waitFor(
+      () => sockets.length == 1 && sockets.single.sentJson.length == 1,
+    );
+
+    await firstSubscription.cancel();
+    expect(sockets.single.closeCalls, 1);
+
+    StreamSubscription<ConversationEvent>? secondSubscription;
+    Object? subscribeError;
+    try {
+      try {
+        secondSubscription = client
+            .watchConversationEvents('conv_1', afterSeq: 7)
+            .listen((_) {});
+      } catch (error) {
+        subscribeError = error;
+      }
+      expect(subscribeError, isNull);
+      expect(
+        sockets.single.sentJson.where((frame) => frame['type'] == 'subscribe'),
+        hasLength(1),
+      );
+
+      await sockets.single.serverClose(1000, 'closed');
+      await waitFor(
+        () => sockets.length == 2 && sockets[1].sentJson.isNotEmpty,
+      );
+      expect(sockets[1].sentJson.single['type'], 'subscribe');
+      expect(sockets[1].sentJson.single['afterSeq'], 7);
+    } finally {
+      if (sockets.isNotEmpty && !sockets.first.isStreamClosed) {
+        await sockets.first.serverClose(1000, 'cleanup');
+      }
+
+      await secondSubscription?.cancel();
+      await client.close();
+    }
+  });
+
   test('ignores malformed frames and emits later valid events', () async {
     final socket = FakeNotificationSocket();
     final client = DaemonNotificationClient(
@@ -830,12 +893,22 @@ void main() {
 }
 
 class FakeNotificationSocket implements NotificationSocket {
+  FakeNotificationSocket({
+    this.clientCloseCompletesStream = true,
+    this.throwOnAddAfterClose = false,
+  });
+
   final StreamController<Object?> _incoming = StreamController<Object?>();
   final List<Map<String, Object?>> sentJson = <Map<String, Object?>>[];
+  final bool clientCloseCompletesStream;
+  final bool throwOnAddAfterClose;
   Map<String, String> connectHeaders = <String, String>{};
   int? _closeCode;
   String? _closeReason;
   int closeCalls = 0;
+  bool _clientClosed = false;
+
+  bool get isStreamClosed => _incoming.isClosed;
 
   @override
   Stream<Object?> get stream => _incoming.stream;
@@ -848,6 +921,9 @@ class FakeNotificationSocket implements NotificationSocket {
 
   @override
   void add(String data) {
+    if (throwOnAddAfterClose && _clientClosed) {
+      throw StateError('StreamSink is closed');
+    }
     sentJson.add(jsonObject(data));
   }
 
@@ -872,8 +948,11 @@ class FakeNotificationSocket implements NotificationSocket {
 
   @override
   Future<void> close([int? code, String? reason]) async {
-    if (!_incoming.isClosed) {
+    if (!_clientClosed) {
+      _clientClosed = true;
       closeCalls += 1;
+    }
+    if (clientCloseCompletesStream && !_incoming.isClosed) {
       await _incoming.close();
     }
   }

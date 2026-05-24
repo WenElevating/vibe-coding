@@ -380,6 +380,7 @@ class DaemonNotificationClient implements NotificationService {
     if (_conversationRoutes.isEmpty) {
       final socket = _socket;
       if (socket != null) {
+        _socket = null;
         await _closeSocket(socket);
       }
     }
