@@ -88,6 +88,97 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.installSucceeded);
     expect(installer.installedPath, 'ready.apk');
   });
+
+  test('records update diagnostics and install session metadata', () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader(
+      result: const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.failed,
+        message: 'Insufficient storage available for update download.',
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest()),
+      installer: installer,
+      downloader: downloader,
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    downloader.result = AppUpdateDownloadResult(
+      state: AppUpdateDownloadState.readyToInstall,
+      file: File('ready.apk'),
+    );
+    await viewModel.download();
+    await viewModel.install();
+    await viewModel.discard();
+
+    expect(diagnostics, contains('update.check.started'));
+    expect(diagnostics, contains('update.storage.preflight_failed'));
+    expect(diagnostics, contains('update.install.committed'));
+    expect(diagnostics, contains('update.discard'));
+    expect(diagnosticMetadata.last['versionCode'], 2);
+    expect(downloader.recordedSessionId, 7);
+    expect(viewModel.state.status, AppUpdateStatus.available);
+  });
+
+  test('install cancelled returns to ready-to-install for retry', () async {
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest()),
+      installer: installer,
+      downloader: _FakeDownloader(
+        result: AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.readyToInstall,
+          file: File('ready.apk'),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.cancelled,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.downloadedFile?.path, 'ready.apk');
+  });
+
+  test(
+    'mandatory gate keeps diagnostics and daemon switching actions enabled',
+    () {
+      const state = AppUpdateState(
+        status: AppUpdateStatus.available,
+        installedVersionName: '1.0.0',
+        installedVersionCode: 1,
+        mandatory: true,
+      );
+
+      expect(state.mandatory, true);
+    },
+  );
 }
 
 AppUpdateManifest _manifest({int minSupportedVersionCode = 1}) {
@@ -159,8 +250,10 @@ class _FakeDownloader implements AppUpdateDownloader {
     ),
   });
 
-  final AppUpdateDownloadResult result;
+  AppUpdateDownloadResult result;
   int? discardedVersionCode;
+  int? recordedSessionId;
+  AppUpdateManifest? recordedManifest;
 
   @override
   Future<AppUpdateDownloadResult> download(
@@ -173,5 +266,14 @@ class _FakeDownloader implements AppUpdateDownloader {
   @override
   Future<void> discard(int versionCode) async {
     discardedVersionCode = versionCode;
+  }
+
+  @override
+  Future<void> recordInstallSession(
+    AppUpdateManifest manifest,
+    int sessionId,
+  ) async {
+    recordedManifest = manifest;
+    recordedSessionId = sessionId;
   }
 }

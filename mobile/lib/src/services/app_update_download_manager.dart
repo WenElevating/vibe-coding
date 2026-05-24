@@ -28,15 +28,13 @@ abstract class AppUpdateDownloader {
     Uri daemonBaseUri,
   );
 
+  Future<void> recordInstallSession(AppUpdateManifest manifest, int sessionId);
+
   Future<void> discard(int versionCode);
 }
 
 class AppUpdateDownloadResult {
-  const AppUpdateDownloadResult({
-    required this.state,
-    this.file,
-    this.message,
-  });
+  const AppUpdateDownloadResult({required this.state, this.file, this.message});
 
   final AppUpdateDownloadState state;
   final File? file;
@@ -192,6 +190,24 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     await _deleteIfExists(paths.apk);
   }
 
+  Future<void> recordInstallSession(
+    AppUpdateManifest manifest,
+    int sessionId,
+  ) async {
+    final validationError = _validateDownloadableManifest(manifest);
+    if (validationError != null) {
+      throw AppUpdateDownloadException(validationError);
+    }
+    final paths = await _pathsFor(manifest.versionCode!);
+    final metadata = await _readMetadata(paths.metadata);
+    await _writeMetadata(
+      paths.metadata,
+      manifest,
+      metadata?.downloadedBytes ?? manifest.sizeBytes!,
+      installSessionId: sessionId,
+    );
+  }
+
   static String sha256HexForTest(List<int> bytes) =>
       sha256.convert(bytes).toString();
 
@@ -217,8 +233,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         await _deleteIfExists(paths.part);
         await _deleteIfExists(paths.metadata);
         final available = await _availableBytes();
-        final requiredBytes =
-            manifest.sizeBytes! + _storageSafetyMarginBytes;
+        final requiredBytes = manifest.sizeBytes! + _storageSafetyMarginBytes;
         if (available < requiredBytes) {
           return const AppUpdateDownloadResult(
             state: AppUpdateDownloadState.failed,
@@ -382,8 +397,9 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   Future<void> _writeMetadata(
     File file,
     AppUpdateManifest manifest,
-    int downloadedBytes,
-  ) async {
+    int downloadedBytes, {
+    int? installSessionId,
+  }) async {
     final metadata = AppUpdateDownloadMetadata(
       versionCode: manifest.versionCode!,
       versionName: manifest.versionName!,
@@ -393,6 +409,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       etag: manifest.etag!,
       downloadedBytes: downloadedBytes,
       updatedAt: _now().toUtc(),
+      installSessionId: installSessionId,
     );
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(metadata.toJson()));

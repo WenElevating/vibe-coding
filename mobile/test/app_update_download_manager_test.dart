@@ -253,6 +253,29 @@ void main() {
     expect(await part.exists(), true);
     await temp.delete(recursive: true);
   });
+
+  test('reconciliation prefers verified apk over partial for same version', () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-reconcile-');
+    final bytes = utf8.encode('verified');
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.empty(), 200),
+      availableBytes: () async => 1000000,
+    );
+    final manifest = _manifest(bytes, versionCode: 8);
+    final dir = Directory(_updateDir(temp))..createSync(recursive: true);
+    final apk = File(_updateFile(dir, 'app-update-8.apk'));
+    final part = File(_updateFile(dir, 'app-update-8.apk.part'));
+    await apk.writeAsBytes(bytes);
+    await part.writeAsBytes(utf8.encode('partial'));
+
+    await manager.reconcile(manifest);
+
+    expect(await apk.exists(), true);
+    expect(await part.exists(), false);
+    await temp.delete(recursive: true);
+  });
 }
 
 AppUpdateManifest _manifest(List<int> bytes, {int versionCode = 2}) {

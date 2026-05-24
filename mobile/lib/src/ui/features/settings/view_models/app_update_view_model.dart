@@ -72,6 +72,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     required this.installer,
     required this.downloader,
     required this.daemonBaseUri,
+    this.recordDiagnostic,
   }) : state = AppUpdateState(
          status: AppUpdateStatus.idle,
          installedVersionName: installedVersionName,
@@ -86,12 +87,15 @@ class AppUpdateViewModel extends ChangeNotifier {
   final PackageInstallerService installer;
   final AppUpdateDownloader downloader;
   final Uri daemonBaseUri;
+  final void Function(String event, Map<String, Object?> metadata)?
+  recordDiagnostic;
   late final StreamSubscription<AndroidInstallEvent> _installSubscription;
   bool _disposed = false;
 
   AppUpdateState state;
 
   Future<void> checkForUpdates() async {
+    _recordDiagnostic('update.check.started', const <String, Object?>{});
     _set(state.copyWith(status: AppUpdateStatus.checking));
     try {
       final manifest = await repository.fetchLatest();
@@ -123,32 +127,48 @@ class AppUpdateViewModel extends ChangeNotifier {
     final manifest = state.manifest;
     if (manifest == null) return;
     _set(state.copyWith(status: AppUpdateStatus.downloading));
-    final result = await downloader.download(manifest, daemonBaseUri);
-    _set(
-      state.copyWith(
-        status: switch (result.state) {
-          AppUpdateDownloadState.readyToInstall =>
-            AppUpdateStatus.readyToInstall,
-          AppUpdateDownloadState.paused => AppUpdateStatus.paused,
-          AppUpdateDownloadState.verifying => AppUpdateStatus.verifying,
-          AppUpdateDownloadState.downloading => AppUpdateStatus.downloading,
-          AppUpdateDownloadState.failed => AppUpdateStatus.failed,
-        },
-        downloadedFile: result.file,
-        errorMessage: result.message,
-      ),
-    );
+    try {
+      final result = await downloader.download(manifest, daemonBaseUri);
+      if (_isStoragePreflightFailure(result)) {
+        _recordDiagnostic('update.storage.preflight_failed', {
+          'versionCode': manifest.versionCode,
+        });
+      }
+      _set(
+        state.copyWith(
+          status: switch (result.state) {
+            AppUpdateDownloadState.readyToInstall =>
+              AppUpdateStatus.readyToInstall,
+            AppUpdateDownloadState.paused => AppUpdateStatus.paused,
+            AppUpdateDownloadState.verifying => AppUpdateStatus.verifying,
+            AppUpdateDownloadState.downloading => AppUpdateStatus.downloading,
+            AppUpdateDownloadState.failed => AppUpdateStatus.failed,
+          },
+          downloadedFile: result.file,
+          errorMessage: result.message,
+        ),
+      );
+    } catch (error) {
+      _set(
+        state.copyWith(status: AppUpdateStatus.failed, errorMessage: '$error'),
+      );
+    }
   }
 
   Future<void> install() async {
     final file = state.downloadedFile;
+    final manifest = state.manifest;
     if (file == null) return;
     if (!await installer.canRequestPackageInstalls()) {
       _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
       return;
     }
     _set(state.copyWith(status: AppUpdateStatus.installing));
-    await installer.installApk(file.path);
+    final sessionId = await installer.installApk(file.path);
+    if (manifest != null && sessionId >= 0) {
+      await downloader.recordInstallSession(manifest, sessionId);
+    }
+    _recordDiagnostic('update.install.committed', {'sessionId': sessionId});
   }
 
   Future<void> discard() async {
@@ -157,14 +177,20 @@ class AppUpdateViewModel extends ChangeNotifier {
     if (versionCode != null) {
       await downloader.discard(versionCode);
     }
-    state = AppUpdateState(
-      status: AppUpdateStatus.cancelled,
-      installedVersionName: installedVersionName,
-      installedVersionCode: installedVersionCode,
-      manifest: manifest,
-      mandatory: state.mandatory,
+    _recordDiagnostic('update.discard', {'versionCode': versionCode});
+    final nextStatus =
+        manifest != null && manifest.isNewerThan(installedVersionCode)
+        ? AppUpdateStatus.available
+        : AppUpdateStatus.idle;
+    _set(
+      AppUpdateState(
+        status: nextStatus,
+        installedVersionName: installedVersionName,
+        installedVersionCode: installedVersionCode,
+        manifest: manifest,
+        mandatory: state.mandatory,
+      ),
     );
-    notifyListeners();
   }
 
   Future<void> openInstallPermissionSettings() {
@@ -172,14 +198,32 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void _handleInstallEvent(AndroidInstallEvent event) {
+    if (event.status == AndroidInstallStatus.cancelled) {
+      _set(state.copyWith(status: AppUpdateStatus.installCancelled));
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.readyToInstall,
+          errorMessage: event.message ?? 'Install cancelled.',
+        ),
+      );
+      return;
+    }
     final status = switch (event.status) {
       AndroidInstallStatus.committed => AppUpdateStatus.installing,
       AndroidInstallStatus.pendingUserAction => AppUpdateStatus.installing,
       AndroidInstallStatus.success => AppUpdateStatus.installSucceeded,
-      AndroidInstallStatus.cancelled => AppUpdateStatus.installCancelled,
       AndroidInstallStatus.failed => AppUpdateStatus.installFailed,
     };
     _set(state.copyWith(status: status, errorMessage: event.message));
+  }
+
+  bool _isStoragePreflightFailure(AppUpdateDownloadResult result) {
+    return result.state == AppUpdateDownloadState.failed &&
+        (result.message ?? '').toLowerCase().contains('storage');
+  }
+
+  void _recordDiagnostic(String event, Map<String, Object?> metadata) {
+    recordDiagnostic?.call(event, metadata);
   }
 
   void _set(AppUpdateState next) {
