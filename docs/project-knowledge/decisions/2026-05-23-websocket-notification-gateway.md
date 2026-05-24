@@ -43,6 +43,11 @@ existing subscription.
 - Mobile recovery logic must not attribute ambiguous server frames to the only
   active conversation. Route-specific errors and replay recovery need an
   explicit `scope.conversationId` or `payload.conversationId`.
+- Ambiguous non-retryable notification errors without route scope are treated
+  as socket-level recovery signals: reconnect, but do not close active
+  conversation streams.
+- Recovery backfill across active conversation routes is concurrency-limited so
+  reconnect storms do not fan out unbounded HTTP backfills.
 
 ## Evidence
 
@@ -66,6 +71,8 @@ dart analyze lib test
 flutter test --no-pub test\daemon_notification_client_test.dart test\daemon_conversation_repository_test.dart test\coding_workbench_controller_test.dart -r expanded
 flutter test --no-pub test\widget_test.dart -r expanded --plain-name "workbench lifecycle restarts event subscription after background"
 flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "unscoped replay truncated does not backfill the only active route"
+flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "unscoped non-retryable errors reconnect without closing active routes"
+flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "limits concurrent route backfills after socket failures"
 ```
 
 ## Re-evaluate When

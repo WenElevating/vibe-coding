@@ -490,6 +490,79 @@ void main() {
     await client.close();
   });
 
+  test('unscoped non-retryable errors reconnect without closing active routes',
+      () async {
+    final sockets = <FakeNotificationSocket>[];
+    final delay = ControlledDelay();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        reconnectDelays: const <Duration>[Duration(milliseconds: 25)],
+        reconnectDelayWaiter: delay.wait,
+      ),
+    );
+
+    final conv1Errors = <Object>[];
+    final conv2Errors = <Object>[];
+    final conv1Events = <ConversationEvent>[];
+    final conv2Events = <ConversationEvent>[];
+    final conv1Subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(conv1Events.add, onError: conv1Errors.add);
+    final conv2Subscription = client
+        .watchConversationEvents('conv_2', afterSeq: 3)
+        .listen(conv2Events.add, onError: conv2Errors.add);
+
+    try {
+      await waitFor(
+          () => sockets.length == 1 && sockets.single.sentJson.length == 2);
+      sockets.single.serverAddJson(<String, Object?>{
+        'type': 'error',
+        'code': 'FORBIDDEN',
+        'message': 'Ambiguous global error.',
+      });
+
+      await waitFor(
+        () =>
+            conv1Errors.isNotEmpty ||
+            conv2Errors.isNotEmpty ||
+            delay.started.isCompleted,
+      );
+      expect(conv1Errors, isEmpty);
+      expect(conv2Errors, isEmpty);
+      expect(delay.started.isCompleted, isTrue);
+      delay.complete();
+
+      await waitFor(
+          () => sockets.length == 2 && sockets[1].sentJson.length == 2);
+      sockets[1].serverAddJson(eventFrame(
+        conversationId: 'conv_1',
+        seq: 8,
+        text: 'one',
+      ));
+      sockets[1].serverAddJson(eventFrame(
+        conversationId: 'conv_2',
+        seq: 4,
+        text: 'two',
+      ));
+      await waitFor(() => conv1Events.length == 1 && conv2Events.length == 1);
+      expect(conv1Events.single.text, 'one');
+      expect(conv2Events.single.text, 'two');
+    } finally {
+      delay.complete();
+      await conv1Subscription.cancel();
+      await conv2Subscription.cancel();
+      await client.close();
+    }
+  });
+
   test('reconnects after connector failure and emits later events', () async {
     final sockets = <FakeNotificationSocket>[];
     final delay = ControlledDelay();
@@ -689,6 +762,85 @@ void main() {
     await conv1Subscription.cancel();
     await conv2Subscription.cancel();
     await client.close();
+  });
+
+  test('limits concurrent route backfills after socket failures', () async {
+    final allowFirstConnect = Completer<void>();
+    final fourBackfillsStarted = Completer<void>();
+    final sockets = <FakeNotificationSocket>[];
+    final backfillStarts = <String>[];
+    final backfillReleases = <Completer<void>>[];
+    var attempts = 0;
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (conversationId, {required afterSeq}) async {
+        backfillStarts.add(conversationId);
+        final release = Completer<void>();
+        backfillReleases.add(release);
+        if (backfillStarts.length == 4 && !fourBackfillsStarted.isCompleted) {
+          fourBackfillsStarted.complete();
+        }
+        await release.future;
+        return <ConversationEvent>[
+          ConversationEvent.fromJson(<String, Object?>{
+            'seq': afterSeq + 1,
+            'conversationId': conversationId,
+            'type': 'assistant.message',
+            'createdAt': '2026-05-23T05:18:14.000Z',
+            'text': conversationId,
+          }),
+        ];
+      },
+      config: NotificationClientConfig(
+        connector: (_, __) async {
+          attempts += 1;
+          if (attempts == 1) {
+            await allowFirstConnect.future;
+            throw const SocketConnectionFailure();
+          }
+          final socket = FakeNotificationSocket();
+          sockets.add(socket);
+          return socket;
+        },
+        backfillAfterFailedAttempts: 1,
+        reconnectDelays: const <Duration>[Duration.zero],
+      ),
+    );
+
+    final subscriptions = <StreamSubscription<ConversationEvent>>[];
+    try {
+      for (var index = 1; index <= 5; index += 1) {
+        subscriptions.add(client
+            .watchConversationEvents('conv_$index', afterSeq: index)
+            .listen((_) {}));
+      }
+
+      allowFirstConnect.complete();
+      await fourBackfillsStarted.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(backfillStarts.length, 4);
+
+      for (final release in List<Completer<void>>.of(backfillReleases)) {
+        release.complete();
+      }
+      await waitFor(() => backfillStarts.length == 5);
+      for (final release in List<Completer<void>>.of(backfillReleases)) {
+        if (!release.isCompleted) release.complete();
+      }
+      await waitFor(() => sockets.length == 1);
+    } finally {
+      if (!allowFirstConnect.isCompleted) {
+        allowFirstConnect.complete();
+      }
+      for (final release in backfillReleases) {
+        if (!release.isCompleted) release.complete();
+      }
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+      await client.close();
+    }
   });
 
   test('failed recovery backfill still waits before reconnecting', () async {

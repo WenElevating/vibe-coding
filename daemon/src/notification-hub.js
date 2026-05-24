@@ -402,7 +402,7 @@ class NotificationHub {
       scope: { conversationId: event.conversationId },
       event
     });
-    for (const subscription of subscriptions) {
+    for (const subscription of Array.from(subscriptions)) {
       const connection = subscription.connection;
       if (!connection || connection.closed) continue;
       if (!this.isCurrentSubscription(connection, subscription)) continue;

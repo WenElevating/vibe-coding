@@ -21,6 +21,7 @@ typedef NotificationReconnectDelayWaiter = Future<void> Function(
 
 // Empty reconnectDelays still back off so persistent failures cannot spin.
 const Duration _fallbackReconnectDelay = Duration(milliseconds: 100);
+const int _maxConcurrentBackfills = 4;
 const List<Duration> _defaultReconnectDelays = <Duration>[
   Duration(seconds: 1),
   Duration(seconds: 2),
@@ -303,10 +304,9 @@ class DaemonNotificationClient implements NotificationService {
       );
       final route = _routeForFrame(frame);
       if (route == null) {
-        await _failAllRoutes(error);
-      } else {
-        await _failRoute(route, error);
+        return _SocketFrameAction.reconnect(skipDelay: false);
       }
+      await _failRoute(route, error);
     }
     return _SocketFrameAction.continueListening;
   }
@@ -405,11 +405,16 @@ class DaemonNotificationClient implements NotificationService {
   }
 
   Future<bool> _backfillAllRoutes() async {
-    final results = await Future.wait<bool>(
-      List<_ConversationRoute>.of(_conversationRoutes.values)
-          .map(_backfillRoute),
-    );
-    return results.any((advanced) => advanced);
+    var advanced = false;
+    final routes = List<_ConversationRoute>.of(_conversationRoutes.values);
+    for (var index = 0;
+        index < routes.length;
+        index += _maxConcurrentBackfills) {
+      final batch = routes.skip(index).take(_maxConcurrentBackfills);
+      final results = await Future.wait<bool>(batch.map(_backfillRoute));
+      advanced = results.any((result) => result) || advanced;
+    }
+    return advanced;
   }
 
   Future<bool> _tryBackfillAllRoutes() async {
@@ -460,15 +465,6 @@ class DaemonNotificationClient implements NotificationService {
     _conversationRoutes.remove(route.conversationId);
     _wakeConnectionLoop();
     await route.addErrorAndClose(error);
-  }
-
-  Future<void> _failAllRoutes(DaemonNotificationException error) async {
-    final routes = List<_ConversationRoute>.of(_conversationRoutes.values);
-    _conversationRoutes.clear();
-    _wakeConnectionLoop();
-    for (final route in routes) {
-      await route.addErrorAndClose(error);
-    }
   }
 
   Duration _delayForAttempt(int attempt) {
