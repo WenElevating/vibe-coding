@@ -1,11 +1,13 @@
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
+import '../data/repositories/daemon_app_update_repository.dart';
 import '../data/repositories/daemon_auth_repository.dart';
 import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../domain/repositories/adapter_repository.dart';
+import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/conversation_repository.dart';
 import '../domain/repositories/daemon_connection_config_repository.dart';
@@ -13,6 +15,7 @@ import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
 import '../models/protocol.dart';
+import '../services/app_update_client.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
@@ -119,9 +122,16 @@ class DataDependencies {
 
   ConnectedDataDependencies forDaemonClient(DaemonClient client) {
     final notificationClient = createNotificationClient(client);
+    final appUpdateClient = AppUpdateClient.authorized(
+      baseUri: client.baseUri,
+      authorizedGet: (path, {required headers}) =>
+          client.getAuthorizedRaw(path, headers: headers),
+      authorizedStreamSend: client.sendAuthorizedStream,
+    );
     return ConnectedDataDependencies(
       authRepository: DaemonAuthRepository(client: client),
       adapterRepository: DaemonAdapterRepository(client: client),
+      appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
       conversationRepository: DaemonConversationRepository(
         client: client,
         notificationService: notificationClient,
@@ -138,6 +148,7 @@ class ConnectedDataDependencies {
   ConnectedDataDependencies({
     required this.authRepository,
     required this.adapterRepository,
+    required this.appUpdateRepository,
     required this.conversationRepository,
     required this.diagnosticsRepository,
     required this.runRepository,
@@ -147,6 +158,7 @@ class ConnectedDataDependencies {
 
   final AuthRepository authRepository;
   final AdapterRepository adapterRepository;
+  final AppUpdateRepository appUpdateRepository;
   final ConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
   final RunRepository runRepository;

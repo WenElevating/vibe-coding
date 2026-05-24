@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/daemon_connection_config_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -18,6 +19,8 @@ void main() {
       tokenStore: MemoryTokenStore(),
     );
     final connectedData = data.forDaemonClient(client);
+
+    expect(connectedData.appUpdateRepository, isA<DaemonAppUpdateRepository>());
 
     await connectedData.dispose();
     await connectedData.dispose();

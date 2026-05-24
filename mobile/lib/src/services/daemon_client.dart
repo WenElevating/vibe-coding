@@ -141,6 +141,40 @@ class DaemonClient
   AsrModelClient createAsrModelClient() => AsrModelClient(
       baseUri: baseUri, tokenProvider: () => _token, httpClient: _httpClient);
 
+  Future<http.Response> getAuthorizedRaw(
+    String path, {
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    Future<http.Response> sendOnce() => _request(() => _httpClient.get(
+          baseUri.resolve(path),
+          headers: <String, String>{..._headers(authorize: true), ...headers},
+        ));
+
+    final response = await sendOnce();
+    if (_isAuthRequired(response)) {
+      await _refreshAfterAuthRequired();
+      return sendOnce();
+    }
+    return response;
+  }
+
+  Future<http.StreamedResponse> sendAuthorizedStream(
+    http.BaseRequest Function(Uri baseUri, Map<String, String> headers) build,
+  ) async {
+    Future<http.StreamedResponse> sendOnce() {
+      final request = build(baseUri, _multipartHeaders(authorize: true));
+      return _requestStream(() => _httpClient.send(request));
+    }
+
+    final response = await sendOnce();
+    if (response.statusCode == 401) {
+      await response.stream.drain<void>();
+      await _refreshAfterAuthRequired();
+      return sendOnce();
+    }
+    return response;
+  }
+
   void close() {
     if (_closed) return;
     _closed = true;
