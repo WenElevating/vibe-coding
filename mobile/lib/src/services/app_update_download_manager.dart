@@ -22,6 +22,15 @@ enum AppUpdateDownloadState {
   failed,
 }
 
+abstract class AppUpdateDownloader {
+  Future<AppUpdateDownloadResult> download(
+    AppUpdateManifest manifest,
+    Uri daemonBaseUri,
+  );
+
+  Future<void> discard(int versionCode);
+}
+
 class AppUpdateDownloadResult {
   const AppUpdateDownloadResult({
     required this.state,
@@ -43,7 +52,7 @@ class AppUpdateDownloadException implements Exception {
   String toString() => message;
 }
 
-class AppUpdateDownloadManager {
+class AppUpdateDownloadManager implements AppUpdateDownloader {
   AppUpdateDownloadManager({
     required Directory cacheDirectory,
     required AppUpdateStreamOpener openStream,

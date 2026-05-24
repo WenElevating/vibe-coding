@@ -14,6 +14,7 @@ class SettingsPage extends StatelessWidget {
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
+    this.appUpdateViewModel,
     required this.onPermissionModeChanged,
     required this.onStreamOutputChanged,
     required this.onExpandThinkingChanged,
@@ -25,6 +26,7 @@ class SettingsPage extends StatelessWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final settings_feature.AppUpdateViewModel? appUpdateViewModel;
   final ValueChanged<String> onPermissionModeChanged;
   final ValueChanged<bool> onStreamOutputChanged;
   final ValueChanged<bool> onExpandThinkingChanged;
@@ -38,6 +40,7 @@ class SettingsPage extends StatelessWidget {
       streamOutput: streamOutput,
       expandThinking: expandThinking,
       permissionMode: permissionMode,
+      appUpdateViewModel: appUpdateViewModel,
       onPermissionModeChanged: onPermissionModeChanged,
       onStreamOutputChanged: onStreamOutputChanged,
       onExpandThinkingChanged: onExpandThinkingChanged,

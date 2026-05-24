@@ -1,3 +1,5 @@
+import 'package:path_provider/path_provider.dart';
+
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_app_update_repository.dart';
@@ -15,7 +17,9 @@ import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
 import '../models/protocol.dart';
+import '../services/android_package_installer.dart';
 import '../services/app_update_client.dart';
+import '../services/app_update_download_manager.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
@@ -25,6 +29,7 @@ import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/diagnostics/diagnostics.dart';
 import '../ui/features/run_detail/run_detail.dart';
+import '../ui/features/settings/settings.dart';
 import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
@@ -208,6 +213,7 @@ class FeatureDependencies {
     required this.createDaemonConnectionViewModel,
     required this.createDiagnosticsViewModel,
     required this.createRunDetailViewModel,
+    required this.createAppUpdateViewModel,
     required this.createWorkbenchDependencies,
   });
 
@@ -227,6 +233,33 @@ class FeatureDependencies {
           run: run,
           runRepository: connectedData.runRepository,
         ),
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async {
+          final installer = AndroidPackageInstaller();
+          final cacheDirectory = await getTemporaryDirectory();
+          final appUpdateClient = AppUpdateClient.authorized(
+            baseUri: client.baseUri,
+            authorizedGet: (path, {required headers}) =>
+                client.getAuthorizedRaw(path, headers: headers),
+            authorizedStreamSend: client.sendAuthorizedStream,
+          );
+          return AppUpdateViewModel(
+            installedVersionCode: installedVersionCode,
+            installedVersionName: installedVersionName,
+            repository: connectedData.appUpdateRepository,
+            installer: installer,
+            downloader: AppUpdateDownloadManager(
+              cacheDirectory: cacheDirectory,
+              openStream: appUpdateClient.openApkStream,
+              availableBytes: installer.availableBytes,
+            ),
+            daemonBaseUri: client.baseUri,
+          );
+        },
         createWorkbenchDependencies: (client, connectedData) {
           return WorkbenchDependencies(
             adapterRepository: connectedData.adapterRepository,
@@ -250,6 +283,12 @@ class FeatureDependencies {
     ConnectedDataDependencies connectedData,
     RunSummary run,
   ) createRunDetailViewModel;
+  final Future<AppUpdateViewModel> Function({
+    required DaemonClient client,
+    required ConnectedDataDependencies connectedData,
+    required int installedVersionCode,
+    required String installedVersionName,
+  }) createAppUpdateViewModel;
   final WorkbenchDependencies Function(
     DaemonClient client,
     ConnectedDataDependencies connectedData,

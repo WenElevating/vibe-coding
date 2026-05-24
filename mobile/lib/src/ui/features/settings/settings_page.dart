@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
@@ -9,6 +11,8 @@ import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_display.dart';
+import 'view_models/app_update_view_model.dart';
+import 'widgets/app_update_panel.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage(
@@ -19,6 +23,7 @@ class SettingsPage extends StatelessWidget {
       required this.streamOutput,
       required this.expandThinking,
       required this.permissionMode,
+      this.appUpdateViewModel,
       required this.onPermissionModeChanged,
       required this.onStreamOutputChanged,
       required this.onExpandThinkingChanged});
@@ -28,6 +33,7 @@ class SettingsPage extends StatelessWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final AppUpdateViewModel? appUpdateViewModel;
   final ValueChanged<String> onPermissionModeChanged;
   final ValueChanged<bool> onStreamOutputChanged;
   final ValueChanged<bool> onExpandThinkingChanged;
@@ -86,6 +92,9 @@ class SettingsPage extends StatelessWidget {
                   : l10n.settingsGitFiles(data.gitStatus?.files.length ?? 0)),
         ]),
         const SizedBox(height: 20),
+        Subhead('App update'),
+        _SettingsAppUpdatePanel(viewModel: appUpdateViewModel),
+        const SizedBox(height: 20),
         Subhead(l10n.settingsAboutSection),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
@@ -112,6 +121,40 @@ class SettingsPage extends StatelessWidget {
             onTap: () => open(RoutePage.diagnostics)),
       ],
     );
+  }
+}
+
+
+class _SettingsAppUpdatePanel extends StatelessWidget {
+  const _SettingsAppUpdatePanel({required this.viewModel});
+
+  final AppUpdateViewModel? viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewModel = this.viewModel;
+    if (viewModel == null) {
+      return AppUpdatePanel(
+          state: const AppUpdateState(
+              status: AppUpdateStatus.idle,
+              installedVersionName: '',
+              installedVersionCode: 0),
+          onCheck: () {},
+          onDownload: () {},
+          onInstall: () {},
+          onOpenPermissionSettings: () {},
+          onDiscard: () {});
+    }
+    return ListenableBuilder(
+        listenable: viewModel,
+        builder: (context, _) => AppUpdatePanel(
+            state: viewModel.state,
+            onCheck: () => unawaited(viewModel.checkForUpdates()),
+            onDownload: () => unawaited(viewModel.download()),
+            onInstall: () => unawaited(viewModel.install()),
+            onOpenPermissionSettings: () =>
+                unawaited(viewModel.openInstallPermissionSettings()),
+            onDiscard: () => unawaited(viewModel.discard())));
   }
 }
 

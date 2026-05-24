@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
@@ -15,6 +16,8 @@ import '../workflows/workspace/create_workspace_workflow.dart';
 import 'core/widgets/widgets.dart';
 import 'core/theme/theme.dart' as theme;
 import 'features/workspace_picker/workspace_picker_sheet.dart';
+import 'features/settings/settings.dart'
+    show AppUpdatePanel, AppUpdateState, AppUpdateStatus, AppUpdateViewModel;
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
@@ -79,10 +82,12 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
   const _ConnectedEmptySettingsPage({
     required this.health,
     required this.connectionConfig,
+    this.appUpdateViewModel,
   });
 
   final DaemonHealth? health;
   final DaemonConnectionConfig connectionConfig;
+  final AppUpdateViewModel? appUpdateViewModel;
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +103,47 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
             title: l10n.settingsWorkspaceLabel,
             value: l10n.workspaceAvailableSection),
       ]),
+      const SizedBox(height: 20),
+      Subhead('App update'),
+      _EmptyAppUpdatePanel(viewModel: appUpdateViewModel),
     ]);
+  }
+}
+
+class _EmptyAppUpdatePanel extends StatelessWidget {
+  const _EmptyAppUpdatePanel({required this.viewModel});
+
+  final AppUpdateViewModel? viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewModel = this.viewModel;
+    if (viewModel == null) {
+      return AppUpdatePanel(
+        state: const AppUpdateState(
+          status: AppUpdateStatus.idle,
+          installedVersionName: '',
+          installedVersionCode: 0,
+        ),
+        onCheck: () {},
+        onDownload: () {},
+        onInstall: () {},
+        onOpenPermissionSettings: () {},
+        onDiscard: () {},
+      );
+    }
+    return ListenableBuilder(
+      listenable: viewModel,
+      builder: (context, _) => AppUpdatePanel(
+        state: viewModel.state,
+        onCheck: () => unawaited(viewModel.checkForUpdates()),
+        onDownload: () => unawaited(viewModel.download()),
+        onInstall: () => unawaited(viewModel.install()),
+        onOpenPermissionSettings: () =>
+            unawaited(viewModel.openInstallPermissionSettings()),
+        onDiscard: () => unawaited(viewModel.discard()),
+      ),
+    );
   }
 }
 
@@ -149,12 +194,14 @@ class _MainTabsPageState extends State<MainTabsPage> {
   MainTabsViewModel? _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
+  AppUpdateViewModel? _appUpdateViewModel;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   var _emptyActiveTab = 1;
   late List<WorkspaceSummary> _emptyWorkspaces;
   Object? _emptyError;
   bool _creatingWorkspace = false;
   bool _loadingWorkspace = false;
+  int _appUpdateGeneration = 0;
 
   @override
   void initState() {
@@ -165,6 +212,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
     _workbenchDependencies = pageDependencies.workbenchDependencies;
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
+    unawaited(_createAppUpdateViewModel());
     final data = widget.data;
     if (data != null) {
       _viewModel = MainTabsViewModel(
@@ -185,6 +233,8 @@ class _MainTabsPageState extends State<MainTabsPage> {
           widget.dependencies.createMainTabsDependencies(widget.client);
       _connectedData = pageDependencies.connectedData;
       _workbenchDependencies = pageDependencies.workbenchDependencies;
+      _disposeAppUpdateViewModel();
+      unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       final data = widget.data;
       _viewModel?.dispose();
@@ -211,9 +261,40 @@ class _MainTabsPageState extends State<MainTabsPage> {
   @override
   void dispose() {
     _disposeWorkbenchDependencies(_workbenchDependencies);
+    _disposeAppUpdateViewModel();
     unawaited(_connectedData.dispose());
     _viewModel?.dispose();
     super.dispose();
+  }
+
+
+  Future<void> _createAppUpdateViewModel() async {
+    final generation = ++_appUpdateGeneration;
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final versionCode = int.tryParse(packageInfo.buildNumber) ?? 0;
+      final viewModel =
+          await widget.dependencies.features.createAppUpdateViewModel(
+        client: widget.client,
+        connectedData: _connectedData,
+        installedVersionCode: versionCode,
+        installedVersionName: packageInfo.version,
+      );
+      if (!mounted || generation != _appUpdateGeneration) {
+        viewModel.dispose();
+        return;
+      }
+      setState(() => _appUpdateViewModel = viewModel);
+    } catch (_) {
+      if (!mounted || generation != _appUpdateGeneration) return;
+      setState(() => _appUpdateViewModel = null);
+    }
+  }
+
+  void _disposeAppUpdateViewModel() {
+    _appUpdateGeneration += 1;
+    _appUpdateViewModel?.dispose();
+    _appUpdateViewModel = null;
   }
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {
@@ -285,6 +366,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
         streamOutput: viewModel.streamOutput,
         expandThinking: viewModel.expandThinking,
         permissionMode: viewModel.permissionMode,
+        appUpdateViewModel: _appUpdateViewModel,
         onPermissionModeChanged: viewModel.setPermissionMode,
         onStreamOutputChanged: viewModel.setStreamOutput,
         onExpandThinkingChanged: viewModel.setExpandThinking,
@@ -328,6 +410,7 @@ class _MainTabsPageState extends State<MainTabsPage> {
       _ConnectedEmptySettingsPage(
         health: health,
         connectionConfig: widget.connectionConfig,
+        appUpdateViewModel: _appUpdateViewModel,
       ),
     ];
     return PopScope(
