@@ -56,7 +56,37 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('Install'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
     expect(find.textContaining('Required'), findsNothing);
+  });
+
+  testWidgets('panel keeps install action while waiting for confirmation', (
+    tester,
+  ) async {
+    const state = AppUpdateState(
+      status: AppUpdateStatus.awaitingUserConfirmation,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppUpdatePanel(
+            state: state,
+            onCheck: () {},
+            onDownload: () {},
+            onInstall: () {},
+            onOpenPermissionSettings: () {},
+            onDiscard: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Confirm'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Discard'), findsOneWidget);
   });
 }

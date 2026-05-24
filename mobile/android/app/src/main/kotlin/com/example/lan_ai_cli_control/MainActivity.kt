@@ -190,7 +190,7 @@ class MainActivity : FlutterActivity() {
         if (info.isActive) return true
         if (isSessionCommitted(info)) return true
         if (isSessionSealed(info)) return true
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+        return false
     }
 
     private fun sessionRecoveryMessage(status: String): String {

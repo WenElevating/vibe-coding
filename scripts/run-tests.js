@@ -9606,7 +9606,8 @@ test('android installer recovery maps session info instead of hardcoding pending
   assert.match(recoverableBody, /info\.isActive/);
   assert.match(recoverableBody, /isSessionCommitted\(info\)/);
   assert.match(recoverableBody, /isSessionSealed\(info\)/);
-  assert.match(recoverableBody, /Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.O/);
+  assert.equal(recoverableBody.includes('Build.VERSION.SDK_INT < Build.VERSION_CODES.O'), false);
+  assert.match(recoverableBody, /return false/);
   assert.notEqual(committedIndex, -1);
   assert.match(committedBody, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.Q/);
   assert.match(committedBody, /info\.isCommitted/);

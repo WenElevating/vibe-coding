@@ -176,6 +176,46 @@ void main() {
     expect(viewModel.state.downloadedFile?.path, readyFile.path);
   });
 
+  test(
+    'pending user confirmation stays retryable instead of installing',
+    () async {
+      final installer = _FakeInstaller();
+      final readyFile = await _readyApk();
+      addTearDown(() => readyFile.parent.delete(recursive: true));
+      final viewModel = AppUpdateViewModel(
+        installedVersionCode: 1,
+        installedVersionName: '1.0.0',
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+        daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      );
+      addTearDown(viewModel.dispose);
+      addTearDown(installer.close);
+
+      await viewModel.checkForUpdates();
+      await viewModel.download();
+      await viewModel.install();
+      installer.emit(
+        const AndroidInstallEvent(
+          status: AndroidInstallStatus.pendingUserAction,
+          sessionId: 7,
+          message: 'Confirm install in Android.',
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+      expect(viewModel.state.downloadedFile?.path, readyFile.path);
+      expect(viewModel.state.errorMessage, 'Confirm install in Android.');
+    },
+  );
+
   test('install rolls back when installer returns no session id', () async {
     final installer = _FakeInstaller(sessionId: -1);
     final readyFile = await _readyApk();

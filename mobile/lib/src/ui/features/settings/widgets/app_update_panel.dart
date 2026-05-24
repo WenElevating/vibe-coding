@@ -33,6 +33,7 @@ class AppUpdatePanel extends StatelessWidget {
       AppUpdateStatus.readyToInstall => 'Update ready to install',
       AppUpdateStatus.installPermissionNeeded => 'Install permission needed',
       AppUpdateStatus.installing => 'Opening Android installer',
+      AppUpdateStatus.awaitingUserConfirmation => 'Confirm update install',
       AppUpdateStatus.installSucceeded => 'Update installed',
       AppUpdateStatus.installCancelled => 'Install cancelled',
       AppUpdateStatus.installFailed => 'Install failed',
@@ -41,8 +42,7 @@ class AppUpdatePanel extends StatelessWidget {
       AppUpdateStatus.cancelled => 'Update discarded',
       AppUpdateStatus.idle => 'App update',
     };
-    final subtitle =
-        state.errorMessage ??
+    final subtitle = state.errorMessage ??
         'Installed ${state.installedVersionName}+${state.installedVersionCode}';
 
     return Container(
@@ -90,7 +90,8 @@ class AppUpdatePanel extends StatelessWidget {
                   state.status == AppUpdateStatus.failed ||
                   state.status == AppUpdateStatus.installCancelled)
                 _Button('Download', Icons.download_rounded, onDownload),
-              if (state.status == AppUpdateStatus.readyToInstall)
+              if (state.status == AppUpdateStatus.readyToInstall ||
+                  state.status == AppUpdateStatus.awaitingUserConfirmation)
                 _Button('Install', Icons.install_mobile_rounded, onInstall),
               if (state.status == AppUpdateStatus.installPermissionNeeded)
                 _Button(
@@ -100,6 +101,7 @@ class AppUpdatePanel extends StatelessWidget {
                 ),
               if (state.status == AppUpdateStatus.paused ||
                   state.status == AppUpdateStatus.readyToInstall ||
+                  state.status == AppUpdateStatus.awaitingUserConfirmation ||
                   state.status == AppUpdateStatus.failed)
                 _Button('Discard', Icons.delete_outline_rounded, onDiscard),
             ],

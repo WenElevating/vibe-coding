@@ -19,6 +19,7 @@ enum AppUpdateStatus {
   readyToInstall,
   installPermissionNeeded,
   installing,
+  awaitingUserConfirmation,
   installSucceeded,
   installCancelled,
   installFailed,
@@ -243,7 +244,8 @@ class AppUpdateViewModel extends ChangeNotifier {
     }
     final status = switch (event.status) {
       AndroidInstallStatus.committed => AppUpdateStatus.installing,
-      AndroidInstallStatus.pendingUserAction => AppUpdateStatus.installing,
+      AndroidInstallStatus.pendingUserAction =>
+        AppUpdateStatus.awaitingUserConfirmation,
       AndroidInstallStatus.success => AppUpdateStatus.installSucceeded,
       AndroidInstallStatus.cancelled => AppUpdateStatus.readyToInstall,
       AndroidInstallStatus.failed => AppUpdateStatus.installFailed,

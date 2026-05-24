@@ -20,11 +20,13 @@ Range and If-Range resume, verifies `sha256`, and installs through
 On Android installer recovery, an existing `PackageInstaller.SessionInfo` is
 treated as recoverable when it is active, committed, or sealed. `isCommitted`
 is only available on API 29+, and `isSealed` is only available on API 26+, so
-the Android bridge must guard those calls. On API 24/25, if
-`getSessionInfo(sessionId)` still returns a session but the platform exposes no
-sealed/committed bit, recovery is conservative and maps the session to pending
-user action until a real-device smoke proves a narrower rule is safe. A missing
-session returns no recovered event and lets Dart return to a retryable install
+the Android bridge must guard those calls. On API 24/25, an inactive recovered
+session is not treated as recoverable because the platform exposes no
+sealed/committed bit and the app cannot replay the PackageInstaller
+confirmation intent from `SessionInfo` alone. A missing or non-recoverable
+session returns no pending state and lets Dart return to a retryable install
+state. A recovered or live pending-user-action event must expose a user action
+to retry installation rather than leaving the UI in an indefinite `installing`
 state.
 
 The update channel is authenticated through the paired-device daemon boundary.

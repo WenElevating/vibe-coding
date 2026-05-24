@@ -97,6 +97,45 @@ void main() {
     expect(calls[4].arguments, <String, Object?>{'sessionId': 42});
   });
 
+  test(
+    'installer wrapper parses cancelled and missing recovered sessions',
+    () async {
+      const methodChannel = MethodChannel('test/app_update_installer_recovery');
+      const eventChannel = EventChannel(
+        'test/app_update_installer_recovery/events',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(methodChannel, (call) async {
+        if (call.method != 'recoverInstallSession') {
+          throw PlatformException(code: 'not_implemented');
+        }
+        final args = Map<Object?, Object?>.from(call.arguments as Map);
+        return switch (args['sessionId'] as int?) {
+          7 => const <String, Object?>{
+              'status': 'cancelled',
+              'sessionId': 7,
+              'message': 'session ended',
+            },
+          _ => null,
+        };
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(methodChannel, null);
+      });
+
+      final installer = AndroidPackageInstaller(
+        methodChannel: methodChannel,
+        eventChannel: eventChannel,
+      );
+
+      final cancelled = await installer.recoverInstallSession(7);
+      expect(cancelled?.status, AndroidInstallStatus.cancelled);
+      expect(cancelled?.message, 'session ended');
+      expect(await installer.recoverInstallSession(99), isNull);
+    },
+  );
+
   test('installer wrapper reuses one native event stream', () {
     const methodChannel = MethodChannel('test/app_update_installer_cache');
     const eventChannel = EventChannel('test/app_update_installer_cache/events');
