@@ -9645,7 +9645,15 @@ test('android update install recovery is wired through ViewModel and app lifecyc
     'utf8'
   );
 
-  assert.match(viewModel, /state\.status == AppUpdateStatus\.awaitingUserConfirmation\)\s+return/);
+  const installIndex = viewModel.indexOf('Future<void> install() async');
+  assert.notEqual(installIndex, -1);
+  const installBody = viewModel.slice(
+    installIndex,
+    viewModel.indexOf('\n  Future<void> recoverInstallSession', installIndex)
+  );
+  assert.match(installBody, /state\.status == AppUpdateStatus\.installing/);
+  assert.match(installBody, /state\.status == AppUpdateStatus\.awaitingUserConfirmation/);
+  assert.match(installBody, /return;/);
   assert.match(viewModel, /Future<void> recoverInstallSession\(\) async/);
   assert.match(viewModel, /downloader\.readInstallSession\(manifest\)/);
   assert.match(viewModel, /installer\.recoverInstallSession\(session\.sessionId\)/);

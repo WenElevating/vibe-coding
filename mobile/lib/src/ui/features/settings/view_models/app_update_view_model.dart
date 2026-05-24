@@ -158,7 +158,10 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> install() async {
-    if (state.status == AppUpdateStatus.awaitingUserConfirmation) return;
+    if (state.status == AppUpdateStatus.installing ||
+        state.status == AppUpdateStatus.awaitingUserConfirmation) {
+      return;
+    }
     final file = state.downloadedFile;
     final manifest = state.manifest;
     if (file == null) return;
@@ -209,13 +212,16 @@ class AppUpdateViewModel extends ChangeNotifier {
 
   Future<void> recoverInstallSession() async {
     if (_recoveringInstallSession) return;
+    if (!_canRecoverInstallSession()) return;
     _recoveringInstallSession = true;
     try {
       final manifest = await repository.fetchLatest();
+      if (!_canRecoverInstallSession()) return;
       if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
         return;
       }
       final session = await downloader.readInstallSession(manifest);
+      if (!_canRecoverInstallSession()) return;
       if (session == null) return;
       _set(
         state.copyWith(
@@ -236,9 +242,18 @@ class AppUpdateViewModel extends ChangeNotifier {
         );
         return;
       }
+      if (state.status != AppUpdateStatus.readyToInstall) return;
       _handleInstallEvent(event);
     } catch (error) {
       _recordDiagnostic('update.install.recovery_failed', {'error': '$error'});
+      if (_canRecoverInstallSession()) {
+        _set(
+          state.copyWith(
+            status: AppUpdateStatus.failed,
+            errorMessage: '$error',
+          ),
+        );
+      }
     } finally {
       _recoveringInstallSession = false;
     }
@@ -272,10 +287,10 @@ class AppUpdateViewModel extends ChangeNotifier {
 
   void _handleInstallEvent(AndroidInstallEvent event) {
     if (event.status == AndroidInstallStatus.cancelled) {
-      _set(state.copyWith(status: AppUpdateStatus.installCancelled));
+      _clearInstallSession();
       _set(
         state.copyWith(
-          status: AppUpdateStatus.readyToInstall,
+          status: AppUpdateStatus.installCancelled,
           errorMessage: event.message ?? 'Install cancelled.',
         ),
       );
@@ -289,7 +304,23 @@ class AppUpdateViewModel extends ChangeNotifier {
       AndroidInstallStatus.cancelled => AppUpdateStatus.readyToInstall,
       AndroidInstallStatus.failed => AppUpdateStatus.installFailed,
     };
+    if (event.status == AndroidInstallStatus.success ||
+        event.status == AndroidInstallStatus.failed) {
+      _clearInstallSession();
+    }
     _set(state.copyWith(status: status, errorMessage: event.message));
+  }
+
+  bool _canRecoverInstallSession() {
+    return state.status == AppUpdateStatus.idle ||
+        state.status == AppUpdateStatus.upToDate ||
+        state.status == AppUpdateStatus.failed;
+  }
+
+  void _clearInstallSession() {
+    final manifest = state.manifest;
+    if (manifest == null) return;
+    unawaited(downloader.clearInstallSession(manifest));
   }
 
   bool _isStoragePreflightFailure(AppUpdateDownloadResult result) {

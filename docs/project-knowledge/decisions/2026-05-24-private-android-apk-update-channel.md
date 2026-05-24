@@ -32,10 +32,16 @@ state.
 On Dart recovery, the app reads the persisted `installSessionId` from matching
 download metadata only after the cached APK still verifies against the current
 manifest. `MainTabsPage` triggers that recovery on Android when the update
-ViewModel is created and when the app resumes. While the UI is waiting for
-Android user confirmation, `install()` must not create another
+ViewModel is created and when the app resumes. Recovery is only allowed from
+idle, up-to-date, or failed update states, and the ViewModel re-checks that
+guard after async daemon/cache/native calls so a stale recovery result cannot
+overwrite an active user download or install flow. While the UI is installing
+or waiting for Android user confirmation, `install()` must not create another
 `PackageInstaller.Session` for the same APK; the existing session must resolve
-or the user must discard/retry from a non-pending state.
+or the user must discard/retry from a non-pending state. Terminal installer
+events clear the persisted `installSessionId` while keeping the verified APK
+cache metadata, preventing a future startup from recovering a completed or
+failed native session as a ghost pending update.
 
 The update channel is authenticated through the paired-device daemon boundary.
 The current daemon auth model does not have app-level permission categories, so
@@ -57,6 +63,8 @@ exists.
 - Daemon implementation: `daemon/src/app-update-service.js`
 - Mobile downloader: `mobile/lib/src/services/app_update_download_manager.dart`
 - Android bridge: `mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt`
+- ViewModel and lifecycle tests: `mobile/test/app_update_view_model_test.dart`,
+  `mobile/test/widget_test.dart`
 
 ## Verification
 

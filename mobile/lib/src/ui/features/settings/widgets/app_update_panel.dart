@@ -87,11 +87,13 @@ class AppUpdatePanel extends StatelessWidget {
               _Button('Check', Icons.refresh_rounded, onCheck),
               if (state.status == AppUpdateStatus.available ||
                   state.status == AppUpdateStatus.paused ||
+                  state.status == AppUpdateStatus.cancelled ||
                   state.status == AppUpdateStatus.failed ||
                   state.status == AppUpdateStatus.installCancelled)
                 _Button('Download', Icons.download_rounded, onDownload),
               if (state.status == AppUpdateStatus.readyToInstall ||
-                  state.status == AppUpdateStatus.awaitingUserConfirmation)
+                  state.status == AppUpdateStatus.awaitingUserConfirmation ||
+                  state.status == AppUpdateStatus.installCancelled)
                 _Button('Install', Icons.install_mobile_rounded, onInstall),
               if (state.status == AppUpdateStatus.installPermissionNeeded)
                 _Button(
@@ -102,6 +104,7 @@ class AppUpdatePanel extends StatelessWidget {
               if (state.status == AppUpdateStatus.paused ||
                   state.status == AppUpdateStatus.readyToInstall ||
                   state.status == AppUpdateStatus.awaitingUserConfirmation ||
+                  state.status == AppUpdateStatus.installCancelled ||
                   state.status == AppUpdateStatus.failed)
                 _Button('Discard', Icons.delete_outline_rounded, onDiscard),
             ],

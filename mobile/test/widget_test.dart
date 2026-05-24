@@ -11,15 +11,20 @@ import 'package:lan_ai_cli_control/src/app/language_controller.dart';
 import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
+import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
+import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
@@ -219,6 +224,43 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                       AppDependencies.createDefault()))));
 }
 
+class _AppUpdateRecoveryLifecycleHarness extends StatefulWidget {
+  const _AppUpdateRecoveryLifecycleHarness({required this.viewModel});
+
+  final AppUpdateViewModel viewModel;
+
+  @override
+  State<_AppUpdateRecoveryLifecycleHarness> createState() =>
+      _AppUpdateRecoveryLifecycleHarnessState();
+}
+
+class _AppUpdateRecoveryLifecycleHarnessState
+    extends State<_AppUpdateRecoveryLifecycleHarness>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(widget.viewModel.recoverInstallSession());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(widget.viewModel.recoverInstallSession());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
 class _MobileConnectionHarness extends StatefulWidget {
   const _MobileConnectionHarness({required this.controller});
 
@@ -348,6 +390,107 @@ class _PendingAdapterClient extends DaemonClient {
     adaptersCompleter = Completer<List<AdapterStatus>>();
   }
 }
+
+AppUpdateManifest _widgetAppUpdateManifest() => AppUpdateManifest(
+      schemaVersion: 1,
+      platform: 'android',
+      available: true,
+      packageName: 'com.example.lan_ai_cli_control',
+      versionName: '1.1.0',
+      versionCode: 2,
+      minSupportedVersionCode: 1,
+      mandatory: false,
+      apkUrl: '/api/app-updates/android/apk/2',
+      sha256: 'a' * 64,
+      sizeBytes: 10,
+      etag: '"etag-2"',
+      publishedAt: DateTime.utc(2026, 5, 24),
+    );
+
+class _WidgetAppUpdateRepository implements AppUpdateRepository {
+  const _WidgetAppUpdateRepository(this.manifest);
+
+  final AppUpdateManifest manifest;
+
+  @override
+  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async =>
+      manifest;
+}
+
+class _WidgetAppUpdateInstaller implements PackageInstallerService {
+  _WidgetAppUpdateInstaller({this.recoveredEvent});
+
+  final AndroidInstallEvent? recoveredEvent;
+  final _events = StreamController<AndroidInstallEvent>.broadcast();
+  int recoverCalls = 0;
+
+  void close() {
+    unawaited(_events.close());
+  }
+
+  @override
+  Stream<AndroidInstallEvent> get events => _events.stream;
+
+  @override
+  Future<int> availableBytes() async => 1000000;
+
+  @override
+  Future<bool> canRequestPackageInstalls() async => true;
+
+  @override
+  Future<int> installApk(String filePath) async => 22;
+
+  @override
+  Future<void> openInstallPermissionSettings() async {}
+
+  @override
+  Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async {
+    recoverCalls += 1;
+    return recoveredEvent;
+  }
+}
+
+class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
+  AppUpdateInstallSessionRecord? installSession;
+  int readSessionCalls = 0;
+
+  @override
+  Future<void> clearInstallSession(AppUpdateManifest manifest) async {}
+
+  @override
+  Future<void> discard(int versionCode) async {}
+
+  @override
+  Future<AppUpdateDownloadResult> download(
+    AppUpdateManifest manifest,
+    Uri daemonBaseUri,
+  ) async =>
+      const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed);
+
+  @override
+  Future<AppUpdateInstallSessionRecord?> readInstallSession(
+    AppUpdateManifest manifest,
+  ) async {
+    readSessionCalls += 1;
+    return installSession;
+  }
+
+  @override
+  Future<void> recordInstallSession(
+    AppUpdateManifest manifest,
+    int sessionId,
+  ) async {}
+}
+
+Finder _workbenchMessageList() => find.byWidgetPredicate(
+      (widget) =>
+          widget is ListView &&
+          widget.key is ValueKey<String> &&
+          ((widget.key as ValueKey<String>).value ==
+                  'workbench-message-list-normal' ||
+              (widget.key as ValueKey<String>).value ==
+                  'workbench-message-list-reverse'),
+    );
 
 class _LazyConversationRepository implements ConversationRepository {
   _LazyConversationRepository(this.messages);
@@ -1889,6 +2032,66 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('app update recovery runs on create and resume',
+      (WidgetTester tester) async {
+    final manifest = _widgetAppUpdateManifest();
+    final installer = _WidgetAppUpdateInstaller(
+      recoveredEvent: const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 22,
+        message: 'Confirm install in Android.',
+      ),
+    );
+    addTearDown(installer.close);
+    final downloader = _WidgetAppUpdateDownloader();
+    final appUpdateViewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _WidgetAppUpdateRepository(manifest),
+      installer: installer,
+      downloader: downloader,
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(appUpdateViewModel.dispose);
+
+    Future<void> pumpUntilRecoveryReads(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && downloader.readSessionCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    void resumeApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }
+
+    await tester.pumpWidget(
+      _AppUpdateRecoveryLifecycleHarness(viewModel: appUpdateViewModel),
+    );
+    await pumpUntilRecoveryReads(1);
+    await tester.pump();
+
+    expect(downloader.readSessionCalls, 1);
+    expect(installer.recoverCalls, 0);
+
+    downloader.installSession = AppUpdateInstallSessionRecord(
+      sessionId: 22,
+      file: File('ready.apk'),
+    );
+    resumeApp();
+    await pumpUntilRecoveryReads(2);
+    await tester.pump();
+
+    expect(downloader.readSessionCalls, 2);
+    expect(installer.recoverCalls, 1);
+    expect(appUpdateViewModel.state.status,
+        AppUpdateStatus.awaitingUserConfirmation);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, timeout: const Timeout(Duration(seconds: 10)));
+
   testWidgets('sending existing conversation keeps current event subscription',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -2087,13 +2290,10 @@ void main() {
     await tester.tap(find.text('Short regression conversation'));
     await tester.pumpAndSettle();
 
-    final transcriptScrollable = find.descendant(
-      of: find.byKey(const ValueKey('coding-workbench-detail')),
-      matching: find.byType(Scrollable),
-    );
-    expect(transcriptScrollable, findsOneWidget);
-    final scrollTop = tester.getTopLeft(transcriptScrollable).dy;
-    final scrollBottom = tester.getBottomLeft(transcriptScrollable).dy;
+    final transcriptList = _workbenchMessageList();
+    expect(transcriptList, findsOneWidget);
+    final scrollTop = tester.getTopLeft(transcriptList).dy;
+    final scrollBottom = tester.getBottomLeft(transcriptList).dy;
     final promptTop = tester.getTopLeft(find.text('short opening prompt')).dy;
 
     expect(promptTop, lessThan(scrollTop + (scrollBottom - scrollTop) * .45));
@@ -2156,23 +2356,26 @@ void main() {
     await tester.pumpAndSettle();
 
     const prompt = 'Who are you?';
-    await tester.enterText(find.byType(TextField), prompt);
-    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.enterText(find.byType(TextField).last, prompt);
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(conversationRepository.sentText, prompt);
-    expect(find.text(prompt), findsOneWidget);
-    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
-
-    final transcriptScrollable = find.descendant(
-      of: find.byKey(const ValueKey('coding-workbench-detail')),
-      matching: find.byType(Scrollable),
+    expect(conversationRepository.sendCompleter.isCompleted, isFalse);
+    final promptMessage = find.descendant(
+      of: find.byKey(const ValueKey('workbench-message-0-user')),
+      matching: find.text(prompt),
     );
-    expect(transcriptScrollable, findsOneWidget);
-    final scrollTop = tester.getTopLeft(transcriptScrollable).dy;
-    final scrollBottom = tester.getBottomLeft(transcriptScrollable).dy;
-    final promptTop = tester.getTopLeft(find.text(prompt)).dy;
+    expect(promptMessage, findsOneWidget);
+
+    final transcriptList = _workbenchMessageList();
+    expect(transcriptList, findsOneWidget);
+    final scrollTop = tester.getTopLeft(transcriptList).dy;
+    final scrollBottom = tester.getBottomLeft(transcriptList).dy;
+    final promptTop = tester.getTopLeft(promptMessage).dy;
 
     expect(promptTop, lessThan(scrollTop + (scrollBottom - scrollTop) * .45));
 
@@ -3132,7 +3335,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Output details'), findsOneWidget);
-    expect(find.textContaining('line 204'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('line 204') == true),
+        findsOneWidget);
     expect(find.text('Show less'), findsNothing);
   });
 

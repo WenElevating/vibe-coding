@@ -89,4 +89,63 @@ void main() {
     expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
     expect(find.widgetWithText(TextButton, 'Discard'), findsOneWidget);
   });
+
+  testWidgets('panel keeps retry actions after install cancellation', (
+    tester,
+  ) async {
+    const state = AppUpdateState(
+      status: AppUpdateStatus.installCancelled,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppUpdatePanel(
+            state: state,
+            onCheck: () {},
+            onDownload: () {},
+            onInstall: () {},
+            onOpenPermissionSettings: () {},
+            onDiscard: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Install cancelled'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Discard'), findsOneWidget);
+  });
+
+  testWidgets('panel can restart after discarded update state', (
+    tester,
+  ) async {
+    const state = AppUpdateState(
+      status: AppUpdateStatus.cancelled,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppUpdatePanel(
+            state: state,
+            onCheck: () {},
+            onDownload: () {},
+            onInstall: () {},
+            onOpenPermissionSettings: () {},
+            onDiscard: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('discarded'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Download'), findsOneWidget);
+  });
 }

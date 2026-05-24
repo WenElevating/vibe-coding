@@ -33,6 +33,8 @@ abstract class AppUpdateDownloader {
 
   Future<void> recordInstallSession(AppUpdateManifest manifest, int sessionId);
 
+  Future<void> clearInstallSession(AppUpdateManifest manifest);
+
   Future<void> discard(int versionCode);
 }
 
@@ -241,6 +243,19 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       metadata?.downloadedBytes ?? manifest.sizeBytes!,
       installSessionId: sessionId,
     );
+  }
+
+  @override
+  Future<void> clearInstallSession(AppUpdateManifest manifest) async {
+    if (_validateDownloadableManifest(manifest) != null) return;
+    final paths = await _pathsFor(manifest.versionCode!);
+    final metadata = await _readMetadata(paths.metadata);
+    if (metadata == null ||
+        metadata.installSessionId == null ||
+        !_metadataMatches(metadata, manifest)) {
+      return;
+    }
+    await _writeMetadata(paths.metadata, manifest, metadata.downloadedBytes);
   }
 
   static String sha256HexForTest(List<int> bytes) =>

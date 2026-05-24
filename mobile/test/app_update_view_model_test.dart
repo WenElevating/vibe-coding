@@ -141,7 +141,7 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.available);
   });
 
-  test('install cancelled returns to ready-to-install for retry', () async {
+  test('install cancelled remains visible and retryable', () async {
     final installer = _FakeInstaller();
     final readyFile = await _readyApk();
     addTearDown(() => readyFile.parent.delete(recursive: true));
@@ -172,7 +172,7 @@ void main() {
     );
     await pumpEventQueue();
 
-    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.status, AppUpdateStatus.installCancelled);
     expect(viewModel.state.downloadedFile?.path, readyFile.path);
   });
 
@@ -222,6 +222,42 @@ void main() {
     },
   );
 
+  test('installing state ignores repeated install taps', () async {
+    final installCompleter = Completer<int>();
+    final installer = _FakeInstaller(installCompleter: installCompleter);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest()),
+      installer: installer,
+      downloader: _FakeDownloader(
+        result: AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.readyToInstall,
+          file: readyFile,
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    final firstInstall = viewModel.install();
+    await pumpEventQueue();
+
+    expect(viewModel.state.status, AppUpdateStatus.installing);
+    expect(installer.installCalls, 1);
+
+    await viewModel.install();
+
+    expect(installer.installCalls, 1);
+    installCompleter.complete(7);
+    await firstInstall;
+  });
+
   test(
     'recovers persisted install session into pending confirmation state',
     () async {
@@ -261,6 +297,111 @@ void main() {
       expect(viewModel.state.manifest, manifest);
     },
   );
+
+  test('recovery does not overwrite an active download', () async {
+    final downloadCompleter = Completer<AppUpdateDownloadResult>();
+    final installer = _FakeInstaller(
+      recoveredEvent: const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 12,
+      ),
+    );
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 12,
+        file: readyFile,
+      ),
+      downloadCompleter: downloadCompleter,
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest(versionCode: 12)),
+      installer: installer,
+      downloader: downloader,
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    final downloadFuture = viewModel.download();
+    await pumpEventQueue();
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+
+    await viewModel.recoverInstallSession();
+
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+    expect(installer.recoveredSessionId, isNull);
+    downloadCompleter.complete(
+      AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    await downloadFuture;
+  });
+
+  test('recovery failure is surfaced as failed state', () async {
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(
+        _manifest(),
+        fetchError: StateError('daemon unavailable'),
+      ),
+      installer: installer,
+      downloader: _FakeDownloader(),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.recoverInstallSession();
+
+    expect(viewModel.state.status, AppUpdateStatus.failed);
+    expect(viewModel.state.errorMessage, contains('daemon unavailable'));
+  });
+
+  test('terminal install events clear recorded install session', () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest();
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(manifest),
+      installer: installer,
+      downloader: downloader,
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.success,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(viewModel.state.status, AppUpdateStatus.installSucceeded);
+    expect(downloader.clearedSessionManifest, manifest);
+  });
 
   test('install rolls back when installer returns no session id', () async {
     final installer = _FakeInstaller(sessionId: -1);
@@ -359,13 +500,17 @@ AppUpdateManifest _manifest({
 }
 
 class _FakeRepository implements AppUpdateRepository {
-  _FakeRepository(this.manifest);
+  _FakeRepository(this.manifest, {this.fetchError});
 
   final AppUpdateManifest manifest;
+  final Object? fetchError;
 
   @override
-  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async =>
-      manifest;
+  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async {
+    final fetchError = this.fetchError;
+    if (fetchError != null) throw fetchError;
+    return manifest;
+  }
 }
 
 Future<File> _readyApk() async {
@@ -379,11 +524,13 @@ class _FakeInstaller implements PackageInstallerService {
     this.canInstall = true,
     this.sessionId = 7,
     this.recoveredEvent,
+    this.installCompleter,
   });
 
   final bool canInstall;
   final int sessionId;
   final AndroidInstallEvent? recoveredEvent;
+  final Completer<int>? installCompleter;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   String? installedPath;
   int installCalls = 0;
@@ -406,6 +553,8 @@ class _FakeInstaller implements PackageInstallerService {
   Future<int> installApk(String filePath) async {
     installCalls += 1;
     installedPath = filePath;
+    final installCompleter = this.installCompleter;
+    if (installCompleter != null) return installCompleter.future;
     return sessionId;
   }
 
@@ -425,20 +574,25 @@ class _FakeDownloader implements AppUpdateDownloader {
       state: AppUpdateDownloadState.readyToInstall,
     ),
     this.installSession,
+    this.downloadCompleter,
   });
 
   AppUpdateDownloadResult result;
   AppUpdateInstallSessionRecord? installSession;
+  Completer<AppUpdateDownloadResult>? downloadCompleter;
   int? discardedVersionCode;
   int? recordedSessionId;
   AppUpdateManifest? recordedManifest;
   AppUpdateManifest? readSessionManifest;
+  AppUpdateManifest? clearedSessionManifest;
 
   @override
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
     Uri daemonBaseUri,
   ) async {
+    final downloadCompleter = this.downloadCompleter;
+    if (downloadCompleter != null) return downloadCompleter.future;
     return result;
   }
 
@@ -454,6 +608,11 @@ class _FakeDownloader implements AppUpdateDownloader {
   ) async {
     recordedManifest = manifest;
     recordedSessionId = sessionId;
+  }
+
+  @override
+  Future<void> clearInstallSession(AppUpdateManifest manifest) async {
+    clearedSessionManifest = manifest;
   }
 
   @override
