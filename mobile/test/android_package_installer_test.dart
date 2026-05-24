@@ -6,14 +6,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('install event parser maps native statuses', () {
+    final pending = AndroidInstallEvent.fromJson(const <Object?, Object?>{
+      'status': 'pendingUserAction',
+      'sessionId': 12,
+      'message': 'confirm',
+      'appPackageName': 'com.example.lan_ai_cli_control',
+    });
     expect(
-      AndroidInstallEvent.fromJson(const <Object?, Object?>{
-        'status': 'pendingUserAction',
-        'sessionId': 12,
-        'message': 'confirm',
-      }).status,
+      pending.status,
       AndroidInstallStatus.pendingUserAction,
     );
+    expect(pending.sessionId, 12);
+    expect(pending.message, 'confirm');
+    expect(pending.appPackageName, 'com.example.lan_ai_cli_control');
     expect(
       AndroidInstallEvent.fromJson(const <Object?, Object?>{
         'status': 'committed',
@@ -57,6 +62,7 @@ void main() {
             'status': 'pendingUserAction',
             'sessionId': 42,
             'message': 'pending',
+            'appPackageName': 'com.example.lan_ai_cli_control',
           },
         _ => throw PlatformException(code: 'not_implemented'),
       };
@@ -77,6 +83,7 @@ void main() {
     final recovered = await installer.recoverInstallSession(42);
 
     expect(recovered?.status, AndroidInstallStatus.pendingUserAction);
+    expect(recovered?.appPackageName, 'com.example.lan_ai_cli_control');
     expect(calls.map((call) => call.method), <String>[
       'canRequestPackageInstalls',
       'openInstallPermissionSettings',

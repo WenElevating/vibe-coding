@@ -33,10 +33,11 @@ class MainActivity : FlutterActivity() {
             )
             val sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
             val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+            val installedPackageName = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME)
 
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                 val confirmation = confirmationIntent(intent)
-                sendInstallEvent("pendingUserAction", sessionId, message)
+                sendInstallEvent("pendingUserAction", sessionId, message, installedPackageName)
                 confirmation?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (confirmation != null) context.startActivity(confirmation)
                 return
@@ -47,7 +48,7 @@ class MainActivity : FlutterActivity() {
                 PackageInstaller.STATUS_FAILURE_ABORTED -> "cancelled"
                 else -> "failed"
             }
-            sendInstallEvent(mapped, sessionId, message)
+            sendInstallEvent(mapped, sessionId, message, installedPackageName)
         }
     }
 
@@ -174,23 +175,19 @@ class MainActivity : FlutterActivity() {
         if (sessionId < 0) return null
         val info = packageManager.packageInstaller.getSessionInfo(sessionId) ?: return null
         val status = when {
-            info.isActive || isSessionSealed(info) -> "pendingUserAction"
-            else -> "failed"
+            info.isActive -> "pendingUserAction"
+            else -> "cancelled"
+        }
+        val message = when (status) {
+            "pendingUserAction" -> "Package installer session is still active."
+            else -> "Package installer session ended before completion. Try installing the downloaded APK again."
         }
         return mapOf(
             "status" to status,
             "sessionId" to sessionId,
-            "message" to (info.appPackageName ?: "Package installer session is no longer active.")
+            "appPackageName" to info.appPackageName,
+            "message" to message
         )
-    }
-
-    private fun isSessionSealed(info: PackageInstaller.SessionInfo): Boolean {
-        return try {
-            val method = info.javaClass.getMethod("isSealed")
-            method.invoke(info) as? Boolean ?: false
-        } catch (_: Exception) {
-            false
-        }
     }
 
     private fun availableBytes(): Long {
@@ -243,11 +240,17 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun sendInstallEvent(status: String, sessionId: Int, message: String?) {
+    private fun sendInstallEvent(
+        status: String,
+        sessionId: Int,
+        message: String?,
+        appPackageName: String? = null
+    ) {
         eventSink?.success(
             mapOf(
                 "status" to status,
                 "sessionId" to if (sessionId >= 0) sessionId else null,
+                "appPackageName" to appPackageName,
                 "message" to message
             )
         )

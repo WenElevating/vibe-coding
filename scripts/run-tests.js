@@ -9583,8 +9583,28 @@ test('android installer recovery maps session info instead of hardcoding pending
   assert.notEqual(recoverIndex, -1);
   assert.match(recoverBody, /when/);
   assert.match(recoverBody, /info\.isActive/);
-  assert.match(recoverBody, /isSessionSealed/);
+  assert.equal(recoverBody.includes('info.isActive ||'), false);
+  assert.equal(recoverBody.includes('isSessionSealed'), false);
+  assert.match(recoverBody, /info\.isActive\s*->\s*"pendingUserAction"/);
+  assert.match(recoverBody, /"appPackageName"\s+to\s+info\.appPackageName/);
+  assert.equal(recoverBody.includes('"message" to (info.appPackageName'), false);
   assert.equal(recoverBody.includes('"status" to "pendingUserAction"'), false);
+});
+
+test('android update downloader contains ready APK cache races before fetching', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+  const helperIndex = downloader.indexOf('Future<File?> _reuseReadyApk(');
+  const helperBody = downloader.slice(helperIndex, downloader.indexOf('\n  Future<AppUpdateDownloadResult?> _downloadFromDaemon', helperIndex));
+  const downloadIndex = downloader.indexOf('Future<AppUpdateDownloadResult> download(');
+  const downloadBody = downloader.slice(downloadIndex, downloader.indexOf('\n  Future<void> reconcile', downloadIndex));
+
+  assert.notEqual(helperIndex, -1);
+  assert.match(helperBody, /on FileSystemException/);
+  assert.match(helperBody, /return null/);
+  assert.match(downloadBody, /final readyApk = await _reuseReadyApk/);
 });
 
 test('android update downloader cancels response stream when file write fails', () => {
@@ -9621,10 +9641,18 @@ test('android update downloader tolerates cache delete races', () => {
   );
   const deleteIndex = downloader.indexOf('Future<void> _deleteIfExists');
   const deleteBody = downloader.slice(deleteIndex, downloader.indexOf('\n  String? _validateDownloadableManifest', deleteIndex));
+  const reconcileIndex = downloader.indexOf('Future<void> reconcile(');
+  const discardIndex = downloader.indexOf('Future<void> discard', reconcileIndex);
+  const reconcileBody = downloader.slice(reconcileIndex, discardIndex);
 
   assert.notEqual(deleteIndex, -1);
   assert.match(deleteBody, /try \{/);
   assert.match(deleteBody, /on FileSystemException/);
+  assert.notEqual(reconcileIndex, -1);
+  assert.notEqual(discardIndex, -1);
+  assert.equal(reconcileBody.includes('await paths.apk.exists()'), false);
+  assert.match(reconcileBody, /_safeExists\(paths\.apk\)/);
+  assert.match(reconcileBody, /on FileSystemException/);
 });
 
 test('ASR model API returns metadata and supports full and ranged downloads', async () => {

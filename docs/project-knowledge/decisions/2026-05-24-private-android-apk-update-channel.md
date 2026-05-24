@@ -17,6 +17,12 @@ the APK version currently referenced by that manifest. Mobile downloads with
 Range and If-Range resume, verifies `sha256`, and installs through
 `PackageInstaller.Session`.
 
+On Android installer recovery, only an active `PackageInstaller.SessionInfo`
+may be treated as still waiting for user action. A sealed session is not enough
+to prove the install prompt is still pending; inactive recovered sessions should
+return to a retryable install state with a clear message instead of leaving the
+UI in `installing`.
+
 The update channel is authenticated through the paired-device daemon boundary.
 The current daemon auth model does not have app-level permission categories, so
 an `appUpdate` permission split is deferred until such a permission system

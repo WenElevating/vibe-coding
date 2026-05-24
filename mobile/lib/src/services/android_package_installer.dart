@@ -15,11 +15,13 @@ class AndroidInstallEvent {
     required this.status,
     this.sessionId,
     this.message,
+    this.appPackageName,
   });
 
   final AndroidInstallStatus status;
   final int? sessionId;
   final String? message;
+  final String? appPackageName;
 
   factory AndroidInstallEvent.fromJson(Map<Object?, Object?> json) {
     final status = switch (json['status'] as String?) {
@@ -33,6 +35,7 @@ class AndroidInstallEvent {
       status: status,
       sessionId: json['sessionId'] as int?,
       message: json['message'] as String?,
+      appPackageName: json['appPackageName'] as String?,
     );
   }
 }

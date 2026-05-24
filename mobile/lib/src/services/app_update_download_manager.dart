@@ -85,16 +85,12 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       await reconcile(manifest);
 
       final paths = await _pathsFor(manifest.versionCode!);
-      if (await paths.apk.exists()) {
-        final verified = await _fileMatchesManifest(paths.apk, manifest);
-        if (verified) {
-          return AppUpdateDownloadResult(
-            state: AppUpdateDownloadState.readyToInstall,
-            file: paths.apk,
-          );
-        }
-        await _deleteIfExists(paths.apk);
-        await _deleteIfExists(paths.metadata);
+      final readyApk = await _reuseReadyApk(paths, manifest);
+      if (readyApk != null) {
+        return AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.readyToInstall,
+          file: readyApk,
+        );
       }
 
       final resumeLength = await _resumeLength(paths, manifest);
@@ -154,10 +150,11 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }
 
   Future<void> reconcile(AppUpdateManifest manifest) async {
-    if (manifest.versionCode == null) return;
-    final paths = await _pathsFor(manifest.versionCode);
+    final versionCode = manifest.versionCode;
+    if (versionCode == null) return;
+    final paths = await _pathsFor(versionCode);
 
-    if (await paths.apk.exists() && await paths.part.exists()) {
+    if (await _safeExists(paths.apk) && await _safeExists(paths.part)) {
       await _deleteIfExists(paths.part);
     }
 
@@ -169,16 +166,20 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       return;
     }
 
-    if (metadata == null && await paths.part.exists()) {
+    if (metadata == null && await _safeExists(paths.part)) {
       await _deleteIfExists(paths.part);
       return;
     }
 
-    if (await paths.part.exists()) {
-      final length = await paths.part.length();
-      if (manifest.sizeBytes != null && length > manifest.sizeBytes!) {
-        await _deleteIfExists(paths.part);
-        await _deleteIfExists(paths.metadata);
+    if (await _safeExists(paths.part)) {
+      try {
+        final length = await paths.part.length();
+        if (manifest.sizeBytes != null && length > manifest.sizeBytes!) {
+          await _deleteIfExists(paths.part);
+          await _deleteIfExists(paths.metadata);
+        }
+      } on FileSystemException {
+        return;
       }
     }
   }
@@ -212,6 +213,23 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
 
   static String sha256HexForTest(List<int> bytes) =>
       sha256.convert(bytes).toString();
+
+  Future<File?> _reuseReadyApk(
+    _AppUpdatePaths paths,
+    AppUpdateManifest manifest,
+  ) async {
+    try {
+      if (!await paths.apk.exists()) return null;
+      final verified = await _fileMatchesManifest(paths.apk, manifest);
+      if (verified) return paths.apk;
+      await _deleteIfExists(paths.apk);
+      await _deleteIfExists(paths.metadata);
+      return null;
+    } on FileSystemException {
+      await _deleteIfExists(paths.apk);
+      return null;
+    }
+  }
 
   Future<AppUpdateDownloadResult?> _downloadFromDaemon({
     required AppUpdateManifest manifest,
@@ -444,13 +462,12 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     return digest.toString();
   }
 
-  Future<_AppUpdatePaths> _pathsFor(int? versionCode) async {
+  Future<_AppUpdatePaths> _pathsFor(int versionCode) async {
     final directory = Directory(
       _joinPath(_cacheDirectory.path, _updateDirectoryName),
     );
     await directory.create(recursive: true);
-    final suffix = versionCode == null ? 'unknown' : '$versionCode';
-    final base = _joinPath(directory.path, 'app-update-$suffix');
+    final base = _joinPath(directory.path, 'app-update-$versionCode');
     return _AppUpdatePaths(
       part: File('$base.apk.part'),
       metadata: File('$base.json'),
