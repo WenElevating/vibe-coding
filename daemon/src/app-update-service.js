@@ -18,29 +18,49 @@ class AppUpdateService {
 
   load() {
     const manifestPath = path.join(this.artifactDir, 'latest.json');
-    if (!fs.existsSync(manifestPath)) return;
+    if (!fs.existsSync(manifestPath)) {
+      this._markUnavailable();
+      return;
+    }
 
     let manifest;
     try {
       manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       validateManifest(manifest);
     } catch {
+      this._markUnavailable();
       return;
     }
 
     const fileName = resolveManifestFileName(manifest);
-    if (!fileName) return;
+    if (!fileName) {
+      this._markUnavailable();
+      return;
+    }
     const resolved = path.resolve(this.artifactDir, fileName);
-    if (!isWithinDirectory(this.artifactDir, resolved)) return;
-    if (!fs.existsSync(resolved)) return;
+    if (!isWithinDirectory(this.artifactDir, resolved)) {
+      this._markUnavailable();
+      return;
+    }
+    if (!fs.existsSync(resolved)) {
+      this._markUnavailable();
+      return;
+    }
 
     const stats = fs.statSync(resolved);
-    if (!stats.isFile()) return;
-    if (stats.size !== manifest.sizeBytes) return;
+    if (!stats.isFile()) {
+      this._markUnavailable();
+      return;
+    }
+    if (stats.size !== manifest.sizeBytes) {
+      this._markUnavailable();
+      return;
+    }
 
     const etag = manifest.etag || `"android-apk-${manifest.versionCode}-${manifest.sha256.slice(0, 12)}"`;
     this.manifest = {
       ...manifest,
+      available: true,
       etag,
       fileName
     };
@@ -48,7 +68,14 @@ class AppUpdateService {
     this.available = true;
   }
 
+  _markUnavailable() {
+    this.available = false;
+    this.manifest = unavailableManifest();
+    this.apkPath = null;
+  }
+
   sendLatest(req, res) {
+    this.load();
     const etag = this.manifest.etag || '"android-update-none"';
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, { etag });
@@ -58,7 +85,18 @@ class AppUpdateService {
     json(res, 200, this.manifest, { etag });
   }
 
-  sendApk(req, res, requestedVersionCode) {
+  sendApk(req, res, requestedVersionCode, device) {
+    this.load();
+    if (!device || !device.id) {
+      json(res, 403, {
+        error: {
+          code: 'APP_UPDATE_DEVICE_AUTH_REQUIRED',
+          message: 'Android update downloads require an authenticated paired device.'
+        }
+      });
+      return;
+    }
+
     if (!this.available || Number(requestedVersionCode) !== this.manifest.versionCode) {
       notFound(res);
       return;
@@ -88,7 +126,7 @@ class AppUpdateService {
 
     if (!range) {
       res.writeHead(200, { ...commonHeaders, 'content-length': total });
-      fs.createReadStream(this.apkPath).pipe(res);
+      this.streamApk(res, this.apkPath);
       return;
     }
 
@@ -97,7 +135,15 @@ class AppUpdateService {
       'content-length': range.end - range.start + 1,
       'content-range': `bytes ${range.start}-${range.end}/${total}`
     });
-    fs.createReadStream(this.apkPath, { start: range.start, end: range.end }).pipe(res);
+    this.streamApk(res, this.apkPath, { start: range.start, end: range.end });
+  }
+
+  streamApk(res, apkPath, options = {}) {
+    const stream = fs.createReadStream(apkPath, options);
+    stream.on('error', (error) => {
+      res.destroy(error);
+    });
+    stream.pipe(res);
   }
 }
 

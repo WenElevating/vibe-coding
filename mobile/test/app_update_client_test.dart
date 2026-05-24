@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_client.dart';
 
 import 'support/fake_http.dart';
@@ -65,4 +67,64 @@ void main() {
 
     expect(response.statusCode, 206);
   });
+
+  test('repository keeps cached manifest on 304 not modified', () async {
+    final manifest = _manifest(versionCode: 4);
+    final client = _FakeAppUpdateClient(<AppUpdateLatestResult>[
+      AppUpdateLatestResult(
+        notModified: false,
+        etag: manifest.etag,
+        manifest: manifest,
+      ),
+      AppUpdateLatestResult(notModified: true, etag: manifest.etag),
+    ]);
+    final repository = DaemonAppUpdateRepository(client: client);
+
+    final first = await repository.fetchLatest();
+    final second = await repository.fetchLatest(ifNoneMatch: manifest.etag);
+
+    expect(first.versionCode, 4);
+    expect(second.versionCode, 4);
+    expect(second.available, true);
+  });
+}
+
+AppUpdateManifest _manifest({required int versionCode}) {
+  return AppUpdateManifest(
+    schemaVersion: 1,
+    platform: 'android',
+    available: true,
+    packageName: 'com.example.lan_ai_cli_control',
+    versionName: '1.4.0',
+    versionCode: versionCode,
+    minSupportedVersionCode: 1,
+    mandatory: false,
+    apkUrl: '/api/app-updates/android/apk/$versionCode',
+    sha256: 'a' * 64,
+    sizeBytes: 10,
+    etag: '"etag-$versionCode"',
+  );
+}
+
+class _FakeAppUpdateClient implements AppUpdateClient {
+  _FakeAppUpdateClient(this.results);
+
+  final List<AppUpdateLatestResult> results;
+
+  @override
+  Uri get baseUri => Uri.parse('http://127.0.0.1:4317');
+
+  @override
+  Future<AppUpdateLatestResult> fetchLatest({String? ifNoneMatch}) async {
+    return results.removeAt(0);
+  }
+
+  @override
+  Future<http.StreamedResponse> openApkStream(
+    Uri apkUri, {
+    int? rangeStart,
+    String? ifRange,
+  }) {
+    throw UnimplementedError();
+  }
 }

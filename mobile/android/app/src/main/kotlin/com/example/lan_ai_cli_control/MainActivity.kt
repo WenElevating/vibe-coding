@@ -157,7 +157,6 @@ class MainActivity : FlutterActivity() {
             )
 
             activeSession.commit(pendingIntent.intentSender)
-            sendInstallEvent("committed", sessionId, null)
             return sessionId
         } catch (error: Exception) {
             try {
@@ -174,11 +173,24 @@ class MainActivity : FlutterActivity() {
     private fun recoverSession(sessionId: Int): Map<String, Any?>? {
         if (sessionId < 0) return null
         val info = packageManager.packageInstaller.getSessionInfo(sessionId) ?: return null
+        val status = when {
+            info.isActive || isSessionSealed(info) -> "pendingUserAction"
+            else -> "failed"
+        }
         return mapOf(
-            "status" to "pendingUserAction",
+            "status" to status,
             "sessionId" to sessionId,
-            "message" to info.appPackageName
+            "message" to (info.appPackageName ?: "Package installer session is no longer active.")
         )
+    }
+
+    private fun isSessionSealed(info: PackageInstaller.SessionInfo): Boolean {
+        return try {
+            val method = info.javaClass.getMethod("isSealed")
+            method.invoke(info) as? Boolean ?: false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun availableBytes(): Long {

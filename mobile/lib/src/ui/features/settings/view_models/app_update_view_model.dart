@@ -74,10 +74,10 @@ class AppUpdateViewModel extends ChangeNotifier {
     required this.daemonBaseUri,
     this.recordDiagnostic,
   }) : state = AppUpdateState(
-         status: AppUpdateStatus.idle,
-         installedVersionName: installedVersionName,
-         installedVersionCode: installedVersionCode,
-       ) {
+          status: AppUpdateStatus.idle,
+          installedVersionName: installedVersionName,
+          installedVersionCode: installedVersionCode,
+        ) {
     _installSubscription = installer.events.listen(_handleInstallEvent);
   }
 
@@ -88,7 +88,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   final AppUpdateDownloader downloader;
   final Uri daemonBaseUri;
   final void Function(String event, Map<String, Object?> metadata)?
-  recordDiagnostic;
+      recordDiagnostic;
   late final StreamSubscription<AndroidInstallEvent> _installSubscription;
   bool _disposed = false;
 
@@ -159,16 +159,49 @@ class AppUpdateViewModel extends ChangeNotifier {
     final file = state.downloadedFile;
     final manifest = state.manifest;
     if (file == null) return;
+    if (!await _downloadedFileExists(file)) {
+      _set(
+        AppUpdateState(
+          status: AppUpdateStatus.available,
+          installedVersionName: installedVersionName,
+          installedVersionCode: installedVersionCode,
+          manifest: manifest,
+          mandatory: state.mandatory,
+          errorMessage:
+              'Downloaded APK is no longer available. Download the update again.',
+        ),
+      );
+      return;
+    }
     if (!await installer.canRequestPackageInstalls()) {
       _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
       return;
     }
     _set(state.copyWith(status: AppUpdateStatus.installing));
-    final sessionId = await installer.installApk(file.path);
-    if (manifest != null && sessionId >= 0) {
-      await downloader.recordInstallSession(manifest, sessionId);
+    try {
+      final sessionId = await installer.installApk(file.path);
+      if (sessionId < 0) {
+        _set(
+          state.copyWith(
+            status: AppUpdateStatus.readyToInstall,
+            errorMessage:
+                'Android installer did not return a valid installer session.',
+          ),
+        );
+        return;
+      }
+      if (manifest != null) {
+        await downloader.recordInstallSession(manifest, sessionId);
+      }
+      _recordDiagnostic('update.install.committed', {'sessionId': sessionId});
+    } catch (error) {
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.readyToInstall,
+          errorMessage: '$error',
+        ),
+      );
     }
-    _recordDiagnostic('update.install.committed', {'sessionId': sessionId});
   }
 
   Future<void> discard() async {
@@ -180,8 +213,8 @@ class AppUpdateViewModel extends ChangeNotifier {
     _recordDiagnostic('update.discard', {'versionCode': versionCode});
     final nextStatus =
         manifest != null && manifest.isNewerThan(installedVersionCode)
-        ? AppUpdateStatus.available
-        : AppUpdateStatus.idle;
+            ? AppUpdateStatus.available
+            : AppUpdateStatus.idle;
     _set(
       AppUpdateState(
         status: nextStatus,
@@ -212,6 +245,7 @@ class AppUpdateViewModel extends ChangeNotifier {
       AndroidInstallStatus.committed => AppUpdateStatus.installing,
       AndroidInstallStatus.pendingUserAction => AppUpdateStatus.installing,
       AndroidInstallStatus.success => AppUpdateStatus.installSucceeded,
+      AndroidInstallStatus.cancelled => AppUpdateStatus.readyToInstall,
       AndroidInstallStatus.failed => AppUpdateStatus.installFailed,
     };
     _set(state.copyWith(status: status, errorMessage: event.message));
@@ -220,6 +254,14 @@ class AppUpdateViewModel extends ChangeNotifier {
   bool _isStoragePreflightFailure(AppUpdateDownloadResult result) {
     return result.state == AppUpdateDownloadState.failed &&
         (result.message ?? '').toLowerCase().contains('storage');
+  }
+
+  Future<bool> _downloadedFileExists(File file) async {
+    try {
+      return await file.exists();
+    } on FileSystemException {
+      return false;
+    }
   }
 
   void _recordDiagnostic(String event, Map<String, Object?> metadata) {

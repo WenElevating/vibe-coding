@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
@@ -186,6 +188,13 @@ FeatureDependencies _featureDependencies({
               ),
       createRunDetailViewModel: (connectedData, run) =>
           createRunDetailViewModel(run),
+      createAppUpdateViewModel: ({
+        required client,
+        required connectedData,
+        required installedVersionCode,
+        required installedVersionName,
+      }) =>
+          throw UnimplementedError(),
       createWorkbenchDependencies: (client, connectedData) =>
           throw UnimplementedError(),
     );
@@ -228,6 +237,7 @@ ConnectedDataDependencies _connectedData() {
   return ConnectedDataDependencies(
     authRepository: unused,
     adapterRepository: unused,
+    appUpdateRepository: unused,
     conversationRepository: unused,
     diagnosticsRepository: _FakeDiagnosticsRepository(),
     runRepository: _FakeRunRepository(),
@@ -366,6 +376,7 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
 class _UnusedRepository
     implements
         AdapterRepository,
+        AppUpdateRepository,
         AuthRepository,
         ConversationRepository,
         WorkspaceRepository {
@@ -377,6 +388,10 @@ class _UnusedRepository
 
   @override
   Future<List<CommandTemplate>> listCommandTemplates() =>
+      throw UnimplementedError();
+
+  @override
+  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) =>
       throw UnimplementedError();
 
   @override

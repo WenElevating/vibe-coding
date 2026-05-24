@@ -16,7 +16,9 @@ void main() {
       final viewModel = AppUpdateViewModel(
         installedVersionCode: 3,
         installedVersionName: '1.3.0',
-        repository: _FakeRepository(_manifest(minSupportedVersionCode: 4)),
+        repository: _FakeRepository(
+          _manifest(versionCode: 4, minSupportedVersionCode: 4),
+        ),
         installer: installer,
         downloader: _FakeDownloader(),
         daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -33,6 +35,8 @@ void main() {
 
   test('install permission missing moves to permission state', () async {
     final installer = _FakeInstaller(canInstall: false);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
@@ -41,7 +45,7 @@ void main() {
       downloader: _FakeDownloader(
         result: AppUpdateDownloadResult(
           state: AppUpdateDownloadState.readyToInstall,
-          file: File('ready.apk'),
+          file: readyFile,
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -58,6 +62,8 @@ void main() {
 
   test('installer success event updates state', () async {
     final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
@@ -66,7 +72,7 @@ void main() {
       downloader: _FakeDownloader(
         result: AppUpdateDownloadResult(
           state: AppUpdateDownloadState.readyToInstall,
-          file: File('ready.apk'),
+          file: readyFile,
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -86,13 +92,15 @@ void main() {
     await pumpEventQueue();
 
     expect(viewModel.state.status, AppUpdateStatus.installSucceeded);
-    expect(installer.installedPath, 'ready.apk');
+    expect(installer.installedPath, readyFile.path);
   });
 
   test('records update diagnostics and install session metadata', () async {
     final diagnostics = <String>[];
     final diagnosticMetadata = <Map<String, Object?>>[];
     final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
     final downloader = _FakeDownloader(
       result: const AppUpdateDownloadResult(
         state: AppUpdateDownloadState.failed,
@@ -118,7 +126,7 @@ void main() {
     await viewModel.download();
     downloader.result = AppUpdateDownloadResult(
       state: AppUpdateDownloadState.readyToInstall,
-      file: File('ready.apk'),
+      file: readyFile,
     );
     await viewModel.download();
     await viewModel.install();
@@ -135,6 +143,8 @@ void main() {
 
   test('install cancelled returns to ready-to-install for retry', () async {
     final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
     final viewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
@@ -143,7 +153,7 @@ void main() {
       downloader: _FakeDownloader(
         result: AppUpdateDownloadResult(
           state: AppUpdateDownloadState.readyToInstall,
-          file: File('ready.apk'),
+          file: readyFile,
         ),
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
@@ -163,7 +173,67 @@ void main() {
     await pumpEventQueue();
 
     expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
-    expect(viewModel.state.downloadedFile?.path, 'ready.apk');
+    expect(viewModel.state.downloadedFile?.path, readyFile.path);
+  });
+
+  test('install rolls back when installer returns no session id', () async {
+    final installer = _FakeInstaller(sessionId: -1);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest()),
+      installer: installer,
+      downloader: downloader,
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.errorMessage, contains('installer session'));
+    expect(downloader.recordedSessionId, isNull);
+  });
+
+  test('install returns to download path when cached apk disappeared',
+      () async {
+    final installer = _FakeInstaller();
+    final missingFile = File('${Directory.systemTemp.path}/missing-update.apk');
+    if (await missingFile.exists()) await missingFile.delete();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      repository: _FakeRepository(_manifest()),
+      installer: installer,
+      downloader: _FakeDownloader(
+        result: AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.readyToInstall,
+          file: missingFile,
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+
+    expect(viewModel.state.status, AppUpdateStatus.available);
+    expect(viewModel.state.downloadedFile, isNull);
+    expect(installer.installedPath, isNull);
   });
 
   test(
@@ -181,20 +251,23 @@ void main() {
   );
 }
 
-AppUpdateManifest _manifest({int minSupportedVersionCode = 1}) {
+AppUpdateManifest _manifest({
+  int versionCode = 2,
+  int minSupportedVersionCode = 1,
+}) {
   return AppUpdateManifest(
     schemaVersion: 1,
     platform: 'android',
     available: true,
     packageName: 'com.example.lan_ai_cli_control',
     versionName: '1.4.0',
-    versionCode: 2,
+    versionCode: versionCode,
     minSupportedVersionCode: minSupportedVersionCode,
     mandatory: false,
-    apkUrl: '/api/app-updates/android/apk/2',
+    apkUrl: '/api/app-updates/android/apk/$versionCode',
     sha256: 'a' * 64,
     sizeBytes: 10,
-    etag: '"etag"',
+    etag: '"etag-$versionCode"',
     publishedAt: DateTime.utc(2026, 5, 24),
   );
 }
@@ -209,10 +282,17 @@ class _FakeRepository implements AppUpdateRepository {
       manifest;
 }
 
+Future<File> _readyApk() async {
+  final dir = await Directory.systemTemp.createTemp('ready-update-apk-');
+  final file = File('${dir.path}${Platform.pathSeparator}ready.apk');
+  return file.writeAsBytes(<int>[1, 2, 3]);
+}
+
 class _FakeInstaller implements PackageInstallerService {
-  _FakeInstaller({this.canInstall = true});
+  _FakeInstaller({this.canInstall = true, this.sessionId = 7});
 
   final bool canInstall;
+  final int sessionId;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   String? installedPath;
 
@@ -232,7 +312,7 @@ class _FakeInstaller implements PackageInstallerService {
   @override
   Future<int> installApk(String filePath) async {
     installedPath = filePath;
-    return 7;
+    return sessionId;
   }
 
   @override

@@ -68,6 +68,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   final Future<int> Function() _availableBytes;
   final DateTime Function() _now;
 
+  @override
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
     Uri daemonBaseUri,
@@ -141,8 +142,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       );
     } on FileSystemException catch (error) {
       return AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.failed,
-        message: 'Could not write update download: $error',
+        state: AppUpdateDownloadState.paused,
+        message: 'Update download was interrupted while writing cache: $error',
       );
     } on FormatException catch (error) {
       return AppUpdateDownloadResult(
@@ -182,6 +183,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     }
   }
 
+  @override
   Future<void> discard(int versionCode) async {
     final paths = await _pathsFor(versionCode);
     await _deleteIfExists(paths.part);
@@ -189,6 +191,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     await _deleteIfExists(paths.apk);
   }
 
+  @override
   Future<void> recordInstallSession(
     AppUpdateManifest manifest,
     int sessionId,
@@ -296,19 +299,21 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   ) async {
     if (!await paths.part.exists()) {
       return const AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.failed,
-        message: 'Downloaded APK file is missing.',
+        state: AppUpdateDownloadState.paused,
+        message: 'Downloaded APK file is missing; retry the download.',
       );
     }
 
     final actualLength = await paths.part.length();
     if (actualLength != manifest.sizeBytes) {
-      await _deleteIfExists(paths.part);
-      await _deleteIfExists(paths.metadata);
+      if (actualLength > manifest.sizeBytes!) {
+        await _deleteIfExists(paths.part);
+        await _deleteIfExists(paths.metadata);
+      }
       return AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.failed,
+        state: AppUpdateDownloadState.paused,
         message:
-            'Downloaded APK size mismatch: expected ${manifest.sizeBytes}, got $actualLength.',
+            'Downloaded APK size mismatch: expected ${manifest.sizeBytes}, got $actualLength; retry the download.',
       );
     }
 
@@ -317,8 +322,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       await _deleteIfExists(paths.part);
       await _deleteIfExists(paths.metadata);
       return const AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.failed,
-        message: 'Downloaded APK integrity check failed.',
+        state: AppUpdateDownloadState.paused,
+        message: 'Downloaded APK integrity check failed; retry the download.',
       );
     }
 
@@ -379,10 +384,14 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     File file,
     AppUpdateManifest manifest,
   ) async {
-    if (!await file.exists()) return false;
-    if (await file.length() != manifest.sizeBytes) return false;
-    final actualSha256 = await _sha256Hex(file);
-    return actualSha256.toLowerCase() == manifest.sha256!.toLowerCase();
+    try {
+      if (!await file.exists()) return false;
+      if (await file.length() != manifest.sizeBytes) return false;
+      final actualSha256 = await _sha256Hex(file);
+      return actualSha256.toLowerCase() == manifest.sha256!.toLowerCase();
+    } on FileSystemException {
+      return false;
+    }
   }
 
   Future<AppUpdateDownloadMetadata?> _readMetadata(File file) async {
@@ -450,8 +459,20 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }
 
   Future<void> _deleteIfExists(File file) async {
-    if (await file.exists()) {
-      await file.delete();
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on FileSystemException {
+      if (await _safeExists(file)) rethrow;
+    }
+  }
+
+  Future<bool> _safeExists(File file) async {
+    try {
+      return await file.exists();
+    } on FileSystemException {
+      return false;
     }
   }
 

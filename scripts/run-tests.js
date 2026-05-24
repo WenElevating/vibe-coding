@@ -57,8 +57,8 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
 
-function createAndroidUpdateFixture({ versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-fixture-'));
+function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
+  root = root || fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-fixture-'));
   const apkName = `lan_ai_cli_control-1.4.0+${versionCode}.apk`;
   const apkPath = path.join(root, apkName);
   fs.writeFileSync(apkPath, apkBytes);
@@ -9368,6 +9368,95 @@ test('android update endpoints serve manifest, 304, HEAD, full APK, and range AP
   }
 });
 
+test('android update endpoints pass authenticated device into APK service', async () => {
+  const { createServer } = require('../daemon/src/server');
+  const device = { id: 'device-app-update' };
+  let seenDevice = null;
+  const server = createServer({
+    auth: {
+      authenticate() {
+        return device;
+      }
+    },
+    appUpdates: {
+      sendLatest(req, res) {
+        res.writeHead(500);
+        res.end();
+      },
+      sendApk(req, res, versionCode, authenticatedDevice) {
+        seenDevice = authenticatedDevice;
+        res.writeHead(204, { 'x-version-code': versionCode });
+        res.end();
+      }
+    },
+    asrModelAsset: {},
+    diagnostics: {},
+    diagnosticBundle: {},
+    adapterRegistry: {},
+    runQueue: {},
+    shortcuts: {},
+    commandTemplates: {},
+    gitService: {},
+    workspaceInspector: {},
+    workspaces: {},
+    runs: {},
+    conversations: {},
+    eventStore: {},
+    config: {},
+    version: {}
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await requestRaw(server.address().port, 'GET', '/api/app-updates/android/apk/2', null, 'token');
+    assert.equal(response.status, 204);
+    assert.equal(response.headers['x-version-code'], '2');
+    assert.equal(seenDevice, device);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('android update service reloads newly published artifacts without daemon restart', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-reload-'));
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath: tempConversationDbPath('app-db-update-reload-'),
+    androidUpdateArtifactDir: root
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'test',
+      deviceId: 'device-update-reload'
+    });
+    const token = paired.body.token;
+
+    const unavailable = await request(port, 'GET', '/api/app-updates/android/latest', null, token);
+    assert.equal(unavailable.status, 200);
+    assert.equal(unavailable.body.available, false);
+
+    const fixture = createAndroidUpdateFixture({ root, versionCode: 7, apkBytes: Buffer.from('fresh-apk') });
+    const latest = await request(port, 'GET', '/api/app-updates/android/latest', null, token);
+    assert.equal(latest.status, 200);
+    assert.equal(latest.body.available, true);
+    assert.equal(latest.body.versionCode, fixture.manifest.versionCode);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('android update service registers stream error handlers for APK responses', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
+  assert.match(source, /createReadStream/);
+  assert.match(source, /\.on\('error'/);
+});
+
 test('android update APK endpoint rejects retained non-latest versions and path escape', async () => {
   const fixture = createAndroidUpdateFixture({ versionCode: 5 });
   fs.writeFileSync(path.join(fixture.root, 'lan_ai_cli_control-1.3.0+3.apk'), Buffer.from('old'));
@@ -9468,17 +9557,34 @@ test('android installer native bridge abandons failed sessions after creation', 
   const openSessionIndex = activity.indexOf('installer.openSession(sessionId)', createSessionIndex);
   const abandonIndex = activity.indexOf('installer.abandonSession(sessionId)', createSessionIndex);
   const commitIndex = activity.indexOf('activeSession.commit(pendingIntent.intentSender)', createSessionIndex);
-  const committedEventIndex = activity.indexOf('sendInstallEvent("committed"', createSessionIndex);
 
   assert.notEqual(createSessionIndex, -1);
   assert.notEqual(tryIndex, -1);
   assert.notEqual(openSessionIndex, -1);
   assert.notEqual(abandonIndex, -1);
   assert.notEqual(commitIndex, -1);
-  assert.notEqual(committedEventIndex, -1);
   assert.ok(tryIndex < openSessionIndex, 'openSession must be inside the abandon-protected try block');
   assert.ok(openSessionIndex < abandonIndex, 'failed open/write/commit paths must abandon the session');
-  assert.ok(commitIndex < committedEventIndex, 'committed event must not be sent before session.commit succeeds');
+  assert.equal(
+    activity.includes('sendInstallEvent("committed"'),
+    false,
+    'Dart records committed after persisting the PackageInstaller session id'
+  );
+});
+
+test('android installer recovery maps session info instead of hardcoding pending state', () => {
+  const activity = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
+    'utf8'
+  );
+  const recoverIndex = activity.indexOf('private fun recoverSession');
+  const recoverBody = activity.slice(recoverIndex, activity.indexOf('\n    private fun availableBytes', recoverIndex));
+
+  assert.notEqual(recoverIndex, -1);
+  assert.match(recoverBody, /when/);
+  assert.match(recoverBody, /info\.isActive/);
+  assert.match(recoverBody, /isSessionSealed/);
+  assert.equal(recoverBody.includes('"status" to "pendingUserAction"'), false);
 });
 
 test('android update downloader cancels response stream when file write fails', () => {
@@ -9493,6 +9599,32 @@ test('android update downloader cancels response stream when file write fails', 
   assert.match(writeStreamBody, /final iterator = StreamIterator<List<int>>\(stream\)/);
   assert.match(writeStreamBody, /await iterator\.cancel\(\)/);
   assert.equal(writeStreamBody.includes('await for (final chunk in stream)'), false);
+});
+
+test('android update downloader treats filesystem write failures as retryable interruptions', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+  const catchIndex = downloader.indexOf('} on FileSystemException catch');
+  const catchBody = downloader.slice(catchIndex, downloader.indexOf('\n    } on FormatException', catchIndex));
+
+  assert.notEqual(catchIndex, -1);
+  assert.match(catchBody, /AppUpdateDownloadState\.paused/);
+  assert.match(catchBody, /interrupted/);
+});
+
+test('android update downloader tolerates cache delete races', () => {
+  const downloader = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
+    'utf8'
+  );
+  const deleteIndex = downloader.indexOf('Future<void> _deleteIfExists');
+  const deleteBody = downloader.slice(deleteIndex, downloader.indexOf('\n  String? _validateDownloadableManifest', deleteIndex));
+
+  assert.notEqual(deleteIndex, -1);
+  assert.match(deleteBody, /try \{/);
+  assert.match(deleteBody, /on FileSystemException/);
 });
 
 test('ASR model API returns metadata and supports full and ranged downloads', async () => {

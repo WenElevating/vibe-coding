@@ -1531,6 +1531,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -1606,6 +1608,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -1721,6 +1725,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -1816,6 +1822,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -1932,6 +1940,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -2034,6 +2044,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
@@ -2112,6 +2124,8 @@ void main() {
             dependencies.features.createDiagnosticsViewModel,
         createRunDetailViewModel:
             dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,

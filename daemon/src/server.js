@@ -32,7 +32,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       if (method === 'GET' && url.pathname === '/api/app-updates/android/latest') return appUpdates.sendLatest(req, res);
       const androidApk = url.pathname.match(/^\/api\/app-updates\/android\/apk\/(\d+)$/);
-      if ((method === 'GET' || method === 'HEAD') && androidApk) return appUpdates.sendApk(req, res, androidApk[1]);
+      if ((method === 'GET' || method === 'HEAD') && androidApk) return appUpdates.sendApk(req, res, androidApk[1], device);
       if (method === 'GET' && url.pathname === '/api/asr-model') return json(res, 200, await asrModelAsset.metadata());
       if (method === 'GET' && url.pathname === '/api/asr-model/download') return asrModelAsset.streamDownload(req, res);
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());
