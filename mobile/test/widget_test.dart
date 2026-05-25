@@ -3377,6 +3377,35 @@ void main() {
     expect(find.text('00:02'), findsOneWidget);
   });
 
+  testWidgets('pending sentinel resumes elapsed time from stable start',
+      (WidgetTester tester) async {
+    var now = DateTime.utc(2026, 5, 25, 12);
+    final startedAt = now.subtract(const Duration(seconds: 65));
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: PendingSentinel(
+                  adapter: 'claude',
+                  statusText: 'Receiving CLI output...',
+                  startedAt: startedAt,
+                  now: () => now,
+                )))));
+    await tester.pump();
+
+    expect(find.text('01:05'), findsOneWidget);
+
+    now = now.add(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text('01:07'), findsOneWidget);
+  });
+
   testWidgets('file change card shows edited path and diff preview',
       (WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(

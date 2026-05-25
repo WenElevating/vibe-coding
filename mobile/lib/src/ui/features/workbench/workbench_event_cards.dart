@@ -2084,11 +2084,15 @@ class PendingSentinel extends StatefulWidget {
     super.key,
     required this.adapter,
     required this.statusText,
+    this.startedAt,
+    this.now,
     this.actions = const <String>[],
   });
 
   final String adapter;
   final String statusText;
+  final DateTime? startedAt;
+  final DateTime Function()? now;
   final List<String> actions;
 
   @override
@@ -2107,12 +2111,23 @@ class _PendingSentinelState extends State<PendingSentinel>
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 850))
       ..repeat();
+    _elapsedSeconds = _initialElapsedSeconds();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
-        _elapsedSeconds += 1;
+        _elapsedSeconds = widget.startedAt == null
+            ? _elapsedSeconds + 1
+            : _elapsedSecondsSince(widget.startedAt!);
       });
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant PendingSentinel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.startedAt != widget.startedAt) {
+      _elapsedSeconds = _initialElapsedSeconds();
+    }
   }
 
   @override
@@ -2181,6 +2196,16 @@ class _PendingSentinelState extends State<PendingSentinel>
                       Center(child: _PulseBars(progress: _controller.value))),
             ]));
       });
+
+  DateTime _now() => widget.now?.call() ?? DateTime.now();
+
+  int _initialElapsedSeconds() =>
+      widget.startedAt == null ? 0 : _elapsedSecondsSince(widget.startedAt!);
+
+  int _elapsedSecondsSince(DateTime startedAt) {
+    final elapsed = _now().difference(startedAt).inSeconds;
+    return elapsed < 0 ? 0 : elapsed;
+  }
 }
 
 String _formatPendingElapsed(int seconds) {

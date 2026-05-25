@@ -774,6 +774,35 @@ void main() {
     );
   });
 
+  test('pending elapsed anchor uses current active conversation segment', () {
+    final events = <ConversationEvent>[
+      _event(
+        seq: 1,
+        type: 'conversation.status_changed',
+        raw: const <String, Object?>{'status': 'running'},
+      ),
+      _event(
+        seq: 2,
+        type: 'conversation.status_changed',
+        raw: const <String, Object?>{'status': 'idle'},
+      ),
+      _event(
+        seq: 3,
+        type: 'user.message',
+        text: 'continue',
+      ),
+      _event(
+        seq: 4,
+        type: 'conversation.status_changed',
+        raw: const <String, Object?>{'status': 'running'},
+      ),
+    ];
+
+    expect(conversationPendingStartedAt('running', events),
+        DateTime.parse('2026-05-12T00:00:04.000Z'));
+    expect(conversationPendingStartedAt('idle', events), isNull);
+  });
+
   test('send acknowledgement does not overwrite terminal event state', () {
     expect(
       shouldApplyConversationSendAcknowledgement(

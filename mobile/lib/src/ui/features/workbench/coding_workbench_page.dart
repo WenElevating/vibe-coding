@@ -1308,6 +1308,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           child: PendingSentinel(
             adapter: adapter ?? 'CLI',
             statusText: _pendingStatusText(l10n),
+            startedAt: conversationPendingStartedAt(
+                _workbenchViewModel.effectiveConversationStatus,
+                _conversationEvents),
             actions: _recentActionSummaries,
           ),
         );

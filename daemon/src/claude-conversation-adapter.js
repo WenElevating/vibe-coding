@@ -248,7 +248,10 @@ function handleRawClaudeEvent(raw, state) {
     state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${event.error_status || ''} ${event.error || 'error'}`, visible: false, sessionId, raw: event });
     return;
   }
-  if (sessionId) state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: '', sessionId, raw: event });
+  const text = extractText(event);
+  if (text.trim()) {
+    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text, sessionId, raw: event });
+  }
 }
 
 function completeInitialize(state, details = {}) {
@@ -452,8 +455,12 @@ function handleToolResult(raw, state, originalRaw = raw) {
 
 function isPermissionErrorText(text) {
   return typeof text === 'string'
-    && /requested permissions/i.test(text)
-    && /haven't granted it yet|permission/i.test(text);
+    && (
+      (/requested permissions/i.test(text) && /haven't granted it yet|permission/i.test(text))
+      || /requires approval/i.test(text)
+      || /approval required/i.test(text)
+      || /permission required/i.test(text)
+    );
 }
 
 function permissionNoticeText(toolName, input) {

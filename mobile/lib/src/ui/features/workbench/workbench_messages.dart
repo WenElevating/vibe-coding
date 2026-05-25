@@ -73,6 +73,43 @@ String conversationPendingStatusText(
   return l10n.workbenchPendingWaitingNextEvent;
 }
 
+DateTime? conversationPendingStartedAt(
+    String status, Iterable<ConversationEvent> events) {
+  if (!_isPendingTimerStatus(status)) return null;
+  final list = events.toList(growable: false)
+    ..sort((a, b) => a.seq.compareTo(b.seq));
+  DateTime? startedAt;
+  for (final event in list) {
+    if (event.type == 'conversation.status_changed') {
+      final nextStatus = event.raw['status'] as String? ?? '';
+      if (_isPendingTimerStatus(nextStatus)) {
+        startedAt = event.createdAt;
+      } else if (_isInactiveConversationStatus(nextStatus)) {
+        startedAt = null;
+      }
+      continue;
+    }
+    if (event.type == 'conversation.started') {
+      startedAt = event.createdAt;
+      continue;
+    }
+    if (startedAt == null && event.type == 'user.message') {
+      startedAt = event.createdAt;
+    }
+  }
+  return startedAt;
+}
+
+bool _isPendingTimerStatus(String status) =>
+    status == 'sending' || status == 'running';
+
+bool _isInactiveConversationStatus(String status) =>
+    status == 'idle' ||
+    status == 'completed' ||
+    status == 'cancelled' ||
+    status == 'failed' ||
+    status == 'interrupted';
+
 String _pendingToolLabel(AppLocalizations l10n, ConversationEvent event) {
   final command = event.input['command'];
   if (command is String &&

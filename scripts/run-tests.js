@@ -3412,6 +3412,66 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
 });
 
+test('Claude conversation adapter ignores empty lifecycle frames', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_lifecycle', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  for (const raw of [
+    { type: 'system', subtype: 'hook_started', session_id: 'session_lifecycle' },
+    { type: 'system', subtype: 'status', session_id: 'session_lifecycle' },
+    { type: 'message_delta', session_id: 'session_lifecycle' },
+    { type: 'message_stop', session_id: 'session_lifecycle' }
+  ]) {
+    child.stdout.emit('data', `${JSON.stringify(raw)}\n`);
+  }
+
+  assert.equal(events.some((event) => event.type === 'protocol.warning'), false);
+});
+
+test('Claude conversation adapter marks non-interactive approval failures', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_permission_error', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_permission',
+    name: 'Bash',
+    input: { command: 'git pull' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_permission',
+    content: 'This command requires approval',
+    is_error: true
+  })}\n`);
+
+  const notice = events.find((event) => event.type === 'system.notice');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(notice.noticeKind, 'permission_unavailable');
+  assert.equal(notice.text.includes('当前 CLI 没有发出可响应的移动端审批请求'), true);
+  assert.equal(output.permissionError, true);
+  assert.equal(completed.permissionError, true);
+});
+
 test('Claude conversation adapter maps wrapped tool result to output and completion', async () => {
   const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
   const child = new EventEmitter();
@@ -4377,10 +4437,14 @@ test('Codex model discovery ignores oversize catalog files', () => {
 });
 
 test('Claude model discovery de-duplicates environment defaults by priority', () => {
+  const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-env-model-discovery-'));
   const discovered = discoverConfiguredModels({
     adapter: 'claude',
+    homeDir: path.join(root, 'home'),
+    workspacePath: path.join(root, 'workspace'),
     claudeSettingsPath: path.join(os.tmpdir(), 'missing-claude-settings.json'),
     env: {
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-duplicate',
@@ -4401,13 +4465,15 @@ test('Claude model discovery falls back to user CLI default when settings has no
   const path = require('node:path');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-model-'));
   const homeDir = path.join(root, 'home');
+  const workspacePath = path.join(root, 'workspace');
   fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
   fs.writeFileSync(
     path.join(homeDir, '.claude', 'settings.json'),
     JSON.stringify({ model: 'claude-opus-4-6' })
   );
 
-  const discovered = discoverConfiguredModels({ adapter: 'claude', homeDir, env: {} });
+  const discovered = discoverConfiguredModels({ adapter: 'claude', homeDir, workspacePath, env: {} });
 
   assert.equal(discovered.selectedModel, 'claude-opus-4-6');
   assert.deepEqual(discovered.models.map((model) => model.id), ['claude-opus-4-6']);
@@ -9307,7 +9373,11 @@ test('adapter capability listing falls back when model capability hooks fail', a
 });
 
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
+  app.diagnosticBundle.outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diagnostic-export-'));
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
   try {
@@ -10099,8 +10169,12 @@ test('ASR model API reports missing asset as structured traceable error', async 
 });
 
 test('exceptions are persisted with trace ids and exported in diagnostics', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
   const appDbPath = tempConversationDbPath('app-db-exceptions-');
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, appDbPath });
+  app.diagnosticBundle.outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diagnostic-exceptions-'));
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
   try {
@@ -10118,7 +10192,6 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
     assert.match(recorded.body.traceId, /^trc_/);
     assert.equal(app.appSqliteStore.listExceptions()[0].traceId, recorded.body.traceId);
     const exported = await request(port, 'POST', '/api/diagnostics/export', {}, token);
-    const fs = require('node:fs');
     const bundle = JSON.parse(fs.readFileSync(exported.body.path, 'utf8'));
     assert.equal(bundle.recent_errors[0].traceId, recorded.body.traceId);
 

@@ -181,6 +181,73 @@ flutter test --no-pub test\daemon_notification_client_test.dart test\coding_work
 
 - Last verified: 2026-05-24
 
+## Symptom: Claude Conversation Counts Events But Shows No New Text
+
+- Symptom: the workbench status banner says Claude has processed many events,
+  but the transcript appears blank or unchanged until a later assistant/tool
+  event arrives.
+- Action: inspect persisted `conversation_events` before changing WebSocket or
+  reducer logic. Claude Code 2.1.119 can emit empty lifecycle frames such as
+  `system/hook_started`, `system/status`, `message_delta`, and `message_stop`.
+  These should not be persisted as `protocol.warning` rows because they advance
+  the visible event counter without rendering user-facing content.
+- Related file:
+  [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+npm run lint
+```
+
+- Last verified: 2026-05-25
+
+## Symptom: Claude Permission Request Ends Without Mobile Approval UI
+
+- Symptom: a Claude Bash/tool card shows `This command requires approval`, then
+  the conversation completes or asks the user to retry, but no actionable mobile
+  approval card appears.
+- Action: confirm whether Claude emitted a `control_request` with
+  `request.subtype=can_use_tool`. If not, mobile cannot approve that already
+  completed tool call; treat the tool result as a non-interactive permission
+  failure, mark `permissionError=true`, and surface a visible system notice
+  explaining that the CLI did not provide a responsive mobile approval request.
+- Related file:
+  [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+npm run lint
+```
+
+- Last verified: 2026-05-25
+
+## Symptom: Workbench Running Timer Resets After Reopening Conversation
+
+- Symptom: the pending/running transition card timer starts from `00:00` after
+  leaving and reopening an active conversation, even though the CLI turn was
+  already running.
+- Action: do not use widget mount time as the source of truth for persisted
+  conversation state. Derive the pending timer anchor from stored
+  `conversation_events`, preferring the latest active
+  `conversation.status_changed` segment and falling back to the current
+  `conversation.started` or `user.message` event. The widget may keep a local
+  counter only when no persisted anchor exists.
+- Related files:
+  [workbench_messages.dart](../../mobile/lib/src/ui/features/workbench/workbench_messages.dart),
+  [workbench_event_cards.dart](../../mobile/lib/src/ui/features/workbench/workbench_event_cards.dart)
+- Verification:
+
+```powershell
+cd mobile
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\coding_workbench_controller_test.dart test\widget_test.dart
+```
+
+- Last verified: 2026-05-25
+
 ## Symptom: Workbench Send Reports StreamSink Is Closed
 
 - Symptom: a prompt or attachment send succeeds in daemon persistence, but
