@@ -18,6 +18,7 @@ node_modules/
 data/**/*.sqlite
 data/**/*.sqlite-*
 daemon/asset/
+daemon/update-artifacts/
 
 # Flutter / Dart generated files
 **/.dart_tool/

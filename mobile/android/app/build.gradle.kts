@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -20,7 +22,7 @@ android {
     }
 
     val keyPropertiesFile = rootProject.file("key.properties")
-    val keyProperties = java.util.Properties()
+    val keyProperties = Properties()
     val releaseBuildRequested = gradle.startParameter.taskNames.any {
         it.contains("Release", ignoreCase = true)
     }
@@ -47,10 +49,10 @@ android {
     signingConfigs {
         create("releasePrivate") {
             if (keyPropertiesFile.exists()) {
-                keyAlias = keyProperties["keyAlias"] as String
-                keyPassword = keyProperties["keyPassword"] as String
-                storeFile = rootProject.file(keyProperties["storeFile"] as String)
-                storePassword = keyProperties["storePassword"] as String
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+                storeFile = rootProject.file(keyProperties.getProperty("storeFile"))
+                storePassword = keyProperties.getProperty("storePassword")
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
