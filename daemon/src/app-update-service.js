@@ -15,10 +15,19 @@ class AppUpdateService {
     this.manifest = unavailableManifest();
     this.apkPath = null;
     this.apkIdentity = null;
-    this.load();
+    this.loadPromise = null;
   }
 
-  load() {
+  async load() {
+    if (this.loadPromise) return this.loadPromise;
+    const pending = this._loadNow().finally(() => {
+      if (this.loadPromise === pending) this.loadPromise = null;
+    });
+    this.loadPromise = pending;
+    return pending;
+  }
+
+  async _loadNow() {
     const manifestPath = path.join(this.artifactDir, 'latest.json');
     if (!fs.existsSync(manifestPath)) {
       this._markUnavailable();
@@ -66,7 +75,14 @@ class AppUpdateService {
     }
     const identity = apkIdentityFor(stats, realApkPath, manifest.sha256);
     if (!apkIdentityMatches(this.apkIdentity, stats, realApkPath, manifest.sha256)) {
-      if (!this._verifyDigest(realApkPath, stats, manifest.sha256)) {
+      let digestMatches;
+      try {
+        digestMatches = await this._verifyDigest(realApkPath, stats, manifest.sha256);
+      } catch {
+        this._markUnavailable();
+        return;
+      }
+      if (!digestMatches) {
         this._markUnavailable();
         return;
       }
@@ -91,8 +107,8 @@ class AppUpdateService {
     this.apkIdentity = null;
   }
 
-  sendLatest(req, res) {
-    this.load();
+  async sendLatest(req, res) {
+    await this.load();
     if (!this.available) {
       json(res, 200, this.manifest, { 'cache-control': 'no-store' });
       return;
@@ -106,8 +122,8 @@ class AppUpdateService {
     json(res, 200, this.manifest, { etag });
   }
 
-  sendApk(req, res, requestedVersionCode, device) {
-    this.load();
+  async sendApk(req, res, requestedVersionCode, device) {
+    await this.load();
     if (!device || !device.id) {
       json(res, 403, {
         error: {
@@ -207,10 +223,10 @@ class AppUpdateService {
     }
   }
 
-  _verifyDigest(apkPath, stats, expectedSha256) {
-    const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
+  async _verifyDigest(apkPath, stats, expectedSha256) {
+    const actualSha256 = await sha256ForFile(apkPath);
     const matches = actualSha256.toLowerCase() === expectedSha256.toLowerCase();
-    return matches;
+    return stats.isFile() && matches;
   }
 }
 
@@ -233,6 +249,16 @@ function apkIdentityMatches(identity, stats, realApkPath, sha256) {
     identity.size === stats.size &&
     identity.mtimeMs === stats.mtimeMs &&
     identity.sha256 === sha256.toLowerCase();
+}
+
+function sha256ForFile(apkPath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(apkPath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 }
 
 function unavailableManifest() {

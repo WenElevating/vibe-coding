@@ -530,6 +530,10 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.upToDate);
     expect(viewModel.state.downloadedFile, isNull);
     expect(viewModel.state.mandatory, false);
+
+    await viewModel.recoverInstallSession();
+
+    expect(downloader.clearAllInstallSessionCalls, 2);
   });
 
   test('no-update recovery clears stale paused state', () async {
@@ -568,6 +572,53 @@ void main() {
     expect(downloader.clearAllInstallSessionCalls, 1);
     expect(viewModel.state.status, AppUpdateStatus.upToDate);
     expect(viewModel.state.downloadedFile, isNull);
+  });
+
+  test('no-update recovery does not clear sessions after state becomes active',
+      () async {
+    final recoveryFetchCompleter = Completer<AppUpdateManifest>();
+    final downloadCompleter = Completer<AppUpdateDownloadResult>();
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader(downloadCompleter: downloadCompleter);
+    final repository = _FakeRepository(_manifest(versionCode: 19));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: repository,
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    expect(viewModel.state.status, AppUpdateStatus.available);
+
+    repository.fetchCompleter = recoveryFetchCompleter;
+    final recovery = viewModel.recoverInstallSession();
+    await pumpEventQueue();
+
+    final download = viewModel.download();
+    await pumpEventQueue();
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+
+    recoveryFetchCompleter.complete(
+      const AppUpdateManifest(
+        schemaVersion: 1,
+        platform: 'android',
+        available: false,
+      ),
+    );
+    await recovery;
+
+    expect(downloader.clearAllInstallSessionCalls, 0);
+    downloadCompleter.complete(
+      const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed),
+    );
+    await download;
   });
 
   test('check is ignored while download is active', () async {
@@ -762,6 +813,61 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
     expect(downloader.clearedSessionId, 13);
     expect(downloader.recordedSessionId, isNull);
+  });
+
+  test('stale native recovery does not clear session after state becomes active',
+      () async {
+    final recoveryCompleter = Completer<AndroidInstallEvent?>();
+    final downloadCompleter = Completer<AppUpdateDownloadResult>();
+    final installer = _FakeInstaller(recoverCompleter: recoveryCompleter);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 21);
+    final downloader = _FakeDownloader(
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 21,
+        file: readyFile,
+      ),
+      downloadCompleter: downloadCompleter,
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    expect(viewModel.state.status, AppUpdateStatus.available);
+
+    final recovery = viewModel.recoverInstallSession();
+    await pumpEventQueue();
+    expect(installer.recoveredSessionId, 21);
+
+    final download = viewModel.download();
+    await pumpEventQueue();
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+
+    recoveryCompleter.complete(null);
+    await recovery;
+
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+    expect(downloader.clearSessionStarted, false);
+    expect(downloader.clearedSessionId, isNull);
+
+    downloadCompleter.complete(
+      AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    await download;
   });
 
   test('recovery failure is surfaced as failed state', () async {
@@ -990,10 +1096,11 @@ AppUpdateManifest _manifest({
 }
 
 class _FakeRepository implements AppUpdateRepository {
-  _FakeRepository(this.manifest, {this.fetchError});
+  _FakeRepository(this.manifest, {this.fetchError, this.fetchCompleter});
 
   AppUpdateManifest manifest;
   final Object? fetchError;
+  Completer<AppUpdateManifest>? fetchCompleter;
   int fetchCalls = 0;
 
   @override
@@ -1001,6 +1108,8 @@ class _FakeRepository implements AppUpdateRepository {
     fetchCalls += 1;
     final fetchError = this.fetchError;
     if (fetchError != null) throw fetchError;
+    final fetchCompleter = this.fetchCompleter;
+    if (fetchCompleter != null) return fetchCompleter.future;
     return manifest;
   }
 }

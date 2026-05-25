@@ -18,24 +18,29 @@ Range and If-Range resume, verifies `sha256`, and installs through
 `PackageInstaller.Session`.
 
 On Android installer recovery, the native bridge treats an active, committed, or
-sealed `PackageInstaller.SessionInfo` as a recoverable pending installer session.
-It returns a `pendingUserAction` payload with the original `sessionId`,
+sealed `PackageInstaller.SessionInfo` as a recoverable pending installer
+session. On API 24-25, where committed/sealed state is not exposed by
+`SessionInfo`, an existing persisted session is treated as recoverable because
+the app records session ids only after `PackageInstaller.Session.commit()`
+returns. It returns a `pendingUserAction` payload with the original `sessionId`,
 `appPackageName`, and a diagnostic message, and re-adds the session id to the
 in-process receiver whitelist so later terminal installer broadcasts are not
-dropped. Missing or inactive native sessions return no native pending state.
-Dart then clears only the matching persisted `installSessionId`, keeps the
-verified APK cache, and returns to a retryable install state.
+dropped. Missing native sessions return no native pending state. Dart then
+clears only the matching persisted `installSessionId`, keeps the verified APK
+cache, and returns to a retryable install state.
 
 On Dart recovery, the app reads the persisted `installSessionId` from matching
 download metadata only after the cached APK still verifies against the current
 manifest. `MainTabsPage` triggers that recovery on Android when the update
 ViewModel is created and when the app resumes. Recovery is allowed from idle,
 up-to-date, available, paused, or failed update states, and the ViewModel
-re-checks that guard after async daemon/cache/native calls so a stale recovery
-result cannot overwrite an active user download or install flow. If the daemon
-manifest is unavailable or no longer newer than the installed app, Dart clears
-orphan install-session ids from cached update metadata to avoid retrying the
-same stale recovery on every resume. While the UI is installing or waiting for
+re-checks that guard after async daemon/cache/native calls before applying any
+recovery side effect, so a stale recovery result cannot overwrite or clear state
+for an active user download or install flow. If the daemon manifest is
+unavailable or no longer newer than the installed app, Dart clears orphan
+install-session ids from cached update metadata only after the ViewModel
+recovery guard still passes, avoiding retries of the same stale recovery on
+every resume without racing an active download. While the UI is installing or waiting for
 Android user confirmation, `install()` must not create another
 `PackageInstaller.Session` for the same APK; the existing session must resolve
 or the user must discard/retry from a non-pending state. Terminal installer
@@ -45,9 +50,12 @@ failed native session as a ghost pending update.
 
 The daemon validates the manifest-referenced APK digest when a new file identity
 is observed, then caches that validated identity by real path, device/inode,
-size, mtime, and sha256. Each APK request opens the file descriptor and compares
-the fd/path identity to the cached validated identity before streaming, avoiding
-per-request synchronous SHA-256 scans of large APKs on the Node event loop.
+size, mtime, and sha256. Digest verification for changed APK identities uses an
+asynchronous file stream rather than `fs.readFileSync`, so publishing or
+replacing a large APK does not block the Node event loop with a full-file hash
+scan. Each APK request opens the file descriptor and compares the fd/path
+identity to the cached validated identity before streaming, avoiding per-request
+synchronous SHA-256 scans of large APKs on the Node event loop.
 
 The update channel is authenticated through the paired-device daemon boundary.
 The current daemon auth model does not have app-level permission categories, so

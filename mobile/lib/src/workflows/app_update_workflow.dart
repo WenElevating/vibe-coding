@@ -44,6 +44,7 @@ class AppUpdateRecoveryResult {
     required this.state,
     this.manifest,
     this.file,
+    this.sessionId,
     this.event,
     this.message,
   });
@@ -51,6 +52,7 @@ class AppUpdateRecoveryResult {
   final AppUpdateRecoveryState state;
   final AppUpdateManifest? manifest;
   final File? file;
+  final int? sessionId;
   final installer.AndroidInstallEvent? event;
   final String? message;
 }
@@ -86,6 +88,10 @@ class AppUpdateWorkflow {
     int? sessionId,
   }) {
     return _downloader.clearInstallSession(manifest, sessionId: sessionId);
+  }
+
+  Future<void> clearAllInstallSessions() {
+    return _downloader.clearAllInstallSessions();
   }
 
   Future<void> discard(int versionCode) {
@@ -129,7 +135,6 @@ class AppUpdateWorkflow {
   }) async {
     final manifest = await _repository.fetchLatest();
     if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
-      await _downloader.clearAllInstallSessions();
       return AppUpdateRecoveryResult(
         state: AppUpdateRecoveryState.noUpdate,
         manifest: manifest,
@@ -144,14 +149,11 @@ class AppUpdateWorkflow {
     }
     final event = await _installer.recoverInstallSession(session.sessionId);
     if (event == null) {
-      await _downloader.clearInstallSession(
-        manifest,
-        sessionId: session.sessionId,
-      );
       return AppUpdateRecoveryResult(
         state: AppUpdateRecoveryState.staleSession,
         manifest: manifest,
         file: session.file,
+        sessionId: session.sessionId,
         message:
             'Android installer session is no longer active. Try installing the downloaded APK again.',
       );

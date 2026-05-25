@@ -30,9 +30,15 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       const device = auth.authenticate(req.headers.authorization);
 
-      if (method === 'GET' && url.pathname === '/api/app-updates/android/latest') return appUpdates.sendLatest(req, res);
+      if (method === 'GET' && url.pathname === '/api/app-updates/android/latest') {
+        await appUpdates.sendLatest(req, res);
+        return;
+      }
       const androidApk = url.pathname.match(/^\/api\/app-updates\/android\/apk\/(\d+)$/);
-      if ((method === 'GET' || method === 'HEAD') && androidApk) return appUpdates.sendApk(req, res, androidApk[1], device);
+      if ((method === 'GET' || method === 'HEAD') && androidApk) {
+        await appUpdates.sendApk(req, res, androidApk[1], device);
+        return;
+      }
       if (method === 'GET' && url.pathname === '/api/asr-model') return json(res, 200, await asrModelAsset.metadata());
       if (method === 'GET' && url.pathname === '/api/asr-model/download') return asrModelAsset.streamDownload(req, res);
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());

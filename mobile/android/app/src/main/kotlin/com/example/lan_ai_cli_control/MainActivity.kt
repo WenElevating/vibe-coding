@@ -214,6 +214,7 @@ class MainActivity : FlutterActivity() {
 
     private fun isRecoverableInstallerSession(info: PackageInstaller.SessionInfo): Boolean {
         if (info.isActive) return true
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         if (isSessionCommitted(info)) return true
         if (isSessionSealed(info)) return true
         return false

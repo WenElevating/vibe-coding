@@ -223,6 +223,8 @@ class AppUpdateViewModel extends ChangeNotifier {
       if (!_canRecoverInstallSession()) return;
       switch (recovery.state) {
         case AppUpdateRecoveryState.noUpdate:
+          await workflow.clearAllInstallSessions();
+          if (!_canRecoverInstallSession()) return;
           if (state.status != AppUpdateStatus.idle) {
             _set(
               AppUpdateState(
@@ -239,6 +241,11 @@ class AppUpdateViewModel extends ChangeNotifier {
         case AppUpdateRecoveryState.staleSession:
           final manifest = recovery.manifest;
           if (manifest == null) return;
+          await workflow.clearInstallSession(
+            manifest,
+            sessionId: recovery.sessionId,
+          );
+          if (!_canRecoverInstallSession()) return;
           _set(
             state.copyWith(
               status: AppUpdateStatus.readyToInstall,

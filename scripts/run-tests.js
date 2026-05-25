@@ -9545,15 +9545,19 @@ test('android update service streams only from fd-bound validated APK identity',
   const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
   const streamStart = source.indexOf('streamApk(res, fd');
   const streamBody = source.slice(streamStart, source.indexOf('\n  openVerifiedApk', streamStart));
-  const loadStart = source.indexOf('  load()');
+  const loadStart = source.indexOf('  async load()');
   const loadBody = source.slice(loadStart, source.indexOf('\n  _markUnavailable', loadStart));
   const openStart = source.indexOf('  openVerifiedApk()');
-  const openBody = source.slice(openStart, source.indexOf('\n  _verifyDigest', openStart));
+  const openBody = source.slice(openStart, source.indexOf('\n  async _verifyDigest', openStart));
 
+  assert.match(source, /async sendLatest\(req, res\)/);
+  assert.match(source, /async sendApk\(req, res, requestedVersionCode, device\)/);
+  assert.match(source, /await this\.load\(\)/);
   assert.match(source, /openVerifiedApk\(\)/);
   assert.match(source, /streamApk\(res, openedApk\.fd/);
   assert.match(source, /this\.apkIdentity = null/);
   assert.match(loadBody, /const identity = apkIdentityFor\(stats, realApkPath, manifest\.sha256\)/);
+  assert.match(loadBody, /await this\._verifyDigest\(realApkPath, stats, manifest\.sha256\)/);
   assert.match(loadBody, /this\.apkIdentity = identity/);
   assert.match(source, /fs\.openSync\(this\.apkPath, 'r'\)/);
   assert.match(source, /fs\.fstatSync\(fd\)/);
@@ -9566,6 +9570,41 @@ test('android update service streams only from fd-bound validated APK identity',
   assert.notEqual(streamStart, -1);
   assert.match(streamBody, /createReadStream\([^)]*fd/);
   assert.match(streamBody, /autoClose: true/);
+});
+
+test('android update service hashes changed APK identities asynchronously', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
+  const digestStart = source.indexOf('  async _verifyDigest');
+  const digestBody = source.slice(digestStart, source.indexOf('\n}', digestStart));
+  const helperStart = source.indexOf('function sha256ForFile');
+  const helperBody = source.slice(helperStart, source.indexOf('\nfunction unavailableManifest', helperStart));
+
+  assert.notEqual(digestStart, -1);
+  assert.match(digestBody, /await sha256ForFile\(apkPath\)/);
+  assert.equal(digestBody.includes('fs.readFileSync'), false);
+  assert.notEqual(helperStart, -1);
+  assert.match(helperBody, /fs\.createReadStream\(apkPath\)/);
+  assert.match(helperBody, /\.on\('data'/);
+  assert.match(helperBody, /\.on\('end'/);
+  assert.match(helperBody, /\.on\('error'/);
+});
+
+test('android update service marks unavailable when digest stream fails', async () => {
+  const { AppUpdateService } = require('../daemon/src/app-update-service');
+  const fixture = createAndroidUpdateFixture();
+  const service = new AppUpdateService({ artifactDir: fixture.root });
+  service._verifyDigest = async () => {
+    throw new Error('read failed');
+  };
+
+  try {
+    await service.load();
+
+    assert.equal(service.available, false);
+    assert.equal(service.manifest.available, false);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test('android update APK endpoint rejects retained non-latest versions and path escape', async () => {
@@ -9774,9 +9813,9 @@ test('android installer recovery reports recoverable sessions as pending', () =>
   assert.equal(recoverBody.includes('info.isActive ||'), false);
   assert.notEqual(recoverableIndex, -1);
   assert.match(recoverableBody, /info\.isActive/);
+  assert.match(recoverableBody, /Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.O/);
   assert.match(recoverableBody, /isSessionCommitted\(info\)/);
   assert.match(recoverableBody, /isSessionSealed\(info\)/);
-  assert.equal(recoverableBody.includes('Build.VERSION.SDK_INT < Build.VERSION_CODES.O'), false);
   assert.match(recoverableBody, /return false/);
   assert.notEqual(committedIndex, -1);
   assert.match(committedBody, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.Q/);
@@ -9829,9 +9868,17 @@ test('android update install recovery is wired through ViewModel and app lifecyc
   assert.match(viewModel, /void handleAppLifecycleStateChanged\(AppLifecycleState lifecycleState\)/);
   assert.match(viewModel, /recoverInstallSession\(\)/);
   assert.match(viewModel, /workflow\.recoverInstall\(/);
+  assert.match(viewModel, /workflow\.clearAllInstallSessions\(\)/);
   assert.equal(viewModel.includes('workflow.readInstallSession'), false);
   assert.equal(viewModel.includes('workflow.recoverInstallSession'), false);
   assert.match(workflow, /Future<AppUpdateRecoveryResult> recoverInstall\(/);
+  assert.match(workflow, /Future<void> clearAllInstallSessions\(\)/);
+  const recoverWorkflowBody = workflow.slice(
+    workflow.indexOf('Future<AppUpdateRecoveryResult> recoverInstall('),
+    workflow.indexOf('\n  Future<bool> _downloadedFileExists', workflow.indexOf('Future<AppUpdateRecoveryResult> recoverInstall('))
+  );
+  assert.equal(recoverWorkflowBody.includes('clearAllInstallSessions'), false);
+  assert.equal(recoverWorkflowBody.includes('_downloader.clearInstallSession'), false);
   assert.match(workflow, /await _downloader\.readInstallSession\(manifest\)/);
   assert.match(workflow, /await _installer\.recoverInstallSession\(session\.sessionId\)/);
   assert.match(workflow, /sessionId: session\.sessionId/);
