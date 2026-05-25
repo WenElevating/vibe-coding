@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node scripts/run-tests.js",
     "start:daemon": "node daemon/src/main.js",
+    "package:android-update": "powershell -ExecutionPolicy Bypass -File scripts/package-android-update.ps1",
     "lint": "node scripts/check-js.js"
   },
   "engines": {

@@ -36,6 +36,21 @@ Architecture boundary check:
 dart run tool\check_architecture_imports.dart
 ```
 
+## Android Update Packaging
+
+Package a release APK and daemon update manifest from the repository root:
+
+```powershell
+npm run package:android-update -- -VersionName 1.4.0 -VersionCode 2
+```
+
+The script reads `mobile/android/key.properties`, builds the release APK with
+Flutter China mirrors, then writes `daemon/update-artifacts/android/latest.json`,
+the copied APK, and its `.sha256` file. Use `-SkipBuild -ApkPath <apk>` only for
+testing or repackaging an already-built APK.
+
+Last verified: 2026-05-25
+
 Targeted widget/unit tests:
 
 ```powershell
