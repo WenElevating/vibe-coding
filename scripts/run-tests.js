@@ -9863,9 +9863,21 @@ test('android update downloader serializes version-scoped mutations and hashes o
     path.join(__dirname, '..', 'mobile/lib/src/services/app_update_download_manager.dart'),
     'utf8'
   );
+  const downloadKeyIndex = downloader.indexOf('String _downloadKey(');
+  const downloadKeyBody = downloader.slice(
+    downloadKeyIndex,
+    downloader.indexOf('\n  String _joinPath', downloadKeyIndex)
+  );
 
   assert.match(downloader, /final Map<String, _ActiveAppUpdateDownload> _downloadsByKey/);
   assert.match(downloader, /_downloadKey\(manifest, daemonBaseUri\)/);
+  assert.notEqual(downloadKeyIndex, -1);
+  assert.match(downloadKeyBody, /manifest\.versionCode/);
+  assert.match(downloadKeyBody, /manifest\.versionName/);
+  assert.match(downloadKeyBody, /manifest\.sha256/);
+  assert.match(downloadKeyBody, /manifest\.sizeBytes/);
+  assert.match(downloadKeyBody, /manifest\.etag/);
+  assert.match(downloadKeyBody, /manifest\.apkUrl/);
   assert.match(downloader, /_awaitActiveDownloadsForVersion\(versionCode/);
   assert.match(downloader, /whenComplete\(\(\)\s*=>\s*_downloadsByKey\.remove\(downloadKey\)\)/s);
   assert.match(downloader, /Isolate\.run/);

@@ -619,7 +619,9 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   String _downloadKey(AppUpdateManifest manifest, Uri daemonBaseUri) {
     return [
       manifest.versionCode,
+      manifest.versionName,
       manifest.sha256,
+      manifest.sizeBytes,
       manifest.etag,
       manifest.apkUrl,
       daemonBaseUri.scheme,
