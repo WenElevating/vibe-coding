@@ -108,7 +108,7 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
             value: l10n.workspaceAvailableSection),
       ]),
       const SizedBox(height: 20),
-      Subhead('App update'),
+      Subhead(l10n.settingsAppUpdateSection),
       _EmptyAppUpdatePanel(viewModel: appUpdateViewModel),
     ]);
   }

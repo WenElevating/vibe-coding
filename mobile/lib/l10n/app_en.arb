@@ -43,6 +43,57 @@
   "settingsProxyDirect": "Direct",
   "settingsProxySystem": "System proxy",
   "settingsProxyManual": "Manual proxy",
+  "settingsAppUpdateSection": "App update",
+  "appUpdateTitleIdle": "App update",
+  "appUpdateTitleUpToDate": "App is up to date",
+  "appUpdateTitleAvailable": "Update available",
+  "appUpdateTitleRequiredAvailable": "Required update available",
+  "appUpdateTitleDownloading": "Downloading update",
+  "appUpdateTitlePaused": "Download paused",
+  "appUpdateTitleVerifying": "Verifying update",
+  "appUpdateTitleReadyToInstall": "Update ready to install",
+  "appUpdateTitleRequiredReadyToInstall": "Required update ready to install",
+  "appUpdateTitleInstallPermissionNeeded": "Install permission needed",
+  "appUpdateTitleRequiredInstallPermissionNeeded": "Required update install permission needed",
+  "appUpdateTitleInstalling": "Opening Android installer",
+  "appUpdateTitleAwaitingUserConfirmation": "Confirm update install",
+  "appUpdateTitleRequiredAwaitingUserConfirmation": "Confirm required update install",
+  "appUpdateTitleInstallSucceeded": "Update installed",
+  "appUpdateTitleInstallCancelled": "Install cancelled",
+  "appUpdateTitleRequiredInstallCancelled": "Required update: Install cancelled",
+  "appUpdateTitleInstallFailed": "Install failed",
+  "appUpdateTitleRequiredInstallFailed": "Required update install failed",
+  "appUpdateTitleFailed": "Update failed",
+  "appUpdateTitleChecking": "Checking for updates",
+  "appUpdateTitleCancelled": "Update download cleared",
+  "appUpdateInstalledVersion": "Installed {versionName}+{versionCode}",
+  "@appUpdateInstalledVersion": {
+    "placeholders": {
+      "versionName": {
+        "type": "String"
+      },
+      "versionCode": {
+        "type": "int"
+      }
+    }
+  },
+  "appUpdateCheckAction": "Check",
+  "appUpdateDownloadAction": "Download",
+  "appUpdateDownloadPromptAction": "Download update",
+  "appUpdateInstallAction": "Install",
+  "appUpdateOpenSettingsAction": "Open settings",
+  "appUpdateClearAction": "Clear update",
+  "appUpdateLaterAction": "Later",
+  "appUpdateDialogTitle": "Update available",
+  "appUpdateDialogRequiredTitle": "Required update available",
+  "appUpdateDialogMessage": "Version {version} is available. Download it now?",
+  "@appUpdateDialogMessage": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "connectionTitle": "Connection",
   "connectionSubtitle": "Confirm daemon target before workspaces load",
   "connectionAddressSection": "Connection address",

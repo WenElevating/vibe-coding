@@ -43,6 +43,57 @@
   "settingsProxyDirect": "直连",
   "settingsProxySystem": "系统代理",
   "settingsProxyManual": "手动代理",
+  "settingsAppUpdateSection": "应用更新",
+  "appUpdateTitleIdle": "应用更新",
+  "appUpdateTitleUpToDate": "已是最新版本",
+  "appUpdateTitleAvailable": "发现新版本",
+  "appUpdateTitleRequiredAvailable": "发现必要更新",
+  "appUpdateTitleDownloading": "正在下载更新",
+  "appUpdateTitlePaused": "下载已暂停",
+  "appUpdateTitleVerifying": "正在校验更新",
+  "appUpdateTitleReadyToInstall": "更新包已就绪",
+  "appUpdateTitleRequiredReadyToInstall": "必要更新包已就绪",
+  "appUpdateTitleInstallPermissionNeeded": "需要安装权限",
+  "appUpdateTitleRequiredInstallPermissionNeeded": "必要更新需要安装权限",
+  "appUpdateTitleInstalling": "正在打开 Android 安装器",
+  "appUpdateTitleAwaitingUserConfirmation": "请确认安装更新",
+  "appUpdateTitleRequiredAwaitingUserConfirmation": "请确认安装必要更新",
+  "appUpdateTitleInstallSucceeded": "更新已安装",
+  "appUpdateTitleInstallCancelled": "安装已取消",
+  "appUpdateTitleRequiredInstallCancelled": "必要更新安装已取消",
+  "appUpdateTitleInstallFailed": "安装失败",
+  "appUpdateTitleRequiredInstallFailed": "必要更新安装失败",
+  "appUpdateTitleFailed": "更新失败",
+  "appUpdateTitleChecking": "正在检查更新",
+  "appUpdateTitleCancelled": "更新包已清除",
+  "appUpdateInstalledVersion": "当前版本 {versionName}+{versionCode}",
+  "@appUpdateInstalledVersion": {
+    "placeholders": {
+      "versionName": {
+        "type": "String"
+      },
+      "versionCode": {
+        "type": "int"
+      }
+    }
+  },
+  "appUpdateCheckAction": "检查更新",
+  "appUpdateDownloadAction": "下载",
+  "appUpdateDownloadPromptAction": "下载更新",
+  "appUpdateInstallAction": "安装",
+  "appUpdateOpenSettingsAction": "打开设置",
+  "appUpdateClearAction": "清除更新包",
+  "appUpdateLaterAction": "稍后",
+  "appUpdateDialogTitle": "发现新版本",
+  "appUpdateDialogRequiredTitle": "发现必要更新",
+  "appUpdateDialogMessage": "版本 {version} 已可用，现在下载吗？",
+  "@appUpdateDialogMessage": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "connectionTitle": "连接",
   "connectionSubtitle": "加载工作区前确认 daemon 目标",
   "connectionAddressSection": "连接地址",

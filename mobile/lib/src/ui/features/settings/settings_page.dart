@@ -92,7 +92,7 @@ class SettingsPage extends StatelessWidget {
                   : l10n.settingsGitFiles(data.gitStatus?.files.length ?? 0)),
         ]),
         const SizedBox(height: 20),
-        Subhead('App update'),
+        Subhead(l10n.settingsAppUpdateSection),
         _SettingsAppUpdatePanel(viewModel: appUpdateViewModel),
         const SizedBox(height: 20),
         Subhead(l10n.settingsAboutSection),
@@ -123,7 +123,6 @@ class SettingsPage extends StatelessWidget {
     );
   }
 }
-
 
 class _SettingsAppUpdatePanel extends StatelessWidget {
   const _SettingsAppUpdatePanel({required this.viewModel});

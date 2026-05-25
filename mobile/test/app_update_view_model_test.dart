@@ -815,7 +815,8 @@ void main() {
     expect(downloader.recordedSessionId, isNull);
   });
 
-  test('stale native recovery does not clear session after state becomes active',
+  test(
+      'stale native recovery does not clear session after state becomes active',
       () async {
     final recoveryCompleter = Completer<AndroidInstallEvent?>();
     final downloadCompleter = Completer<AppUpdateDownloadResult>();
@@ -1096,7 +1097,7 @@ AppUpdateManifest _manifest({
 }
 
 class _FakeRepository implements AppUpdateRepository {
-  _FakeRepository(this.manifest, {this.fetchError, this.fetchCompleter});
+  _FakeRepository(this.manifest, {this.fetchError});
 
   AppUpdateManifest manifest;
   final Object? fetchError;
