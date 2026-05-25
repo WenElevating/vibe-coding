@@ -14,6 +14,7 @@ class AppUpdateService {
     this.available = false;
     this.manifest = unavailableManifest();
     this.apkPath = null;
+    this.apkIdentity = null;
     this.load();
   }
 
@@ -63,9 +64,12 @@ class AppUpdateService {
       this._markUnavailable();
       return;
     }
-    if (!this._verifyDigest(realApkPath, stats, manifest.sha256)) {
-      this._markUnavailable();
-      return;
+    const identity = apkIdentityFor(stats, realApkPath, manifest.sha256);
+    if (!apkIdentityMatches(this.apkIdentity, stats, realApkPath, manifest.sha256)) {
+      if (!this._verifyDigest(realApkPath, stats, manifest.sha256)) {
+        this._markUnavailable();
+        return;
+      }
     }
 
     const etag = manifest.etag || `"android-apk-${manifest.versionCode}-${manifest.sha256.slice(0, 12)}"`;
@@ -76,6 +80,7 @@ class AppUpdateService {
       fileName
     };
     this.apkPath = realApkPath;
+    this.apkIdentity = identity;
     this.available = true;
   }
 
@@ -83,6 +88,7 @@ class AppUpdateService {
     this.available = false;
     this.manifest = unavailableManifest();
     this.apkPath = null;
+    this.apkIdentity = null;
   }
 
   sendLatest(req, res) {
@@ -169,7 +175,8 @@ class AppUpdateService {
   }
 
   openVerifiedApk() {
-    if (!this.available || !this.apkPath) return null;
+    const identity = this.apkIdentity;
+    if (!this.available || !this.apkPath || !identity) return null;
     let fd;
     try {
       fd = fs.openSync(this.apkPath, 'r');
@@ -185,11 +192,7 @@ class AppUpdateService {
         fs.closeSync(fd);
         return null;
       }
-      if (!stats.isFile() || stats.size !== this.manifest.sizeBytes) {
-        fs.closeSync(fd);
-        return null;
-      }
-      if (!this._verifyDigest(fd, stats, this.manifest.sha256)) {
+      if (!stats.isFile() || !apkIdentityMatches(identity, stats, realApkPath, this.manifest.sha256)) {
         fs.closeSync(fd);
         return null;
       }
@@ -205,25 +208,31 @@ class AppUpdateService {
   }
 
   _verifyDigest(apkPath, stats, expectedSha256) {
-    const actualSha256 = typeof apkPath === 'number'
-      ? sha256ForFd(apkPath, stats.size)
-      : crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
+    const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
     const matches = actualSha256.toLowerCase() === expectedSha256.toLowerCase();
     return matches;
   }
 }
 
-function sha256ForFd(fd, size) {
-  const hash = crypto.createHash('sha256');
-  const buffer = Buffer.allocUnsafe(1024 * 1024);
-  let position = 0;
-  while (position < size) {
-    const bytesRead = fs.readSync(fd, buffer, 0, Math.min(buffer.length, size - position), position);
-    if (bytesRead === 0) break;
-    hash.update(buffer.subarray(0, bytesRead));
-    position += bytesRead;
-  }
-  return hash.digest('hex');
+function apkIdentityFor(stats, realApkPath, sha256) {
+  return {
+    realApkPath,
+    dev: stats.dev,
+    ino: stats.ino,
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+    sha256: sha256.toLowerCase()
+  };
+}
+
+function apkIdentityMatches(identity, stats, realApkPath, sha256) {
+  return identity != null &&
+    identity.realApkPath === realApkPath &&
+    identity.dev === stats.dev &&
+    identity.ino === stats.ino &&
+    identity.size === stats.size &&
+    identity.mtimeMs === stats.mtimeMs &&
+    identity.sha256 === sha256.toLowerCase();
 }
 
 function unavailableManifest() {

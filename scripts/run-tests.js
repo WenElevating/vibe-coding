@@ -9541,17 +9541,27 @@ test('android update service registers stream error handlers for APK responses',
   assert.match(source, /\.on\('error'/);
 });
 
-test('android update service streams only from fd-bound verified APK bytes', () => {
+test('android update service streams only from fd-bound validated APK identity', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/app-update-service.js'), 'utf8');
   const streamStart = source.indexOf('streamApk(res, fd');
-  const streamBody = source.slice(streamStart, source.indexOf('\n  _verifyDigest', streamStart));
+  const streamBody = source.slice(streamStart, source.indexOf('\n  openVerifiedApk', streamStart));
+  const loadStart = source.indexOf('  load()');
+  const loadBody = source.slice(loadStart, source.indexOf('\n  _markUnavailable', loadStart));
+  const openStart = source.indexOf('  openVerifiedApk()');
+  const openBody = source.slice(openStart, source.indexOf('\n  _verifyDigest', openStart));
 
   assert.match(source, /openVerifiedApk\(\)/);
   assert.match(source, /streamApk\(res, openedApk\.fd/);
+  assert.match(source, /this\.apkIdentity = null/);
+  assert.match(loadBody, /const identity = apkIdentityFor\(stats, realApkPath, manifest\.sha256\)/);
+  assert.match(loadBody, /this\.apkIdentity = identity/);
   assert.match(source, /fs\.openSync\(this\.apkPath, 'r'\)/);
   assert.match(source, /fs\.fstatSync\(fd\)/);
-  assert.match(source, /_verifyDigest\(fd, stats, this\.manifest\.sha256\)/);
-  assert.match(source, /sha256ForFd\(apkPath, stats\.size\)/);
+  assert.match(openBody, /const identity = this\.apkIdentity/);
+  assert.match(openBody, /apkIdentityMatches\(identity, stats, realApkPath, this\.manifest\.sha256\)/);
+  assert.equal(openBody.includes('_verifyDigest'), false);
+  assert.equal(openBody.includes('sha256ForFd'), false);
+  assert.equal(openBody.includes('fs.readSync'), false);
   assert.equal(source.includes('_digestCache'), false);
   assert.notEqual(streamStart, -1);
   assert.match(streamBody, /createReadStream\([^)]*fd/);
@@ -9739,7 +9749,7 @@ test('android installer pending action is emitted only after confirmation UI ope
   assert.match(pendingBody, /pendingInstallSessionIds\.remove\(sessionId\)/);
 });
 
-test('android installer recovery does not report unreplayable confirmation as pending', () => {
+test('android installer recovery reports recoverable sessions as pending', () => {
   const activity = fs.readFileSync(
     path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),
     'utf8'
@@ -9755,9 +9765,13 @@ test('android installer recovery does not report unreplayable confirmation as pe
 
   assert.notEqual(recoverIndex, -1);
   assert.match(recoverBody, /getSessionInfo\(sessionId\) \?: return null/);
-  assert.match(recoverBody, /return null/);
+  assert.match(recoverBody, /if \(!isRecoverableInstallerSession\(info\)\) return null/);
+  assert.match(recoverBody, /return mapOf\(/);
+  assert.match(recoverBody, /pendingInstallSessionIds\.add\(sessionId\)/);
+  assert.match(recoverBody, /"status" to "pendingUserAction"/);
+  assert.match(recoverBody, /"sessionId" to sessionId/);
+  assert.match(recoverBody, /"appPackageName" to info\.appPackageName/);
   assert.equal(recoverBody.includes('info.isActive ||'), false);
-  assert.equal(recoverBody.includes('"pendingUserAction"'), false);
   assert.notEqual(recoverableIndex, -1);
   assert.match(recoverableBody, /info\.isActive/);
   assert.match(recoverableBody, /isSessionCommitted\(info\)/);
@@ -9812,6 +9826,8 @@ test('android update install recovery is wired through ViewModel and app lifecyc
   assert.match(installBody, /return;/);
   assert.match(viewModel, /workflow\.startInstall\(/);
   assert.match(viewModel, /Future<void> recoverInstallSession\(\) async/);
+  assert.match(viewModel, /void handleAppLifecycleStateChanged\(AppLifecycleState lifecycleState\)/);
+  assert.match(viewModel, /recoverInstallSession\(\)/);
   assert.match(viewModel, /workflow\.recoverInstall\(/);
   assert.equal(viewModel.includes('workflow.readInstallSession'), false);
   assert.equal(viewModel.includes('workflow.recoverInstallSession'), false);
@@ -9821,7 +9837,7 @@ test('android update install recovery is wired through ViewModel and app lifecyc
   assert.match(workflow, /sessionId: session\.sessionId/);
   assert.match(mainTabs, /with WidgetsBindingObserver/);
   assert.match(mainTabs, /Platform\.isAndroid/);
-  assert.match(mainTabs, /viewModel\.recoverInstallSession\(\)/);
+  assert.match(mainTabs, /viewModel\.handleAppLifecycleStateChanged\(AppLifecycleState\.resumed\)/);
 });
 
 test('android update ViewModel depends on workflow boundary instead of services', () => {

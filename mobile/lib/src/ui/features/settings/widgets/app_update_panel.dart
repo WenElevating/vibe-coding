@@ -42,7 +42,7 @@ class AppUpdatePanel extends StatelessWidget {
           : 'Confirm update install',
       AppUpdateStatus.installSucceeded => 'Update installed',
       AppUpdateStatus.installCancelled => state.mandatory
-          ? 'Required update install cancelled'
+          ? 'Required update: Install cancelled'
           : 'Install cancelled',
       AppUpdateStatus.installFailed =>
         state.mandatory ? 'Required update install failed' : 'Install failed',

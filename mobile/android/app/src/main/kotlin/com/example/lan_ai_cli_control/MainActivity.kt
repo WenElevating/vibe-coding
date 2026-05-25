@@ -202,8 +202,14 @@ class MainActivity : FlutterActivity() {
     private fun recoverSession(sessionId: Int): Map<String, Any?>? {
         if (sessionId < 0) return null
         val info = packageManager.packageInstaller.getSessionInfo(sessionId) ?: return null
-        if (isRecoverableInstallerSession(info)) return null
-        return null
+        if (!isRecoverableInstallerSession(info)) return null
+        pendingInstallSessionIds.add(sessionId)
+        return mapOf(
+            "status" to "pendingUserAction",
+            "sessionId" to sessionId,
+            "message" to "Package installer session is awaiting user confirmation.",
+            "appPackageName" to info.appPackageName
+        )
     }
 
     private fun isRecoverableInstallerSession(info: PackageInstaller.SessionInfo): Boolean {

@@ -33,6 +33,7 @@ class MainTabsPage extends StatefulWidget {
     required this.client,
     required this.connectionConfig,
     required this.dependencies,
+    this.forceAndroidForTesting,
   }) : emptyInitialData = null;
 
   MainTabsPage.fromInitialData({
@@ -41,6 +42,7 @@ class MainTabsPage extends StatefulWidget {
     required this.client,
     required this.connectionConfig,
     required this.dependencies,
+    this.forceAndroidForTesting,
   })  : data =
             initialData.workspace == null ? null : initialData.toAppSnapshot(),
         emptyInitialData = initialData;
@@ -50,6 +52,7 @@ class MainTabsPage extends StatefulWidget {
   final DaemonClient client;
   final DaemonConnectionConfig connectionConfig;
   final AppDependencies dependencies;
+  final bool? forceAndroidForTesting;
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
@@ -309,10 +312,10 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   void _recoverAppUpdateInstallSession() {
-    if (!Platform.isAndroid) return;
+    if (!(widget.forceAndroidForTesting ?? Platform.isAndroid)) return;
     final viewModel = _appUpdateViewModel;
     if (viewModel == null) return;
-    unawaited(viewModel.recoverInstallSession());
+    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   }
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {

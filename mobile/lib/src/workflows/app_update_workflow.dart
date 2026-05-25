@@ -129,8 +129,11 @@ class AppUpdateWorkflow {
   }) async {
     final manifest = await _repository.fetchLatest();
     if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
-      return const AppUpdateRecoveryResult(
-          state: AppUpdateRecoveryState.noUpdate);
+      await _downloader.clearAllInstallSessions();
+      return AppUpdateRecoveryResult(
+        state: AppUpdateRecoveryState.noUpdate,
+        manifest: manifest,
+      );
     }
     final session = await _downloader.readInstallSession(manifest);
     if (session == null) {

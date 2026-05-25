@@ -305,11 +305,18 @@ void main() {
     final secondManifest =
         _manifest(secondBytes, versionCode: 13, etag: '"etag-13-b"');
     final streams = <StreamController<List<int>>>[];
+    final firstStreamStarted = Completer<void>();
+    final secondStreamStarted = Completer<void>();
     final manager = AppUpdateDownloadManager(
       cacheDirectory: temp,
       openStream: (uri, {rangeStart, ifRange}) async {
         final controller = StreamController<List<int>>();
         streams.add(controller);
+        if (streams.length == 1 && !firstStreamStarted.isCompleted) {
+          firstStreamStarted.complete();
+        } else if (streams.length == 2 && !secondStreamStarted.isCompleted) {
+          secondStreamStarted.complete();
+        }
         return http.StreamedResponse(controller.stream, 200);
       },
       availableBytes: () async => 10000000,
@@ -319,19 +326,20 @@ void main() {
       firstManifest,
       Uri.parse('http://127.0.0.1:4317'),
     );
-    await pumpEventQueue();
+    await firstStreamStarted.future.timeout(const Duration(seconds: 1));
     expect(streams.length, 1);
     final second = manager.download(
       secondManifest,
       Uri.parse('http://127.0.0.1:4317'),
     );
     await pumpEventQueue();
+    expect(secondStreamStarted.isCompleted, false);
     expect(streams.length, 1);
 
     streams[0].add(firstBytes);
     await streams[0].close();
     final firstResult = await first;
-    await pumpEventQueue();
+    await secondStreamStarted.future.timeout(const Duration(seconds: 1));
     expect(streams.length, 2);
     streams[1].add(secondBytes);
     await streams[1].close();
@@ -461,6 +469,42 @@ void main() {
     await manager.clearInstallSession(manifest, sessionId: 77);
 
     metadata =
+        jsonDecode(await metadataFile.readAsString()) as Map<String, Object?>;
+    expect(metadata.containsKey('installSessionId'), false);
+    expect(await apk.exists(), true);
+    await temp.delete(recursive: true);
+  });
+
+  test('clears all install session metadata without a manifest', () async {
+    final temp =
+        await Directory.systemTemp.createTemp('app-update-clear-orphans-');
+    final bytes = utf8.encode('ready-apk');
+    final manifest = _manifest(bytes, versionCode: 11);
+    final dir = Directory(_updateDir(temp))..createSync(recursive: true);
+    final apk = File(_updateFile(dir, 'app-update-11.apk'));
+    final metadataFile = File(_updateFile(dir, 'app-update-11.json'));
+    await apk.writeAsBytes(bytes);
+    await metadataFile.writeAsString(jsonEncode({
+      'versionCode': 11,
+      'versionName': '1.4.0',
+      'apkUrl': manifest.apkUrl,
+      'sha256': manifest.sha256,
+      'sizeBytes': bytes.length,
+      'etag': manifest.etag,
+      'downloadedBytes': bytes.length,
+      'updatedAt': '2026-05-24T10:00:00.000Z',
+      'installSessionId': 77,
+    }));
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.empty(), 200),
+      availableBytes: () async => 1000000,
+    );
+
+    await manager.clearAllInstallSessions();
+
+    final metadata =
         jsonDecode(await metadataFile.readAsString()) as Map<String, Object?>;
     expect(metadata.containsKey('installSessionId'), false);
     expect(await apk.exists(), true);

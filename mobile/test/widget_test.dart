@@ -36,6 +36,7 @@ import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void _noopString(String _) {}
@@ -177,11 +178,13 @@ class _MainTabsHarness extends StatefulWidget {
     required this.client,
     this.dependencies,
     this.snapshot,
+    this.forceAndroidForTesting,
   });
 
   final DaemonClient client;
   final AppDependencies? dependencies;
   final AppSnapshot? snapshot;
+  final bool? forceAndroidForTesting;
 
   @override
   State<_MainTabsHarness> createState() => _MainTabsHarnessState();
@@ -221,45 +224,9 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
                       manualProxyInput: ''),
+                  forceAndroidForTesting: widget.forceAndroidForTesting,
                   dependencies: widget.dependencies ??
                       AppDependencies.createDefault()))));
-}
-
-class _AppUpdateRecoveryLifecycleHarness extends StatefulWidget {
-  const _AppUpdateRecoveryLifecycleHarness({required this.viewModel});
-
-  final AppUpdateViewModel viewModel;
-
-  @override
-  State<_AppUpdateRecoveryLifecycleHarness> createState() =>
-      _AppUpdateRecoveryLifecycleHarnessState();
-}
-
-class _AppUpdateRecoveryLifecycleHarnessState
-    extends State<_AppUpdateRecoveryLifecycleHarness>
-    with WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    unawaited(widget.viewModel.recoverInstallSession());
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(widget.viewModel.recoverInstallSession());
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _MobileConnectionHarness extends StatefulWidget {
@@ -460,6 +427,9 @@ class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
     AppUpdateManifest manifest, {
     int? sessionId,
   }) async {}
+
+  @override
+  Future<void> clearAllInstallSessions() async {}
 
   @override
   Future<void> discard(int versionCode) async {}
@@ -2038,6 +2008,15 @@ void main() {
 
   testWidgets('app update recovery runs on create and resume',
       (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    PackageInfo.setMockInitialValues(
+      appName: 'LAN AI CLI Control',
+      packageName: 'com.example.lan_ai_cli_control',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
     final manifest = _widgetAppUpdateManifest();
     final installer = _WidgetAppUpdateInstaller(
       recoveredEvent: const AndroidInstallEvent(
@@ -2058,7 +2037,30 @@ void main() {
       ),
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
-    addTearDown(appUpdateViewModel.dispose);
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            appUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
 
     Future<void> pumpUntilRecoveryReads(int expected) async {
       for (var attempt = 0;
@@ -2068,13 +2070,17 @@ void main() {
       }
     }
 
-    void resumeApp() {
+    void resumeAppThroughMainTabs() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     }
 
     await tester.pumpWidget(
-      _AppUpdateRecoveryLifecycleHarness(viewModel: appUpdateViewModel),
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        forceAndroidForTesting: true,
+      ),
     );
     await pumpUntilRecoveryReads(1);
     await tester.pump();
@@ -2086,7 +2092,7 @@ void main() {
       sessionId: 22,
       file: File('ready.apk'),
     );
-    resumeApp();
+    resumeAppThroughMainTabs();
     await pumpUntilRecoveryReads(2);
     await tester.pump();
 

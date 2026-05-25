@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
@@ -382,6 +383,193 @@ void main() {
     },
   );
 
+  test('lifecycle resume recovers persisted session from available state',
+      () async {
+    final installer = _FakeInstaller(
+      recoveredEvent: const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 15,
+      ),
+    );
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 15);
+    final downloader = _FakeDownloader(
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 15,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    expect(viewModel.state.status, AppUpdateStatus.available);
+
+    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await pumpEventQueue();
+    expect(installer.recoveredSessionId, isNull);
+
+    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpEventQueue();
+
+    expect(installer.recoveredSessionId, 15);
+    expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+  });
+
+  test('recovers persisted install session while download is paused', () async {
+    final installer = _FakeInstaller(
+      recoveredEvent: const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 16,
+      ),
+    );
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 16);
+    final downloader = _FakeDownloader(
+      result: const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message: 'server unavailable',
+      ),
+      installSession: AppUpdateInstallSessionRecord(
+        sessionId: 16,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    expect(viewModel.state.status, AppUpdateStatus.paused);
+
+    await viewModel.recoverInstallSession();
+
+    expect(installer.recoveredSessionId, 16);
+    expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+  });
+
+  test('manifest unavailable recovery clears orphan install sessions',
+      () async {
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(
+          const AppUpdateManifest(
+            schemaVersion: 1,
+            platform: 'android',
+            available: false,
+          ),
+        ),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.recoverInstallSession();
+
+    expect(downloader.clearAllInstallSessionCalls, 1);
+    expect(viewModel.state.status, AppUpdateStatus.idle);
+  });
+
+  test('no-update recovery clears stale available state', () async {
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader();
+    final repository = _FakeRepository(_manifest(versionCode: 17));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: repository,
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    expect(viewModel.state.status, AppUpdateStatus.available);
+
+    repository.manifest = const AppUpdateManifest(
+      schemaVersion: 1,
+      platform: 'android',
+      available: false,
+    );
+    await viewModel.recoverInstallSession();
+
+    expect(downloader.clearAllInstallSessionCalls, 1);
+    expect(viewModel.state.status, AppUpdateStatus.upToDate);
+    expect(viewModel.state.downloadedFile, isNull);
+    expect(viewModel.state.mandatory, false);
+  });
+
+  test('no-update recovery clears stale paused state', () async {
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader(
+      result: const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message: 'server unavailable',
+      ),
+    );
+    final repository = _FakeRepository(_manifest(versionCode: 18));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: repository,
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    expect(viewModel.state.status, AppUpdateStatus.paused);
+
+    repository.manifest = const AppUpdateManifest(
+      schemaVersion: 1,
+      platform: 'android',
+      available: false,
+    );
+    await viewModel.recoverInstallSession();
+
+    expect(downloader.clearAllInstallSessionCalls, 1);
+    expect(viewModel.state.status, AppUpdateStatus.upToDate);
+    expect(viewModel.state.downloadedFile, isNull);
+  });
+
   test('check is ignored while download is active', () async {
     final downloadCompleter = Completer<AppUpdateDownloadResult>();
     final installer = _FakeInstaller();
@@ -638,6 +826,57 @@ void main() {
     expect(downloader.clearedSessionManifest, manifest);
   });
 
+  test('dispose suppresses async clear install session diagnostics', () async {
+    final diagnostics = <String>[];
+    final clearCompleter = Completer<void>();
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+      clearSessionCompleter: clearCompleter,
+      clearSessionError: StateError('clear failed'),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) => diagnostics.add(event),
+    );
+    var disposed = false;
+    addTearDown(() {
+      if (!disposed) viewModel.dispose();
+    });
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.success,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+    expect(downloader.clearSessionStarted, true);
+
+    viewModel.dispose();
+    disposed = true;
+    clearCompleter.complete();
+    await pumpEventQueue();
+
+    expect(diagnostics, isNot(contains('update.install.clear_session_failed')));
+  });
+
   test('install rolls back when installer returns no session id', () async {
     final installer = _FakeInstaller(sessionId: -1);
     final readyFile = await _readyApk();
@@ -753,7 +992,7 @@ AppUpdateManifest _manifest({
 class _FakeRepository implements AppUpdateRepository {
   _FakeRepository(this.manifest, {this.fetchError});
 
-  final AppUpdateManifest manifest;
+  AppUpdateManifest manifest;
   final Object? fetchError;
   int fetchCalls = 0;
 
@@ -842,17 +1081,23 @@ class _FakeDownloader implements AppUpdateDownloader {
     ),
     this.installSession,
     this.downloadCompleter,
+    this.clearSessionCompleter,
+    this.clearSessionError,
   });
 
   AppUpdateDownloadResult result;
   AppUpdateInstallSessionRecord? installSession;
   Completer<AppUpdateDownloadResult>? downloadCompleter;
+  Completer<void>? clearSessionCompleter;
+  Object? clearSessionError;
   int? discardedVersionCode;
   int? recordedSessionId;
   AppUpdateManifest? recordedManifest;
   AppUpdateManifest? readSessionManifest;
   AppUpdateManifest? clearedSessionManifest;
   int? clearedSessionId;
+  int clearAllInstallSessionCalls = 0;
+  bool clearSessionStarted = false;
 
   @override
   Future<AppUpdateDownloadResult> download(
@@ -883,8 +1128,18 @@ class _FakeDownloader implements AppUpdateDownloader {
     AppUpdateManifest manifest, {
     int? sessionId,
   }) async {
+    clearSessionStarted = true;
+    final completer = clearSessionCompleter;
+    if (completer != null) await completer.future;
+    final error = clearSessionError;
+    if (error != null) throw error;
     clearedSessionManifest = manifest;
     clearedSessionId = sessionId;
+  }
+
+  @override
+  Future<void> clearAllInstallSessions() async {
+    clearAllInstallSessionCalls += 1;
   }
 
   @override

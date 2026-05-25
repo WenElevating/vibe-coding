@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 
 import '../../../../data/models/app_update_models.dart';
 import '../../../../workflows/app_update_workflow.dart';
@@ -222,6 +223,17 @@ class AppUpdateViewModel extends ChangeNotifier {
       if (!_canRecoverInstallSession()) return;
       switch (recovery.state) {
         case AppUpdateRecoveryState.noUpdate:
+          if (state.status != AppUpdateStatus.idle) {
+            _set(
+              AppUpdateState(
+                status: AppUpdateStatus.upToDate,
+                installedVersionName: installedVersionName,
+                installedVersionCode: installedVersionCode,
+                manifest: recovery.manifest,
+              ),
+            );
+          }
+          return;
         case AppUpdateRecoveryState.noSession:
           return;
         case AppUpdateRecoveryState.staleSession:
@@ -293,6 +305,12 @@ class AppUpdateViewModel extends ChangeNotifier {
     return workflow.openInstallPermissionSettings();
   }
 
+  void handleAppLifecycleStateChanged(AppLifecycleState lifecycleState) {
+    if (lifecycleState == AppLifecycleState.resumed) {
+      unawaited(recoverInstallSession());
+    }
+  }
+
   void _handleInstallEvent(AndroidInstallEvent event) {
     if (event.status == AndroidInstallStatus.cancelled) {
       _clearInstallSession(sessionId: event.sessionId);
@@ -322,6 +340,8 @@ class AppUpdateViewModel extends ChangeNotifier {
   bool _canRecoverInstallSession() {
     return state.status == AppUpdateStatus.idle ||
         state.status == AppUpdateStatus.upToDate ||
+        state.status == AppUpdateStatus.available ||
+        state.status == AppUpdateStatus.paused ||
         state.status == AppUpdateStatus.failed;
   }
 
@@ -358,6 +378,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void _recordDiagnostic(String event, Map<String, Object?> metadata) {
+    if (_disposed) return;
     recordDiagnostic?.call(event, metadata);
   }
 

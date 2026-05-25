@@ -37,6 +37,8 @@ abstract class AppUpdateDownloader {
   Future<void> clearInstallSession(AppUpdateManifest manifest,
       {int? sessionId});
 
+  Future<void> clearAllInstallSessions();
+
   Future<void> discard(int versionCode);
 }
 
@@ -285,6 +287,21 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     }
     if (sessionId != null && metadata.installSessionId != sessionId) return;
     await _writeMetadata(paths.metadata, manifest, metadata.downloadedBytes);
+  }
+
+  @override
+  Future<void> clearAllInstallSessions() async {
+    final directory = Directory(
+      _joinPath(_cacheDirectory.path, _updateDirectoryName),
+    );
+    if (!await directory.exists()) return;
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      final metadata = await _readMetadata(entity);
+      if (metadata == null || metadata.installSessionId == null) continue;
+      await _writeMetadataRecord(
+          entity, _metadataWithoutInstallSession(metadata));
+    }
   }
 
   Future<void> _awaitActiveDownloadsForVersion(
@@ -552,8 +569,30 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       updatedAt: _now().toUtc(),
       installSessionId: installSessionId,
     );
+    await _writeMetadataRecord(file, metadata);
+  }
+
+  Future<void> _writeMetadataRecord(
+    File file,
+    AppUpdateDownloadMetadata metadata,
+  ) async {
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(metadata.toJson()));
+  }
+
+  AppUpdateDownloadMetadata _metadataWithoutInstallSession(
+    AppUpdateDownloadMetadata metadata,
+  ) {
+    return AppUpdateDownloadMetadata(
+      versionCode: metadata.versionCode,
+      versionName: metadata.versionName,
+      apkUrl: metadata.apkUrl,
+      sha256: metadata.sha256,
+      sizeBytes: metadata.sizeBytes,
+      etag: metadata.etag,
+      downloadedBytes: metadata.downloadedBytes,
+      updatedAt: _now().toUtc(),
+    );
   }
 
   bool _metadataMatches(
