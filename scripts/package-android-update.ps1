@@ -10,6 +10,7 @@ param(
   [string]$ApkPath,
   [switch]$SkipPubGet,
   [switch]$SkipBuild,
+  [switch]$VerboseBuild,
   [switch]$StartDaemon
 )
 
@@ -110,7 +111,7 @@ if (-not $SkipBuild) {
   if (-not $SkipPubGet) {
     Invoke-Step -WorkingDirectory $MobileDir -FilePath 'flutter' -Arguments @('pub', 'get')
   }
-  Invoke-Step -WorkingDirectory $MobileDir -FilePath 'flutter' -Arguments @(
+  $buildArguments = @(
     'build',
     'apk',
     '--release',
@@ -119,6 +120,10 @@ if (-not $SkipBuild) {
     '--build-number',
     [string]$VersionCode
   )
+  if ($VerboseBuild) {
+    $buildArguments += '-v'
+  }
+  Invoke-Step -WorkingDirectory $MobileDir -FilePath 'flutter' -Arguments $buildArguments
 }
 
 if ([string]::IsNullOrWhiteSpace($ApkPath)) {
