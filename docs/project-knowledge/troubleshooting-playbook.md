@@ -208,3 +208,22 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "sending ex
 ```
 
 - Last verified: 2026-05-24
+
+## Symptom: Workspace Is Missing Until Re-adding The Same Path
+
+- Symptom: a previously created workspace is absent from the mobile workspace
+  list, but adding the same folder again opens the old session list instead of
+  creating an empty workspace.
+- Action: inspect `workspaces` and `workspace_device_authorizations` in
+  `data/app/app.sqlite`. An active row whose `owner_device_id` matches the
+  device but lacks the matching authorization row is hidden by
+  `GET /api/workspaces`; adding the same path calls `saveWorkspaceForDevice`,
+  finds the existing owner row, and repairs authorization as a side effect.
+  Startup should repair missing owner authorizations before list queries.
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+```
+
+- Last verified: 2026-05-25

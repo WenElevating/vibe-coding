@@ -128,6 +128,7 @@ class AppSqliteStore {
     ensureColumn(this.db, 'conversations', 'model', 'TEXT');
     this.ensureWorkspaceDeleteSchema();
     this.ensureWorkspaceIndexes();
+    this.ensureOwnerWorkspaceAuthorizations();
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)')
       .run(1, this.now().toISOString());
   }
@@ -140,6 +141,15 @@ class AppSqliteStore {
       CREATE INDEX IF NOT EXISTS idx_workspace_auth_device
         ON workspace_device_authorizations(device_id);
     `);
+  }
+
+  ensureOwnerWorkspaceAuthorizations() {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO workspace_device_authorizations(device_id, workspace_id, created_at)
+      SELECT owner_device_id, id, ?
+      FROM workspaces
+      WHERE is_deleted = 0
+    `).run(this.now().toISOString());
   }
 
   ensureWorkspaceDeleteSchema() {

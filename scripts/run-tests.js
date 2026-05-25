@@ -1245,6 +1245,36 @@ test('app SQLite store persists workspaces and device authorizations', () => {
   second.close();
 });
 
+test('app SQLite store repairs missing owner workspace authorizations on startup', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-db-workspace-auth-repair-'));
+  const dbPath = path.join(dir, 'app.sqlite');
+  const workspacePath = path.join(dir, 'project');
+  const first = new AppSqliteStore({ dbPath, now: () => new Date('2026-05-05T00:00:00.000Z') });
+  const workspace = first.saveWorkspaceForDevice({
+    deviceId: 'device_1',
+    workspacePath,
+    name: 'Project'
+  });
+  first.db.prepare(`
+    DELETE FROM workspace_device_authorizations
+    WHERE device_id = ? AND workspace_id = ?
+  `).run('device_1', workspace.id);
+  assert.deepEqual(first.listWorkspacesForDevice('device_1'), []);
+  first.close();
+
+  const repaired = new AppSqliteStore({ dbPath, now: () => new Date('2026-05-05T00:00:01.000Z') });
+  const listed = repaired.listWorkspacesForDevice('device_1');
+  assert.deepEqual(listed.map((item) => item.id), [workspace.id]);
+  assert.equal(listed[0].name, 'Project');
+  assert.equal(listed[0].path, path.resolve(workspacePath));
+  repaired.close();
+});
+
 test('app SQLite store scopes duplicate workspace paths by owner device without create-time rename', () => {
   const fs = require('node:fs');
   const os = require('node:os');
