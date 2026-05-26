@@ -60,6 +60,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonConnectionConfig? _connectedConfig;
   int _connectionAttempt = 0;
   List<String> _recentAddresses = const <String>[];
+  bool _disposed = false;
 
   DaemonConnectionStatus get status => _status;
   String get addressInput => _addressInput;
@@ -90,15 +91,27 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       };
 
   Future<void> load() async {
+    if (_disposed) {
+      return;
+    }
     final config = await _configRepository.load();
+    if (_disposed) {
+      return;
+    }
     List<String> recentAddresses;
     try {
       recentAddresses = await _recentAddressRepository.loadRecentAddresses();
     } catch (error) {
+      if (_disposed) {
+        return;
+      }
       recentAddresses = const <String>[];
       _recordDiagnostic('connection.recent_addresses.load_failed', {
         'errorSummary': '$error',
       });
+    }
+    if (_disposed) {
+      return;
     }
     _addressInput = config.addressInput;
     _proxyMode = config.proxyMode;
@@ -133,7 +146,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   }
 
   Future<void> connect() async {
-    if (isBusy) {
+    if (_disposed || isBusy) {
       return;
     }
 
@@ -149,16 +162,16 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         addressInput: _addressInput,
         proxyMode: _proxyMode,
         manualProxyInput: _manualProxyInput,
-        shouldContinue: () => attempt == _connectionAttempt,
+        shouldContinue: () => _isCurrentAttempt(attempt),
         onCheckingHealth: () {
-          if (attempt != _connectionAttempt) {
+          if (!_isCurrentAttempt(attempt)) {
             return;
           }
           _status = DaemonConnectionStatus.checkingHealth;
           notifyListeners();
         },
         onLoadingInitialData: () {
-          if (attempt != _connectionAttempt) {
+          if (!_isCurrentAttempt(attempt)) {
             return;
           }
           _status = DaemonConnectionStatus.loadingSnapshot;
@@ -166,14 +179,14 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         },
       );
       connection.then((session) {
-        if (attempt != _connectionAttempt) {
+        if (!_isCurrentAttempt(attempt)) {
           session.client.close();
         }
       }, onError: (_) {});
       final session = await connection.timeout(
         _connectionTimeout,
         onTimeout: () {
-          if (attempt == _connectionAttempt && isBusy) {
+          if (_isCurrentAttempt(attempt) && isBusy) {
             _connectionAttempt++;
             _client = null;
             _initialData = null;
@@ -187,7 +200,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
           throw TimeoutException('Connection attempt timed out.');
         },
       );
-      if (attempt != _connectionAttempt) {
+      if (!_isCurrentAttempt(attempt)) {
         session.client.close();
         return;
       }
@@ -196,9 +209,12 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       _connectedConfig = session.connectedConfig;
       _status = DaemonConnectionStatus.connected;
       notifyListeners();
-      await _recordSuccessfulRecentAddress(session.connectedConfig.addressInput);
+      await _recordSuccessfulRecentAddress(
+        session.connectedConfig.addressInput,
+        attempt,
+      );
     } on DaemonConnectionConfigException catch (error) {
-      if (attempt != _connectionAttempt) {
+      if (!_isCurrentAttempt(attempt)) {
         return;
       }
       _inputError = error.message;
@@ -207,7 +223,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     } on DaemonConnectionCancelled {
       return;
     } catch (error) {
-      if (attempt != _connectionAttempt) {
+      if (!_isCurrentAttempt(attempt)) {
         return;
       }
       _client = null;
@@ -226,18 +242,44 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     _errorDetail = null;
   }
 
-  Future<void> _recordSuccessfulRecentAddress(String addressInput) async {
+  Future<void> _recordSuccessfulRecentAddress(
+    String addressInput,
+    int attempt,
+  ) async {
+    if (!_isCurrentAttempt(attempt)) {
+      return;
+    }
     try {
       await _recentAddressRepository.recordSuccessfulAddress(addressInput);
-      _recentAddresses = List<String>.unmodifiable(
-        await _recentAddressRepository.loadRecentAddresses(),
-      );
+      if (!_isCurrentAttempt(attempt)) {
+        return;
+      }
+      final recentAddresses =
+          await _recentAddressRepository.loadRecentAddresses();
+      if (!_isCurrentAttempt(attempt)) {
+        return;
+      }
+      _recentAddresses = List<String>.unmodifiable(recentAddresses);
       notifyListeners();
     } catch (error) {
+      if (!_isCurrentAttempt(attempt)) {
+        return;
+      }
       _recordDiagnostic('connection.recent_addresses.record_failed', {
         'errorSummary': '$error',
       });
     }
+  }
+
+  bool _isCurrentAttempt(int attempt) {
+    return !_disposed && attempt == _connectionAttempt;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _connectionAttempt++;
+    super.dispose();
   }
 }
 

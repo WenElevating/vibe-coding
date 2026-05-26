@@ -10,7 +10,11 @@ import '../../../../workflows/connection/daemon_connection_workflow.dart';
 import 'daemon_connection_view_model.dart';
 
 export 'daemon_connection_view_model.dart'
-    show DaemonConnectionStatus, daemonConnectionErrorSummary;
+    show
+        DaemonConnectionStatus,
+        DiagnosticRecorder,
+        daemonConnectionErrorSummary,
+        noopDiagnosticRecorder;
 
 typedef DaemonSnapshotLoader = Future<AppSnapshot> Function(
     DaemonClient client);

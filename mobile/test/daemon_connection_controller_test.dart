@@ -295,6 +295,94 @@ void main() {
       contains('connection.recent_addresses.record_failed'),
     );
   });
+
+  test('dispose during recent address load does not notify or throw', () async {
+    final recentLoad = Completer<List<String>>();
+    final recentRepository = _FakeRecentAddressRepository()
+      ..loadCompleters.add(recentLoad);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: recentRepository,
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+
+    final load = controller.load();
+    await pumpEventQueue();
+    controller.dispose();
+    recentLoad.complete(const <String>['192.168.1.30:4317']);
+
+    await expectLater(load, completes);
+    expect(notifications, 0);
+  });
+
+  test('dispose during post-connected refresh does not notify after dispose',
+      () async {
+    final refreshLoad = Completer<List<String>>();
+    final recentRepository = _FakeRecentAddressRepository();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: recentRepository,
+      snapshotLoader: (_) async => _snapshot(),
+      healthProbe: (_) async => _health(),
+    );
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    await controller.load();
+    controller.setAddressInput('192.168.1.31');
+    recentRepository.loadCompleters.add(refreshLoad);
+
+    final connection = controller.connect();
+    await pumpEventQueue();
+    expect(controller.status, DaemonConnectionStatus.connected);
+    final notificationsBeforeDispose = notifications;
+    controller.dispose();
+    refreshLoad.complete(const <String>['192.168.1.31']);
+
+    await expectLater(connection, completes);
+    expect(notifications, notificationsBeforeDispose);
+  });
+
+  test('stale connection refresh cannot overwrite newer recent addresses',
+      () async {
+    final staleRefresh = Completer<List<String>>();
+    final recentRepository = _FakeRecentAddressRepository();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: recentRepository,
+      snapshotLoader: (_) async => _snapshot(),
+      healthProbe: (_) async => _health(),
+    );
+    await controller.load();
+    recentRepository.loadCompleters.add(staleRefresh);
+    controller.setAddressInput('192.168.1.40');
+
+    final firstConnection = controller.connect();
+    await pumpEventQueue();
+    expect(controller.status, DaemonConnectionStatus.connected);
+    expect(controller.recentAddresses, isEmpty);
+
+    controller.setAddressInput('192.168.1.41');
+    final secondConnection = controller.connect();
+    await pumpEventQueue();
+    expect(controller.recentAddresses, <String>[
+      '192.168.1.41',
+      '192.168.1.40',
+    ]);
+
+    staleRefresh.complete(const <String>['192.168.1.40']);
+    await Future.wait(<Future<void>>[firstConnection, secondConnection]);
+
+    expect(controller.recentAddresses, <String>[
+      '192.168.1.41',
+      '192.168.1.40',
+    ]);
+  });
 }
 
 class _DeferredConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
@@ -341,11 +429,16 @@ class _FakeRecentAddressRepository implements RecentDaemonAddressRepository {
   final Object? loadError;
   final Object? recordError;
   final recordedAddresses = <String>[];
+  final loadCompleters = <Completer<List<String>>>[];
 
   @override
   Future<List<String>> loadRecentAddresses() async {
     final error = loadError;
     if (error != null) throw error;
+    if (loadCompleters.isNotEmpty) {
+      final completer = loadCompleters.removeAt(0);
+      return List<String>.unmodifiable(await completer.future);
+    }
     return List<String>.unmodifiable(addresses);
   }
 
