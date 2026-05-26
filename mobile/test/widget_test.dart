@@ -1230,6 +1230,41 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('connection recent dropdown floats without moving form sections',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: _WidgetRecentAddressRepository(<String>[
+        '192.168.1.50:4317',
+        'http://devbox.local:4317',
+      ]),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+    controller.setAddressInput('');
+
+    await tester.pumpWidget(_connectionPage(controller));
+
+    final proxySection = find.text('NETWORK PROXY');
+    final proxyTopBefore = tester.getTopLeft(proxySection).dy;
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+
+    final dropdown =
+        find.byKey(const ValueKey('connection-recent-address-dropdown'));
+    expect(dropdown, findsOneWidget);
+    expect(tester.getTopLeft(proxySection).dy, proxyTopBefore);
+    expect(
+      tester.getTopLeft(dropdown).dy,
+      greaterThan(tester.getBottomLeft(find.byType(TextField).first).dy),
+    );
+  });
+
   testWidgets('connection recent addresses filter and fill without connecting',
       (WidgetTester tester) async {
     var connectCalls = 0;

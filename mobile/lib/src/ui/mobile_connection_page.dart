@@ -19,9 +19,14 @@ class MobileConnectionPage extends StatefulWidget {
 }
 
 class _MobileConnectionPageState extends State<MobileConnectionPage> {
+  static const double _recentDropdownGap = 8;
+
   late final TextEditingController _addressController;
   late final TextEditingController _manualProxyController;
   late final FocusNode _addressFocusNode;
+  final LayerLink _addressFieldLayerLink = LayerLink();
+  final GlobalKey _addressFieldKey = GlobalKey();
+  OverlayEntry? _recentDropdownEntry;
   bool _recentDropdownOpen = false;
   bool _suppressNextRecentFocusOpen = false;
 
@@ -39,6 +44,7 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
 
   @override
   void dispose() {
+    _removeRecentDropdownOverlay();
     widget.controller.removeListener(_syncFields);
     _addressFocusNode
       ..removeListener(_handleAddressFocusChanged)
@@ -68,14 +74,23 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
   }
 
   void _openRecentDropdown() {
-    if (_recentDropdownOpen || widget.controller.recentAddresses.isEmpty) {
+    if (widget.controller.recentAddresses.isEmpty) {
+      _closeRecentDropdown();
       return;
     }
-    setState(() => _recentDropdownOpen = true);
+    if (_filteredRecentAddresses(widget.controller).isEmpty) {
+      _closeRecentDropdown();
+      return;
+    }
+    if (!_recentDropdownOpen) {
+      setState(() => _recentDropdownOpen = true);
+    }
+    _scheduleRecentDropdownOverlaySync();
   }
 
   void _closeRecentDropdown() {
-    if (!_recentDropdownOpen) {
+    _removeRecentDropdownOverlay();
+    if (!_recentDropdownOpen || !mounted) {
       return;
     }
     setState(() => _recentDropdownOpen = false);
@@ -88,14 +103,22 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
     if (_manualProxyController.text != widget.controller.manualProxyInput) {
       _manualProxyController.text = widget.controller.manualProxyInput;
     }
+    if (!_recentDropdownOpen) {
+      return;
+    }
+    if (_recentDropdownVisible()) {
+      _scheduleRecentDropdownOverlaySync();
+    } else {
+      _closeRecentDropdown();
+    }
   }
 
   void _handleAddressChanged(String value) {
     widget.controller.setAddressInput(value);
-    if (_addressFocusNode.hasFocus &&
-        widget.controller.recentAddresses.isNotEmpty) {
-      _openRecentDropdown();
+    if (!_addressFocusNode.hasFocus) {
+      return;
     }
+    _openRecentDropdown();
   }
 
   void _selectRecentAddress(String address) {
@@ -131,6 +154,67 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
         _filteredRecentAddresses(widget.controller).isNotEmpty;
   }
 
+  void _scheduleRecentDropdownOverlaySync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (_recentDropdownVisible()) {
+        _showOrUpdateRecentDropdownOverlay();
+      } else {
+        _removeRecentDropdownOverlay();
+      }
+    });
+  }
+
+  void _showOrUpdateRecentDropdownOverlay() {
+    if (_recentDropdownEntry == null) {
+      final overlay = Overlay.of(context);
+      _recentDropdownEntry = OverlayEntry(
+        builder: _buildRecentDropdownOverlay,
+      );
+      overlay.insert(_recentDropdownEntry!);
+      return;
+    }
+    _recentDropdownEntry?.markNeedsBuild();
+  }
+
+  void _removeRecentDropdownOverlay() {
+    _recentDropdownEntry?.remove();
+    _recentDropdownEntry = null;
+  }
+
+  Widget _buildRecentDropdownOverlay(BuildContext context) {
+    final fieldContext = _addressFieldKey.currentContext;
+    final renderObject = fieldContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return const SizedBox.shrink();
+    }
+    final addresses = _filteredRecentAddresses(widget.controller);
+    if (addresses.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Positioned.fill(
+      child: CompositedTransformFollower(
+        link: _addressFieldLayerLink,
+        showWhenUnlinked: false,
+        targetAnchor: Alignment.bottomLeft,
+        followerAnchor: Alignment.topLeft,
+        offset: const Offset(0, _recentDropdownGap),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: renderObject.size.width,
+            child: _RecentAddressDropdown(
+              addresses: addresses,
+              onSelected: _selectRecentAddress,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -141,6 +225,7 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
         final filteredRecentAddresses = _filteredRecentAddresses(controller);
         final showRecentDropdown =
             _recentDropdownOpen && filteredRecentAddresses.isNotEmpty;
+        _scheduleRecentDropdownOverlaySync();
 
         final page = PopScope(
           canPop: !showRecentDropdown,
@@ -158,24 +243,17 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
                   const SizedBox(height: 22),
                   _ConnectionSection(
                     title: l10n.connectionAddressSection,
-                    child: Column(
-                      children: [
-                        _ConnectionTextField(
-                          controller: _addressController,
-                          focusNode: _addressFocusNode,
-                          enabled: !controller.isBusy,
-                          hintText: '127.0.0.1:4317',
-                          onTap: _openRecentDropdown,
-                          onChanged: _handleAddressChanged,
-                        ),
-                        if (showRecentDropdown) ...[
-                          const SizedBox(height: 8),
-                          _RecentAddressDropdown(
-                            addresses: filteredRecentAddresses,
-                            onSelected: _selectRecentAddress,
-                          ),
-                        ],
-                      ],
+                    child: CompositedTransformTarget(
+                      key: _addressFieldKey,
+                      link: _addressFieldLayerLink,
+                      child: _ConnectionTextField(
+                        controller: _addressController,
+                        focusNode: _addressFocusNode,
+                        enabled: !controller.isBusy,
+                        hintText: '127.0.0.1:4317',
+                        onTap: _openRecentDropdown,
+                        onChanged: _handleAddressChanged,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -372,52 +450,65 @@ class _RecentAddressDropdown extends StatelessWidget {
   final ValueChanged<String> onSelected;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => Material(
         key: const ValueKey('connection-recent-address-dropdown'),
-        constraints: const BoxConstraints(maxHeight: _maxHeight),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0D0F12),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: .07)),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            shrinkWrap: true,
-            itemExtent: _rowHeight,
-            itemCount: addresses.length,
-            itemBuilder: (context, index) {
-              final address = addresses[index];
-              void selectAddress() => onSelected(address);
-              return Semantics(
-                label: address,
-                button: true,
-                onTap: selectAddress,
-                child: ExcludeSemantics(
-                  child: InkWell(
-                    onTap: selectAddress,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          address,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: theme.muted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'Consolas',
+        type: MaterialType.transparency,
+        borderRadius: BorderRadius.circular(12),
+        elevation: 12,
+        shadowColor: Colors.black.withValues(alpha: .38),
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: _maxHeight),
+          decoration: BoxDecoration(
+            color: const Color(0xFF101419),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: .10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .34),
+                blurRadius: 18,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              shrinkWrap: true,
+              itemExtent: _rowHeight,
+              itemCount: addresses.length,
+              itemBuilder: (context, index) {
+                final address = addresses[index];
+                void selectAddress() => onSelected(address);
+                return Semantics(
+                  label: address,
+                  button: true,
+                  onTap: selectAddress,
+                  child: ExcludeSemantics(
+                    child: InkWell(
+                      onTap: selectAddress,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            address,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: theme.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'Consolas',
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       );
