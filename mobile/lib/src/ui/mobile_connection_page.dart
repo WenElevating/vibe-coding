@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../domain/models/daemon_connection_config.dart';
@@ -18,6 +19,8 @@ class MobileConnectionPage extends StatefulWidget {
 class _MobileConnectionPageState extends State<MobileConnectionPage> {
   late final TextEditingController _addressController;
   late final TextEditingController _manualProxyController;
+  late final FocusNode _addressFocusNode;
+  bool _recentDropdownOpen = false;
 
   @override
   void initState() {
@@ -26,15 +29,41 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
         TextEditingController(text: widget.controller.addressInput);
     _manualProxyController =
         TextEditingController(text: widget.controller.manualProxyInput);
+    _addressFocusNode = FocusNode()..addListener(_handleAddressFocusChanged);
     widget.controller.addListener(_syncFields);
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_syncFields);
+    _addressFocusNode
+      ..removeListener(_handleAddressFocusChanged)
+      ..dispose();
     _addressController.dispose();
     _manualProxyController.dispose();
     super.dispose();
+  }
+
+  void _handleAddressFocusChanged() {
+    if (!_addressFocusNode.hasFocus) {
+      _closeRecentDropdown();
+      return;
+    }
+    _openRecentDropdown();
+  }
+
+  void _openRecentDropdown() {
+    if (_recentDropdownOpen || widget.controller.recentAddresses.isEmpty) {
+      return;
+    }
+    setState(() => _recentDropdownOpen = true);
+  }
+
+  void _closeRecentDropdown() {
+    if (!_recentDropdownOpen) {
+      return;
+    }
+    setState(() => _recentDropdownOpen = false);
   }
 
   void _syncFields() {
@@ -46,6 +75,34 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
     }
   }
 
+  void _handleAddressChanged(String value) {
+    widget.controller.setAddressInput(value);
+    if (_addressFocusNode.hasFocus &&
+        widget.controller.recentAddresses.isNotEmpty) {
+      _openRecentDropdown();
+    }
+  }
+
+  void _selectRecentAddress(String address) {
+    widget.controller.selectRecentAddress(address);
+    _closeRecentDropdown();
+    _addressFocusNode.requestFocus();
+  }
+
+  bool _handleEscape() {
+    if (!_recentDropdownOpen) {
+      return false;
+    }
+    _closeRecentDropdown();
+    return true;
+  }
+
+  void _handlePopInvoked(bool didPop) {
+    if (!didPop && _recentDropdownOpen) {
+      _closeRecentDropdown();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -53,67 +110,116 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
       builder: (context, _) {
         final controller = widget.controller;
         final l10n = AppLocalizations.of(context);
-        return Scaffold(
-          body: MobileUiFrame(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
-              children: [
-                _ConnectionHeader(
-                  key: const ValueKey('connection-header'),
-                  title: l10n.connectionTitle,
-                  subtitle: l10n.connectionSubtitle,
-                ),
-                const SizedBox(height: 22),
-                _ConnectionSection(
-                  title: l10n.connectionAddressSection,
-                  child: _ConnectionTextField(
-                    controller: _addressController,
-                    enabled: !controller.isBusy,
-                    hintText: '127.0.0.1:4317',
-                    onChanged: controller.setAddressInput,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                _ConnectionSection(
-                  title: l10n.connectionProxySection,
-                  child: Column(
+        final filteredRecentAddresses = _filteredRecentAddresses(controller);
+        final showRecentDropdown =
+            _recentDropdownOpen && filteredRecentAddresses.isNotEmpty;
+
+        return Shortcuts(
+          shortcuts: const <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
+          },
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              DismissIntent: CallbackAction<DismissIntent>(
+                onInvoke: (intent) {
+                  _handleEscape();
+                  return null;
+                },
+              ),
+            },
+            child: PopScope(
+              canPop: !_recentDropdownOpen,
+              onPopInvokedWithResult: (didPop, result) =>
+                  _handlePopInvoked(didPop),
+              child: Scaffold(
+                body: MobileUiFrame(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
                     children: [
-                      for (final mode in DaemonProxyMode.values)
-                        _ProxyModeRow(
-                          mode: mode,
-                          label: _proxyModeLabel(l10n, mode),
-                          selected: controller.proxyMode == mode,
-                          enabled: !controller.isBusy,
-                          onTap: () => controller.setProxyMode(mode),
+                      _ConnectionHeader(
+                        key: const ValueKey('connection-header'),
+                        title: l10n.connectionTitle,
+                        subtitle: l10n.connectionSubtitle,
+                      ),
+                      const SizedBox(height: 22),
+                      _ConnectionSection(
+                        title: l10n.connectionAddressSection,
+                        child: Column(
+                          children: [
+                            _ConnectionTextField(
+                              controller: _addressController,
+                              focusNode: _addressFocusNode,
+                              enabled: !controller.isBusy,
+                              hintText: '127.0.0.1:4317',
+                              onTap: _openRecentDropdown,
+                              onChanged: _handleAddressChanged,
+                            ),
+                            if (showRecentDropdown) ...[
+                              const SizedBox(height: 8),
+                              _RecentAddressDropdown(
+                                addresses: filteredRecentAddresses,
+                                onSelected: _selectRecentAddress,
+                              ),
+                            ],
+                          ],
                         ),
-                      if (controller.proxyMode == DaemonProxyMode.manual) ...[
-                        const SizedBox(height: 2),
-                        _ConnectionTextField(
-                          controller: _manualProxyController,
-                          enabled: !controller.isBusy,
-                          hintText: 'http://proxy.local:8080',
-                          onChanged: controller.setManualProxyInput,
+                      ),
+                      const SizedBox(height: 20),
+                      _ConnectionSection(
+                        title: l10n.connectionProxySection,
+                        child: Column(
+                          children: [
+                            for (final mode in DaemonProxyMode.values)
+                              _ProxyModeRow(
+                                mode: mode,
+                                label: _proxyModeLabel(l10n, mode),
+                                selected: controller.proxyMode == mode,
+                                enabled: !controller.isBusy,
+                                onTap: () => controller.setProxyMode(mode),
+                              ),
+                            if (controller.proxyMode ==
+                                DaemonProxyMode.manual) ...[
+                              const SizedBox(height: 2),
+                              _ConnectionTextField(
+                                controller: _manualProxyController,
+                                enabled: !controller.isBusy,
+                                hintText: 'http://proxy.local:8080',
+                                onChanged: controller.setManualProxyInput,
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 18),
+                      _ConnectionStatusPanel(
+                          controller: controller, l10n: l10n),
+                      const SizedBox(height: 20),
+                      _ConnectionActionButton(
+                        controller.status == DaemonConnectionStatus.failed
+                            ? l10n.connectionReconnectAction
+                            : l10n.connectionConnectAction,
+                        enabled: !controller.isBusy,
+                        onTap: controller.connect,
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                _ConnectionStatusPanel(controller: controller, l10n: l10n),
-                const SizedBox(height: 20),
-                _ConnectionActionButton(
-                  controller.status == DaemonConnectionStatus.failed
-                      ? l10n.connectionReconnectAction
-                      : l10n.connectionConnectAction,
-                  enabled: !controller.isBusy,
-                  onTap: controller.connect,
-                ),
-              ],
+              ),
             ),
           ),
         );
       },
     );
+  }
+
+  List<String> _filteredRecentAddresses(DaemonConnectionViewModel controller) {
+    final query = _addressController.text.toLowerCase();
+    if (query.isEmpty) {
+      return controller.recentAddresses;
+    }
+    return controller.recentAddresses
+        .where((address) => address.toLowerCase().contains(query))
+        .toList(growable: false);
   }
 }
 
@@ -178,12 +284,16 @@ class _ConnectionSection extends StatelessWidget {
 class _ConnectionTextField extends StatelessWidget {
   const _ConnectionTextField({
     required this.controller,
+    this.focusNode,
+    this.onTap,
     required this.enabled,
     required this.hintText,
     required this.onChanged,
   });
 
   final TextEditingController controller;
+  final FocusNode? focusNode;
+  final VoidCallback? onTap;
   final bool enabled;
   final String hintText;
   final ValueChanged<String> onChanged;
@@ -191,7 +301,9 @@ class _ConnectionTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextField(
         controller: controller,
+        focusNode: focusNode,
         enabled: enabled,
+        onTap: onTap,
         onChanged: onChanged,
         style: const TextStyle(
             color: theme.text,
@@ -215,6 +327,68 @@ class _ConnectionTextField extends StatelessWidget {
   OutlineInputBorder _border(Color color) => OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: color),
+      );
+}
+
+class _RecentAddressDropdown extends StatelessWidget {
+  const _RecentAddressDropdown({
+    required this.addresses,
+    required this.onSelected,
+  });
+
+  static const double _rowHeight = 44;
+  static const double _maxHeight = 184;
+
+  final List<String> addresses;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        key: const ValueKey('connection-recent-dropdown'),
+        constraints: const BoxConstraints(maxHeight: _maxHeight),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D0F12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: .07)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            shrinkWrap: true,
+            itemExtent: _rowHeight,
+            itemCount: addresses.length,
+            itemBuilder: (context, index) {
+              final address = addresses[index];
+              return Semantics(
+                label: address,
+                button: true,
+                child: ExcludeSemantics(
+                  child: InkWell(
+                    onTap: () => onSelected(address),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          address,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: theme.muted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'Consolas',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       );
 }
 

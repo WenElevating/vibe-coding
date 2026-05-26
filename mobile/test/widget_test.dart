@@ -16,6 +16,7 @@ import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart'
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/recent_daemon_address_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
@@ -385,6 +386,27 @@ class _WidgetAppUpdateRepository implements AppUpdateRepository {
       manifest;
 }
 
+class _WidgetRecentAddressRepository implements RecentDaemonAddressRepository {
+  _WidgetRecentAddressRepository(this.addresses);
+
+  final List<String> addresses;
+  final recordedAddresses = <String>[];
+
+  @override
+  Future<List<String>> loadRecentAddresses() async =>
+      List<String>.unmodifiable(addresses);
+
+  @override
+  Future<void> recordSuccessfulAddress(String addressInput) async {
+    recordedAddresses.add(addressInput);
+    addresses
+      ..removeWhere(
+        (address) => address.toLowerCase() == addressInput.toLowerCase(),
+      )
+      ..insert(0, addressInput);
+  }
+}
+
 class _WidgetAppUpdateInstaller implements PackageInstallerService {
   _WidgetAppUpdateInstaller({this.recoveredEvent});
 
@@ -464,6 +486,15 @@ Finder _workbenchMessageList() => find.byWidgetPredicate(
                   'workbench-message-list-normal' ||
               (widget.key as ValueKey<String>).value ==
                   'workbench-message-list-reverse'),
+    );
+
+Widget _connectionPage(DaemonConnectionController controller) => MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      localeResolutionCallback: (locale, supportedLocales) =>
+          resolveSupportedLocale(locale, supportedLocales),
+      theme: theme.buildAppTheme(),
+      home: MobileConnectionPage(controller: controller),
     );
 
 class _LazyConversationRepository implements ConversationRepository {
@@ -1139,6 +1170,118 @@ void main() {
     expect(find.text('Manual proxy'), findsOneWidget);
     expect(find.text('Reconnect'), findsOneWidget);
     expect(find.byType(BottomNav), findsNothing);
+  });
+
+  testWidgets('connection address field shows recent addresses on focus',
+      (WidgetTester tester) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: _WidgetRecentAddressRepository(<String>[
+        '192.168.1.50:4317',
+        'http://devbox.local:4317',
+      ]),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+    controller.setAddressInput('');
+
+    await tester.pumpWidget(_connectionPage(controller));
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('192.168.1.50:4317'), findsOneWidget);
+    expect(find.text('http://devbox.local:4317'), findsOneWidget);
+    expect(find.bySemanticsLabel('192.168.1.50:4317'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('192.168.1.50:4317'), findsNothing);
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    expect(find.text('192.168.1.50:4317'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('192.168.1.50:4317'), findsNothing);
+    expect(find.text('Connection'), findsOneWidget);
+  });
+
+  testWidgets('connection recent addresses filter and fill without connecting',
+      (WidgetTester tester) async {
+    var connectCalls = 0;
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: _WidgetRecentAddressRepository(<String>[
+        '192.168.1.50:4317',
+        'http://devbox.local:4317',
+        'https://prod.local:443',
+      ]),
+      snapshotLoader: (_) async {
+        connectCalls += 1;
+        throw StateError('must not connect');
+      },
+      healthProbe: (_) async => throw StateError('must not connect'),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+    controller.setProxyMode(DaemonProxyMode.manual);
+    controller.setManualProxyInput('http://proxy.local:8080');
+
+    await tester.pumpWidget(_connectionPage(controller));
+    await tester.tap(find.byType(TextField).first);
+    await tester.enterText(find.byType(TextField).first, 'DEV');
+    await tester.pumpAndSettle();
+
+    expect(find.text('http://devbox.local:4317'), findsOneWidget);
+    expect(find.text('192.168.1.50:4317'), findsNothing);
+
+    await tester.tap(find.text('http://devbox.local:4317'));
+    await tester.pumpAndSettle();
+
+    expect(controller.addressInput, 'http://devbox.local:4317');
+    expect(controller.proxyMode, DaemonProxyMode.manual);
+    expect(controller.manualProxyInput, 'http://proxy.local:8080');
+    expect(controller.status, DaemonConnectionStatus.idle);
+    expect(connectCalls, 0);
+    expect(find.text('http://devbox.local:4317'), findsNothing);
+    expect(tester.testTextInput.isVisible, isTrue);
+  });
+
+  testWidgets('connection recent dropdown clamps long history',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: _WidgetRecentAddressRepository(<String>[
+        for (var index = 1; index <= 8; index++)
+          '192.168.1.$index:4317',
+      ]),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+    controller.setAddressInput('');
+
+    await tester.pumpWidget(_connectionPage(controller));
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+
+    final dropdown = find.byKey(const ValueKey('connection-recent-dropdown'));
+    expect(dropdown, findsOneWidget);
+    expect(tester.getSize(dropdown).height, lessThanOrEqualTo(184));
+    expect(find.text('192.168.1.1:4317'), findsOneWidget);
+    expect(find.text('192.168.1.8:4317'), findsNothing);
   });
 
   testWidgets('connected empty workspace catalog keeps bottom tabs',
