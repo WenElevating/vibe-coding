@@ -77,8 +77,12 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
     if (!_shouldPromptForAvailableUpdate(state)) return;
     final manifest = state.manifest;
     final promptKey = '${manifest?.versionCode}:${state.mandatory}';
-    if (_lastPromptKey == promptKey) return;
-    _lastPromptKey = promptKey;
+    if (state.mandatory) {
+      _lastPromptKey = null;
+    } else {
+      if (_lastPromptKey == promptKey) return;
+      _lastPromptKey = promptKey;
+    }
     _promptShowing = true;
     final l10n = AppLocalizations.of(context);
     final version =
@@ -86,29 +90,34 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
     try {
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text(
-            state.mandatory
-                ? l10n.appUpdateDialogRequiredTitle
-                : l10n.appUpdateDialogTitle,
+        barrierDismissible: !state.mandatory,
+        builder: (context) => PopScope(
+          canPop: !state.mandatory,
+          child: AlertDialog(
+            title: Text(
+              state.mandatory
+                  ? l10n.appUpdateDialogRequiredTitle
+                  : l10n.appUpdateDialogTitle,
+            ),
+            content: Text(l10n.appUpdateDialogMessage(version)),
+            actions: [
+              if (!state.mandatory)
+                TextButton(
+                  onPressed: () {
+                    widget.onPostpone();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text(l10n.appUpdateLaterAction),
+                ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  widget.onDownload();
+                },
+                child: Text(l10n.appUpdateDownloadPromptAction),
+              ),
+            ],
           ),
-          content: Text(l10n.appUpdateDialogMessage(version)),
-          actions: [
-            TextButton(
-              onPressed: () {
-                widget.onPostpone();
-                Navigator.of(context).pop();
-              },
-              child: Text(l10n.appUpdateLaterAction),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                widget.onDownload();
-              },
-              child: Text(l10n.appUpdateDownloadPromptAction),
-            ),
-          ],
         ),
       );
     } finally {

@@ -381,4 +381,45 @@ void main() {
 
     expect(postponed, 1);
   });
+
+  testWidgets('mandatory available prompt cannot be dismissed later', (
+    tester,
+  ) async {
+    var downloads = 0;
+    var postponed = 0;
+    const state = AppUpdateState(
+      status: AppUpdateStatus.available,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: true,
+      manifest: availableManifest,
+    );
+
+    await pumpPanel(
+      tester,
+      state: state,
+      onDownload: () => downloads++,
+      onPostpone: () => postponed++,
+    );
+    await tester.pump();
+
+    expect(find.widgetWithText(TextButton, 'Later'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'Download update'), findsOneWidget);
+
+    await tester.tapAt(const Offset(1, 1));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextButton, 'Download update'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextButton, 'Download update'), findsOneWidget);
+    expect(postponed, 0);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Download update'));
+    await tester.pumpAndSettle();
+
+    expect(downloads, 1);
+  });
 }
