@@ -161,9 +161,22 @@ Recent-address load failures are non-blocking:
   succeeding.
 
 The connection ViewModel does not currently have the same diagnostic hook as the
-update ViewModel. Add an optional `recordDiagnostic(event, metadata)` callback
-to the connection ViewModel or controller path for these non-disruptive history
-events instead of logging from the UI or persistence implementation.
+update ViewModel. Add `recordDiagnostic(event, metadata)` to the
+`DaemonConnectionViewModel` constructor for these non-disruptive history events
+instead of logging from the UI, controller, or persistence implementation. The
+constructor should default to a no-op recorder so call sites do not need null
+checks.
+
+Suggested shape:
+
+```text
+typedef DiagnosticRecorder = void Function(
+  String event,
+  Map<String, Object?> metadata,
+);
+
+DiagnosticRecorder recordDiagnostic = noopDiagnosticRecorder
+```
 
 Suggested events:
 
@@ -202,6 +215,8 @@ Behavior:
   page on small phones.
 - The dropdown does not display total history count, retention rules, or "oldest
   entries removed" copy.
+- Each row should carry a semantic label readable by TalkBack, at minimum the
+  address string itself.
 
 The dropdown should feel integrated with the current dark instrument-style gate:
 
@@ -328,7 +343,9 @@ or already have a manifest before it knows the remote `versionCode`. When a
 silent check completes and the prompt layer decides not to show the dialog
 because the optional version was postponed, record
 `update.prompt.suppressed { versionCode, reason: postponedVersion }` after the
-check completion event.
+check completion event. `reason` is intentionally retained as an extension
+point even though `postponedVersion` is the only expected suppression reason in
+this feature.
 
 ## Layering Rules
 
@@ -456,8 +473,12 @@ automatically and report the exact command for manual execution.
 3. Remove the unused connection header control as a separate small UI change.
 4. Add the address input dropdown as its own UI change.
 5. Add foreground silent update check orchestration and prompt suppression.
-6. Add widget/ViewModel tests for the agreed behaviors.
+6. Add any tests not already written alongside earlier phases.
 7. Run architecture, analysis, and focused Flutter tests.
+
+Each implementation phase should carry its own focused tests when practical.
+Phase 6 is a backstop for missing widget, ViewModel, or integration coverage,
+not permission to defer all testing until after implementation.
 
 When preparing code review or commits, keep the header cleanup and address
 dropdown separated if possible. They do not depend on each other and are easier
