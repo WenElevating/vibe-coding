@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/recent_daemon_address_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/services/recent_daemon_address_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,6 +55,22 @@ void main() {
     ]);
   });
 
+  test('repeated existing address moves to front and preserves remaining order',
+      () async {
+    final repo = repository();
+
+    await repo.recordSuccessfulAddress('192.168.1.10:4317');
+    await repo.recordSuccessfulAddress('192.168.1.11:4317');
+    await repo.recordSuccessfulAddress('192.168.1.12:4317');
+    await repo.recordSuccessfulAddress('192.168.1.10:4317');
+
+    expect(await repo.loadRecentAddresses(), <String>[
+      '192.168.1.10:4317',
+      '192.168.1.12:4317',
+      '192.168.1.11:4317',
+    ]);
+  });
+
   test('keeps compact host and explicit URL as distinct entries', () async {
     final repo = repository();
 
@@ -62,6 +80,27 @@ void main() {
     expect(await repo.loadRecentAddresses(), <String>[
       'http://192.168.1.10:4317',
       '192.168.1.10',
+    ]);
+  });
+
+  test('recording recent addresses does not disturb saved connection config',
+      () async {
+    final configStore = DaemonConnectionConfigStore();
+    await configStore.save(const DaemonConnectionConfig(
+      addressInput: '192.168.1.50:4317',
+      proxyMode: DaemonProxyMode.manual,
+      manualProxyInput: 'http://proxy.local:8080',
+    ));
+    final repo = repository();
+
+    await repo.recordSuccessfulAddress('192.168.1.51:4317');
+
+    final config = await configStore.load();
+    expect(config.addressInput, '192.168.1.50:4317');
+    expect(config.proxyMode, DaemonProxyMode.manual);
+    expect(config.manualProxyInput, 'http://proxy.local:8080');
+    expect(await repo.loadRecentAddresses(), <String>[
+      '192.168.1.51:4317',
     ]);
   });
 
