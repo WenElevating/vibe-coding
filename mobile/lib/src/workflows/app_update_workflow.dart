@@ -166,6 +166,10 @@ class AppUpdateWorkflow {
     );
   }
 
+  Future<bool> canRequestPackageInstalls() {
+    return _installer.canRequestPackageInstalls();
+  }
+
   Future<bool> _downloadedFileExists(File file) async {
     try {
       return await file.exists();

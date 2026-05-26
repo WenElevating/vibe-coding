@@ -141,7 +141,6 @@ class _SettingsAppUpdatePanel extends StatelessWidget {
           onCheck: () {},
           onDownload: () {},
           onInstall: () {},
-          onOpenPermissionSettings: () {},
           onDiscard: () {});
     }
     return ListenableBuilder(
@@ -151,8 +150,6 @@ class _SettingsAppUpdatePanel extends StatelessWidget {
             onCheck: () => unawaited(viewModel.checkForUpdates()),
             onDownload: () => unawaited(viewModel.download()),
             onInstall: () => unawaited(viewModel.install()),
-            onOpenPermissionSettings: () =>
-                unawaited(viewModel.openInstallPermissionSettings()),
             onDiscard: () => unawaited(viewModel.discard())));
   }
 }

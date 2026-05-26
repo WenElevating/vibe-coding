@@ -13,7 +13,6 @@ class AppUpdatePanel extends StatefulWidget {
     required this.onCheck,
     required this.onDownload,
     required this.onInstall,
-    required this.onOpenPermissionSettings,
     required this.onDiscard,
   });
 
@@ -21,7 +20,6 @@ class AppUpdatePanel extends StatefulWidget {
   final VoidCallback onCheck;
   final VoidCallback onDownload;
   final VoidCallback onInstall;
-  final VoidCallback onOpenPermissionSettings;
   final VoidCallback onDiscard;
 
   @override
@@ -31,25 +29,43 @@ class AppUpdatePanel extends StatefulWidget {
 class _AppUpdatePanelState extends State<AppUpdatePanel> {
   String? _lastPromptKey;
   bool _promptShowing = false;
+  bool _operationDialogShowing = false;
+  late final ValueNotifier<AppUpdateState> _operationState;
 
   @override
   void initState() {
     super.initState();
+    _operationState = ValueNotifier<AppUpdateState>(widget.state);
     _scheduleUpdatePrompt();
+    _scheduleOperationDialogSync();
   }
 
   @override
   void didUpdateWidget(covariant AppUpdatePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _operationState.value = widget.state;
     if (widget.state.status == AppUpdateStatus.checking) {
       _lastPromptKey = null;
     }
     _scheduleUpdatePrompt();
+    _scheduleOperationDialogSync();
+  }
+
+  @override
+  void dispose() {
+    _operationState.dispose();
+    super.dispose();
   }
 
   void _scheduleUpdatePrompt() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_showUpdatePromptIfNeeded());
+    });
+  }
+
+  void _scheduleOperationDialogSync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_syncOperationDialog());
     });
   }
 
@@ -92,6 +108,34 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
       );
     } finally {
       _promptShowing = false;
+    }
+  }
+
+  Future<void> _syncOperationDialog() async {
+    if (!mounted) return;
+    if (!_isBlockingOperation(widget.state.status)) {
+      if (_operationDialogShowing) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      return;
+    }
+    if (_operationDialogShowing) return;
+    _operationDialogShowing = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => PopScope(
+          canPop: false,
+          child: ValueListenableBuilder<AppUpdateState>(
+            valueListenable: _operationState,
+            builder: (context, state, _) =>
+                _AppUpdateProgressDialog(state: state),
+          ),
+        ),
+      );
+    } finally {
+      _operationDialogShowing = false;
     }
   }
 
@@ -166,12 +210,6 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
                   Icons.install_mobile_rounded,
                   widget.onInstall,
                 ),
-              if (state.status == AppUpdateStatus.installPermissionNeeded)
-                _Button(
-                  l10n.appUpdateOpenSettingsAction,
-                  Icons.settings_applications_rounded,
-                  widget.onOpenPermissionSettings,
-                ),
               if (_canClearUpdate(state))
                 _Button(
                   l10n.appUpdateClearAction,
@@ -219,8 +257,69 @@ String _titleFor(AppLocalizations l10n, AppUpdateState state) {
   };
 }
 
+bool _isBlockingOperation(AppUpdateStatus status) {
+  return status == AppUpdateStatus.downloading ||
+      status == AppUpdateStatus.verifying ||
+      status == AppUpdateStatus.installing ||
+      status == AppUpdateStatus.awaitingUserConfirmation;
+}
+
 bool _shouldPromptForAvailableUpdate(AppUpdateState state) {
   return state.status == AppUpdateStatus.available && _hasNewerManifest(state);
+}
+
+String _progressMessageFor(AppLocalizations l10n, AppUpdateState state) {
+  return switch (state.status) {
+    AppUpdateStatus.downloading => l10n.appUpdateProgressDownloadingMessage,
+    AppUpdateStatus.verifying => l10n.appUpdateProgressVerifyingMessage,
+    AppUpdateStatus.installing => l10n.appUpdateProgressInstallingMessage,
+    AppUpdateStatus.awaitingUserConfirmation =>
+      l10n.appUpdateProgressAwaitingConfirmationMessage,
+    _ => l10n.appUpdateProgressDownloadingMessage,
+  };
+}
+
+class _AppUpdateProgressDialog extends StatelessWidget {
+  const _AppUpdateProgressDialog({required this.state});
+
+  final AppUpdateState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return AlertDialog(
+      key: const ValueKey('app-update-progress-dialog'),
+      backgroundColor: const Color(0xFF111820),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: Colors.white.withValues(alpha: .1)),
+      ),
+      title: Text(
+        _titleFor(l10n, state),
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+      ),
+      content: SizedBox(
+        width: 300,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LinearProgressIndicator(
+              minHeight: 4,
+              color: theme.active,
+              backgroundColor: Colors.white.withValues(alpha: .08),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _progressMessageFor(l10n, state),
+              style: const TextStyle(
+                  color: theme.muted, fontSize: 12, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 bool _hasNewerManifest(AppUpdateState state) {
@@ -253,7 +352,6 @@ bool _canClearUpdate(AppUpdateState state) {
   if (!_hasNewerManifest(state)) return false;
   return state.status == AppUpdateStatus.paused ||
       state.status == AppUpdateStatus.readyToInstall ||
-      state.status == AppUpdateStatus.awaitingUserConfirmation ||
       state.status == AppUpdateStatus.installCancelled;
 }
 

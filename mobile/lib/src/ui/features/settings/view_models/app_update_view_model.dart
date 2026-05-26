@@ -154,7 +154,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> install() async {
+  Future<void> install({bool openPermissionSettings = true}) async {
     if (_installInFlight || _recoveringInstallSession) return;
     if (state.status == AppUpdateStatus.installing ||
         state.status == AppUpdateStatus.awaitingUserConfirmation) {
@@ -185,6 +185,9 @@ class AppUpdateViewModel extends ChangeNotifier {
           return;
         case AppUpdateInstallStartState.permissionNeeded:
           _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
+          if (openPermissionSettings) {
+            await workflow.openInstallPermissionSettings();
+          }
           return;
         case AppUpdateInstallStartState.invalidSession:
           _set(
@@ -314,8 +317,31 @@ class AppUpdateViewModel extends ChangeNotifier {
 
   void handleAppLifecycleStateChanged(AppLifecycleState lifecycleState) {
     if (lifecycleState == AppLifecycleState.resumed) {
+      if (state.status == AppUpdateStatus.installPermissionNeeded) {
+        unawaited(_continueInstallAfterPermissionGrant());
+        return;
+      }
       unawaited(recoverInstallSession());
     }
+  }
+
+  Future<void> _continueInstallAfterPermissionGrant() async {
+    if (_disposed || _installInFlight || _recoveringInstallSession) return;
+    try {
+      if (!await workflow.canRequestPackageInstalls()) return;
+    } catch (error) {
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.readyToInstall,
+          errorMessage: '$error',
+        ),
+      );
+      return;
+    }
+    if (_disposed || state.status != AppUpdateStatus.installPermissionNeeded) {
+      return;
+    }
+    await install(openPermissionSettings: false);
   }
 
   void _handleInstallEvent(AndroidInstallEvent event) {

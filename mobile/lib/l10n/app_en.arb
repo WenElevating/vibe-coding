@@ -94,6 +94,10 @@
       }
     }
   },
+  "appUpdateProgressDownloadingMessage": "Downloading the update package. Keep this app open until it is ready.",
+  "appUpdateProgressVerifyingMessage": "Verifying the downloaded package before installation.",
+  "appUpdateProgressInstallingMessage": "Opening the Android installer. Keep this app open.",
+  "appUpdateProgressAwaitingConfirmationMessage": "Complete the Android installation confirmation to finish updating.",
   "connectionTitle": "Connection",
   "connectionSubtitle": "Confirm daemon target before workspaces load",
   "connectionAddressSection": "Connection address",

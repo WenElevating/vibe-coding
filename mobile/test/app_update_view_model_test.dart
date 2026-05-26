@@ -36,7 +36,8 @@ void main() {
     },
   );
 
-  test('install permission missing moves to permission state', () async {
+  test('install permission missing opens Android settings automatically',
+      () async {
     final installer = _FakeInstaller(canInstall: false);
     final readyFile = await _readyApk();
     addTearDown(() => readyFile.parent.delete(recursive: true));
@@ -63,6 +64,45 @@ void main() {
     await viewModel.install();
 
     expect(viewModel.state.status, AppUpdateStatus.installPermissionNeeded);
+    expect(installer.openPermissionSettingsCalls, 1);
+    expect(installer.installCalls, 0);
+  });
+
+  test('resume after install permission grant continues installation',
+      () async {
+    final installer = _FakeInstaller(canInstall: false);
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    expect(viewModel.state.status, AppUpdateStatus.installPermissionNeeded);
+
+    installer.canInstall = true;
+    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpEventQueue();
+
+    expect(installer.openPermissionSettingsCalls, 1);
+    expect(installer.installCalls, 1);
+    expect(viewModel.state.status, AppUpdateStatus.installing);
   });
 
   test('installer success event updates state', () async {
@@ -1132,7 +1172,7 @@ class _FakeInstaller implements PackageInstallerService {
     this.canInstallError,
   });
 
-  final bool canInstall;
+  bool canInstall;
   final int sessionId;
   final AndroidInstallEvent? recoveredEvent;
   final Completer<int>? installCompleter;
@@ -1142,6 +1182,7 @@ class _FakeInstaller implements PackageInstallerService {
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   String? installedPath;
   int installCalls = 0;
+  int openPermissionSettingsCalls = 0;
   int? recoveredSessionId;
 
   void emit(AndroidInstallEvent event) => _events.add(event);
@@ -1173,7 +1214,9 @@ class _FakeInstaller implements PackageInstallerService {
   }
 
   @override
-  Future<void> openInstallPermissionSettings() async {}
+  Future<void> openInstallPermissionSettings() async {
+    openPermissionSettingsCalls += 1;
+  }
 
   @override
   Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async {

@@ -19,6 +19,7 @@ void main() {
     required AppUpdateState state,
     Locale locale = const Locale('en'),
     VoidCallback? onDownload,
+    VoidCallback? onInstall,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -30,8 +31,7 @@ void main() {
             state: state,
             onCheck: () {},
             onDownload: onDownload ?? () {},
-            onInstall: () {},
-            onOpenPermissionSettings: () {},
+            onInstall: onInstall ?? () {},
             onDiscard: () {},
           ),
         ),
@@ -81,9 +81,7 @@ void main() {
     expect(find.textContaining('Required'), findsOneWidget);
   });
 
-  testWidgets(
-      'panel offers clear update but no install while waiting for confirmation',
-      (
+  testWidgets('panel blocks actions while waiting for confirmation', (
     tester,
   ) async {
     const state = AppUpdateState(
@@ -98,11 +96,16 @@ void main() {
       tester,
       state: state,
     );
+    await tester.pump();
 
-    expect(find.textContaining('Confirm'), findsOneWidget);
+    expect(find.textContaining('Confirm'), findsWidgets);
     expect(find.widgetWithText(TextButton, 'Install'), findsNothing);
-    expect(find.widgetWithText(TextButton, 'Clear update'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Clear update'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Check'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('app-update-progress-dialog')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('panel keeps retry actions after install cancellation', (
@@ -127,7 +130,7 @@ void main() {
     expect(find.widgetWithText(TextButton, 'Clear update'), findsOneWidget);
   });
 
-  testWidgets('panel can retry install after permission settings', (
+  testWidgets('panel can retry install after automatic permission settings', (
     tester,
   ) async {
     const state = AppUpdateState(
@@ -143,8 +146,66 @@ void main() {
       state: state,
     );
 
-    expect(find.widgetWithText(TextButton, 'Open settings'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Open settings'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Install'), findsOneWidget);
+  });
+
+  testWidgets('active update state shows blocking progress dialog', (
+    tester,
+  ) async {
+    var underlyingTaps = 0;
+    const state = AppUpdateState(
+      status: AppUpdateStatus.downloading,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      mandatory: true,
+      manifest: availableManifest,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+          body: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                bottom: 0,
+                child: TextButton(
+                  onPressed: () => underlyingTaps++,
+                  child: const Text('Underlying action'),
+                ),
+              ),
+              Align(
+                alignment: Alignment.topLeft,
+                child: AppUpdatePanel(
+                  state: state,
+                  onCheck: () {},
+                  onDownload: () {},
+                  onInstall: () {},
+                  onDiscard: () {},
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('app-update-progress-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('Downloading update'), findsWidgets);
+    expect(find.byType(ModalBarrier), findsWidgets);
+
+    await tester.tap(
+      find.widgetWithText(TextButton, 'Underlying action'),
+      warnIfMissed: false,
+    );
+    expect(underlyingTaps, 0);
   });
 
   testWidgets('panel can restart after cleared update state', (
@@ -223,7 +284,6 @@ void main() {
                   onCheck: () {},
                   onDownload: () {},
                   onInstall: () {},
-                  onOpenPermissionSettings: () {},
                   onDiscard: () {},
                 ),
                 const Text('About marker'),
