@@ -377,13 +377,16 @@ AppUpdateManifest _widgetAppUpdateManifest() => AppUpdateManifest(
     );
 
 class _WidgetAppUpdateRepository implements AppUpdateRepository {
-  const _WidgetAppUpdateRepository(this.manifest);
+  _WidgetAppUpdateRepository({required this.manifest});
 
   final AppUpdateManifest manifest;
+  int fetchLatestCalls = 0;
 
   @override
-  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async =>
-      manifest;
+  Future<AppUpdateManifest> fetchLatest({String? ifNoneMatch}) async {
+    fetchLatestCalls += 1;
+    return manifest;
+  }
 }
 
 class _WidgetRecentAddressRepository implements RecentDaemonAddressRepository {
@@ -2195,11 +2198,12 @@ void main() {
     );
     addTearDown(installer.close);
     final downloader = _WidgetAppUpdateDownloader();
+    final repository = _WidgetAppUpdateRepository(manifest: manifest);
     final appUpdateViewModel = AppUpdateViewModel(
       installedVersionCode: 1,
       installedVersionName: '1.0.0',
       workflow: AppUpdateWorkflow(
-        repository: _WidgetAppUpdateRepository(manifest),
+        repository: repository,
         installerService: installer,
         downloaderService: downloader,
       ),
@@ -2238,6 +2242,14 @@ void main() {
       }
     }
 
+    Future<void> pumpUntilFetches(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && repository.fetchLatestCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
     void resumeAppThroughMainTabs() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -2251,9 +2263,11 @@ void main() {
       ),
     );
     await pumpUntilRecoveryReads(1);
+    await pumpUntilFetches(1);
     await tester.pump();
 
     expect(downloader.readSessionCalls, 1);
+    expect(repository.fetchLatestCalls, 1);
     expect(installer.recoverCalls, 0);
 
     downloader.installSession = AppUpdateInstallSessionRecord(
@@ -2262,9 +2276,11 @@ void main() {
     );
     resumeAppThroughMainTabs();
     await pumpUntilRecoveryReads(2);
+    await pumpUntilFetches(2);
     await tester.pump();
 
     expect(downloader.readSessionCalls, 2);
+    expect(repository.fetchLatestCalls, 2);
     expect(installer.recoverCalls, 1);
     expect(appUpdateViewModel.state.status,
         AppUpdateStatus.awaitingUserConfirmation);

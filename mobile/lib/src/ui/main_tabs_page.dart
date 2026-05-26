@@ -18,7 +18,12 @@ import 'core/widgets/widgets.dart';
 import 'core/theme/theme.dart' as theme;
 import 'features/workspace_picker/workspace_picker_sheet.dart';
 import 'features/settings/settings.dart'
-    show AppUpdatePanel, AppUpdateState, AppUpdateStatus, AppUpdateViewModel;
+    show
+        AppUpdateCheckTrigger,
+        AppUpdatePanel,
+        AppUpdateState,
+        AppUpdateStatus,
+        AppUpdateViewModel;
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
@@ -133,6 +138,7 @@ class _EmptyAppUpdatePanel extends StatelessWidget {
         onDownload: () {},
         onInstall: () {},
         onDiscard: () {},
+        onPostpone: () {},
       );
     }
     return ListenableBuilder(
@@ -143,6 +149,7 @@ class _EmptyAppUpdatePanel extends StatelessWidget {
         onDownload: () => unawaited(viewModel.download()),
         onInstall: () => unawaited(viewModel.install()),
         onDiscard: () => unawaited(viewModel.discard()),
+        onPostpone: viewModel.postponeCurrentUpdatePrompt,
       ),
     );
   }
@@ -274,7 +281,7 @@ class _MainTabsPageState extends State<MainTabsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _recoverAppUpdateInstallSession();
+      unawaited(_handleAppUpdateForeground(AppUpdateCheckTrigger.appResumed));
     }
   }
 
@@ -295,7 +302,9 @@ class _MainTabsPageState extends State<MainTabsPage>
         return;
       }
       setState(() => _appUpdateViewModel = viewModel);
-      _recoverAppUpdateInstallSession();
+      unawaited(
+        _handleAppUpdateForeground(AppUpdateCheckTrigger.connectedShellCreated),
+      );
     } catch (_) {
       if (!mounted || generation != _appUpdateGeneration) return;
       setState(() => _appUpdateViewModel = null);
@@ -308,11 +317,14 @@ class _MainTabsPageState extends State<MainTabsPage>
     _appUpdateViewModel = null;
   }
 
-  void _recoverAppUpdateInstallSession() {
+  Future<void> _handleAppUpdateForeground(AppUpdateCheckTrigger trigger) async {
     if (!(widget.forceAndroidForTesting ?? Platform.isAndroid)) return;
     final viewModel = _appUpdateViewModel;
     if (viewModel == null) return;
     viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || _appUpdateViewModel != viewModel) return;
+    await viewModel.checkForUpdates(trigger: trigger);
   }
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {

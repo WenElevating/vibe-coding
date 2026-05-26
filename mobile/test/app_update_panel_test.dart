@@ -20,6 +20,7 @@ void main() {
     Locale locale = const Locale('en'),
     VoidCallback? onDownload,
     VoidCallback? onInstall,
+    VoidCallback? onPostpone,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -33,6 +34,7 @@ void main() {
             onDownload: onDownload ?? () {},
             onInstall: onInstall ?? () {},
             onDiscard: () {},
+            onPostpone: onPostpone ?? () {},
           ),
         ),
       ),
@@ -185,6 +187,7 @@ void main() {
                   onDownload: () {},
                   onInstall: () {},
                   onDiscard: () {},
+                  onPostpone: () {},
                 ),
               ),
             ],
@@ -285,6 +288,7 @@ void main() {
                   onDownload: () {},
                   onInstall: () {},
                   onDiscard: () {},
+                  onPostpone: () {},
                 ),
                 const Text('About marker'),
               ],
@@ -330,5 +334,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(downloads, 1);
+  });
+
+  testWidgets('available update can suppress automatic prompt', (
+    tester,
+  ) async {
+    var downloads = 0;
+    const state = AppUpdateState(
+      status: AppUpdateStatus.available,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      manifest: availableManifest,
+      promptSuppressed: true,
+    );
+
+    await pumpPanel(
+      tester,
+      state: state,
+      onDownload: () => downloads++,
+    );
+    await tester.pump();
+
+    expect(find.widgetWithText(TextButton, 'Download update'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'Download'), findsOneWidget);
+    expect(downloads, 0);
+  });
+
+  testWidgets('later action records postponed update', (tester) async {
+    var postponed = 0;
+    const state = AppUpdateState(
+      status: AppUpdateStatus.available,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      manifest: availableManifest,
+    );
+
+    await pumpPanel(
+      tester,
+      state: state,
+      onPostpone: () => postponed++,
+    );
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(TextButton, 'Later'));
+    await tester.pumpAndSettle();
+
+    expect(postponed, 1);
   });
 }

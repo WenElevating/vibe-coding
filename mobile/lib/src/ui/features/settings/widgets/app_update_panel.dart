@@ -14,6 +14,7 @@ class AppUpdatePanel extends StatefulWidget {
     required this.onDownload,
     required this.onInstall,
     required this.onDiscard,
+    this.onPostpone = _noop,
   });
 
   final AppUpdateState state;
@@ -21,6 +22,7 @@ class AppUpdatePanel extends StatefulWidget {
   final VoidCallback onDownload;
   final VoidCallback onInstall;
   final VoidCallback onDiscard;
+  final VoidCallback onPostpone;
 
   @override
   State<AppUpdatePanel> createState() => _AppUpdatePanelState();
@@ -93,7 +95,10 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
           content: Text(l10n.appUpdateDialogMessage(version)),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                widget.onPostpone();
+                Navigator.of(context).pop();
+              },
               child: Text(l10n.appUpdateLaterAction),
             ),
             TextButton(
@@ -224,6 +229,8 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
   }
 }
 
+void _noop() {}
+
 String _titleFor(AppLocalizations l10n, AppUpdateState state) {
   return switch (state.status) {
     AppUpdateStatus.upToDate => l10n.appUpdateTitleUpToDate,
@@ -265,7 +272,9 @@ bool _isBlockingOperation(AppUpdateStatus status) {
 }
 
 bool _shouldPromptForAvailableUpdate(AppUpdateState state) {
-  return state.status == AppUpdateStatus.available && _hasNewerManifest(state);
+  return !state.promptSuppressed &&
+      state.status == AppUpdateStatus.available &&
+      _hasNewerManifest(state);
 }
 
 String _progressMessageFor(AppLocalizations l10n, AppUpdateState state) {
