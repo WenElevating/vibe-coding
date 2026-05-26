@@ -1,3 +1,13 @@
+<!-- DREAMFIELD_README_HEADER_START -->
+
+<p align="center">
+  <a href="https://www.dreamfield.top">
+    <img src="https://www.dreamfield.top/dream-field/contest-readme/assets/dreamseed-readme-banner.png" alt="DreamSeed 种梦计划参赛作品" width="100%" />
+  </a>
+</p>
+
+<!-- DREAMFIELD_README_HEADER_END -->
+
 # LAN AI CLI Control
 
 [简体中文](README.zh-CN.md)
