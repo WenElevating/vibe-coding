@@ -64,6 +64,7 @@ class HomeCommandDeckData {
     required this.executionStream,
     required this.signals,
     required this.workspaceRunSummaries,
+    required this.allSignals,
   });
 
   final HomeSignalItem now;
@@ -72,6 +73,7 @@ class HomeCommandDeckData {
   final List<HomeSignalItem> executionStream;
   final HomeWorkspaceSignalsData signals;
   final List<WorkspaceRunSummary> workspaceRunSummaries;
+  final List<HomeSignalItem> allSignals;
 }
 
 HomeCommandDeckData buildHomeCommandDeckData({
@@ -174,6 +176,7 @@ HomeCommandDeckData buildHomeCommandDeckData({
       recentFiles: recentFiles,
     ),
     workspaceRunSummaries: workspaceRunSummaries,
+    allSignals: allSignals,
   );
 }
 

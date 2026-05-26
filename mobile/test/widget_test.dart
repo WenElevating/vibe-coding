@@ -921,12 +921,12 @@ void main() {
     await tester.pumpWidget(const _LocalizedHomePageApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('当前焦点'), findsOneWidget);
-    expect(find.text('当前工作区无阻塞'), findsOneWidget);
+    expect(find.text('新建任务'), findsWidgets);
     expect(find.text('工作区信号'), findsOneWidget);
+    expect(find.text('快捷操作'), findsOneWidget);
     expect(find.text('命令模板'), findsOneWidget);
     expect(find.text('已连接'), findsNothing);
-    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.text('vibe-coding'), findsWidgets);
     expect(find.text('Command templates'), findsNothing);
     expect(find.text('Needs your approval'), findsNothing);
     expect(find.text('Modify file'), findsNothing);
@@ -946,7 +946,7 @@ void main() {
     expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
   });
 
-  testWidgets('home command deck shows overflow and deduplicates now item',
+  testWidgets('home command deck shows global attention and activity',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -975,13 +975,11 @@ void main() {
     await tester.pumpWidget(_LocalizedHomePageApp(snapshot: snapshot));
     await tester.pumpAndSettle();
 
-    expect(find.text('+1 more'), findsOneWidget);
     expect(find.text('Modify file'), findsOneWidget);
     expect(find.textContaining('run_failed'), findsOneWidget);
   });
 
-  testWidgets(
-      'home command deck shows other workspace running only while current is idle',
+  testWidgets('home command deck surfaces other workspace running activity',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});

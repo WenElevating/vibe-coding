@@ -35,135 +35,255 @@ class HomePage extends StatelessWidget {
       recentFiles:
           data.diagnostics.available ? data.overview.recentFiles.length : null,
     );
+    final global = _buildGlobalConsoleSummary(deck);
 
     return PageScroll(
       children: [
-        _HomeCommandBar(workspace: data.workspace, onTap: () => selectTab(1)),
-        const SizedBox(height: 14),
-        _HomeNowPanel(
-            data: deck, l10n: l10n, onTap: () => open(RoutePage.approval)),
-        if (deck.interrupts.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          _HomeInterruptLane(items: deck.interrupts, l10n: l10n),
+        _AgentConsolePanel(
+          workspace: data.workspace,
+          summary: global,
+          daemon: data.health,
+          l10n: l10n,
+          onWorkspaceTap: () => selectTab(1),
+          onPrimaryTap: global.needsAttention
+              ? () => open(RoutePage.approval)
+              : () => selectTab(1),
+          onTemplatesTap: () => selectTab(1),
+        ),
+        if (global.attentionItems.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _HomeInterruptLane(items: global.attentionItems, l10n: l10n),
         ],
         const SizedBox(height: 18),
         _HomeExecutionStream(
-            items: deck.executionStream,
+            items: global.activityItems,
             l10n: l10n,
             onTap: () => open(RoutePage.detail)),
         const SizedBox(height: 18),
         _HomeWorkspaceSignals(data: deck.signals, l10n: l10n),
         const SizedBox(height: 18),
-        _HomeActionRow(selectTab: selectTab, l10n: l10n),
+        _HomeQuickActions(selectTab: selectTab, l10n: l10n),
       ],
     );
   }
 }
 
-class _HomeCommandBar extends StatelessWidget {
-  const _HomeCommandBar({required this.workspace, required this.onTap});
+class _GlobalConsoleSummary {
+  const _GlobalConsoleSummary({
+    required this.attentionCount,
+    required this.runningCount,
+    required this.queueCount,
+    required this.attentionItems,
+    required this.activityItems,
+  });
+
+  final int attentionCount;
+  final int runningCount;
+  final int queueCount;
+  final List<HomeSignalItem> attentionItems;
+  final List<HomeSignalItem> activityItems;
+
+  bool get needsAttention => attentionCount > 0;
+}
+
+_GlobalConsoleSummary _buildGlobalConsoleSummary(HomeCommandDeckData data) {
+  final allAttentionItems = data.allSignals
+      .where((item) =>
+          item.kind == HomeSignalKind.approval ||
+          item.kind == HomeSignalKind.failure ||
+          item.kind == HomeSignalKind.queue)
+      .toList();
+  final attentionItems = allAttentionItems.take(3).toList();
+  final activityItems = data.allSignals
+      .where((item) => item.kind != HomeSignalKind.idle)
+      .take(4)
+      .toList();
+  return _GlobalConsoleSummary(
+    attentionCount: allAttentionItems.length,
+    runningCount: data.allSignals
+        .where((item) => item.kind == HomeSignalKind.running)
+        .length,
+    queueCount: data.allSignals
+        .where((item) => item.kind == HomeSignalKind.queue)
+        .length,
+    attentionItems: attentionItems,
+    activityItems: activityItems,
+  );
+}
+
+class _AgentConsolePanel extends StatelessWidget {
+  const _AgentConsolePanel({
+    required this.workspace,
+    required this.summary,
+    required this.daemon,
+    required this.l10n,
+    required this.onWorkspaceTap,
+    required this.onPrimaryTap,
+    required this.onTemplatesTap,
+  });
 
   final WorkspaceSummary workspace;
-  final VoidCallback onTap;
+  final _GlobalConsoleSummary summary;
+  final DaemonHealth daemon;
+  final AppLocalizations l10n;
+  final VoidCallback onWorkspaceTap;
+  final VoidCallback onPrimaryTap;
+  final VoidCallback onTemplatesTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0D1117),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: .08)),
-          ),
-          child: Row(
+  Widget build(BuildContext context) {
+    final accent = summary.needsAttention ? theme.amber : theme.green;
+    final primaryLabel = summary.needsAttention
+        ? l10n.homeInterruptsTitle
+        : l10n.homeNewTaskTitle;
+    final healthLabel =
+        daemon.status.toLowerCase() == 'ok' ? 'daemon online' : daemon.status;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF111820), Color(0xFF080B10)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: .055)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(workspaceDisplayName(workspace),
+                    const Text('vibe-coding',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 22,
+                        style: TextStyle(
+                            fontSize: 24,
                             fontWeight: FontWeight.w900,
-                            letterSpacing: -.5)),
-                    const SizedBox(height: 5),
-                    Text(compactWorkspacePath(workspace.path),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: theme.muted, fontSize: 12.5)),
+                            height: 1.0)),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        _LiveMark(color: accent),
+                        const SizedBox(width: 7),
+                        Flexible(
+                          child: Text(healthLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted, fontSize: 12.5)),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              const Icon(Icons.keyboard_arrow_down_rounded, color: theme.muted),
+              _RoundIconButton(
+                  icon: Icons.keyboard_arrow_down_rounded,
+                  onTap: onWorkspaceTap),
             ],
           ),
-        ),
-      );
-}
-
-class _HomeNowPanel extends StatelessWidget {
-  const _HomeNowPanel(
-      {required this.data, required this.l10n, required this.onTap});
-
-  final HomeCommandDeckData data;
-  final AppLocalizations l10n;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final item = data.now;
-    return _InstrumentPanel(
-      child: InkWell(
-        onTap: item.isIdle ? null : onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 18),
+          Row(
             children: [
-              _PanelLabel(text: l10n.homeNowTitle),
-              const SizedBox(height: 10),
-              Row(
+              Expanded(
+                child: _ConsoleMetric(
+                  label: l10n.homeInterruptsTitle,
+                  value: '${summary.attentionCount}',
+                  color: summary.needsAttention ? theme.amber : theme.muted,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ConsoleMetric(
+                  label: l10n.homeRunningMetricLabel,
+                  value: '${summary.runningCount}',
+                  color: theme.green,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ConsoleMetric(
+                  label: l10n.homeQueueLabel,
+                  value: '${summary.queueCount}',
+                  color: theme.purple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          InkWell(
+            onTap: onWorkspaceTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 11, 11, 11),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .035),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: .055)),
+              ),
+              child: Row(
                 children: [
-                  _SignalDot(kind: item.kind),
+                  const Icon(Icons.folder_open_rounded,
+                      color: theme.faint, size: 17),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.isIdle ? l10n.homeIdleNow : item.title,
+                        Text(workspaceDisplayName(workspace),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                fontSize: 16,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: -.2)),
+                                height: 1.1)),
                         const SizedBox(height: 4),
-                        Text(
-                            item.isIdle
-                                ? item.workspaceName
-                                : '${item.workspaceName} · ${item.detail}',
+                        Text(compactWorkspacePath(workspace.path),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                color: theme.muted, fontSize: 12.5)),
+                                color: theme.muted, fontSize: 11.5)),
                       ],
                     ),
                   ),
-                  if (data.nowOverflowCount > 0)
-                    Text(l10n.homeMoreSignalsLabel(data.nowOverflowCount),
-                        style: const TextStyle(
-                            color: theme.purple, fontWeight: FontWeight.w800)),
+                  const Icon(Icons.chevron_right_rounded,
+                      color: theme.faint, size: 20),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _HomeCommandButton(
+                  icon: summary.needsAttention
+                      ? Icons.priority_high_rounded
+                      : Icons.add_rounded,
+                  label: primaryLabel,
+                  color: accent,
+                  primary: true,
+                  onTap: onPrimaryTap,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HomeCommandButton(
+                  icon: Icons.terminal_rounded,
+                  label: l10n.homeCommandTemplatesTitle,
+                  color: theme.purple,
+                  onTap: onTemplatesTap,
+                ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -179,10 +299,10 @@ class _HomeInterruptLane extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PanelLabel(text: l10n.homeInterruptsTitle),
-          const SizedBox(height: 8),
+          SectionTitle(l10n.homeInterruptsTitle),
+          const SizedBox(height: 10),
           for (final item in items) ...[
-            _SignalRow(item: item),
+            _SignalRow(item: item, prominent: true),
             if (item != items.last) const SizedBox(height: 8),
           ],
         ],
@@ -205,11 +325,21 @@ class _HomeExecutionStream extends StatelessWidget {
               action: l10n.homeViewAllAction, onAction: onTap),
           const SizedBox(height: 10),
           if (items.isEmpty)
-            _InstrumentPanel(
+            _Surface(
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(l10n.homeNoRecentActivity,
-                    style: const TextStyle(color: theme.muted, fontSize: 13)),
+                child: Row(
+                  children: [
+                    const Icon(Icons.inbox_rounded,
+                        color: theme.faint, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(l10n.homeNoRecentActivity,
+                          style: const TextStyle(
+                              color: theme.muted, fontSize: 13)),
+                    ),
+                  ],
+                ),
               ),
             )
           else
@@ -233,59 +363,93 @@ class _HomeWorkspaceSignals extends StatelessWidget {
         children: [
           SectionTitle(l10n.homeWorkspaceSignalsTitle),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 2.55,
             children: [
-              _SignalChip(
-                  label: l10n.homeGitChangedLabel,
-                  value: _signalValue(data.changedFiles)),
-              _SignalChip(
-                  label: l10n.homeDiagnosticsLabel,
-                  value: _signalValue(data.diagnostics)),
-              _SignalChip(label: l10n.homeQueueLabel, value: '${data.queue}'),
-              _SignalChip(
-                  label: l10n.homeRecentFilesLabel,
-                  value: _signalValue(data.recentFiles)),
+              _SignalMetricTile(
+                icon: Icons.commit_rounded,
+                label: l10n.homeGitChangedLabel,
+                value: _signalValue(data.changedFiles),
+                color: theme.purple,
+              ),
+              _SignalMetricTile(
+                icon: Icons.health_and_safety_rounded,
+                label: l10n.homeDiagnosticsLabel,
+                value: _signalValue(data.diagnostics),
+                color: theme.amber,
+              ),
+              _SignalMetricTile(
+                icon: Icons.queue_rounded,
+                label: l10n.homeQueueLabel,
+                value: '${data.queue}',
+                color: theme.green,
+              ),
+              _SignalMetricTile(
+                icon: Icons.history_rounded,
+                label: l10n.homeRecentFilesLabel,
+                value: _signalValue(data.recentFiles),
+                color: const Color(0xFF8BC7FF),
+              ),
             ],
           ),
         ],
       );
 }
 
-class _HomeActionRow extends StatelessWidget {
-  const _HomeActionRow({required this.selectTab, required this.l10n});
+class _HomeQuickActions extends StatelessWidget {
+  const _HomeQuickActions({required this.selectTab, required this.l10n});
 
   final ValueChanged<int> selectTab;
   final AppLocalizations l10n;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-              child: _ActionPill(
+          SectionTitle(l10n.homeQuickActionsTitle),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _QuickActionTile(
                   icon: Icons.add_rounded,
-                  label: l10n.homeNewTaskTitle,
-                  onTap: () => selectTab(1))),
-          const SizedBox(width: 8),
-          Expanded(
-              child: _ActionPill(
+                  title: l10n.homeNewTaskTitle,
+                  subtitle: l10n.homeNewTaskSubtitle,
+                  color: theme.purple,
+                  onTap: () => selectTab(1),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _QuickActionTile(
                   icon: Icons.terminal_rounded,
-                  label: l10n.homeCommandTemplatesTitle,
-                  onTap: () => selectTab(1))),
+                  title: l10n.homeCommandTemplatesTitle,
+                  subtitle: l10n.homeCommandTemplatesSubtitle,
+                  color: theme.green,
+                  onTap: () => selectTab(1),
+                ),
+              ),
+            ],
+          ),
         ],
       );
 }
 
-class _InstrumentPanel extends StatelessWidget {
-  const _InstrumentPanel({required this.child});
+class _Surface extends StatelessWidget {
+  const _Surface({required this.child, this.prominent = false});
 
   final Widget child;
+  final bool prominent;
 
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF0B0F14),
+          color: prominent ? const Color(0xFF10161D) : const Color(0xFF0B0F14),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white.withValues(alpha: .075)),
         ),
@@ -293,43 +457,75 @@ class _InstrumentPanel extends StatelessWidget {
       );
 }
 
-class _PanelLabel extends StatelessWidget {
-  const _PanelLabel({required this.text});
-  final String text;
+class _ConsoleMetric extends StatelessWidget {
+  const _ConsoleMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
-  @override
-  Widget build(BuildContext context) => Text(text.toUpperCase(),
-      style: const TextStyle(
-          color: theme.muted,
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.1));
-}
-
-class _SignalDot extends StatelessWidget {
-  const _SignalDot({required this.kind});
-  final HomeSignalKind kind;
+  final String label;
+  final String value;
+  final Color color;
 
   @override
   Widget build(BuildContext context) => Container(
-        width: 8,
-        height: 8,
-        decoration:
-            BoxDecoration(color: _signalColor(kind), shape: BoxShape.circle),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.white.withValues(alpha: .045)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: color, fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: theme.muted, fontSize: 10.5)),
+          ],
+        ),
+      );
+}
+
+class _LiveMark extends StatelessWidget {
+  const _LiveMark({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: .38), blurRadius: 10),
+          ],
+        ),
       );
 }
 
 class _SignalRow extends StatelessWidget {
-  const _SignalRow({required this.item});
+  const _SignalRow({required this.item, this.prominent = false});
   final HomeSignalItem item;
+  final bool prominent;
 
   @override
-  Widget build(BuildContext context) => _InstrumentPanel(
+  Widget build(BuildContext context) => _Surface(
+        prominent: prominent,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           child: Row(
             children: [
-              _SignalDot(kind: item.kind),
+              _StatusGlyph(kind: item.kind, small: true),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -341,7 +537,7 @@ class _SignalRow extends StatelessWidget {
                         style: const TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 13.5)),
                     const SizedBox(height: 3),
-                    Text('${item.workspaceName} · ${item.detail}',
+                    Text('${item.workspaceName} / ${item.detail}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:
@@ -355,68 +551,202 @@ class _SignalRow extends StatelessWidget {
       );
 }
 
-class _SignalChip extends StatelessWidget {
-  const _SignalChip({required this.label, required this.value});
-  final String label;
-  final String value;
+class _SignalMetricTile extends StatelessWidget {
+  const _SignalMetricTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0D1218),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: .07)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(value,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
-            const SizedBox(width: 6),
-            Text(label,
-                style: const TextStyle(color: theme.muted, fontSize: 12)),
-          ],
-        ),
-      );
-}
-
-class _ActionPill extends StatelessWidget {
-  const _ActionPill(
-      {required this.icon, required this.label, required this.onTap});
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final String value;
+  final Color color;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-          decoration: BoxDecoration(
-            color: const Color(0xFF10151B),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withValues(alpha: .075)),
-          ),
+  Widget build(BuildContext context) => _Surface(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 9, 10, 9),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 17, color: theme.purple),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 12.5, fontWeight: FontWeight.w800)),
+              Icon(icon, color: color, size: 17),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 15)),
+                    const SizedBox(height: 2),
+                    Text(label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: theme.muted, fontSize: 11.5)),
+                  ],
+                ),
               ),
             ],
           ),
         ),
       );
 }
+
+class _QuickActionTile extends StatelessWidget {
+  const _QuickActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: _Surface(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(height: 10),
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: theme.muted, fontSize: 11.5)),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+class _HomeCommandButton extends StatelessWidget {
+  const _HomeCommandButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: primary
+                ? color.withValues(alpha: .2)
+                : Colors.white.withValues(alpha: .045),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: primary
+                    ? color.withValues(alpha: .38)
+                    : Colors.white.withValues(alpha: .08)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w900)),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .045),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: .08)),
+          ),
+          child: Icon(icon, color: theme.muted, size: 21),
+        ),
+      );
+}
+
+class _StatusGlyph extends StatelessWidget {
+  const _StatusGlyph({required this.kind, this.small = false});
+
+  final HomeSignalKind kind;
+  final bool small;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _signalColor(kind);
+    final size = small ? 28.0 : 36.0;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(small ? 10 : 13),
+        border: Border.all(color: color.withValues(alpha: .24)),
+      ),
+      child: Icon(_signalIcon(kind), color: color, size: small ? 15 : 19),
+    );
+  }
+}
+
+IconData _signalIcon(HomeSignalKind kind) => switch (kind) {
+      HomeSignalKind.approval => Icons.rule_rounded,
+      HomeSignalKind.failure => Icons.error_outline_rounded,
+      HomeSignalKind.running => Icons.play_arrow_rounded,
+      HomeSignalKind.queue => Icons.queue_rounded,
+      HomeSignalKind.idle => Icons.check_rounded,
+    };
 
 Color _signalColor(HomeSignalKind kind) => switch (kind) {
       HomeSignalKind.approval => theme.amber,
@@ -426,4 +756,4 @@ Color _signalColor(HomeSignalKind kind) => switch (kind) {
       HomeSignalKind.idle => theme.muted,
     };
 
-String _signalValue(int? value) => value == null ? '—' : '$value';
+String _signalValue(int? value) => value == null ? '-' : '$value';
