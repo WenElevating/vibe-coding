@@ -153,9 +153,7 @@ class AppUpdateViewModel extends ChangeNotifier {
             promptSuppressed: false,
           ),
         );
-        if (trigger.isSilent) {
-          _recordSilentCheckCompleted(trigger);
-        }
+        _recordSilentCheckCompleted(trigger, manifest, false);
         return;
       }
       final mandatory = manifest.isMandatoryFor(installedVersionCode);
@@ -170,14 +168,12 @@ class AppUpdateViewModel extends ChangeNotifier {
           promptSuppressed: promptSuppressed,
         ),
       );
-      if (trigger.isSilent) {
-        if (promptSuppressed) {
-          _recordDiagnostic('update.prompt.suppressed', {
-            'versionCode': manifest.versionCode,
-            'reason': 'postponedVersion',
-          });
-        }
-        _recordSilentCheckCompleted(trigger);
+      _recordSilentCheckCompleted(trigger, manifest, mandatory);
+      if (trigger.isSilent && promptSuppressed) {
+        _recordDiagnostic('update.prompt.suppressed', {
+          'versionCode': manifest.versionCode,
+          'reason': 'postponedVersion',
+        });
       }
     } catch (error) {
       if (trigger.isSilent) {
@@ -506,9 +502,17 @@ class AppUpdateViewModel extends ChangeNotifier {
     });
   }
 
-  void _recordSilentCheckCompleted(AppUpdateCheckTrigger trigger) {
+  void _recordSilentCheckCompleted(
+    AppUpdateCheckTrigger trigger,
+    AppUpdateManifest manifest,
+    bool mandatory,
+  ) {
+    if (!trigger.isSilent) return;
     _recordDiagnostic('update.silent_check.completed', {
       'trigger': trigger.diagnosticName,
+      'status': state.status.name,
+      'remoteVersionCode': manifest.versionCode,
+      'mandatory': mandatory,
     });
   }
 
