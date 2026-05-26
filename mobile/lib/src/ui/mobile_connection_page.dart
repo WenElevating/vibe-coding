@@ -93,7 +93,7 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
   }
 
   bool _handleEscape() {
-    if (!_recentDropdownOpen) {
+    if (!_recentDropdownVisible()) {
       return false;
     }
     _closeRecentDropdown();
@@ -101,9 +101,14 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
   }
 
   void _handlePopInvoked(bool didPop) {
-    if (!didPop && _recentDropdownOpen) {
+    if (!didPop && _recentDropdownVisible()) {
       _closeRecentDropdown();
     }
+  }
+
+  bool _recentDropdownVisible() {
+    return _recentDropdownOpen &&
+        _filteredRecentAddresses(widget.controller).isNotEmpty;
   }
 
   @override
@@ -117,6 +122,85 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
         final showRecentDropdown =
             _recentDropdownOpen && filteredRecentAddresses.isNotEmpty;
 
+        final page = PopScope(
+          canPop: !showRecentDropdown,
+          onPopInvokedWithResult: (didPop, result) => _handlePopInvoked(didPop),
+          child: Scaffold(
+            body: MobileUiFrame(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
+                children: [
+                  _ConnectionHeader(
+                    key: const ValueKey('connection-header'),
+                    title: l10n.connectionTitle,
+                    subtitle: l10n.connectionSubtitle,
+                  ),
+                  const SizedBox(height: 22),
+                  _ConnectionSection(
+                    title: l10n.connectionAddressSection,
+                    child: Column(
+                      children: [
+                        _ConnectionTextField(
+                          controller: _addressController,
+                          focusNode: _addressFocusNode,
+                          enabled: !controller.isBusy,
+                          hintText: '127.0.0.1:4317',
+                          onTap: _openRecentDropdown,
+                          onChanged: _handleAddressChanged,
+                        ),
+                        if (showRecentDropdown) ...[
+                          const SizedBox(height: 8),
+                          _RecentAddressDropdown(
+                            addresses: filteredRecentAddresses,
+                            onSelected: _selectRecentAddress,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _ConnectionSection(
+                    title: l10n.connectionProxySection,
+                    child: Column(
+                      children: [
+                        for (final mode in DaemonProxyMode.values)
+                          _ProxyModeRow(
+                            mode: mode,
+                            label: _proxyModeLabel(l10n, mode),
+                            selected: controller.proxyMode == mode,
+                            enabled: !controller.isBusy,
+                            onTap: () => controller.setProxyMode(mode),
+                          ),
+                        if (controller.proxyMode == DaemonProxyMode.manual) ...[
+                          const SizedBox(height: 2),
+                          _ConnectionTextField(
+                            controller: _manualProxyController,
+                            enabled: !controller.isBusy,
+                            hintText: 'http://proxy.local:8080',
+                            onChanged: controller.setManualProxyInput,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _ConnectionStatusPanel(controller: controller, l10n: l10n),
+                  const SizedBox(height: 20),
+                  _ConnectionActionButton(
+                    controller.status == DaemonConnectionStatus.failed
+                        ? l10n.connectionReconnectAction
+                        : l10n.connectionConnectAction,
+                    enabled: !controller.isBusy,
+                    onTap: controller.connect,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        if (!showRecentDropdown) {
+          return page;
+        }
         return Shortcuts(
           shortcuts: const <ShortcutActivator, Intent>{
             SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
@@ -130,85 +214,7 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
                 },
               ),
             },
-            child: PopScope(
-              canPop: !_recentDropdownOpen,
-              onPopInvokedWithResult: (didPop, result) =>
-                  _handlePopInvoked(didPop),
-              child: Scaffold(
-                body: MobileUiFrame(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
-                    children: [
-                      _ConnectionHeader(
-                        key: const ValueKey('connection-header'),
-                        title: l10n.connectionTitle,
-                        subtitle: l10n.connectionSubtitle,
-                      ),
-                      const SizedBox(height: 22),
-                      _ConnectionSection(
-                        title: l10n.connectionAddressSection,
-                        child: Column(
-                          children: [
-                            _ConnectionTextField(
-                              controller: _addressController,
-                              focusNode: _addressFocusNode,
-                              enabled: !controller.isBusy,
-                              hintText: '127.0.0.1:4317',
-                              onTap: _openRecentDropdown,
-                              onChanged: _handleAddressChanged,
-                            ),
-                            if (showRecentDropdown) ...[
-                              const SizedBox(height: 8),
-                              _RecentAddressDropdown(
-                                addresses: filteredRecentAddresses,
-                                onSelected: _selectRecentAddress,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _ConnectionSection(
-                        title: l10n.connectionProxySection,
-                        child: Column(
-                          children: [
-                            for (final mode in DaemonProxyMode.values)
-                              _ProxyModeRow(
-                                mode: mode,
-                                label: _proxyModeLabel(l10n, mode),
-                                selected: controller.proxyMode == mode,
-                                enabled: !controller.isBusy,
-                                onTap: () => controller.setProxyMode(mode),
-                              ),
-                            if (controller.proxyMode ==
-                                DaemonProxyMode.manual) ...[
-                              const SizedBox(height: 2),
-                              _ConnectionTextField(
-                                controller: _manualProxyController,
-                                enabled: !controller.isBusy,
-                                hintText: 'http://proxy.local:8080',
-                                onChanged: controller.setManualProxyInput,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      _ConnectionStatusPanel(
-                          controller: controller, l10n: l10n),
-                      const SizedBox(height: 20),
-                      _ConnectionActionButton(
-                        controller.status == DaemonConnectionStatus.failed
-                            ? l10n.connectionReconnectAction
-                            : l10n.connectionConnectAction,
-                        enabled: !controller.isBusy,
-                        onTap: controller.connect,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            child: page,
           ),
         );
       },
@@ -363,12 +369,14 @@ class _RecentAddressDropdown extends StatelessWidget {
             itemCount: addresses.length,
             itemBuilder: (context, index) {
               final address = addresses[index];
+              void selectAddress() => onSelected(address);
               return Semantics(
                 label: address,
                 button: true,
+                onTap: selectAddress,
                 child: ExcludeSemantics(
                   child: InkWell(
-                    onTap: () => onSelected(address),
+                    onTap: selectAddress,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Align(

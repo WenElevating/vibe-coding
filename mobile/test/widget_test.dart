@@ -1198,6 +1198,12 @@ void main() {
     expect(find.text('192.168.1.50:4317'), findsOneWidget);
     expect(find.text('http://devbox.local:4317'), findsOneWidget);
     expect(find.bySemanticsLabel('192.168.1.50:4317'), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('192.168.1.50:4317'))
+          .hasAction(SemanticsAction.tap),
+      true,
+    );
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
@@ -1241,23 +1247,24 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'DEV');
     await tester.pumpAndSettle();
 
-    expect(find.text('http://devbox.local:4317'), findsOneWidget);
+    const selectedAddress = 'http://devbox.local:4317';
+    expect(find.text(selectedAddress), findsOneWidget);
     expect(find.text('192.168.1.50:4317'), findsNothing);
 
-    await tester.tap(find.text('http://devbox.local:4317'));
+    await tester.tap(find.text(selectedAddress));
     await tester.pumpAndSettle();
 
-    expect(controller.addressInput, 'http://devbox.local:4317');
+    expect(controller.addressInput, selectedAddress);
     final addressField = tester.widget<TextField>(find.byType(TextField).first);
     expect(
       addressField.controller?.selection,
-      const TextSelection.collapsed(offset: 24),
+      TextSelection.collapsed(offset: selectedAddress.length),
     );
     expect(controller.proxyMode, DaemonProxyMode.manual);
     expect(controller.manualProxyInput, 'http://proxy.local:8080');
     expect(controller.status, DaemonConnectionStatus.idle);
     expect(connectCalls, 0);
-    expect(find.text('http://devbox.local:4317'), findsNothing);
+    expect(find.text(selectedAddress), findsNothing);
     expect(tester.testTextInput.isVisible, isTrue);
   });
 
