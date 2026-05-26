@@ -26,6 +26,18 @@ enum AppUpdateStatus {
   failed,
 }
 
+enum AppUpdateCheckTrigger {
+  manual('manual'),
+  connectedShellCreated('connectedShellCreated'),
+  appResumed('appResumed');
+
+  const AppUpdateCheckTrigger(this.diagnosticName);
+
+  final String diagnosticName;
+
+  bool get isSilent => this != AppUpdateCheckTrigger.manual;
+}
+
 class AppUpdateState {
   const AppUpdateState({
     required this.status,
@@ -33,6 +45,7 @@ class AppUpdateState {
     required this.installedVersionCode,
     this.manifest,
     this.mandatory = false,
+    this.promptSuppressed = false,
     this.downloadedFile,
     this.errorMessage,
   });
@@ -42,6 +55,7 @@ class AppUpdateState {
   final int installedVersionCode;
   final AppUpdateManifest? manifest;
   final bool mandatory;
+  final bool promptSuppressed;
   final File? downloadedFile;
   final String? errorMessage;
 
@@ -49,6 +63,7 @@ class AppUpdateState {
     AppUpdateStatus? status,
     AppUpdateManifest? manifest,
     bool? mandatory,
+    bool? promptSuppressed,
     File? downloadedFile,
     String? errorMessage,
   }) {
@@ -58,6 +73,7 @@ class AppUpdateState {
       installedVersionCode: installedVersionCode,
       manifest: manifest ?? this.manifest,
       mandatory: mandatory ?? this.mandatory,
+      promptSuppressed: promptSuppressed ?? this.promptSuppressed,
       downloadedFile: downloadedFile ?? this.downloadedFile,
       errorMessage: errorMessage,
     );
@@ -89,13 +105,43 @@ class AppUpdateViewModel extends ChangeNotifier {
   bool _disposed = false;
   bool _recoveringInstallSession = false;
   bool _installInFlight = false;
+  bool _checkInFlight = false;
+  final Set<int> _postponedOptionalVersionCodes = <int>{};
 
   AppUpdateState state;
 
-  Future<void> checkForUpdates() async {
-    if (_recoveringInstallSession || _isActiveOperation(state.status)) return;
-    _recordDiagnostic('update.check.started', const <String, Object?>{});
-    _set(state.copyWith(status: AppUpdateStatus.checking));
+  Future<void> checkForUpdates({
+    AppUpdateCheckTrigger trigger = AppUpdateCheckTrigger.manual,
+  }) async {
+    if (_checkInFlight) {
+      if (trigger.isSilent) {
+        _recordSilentCheckSkipped(trigger, reason: 'checkInFlight');
+      }
+      return;
+    }
+    if (_recoveringInstallSession ||
+        _installInFlight ||
+        _isActiveOperation(state.status)) {
+      if (trigger.isSilent) {
+        _recordSilentCheckSkipped(trigger, reason: 'activeOperation');
+      }
+      return;
+    }
+
+    _checkInFlight = true;
+    if (trigger.isSilent) {
+      _recordDiagnostic('update.silent_check.started', {
+        'trigger': trigger.diagnosticName,
+      });
+    } else {
+      _recordDiagnostic('update.check.started', const <String, Object?>{});
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.checking,
+          promptSuppressed: false,
+        ),
+      );
+    }
     try {
       final manifest = await workflow.fetchLatest();
       if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
@@ -104,22 +150,62 @@ class AppUpdateViewModel extends ChangeNotifier {
             status: AppUpdateStatus.upToDate,
             manifest: manifest,
             mandatory: false,
+            promptSuppressed: false,
           ),
         );
+        if (trigger.isSilent) {
+          _recordSilentCheckCompleted(trigger);
+        }
         return;
       }
+      final mandatory = manifest.isMandatoryFor(installedVersionCode);
+      final promptSuppressed = trigger.isSilent &&
+          !mandatory &&
+          _postponedOptionalVersionCodes.contains(manifest.versionCode);
       _set(
         state.copyWith(
           status: AppUpdateStatus.available,
           manifest: manifest,
-          mandatory: manifest.isMandatoryFor(installedVersionCode),
+          mandatory: mandatory,
+          promptSuppressed: promptSuppressed,
         ),
       );
+      if (trigger.isSilent) {
+        if (promptSuppressed) {
+          _recordDiagnostic('update.prompt.suppressed', {
+            'versionCode': manifest.versionCode,
+            'reason': 'postponedVersion',
+          });
+        }
+        _recordSilentCheckCompleted(trigger);
+      }
     } catch (error) {
-      _set(
-        state.copyWith(status: AppUpdateStatus.failed, errorMessage: '$error'),
-      );
+      if (trigger.isSilent) {
+        _recordDiagnostic('update.silent_check.failed', {
+          'trigger': trigger.diagnosticName,
+          'errorSummary': '$error',
+        });
+      } else {
+        _set(
+          state.copyWith(
+            status: AppUpdateStatus.failed,
+            errorMessage: '$error',
+          ),
+        );
+      }
+    } finally {
+      _checkInFlight = false;
     }
+  }
+
+  void postponeCurrentUpdatePrompt() {
+    final manifest = state.manifest;
+    if (manifest == null || state.mandatory) return;
+    _postponedOptionalVersionCodes.add(manifest.versionCode);
+    _recordDiagnostic('update.prompt.postponed', {
+      'versionCode': manifest.versionCode,
+    });
+    _set(state.copyWith(promptSuppressed: true));
   }
 
   Future<void> download() async {
@@ -408,6 +494,22 @@ class AppUpdateViewModel extends ChangeNotifier {
         status == AppUpdateStatus.verifying ||
         status == AppUpdateStatus.installing ||
         status == AppUpdateStatus.awaitingUserConfirmation;
+  }
+
+  void _recordSilentCheckSkipped(
+    AppUpdateCheckTrigger trigger, {
+    required String reason,
+  }) {
+    _recordDiagnostic('update.silent_check.skipped', {
+      'trigger': trigger.diagnosticName,
+      'reason': reason,
+    });
+  }
+
+  void _recordSilentCheckCompleted(AppUpdateCheckTrigger trigger) {
+    _recordDiagnostic('update.silent_check.completed', {
+      'trigger': trigger.diagnosticName,
+    });
   }
 
   void _recordDiagnostic(String event, Map<String, Object?> metadata) {

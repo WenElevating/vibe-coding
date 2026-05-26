@@ -1088,6 +1088,192 @@ void main() {
     expect(installer.installedPath, isNull);
   });
 
+  test('silent update check records diagnostics without checking UI state',
+      () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final fetchCompleter = Completer<AppUpdateManifest>();
+    final repository = _FakeRepository(_manifest(versionCode: 3))
+      ..fetchCompleter = fetchCompleter;
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+    final observedStatuses = <AppUpdateStatus>[];
+    viewModel.addListener(() {
+      observedStatuses.add(viewModel.state.status);
+    });
+
+    final check = viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.connectedShellCreated,
+    );
+    await pumpEventQueue();
+
+    expect(repository.fetchCalls, 1);
+    expect(viewModel.state.status, AppUpdateStatus.idle);
+    expect(observedStatuses, isNot(contains(AppUpdateStatus.checking)));
+
+    fetchCompleter.complete(_manifest(versionCode: 3));
+    await check;
+
+    expect(viewModel.state.status, AppUpdateStatus.available);
+    expect(viewModel.state.manifest?.versionCode, 3);
+    expect(viewModel.state.promptSuppressed, false);
+    expect(observedStatuses, isNot(contains(AppUpdateStatus.checking)));
+    expect(diagnostics, <String>[
+      'update.silent_check.started',
+      'update.silent_check.completed',
+    ]);
+    expect(diagnosticMetadata.first['trigger'], 'connectedShellCreated');
+    expect(diagnosticMetadata.last['trigger'], 'connectedShellCreated');
+  });
+
+  test('silent update check failure keeps previous state', () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final installer = _FakeInstaller();
+    final repository = _FakeRepository(_manifest(versionCode: 5));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+    await viewModel.checkForUpdates();
+    final previousState = viewModel.state;
+
+    repository.fetchError = StateError('daemon offline');
+
+    await viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.appResumed,
+    );
+
+    expect(repository.fetchCalls, 2);
+    expect(viewModel.state, same(previousState));
+    expect(diagnostics, contains('update.silent_check.failed'));
+    expect(diagnosticMetadata.last['trigger'], 'appResumed');
+    expect(diagnosticMetadata.last['errorSummary'], contains('daemon offline'));
+  });
+
+  test('rapid silent checks do not start concurrent manifest requests',
+      () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final fetchCompleter = Completer<AppUpdateManifest>();
+    final repository = _FakeRepository(_manifest(versionCode: 4))
+      ..fetchCompleter = fetchCompleter;
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    final firstCheck = viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.appResumed,
+    );
+    await pumpEventQueue();
+    await viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.connectedShellCreated,
+    );
+
+    expect(repository.fetchCalls, 1);
+    expect(diagnostics, contains('update.silent_check.skipped'));
+    expect(diagnosticMetadata.last['trigger'], 'connectedShellCreated');
+    expect(diagnosticMetadata.last['reason'], 'checkInFlight');
+
+    fetchCompleter.complete(_manifest(versionCode: 4));
+    await firstCheck;
+  });
+
+  test('postponed optional update suppresses prompt after silent check',
+      () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final repository = _FakeRepository(_manifest(versionCode: 8));
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    viewModel.postponeCurrentUpdatePrompt();
+    expect(viewModel.state.promptSuppressed, true);
+
+    await viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.appResumed,
+    );
+
+    expect(repository.fetchCalls, 2);
+    expect(viewModel.state.status, AppUpdateStatus.available);
+    expect(viewModel.state.manifest?.versionCode, 8);
+    expect(viewModel.state.promptSuppressed, true);
+    expect(diagnostics, contains('update.prompt.postponed'));
+    expect(diagnostics, contains('update.prompt.suppressed'));
+    final suppressedMetadata = diagnosticMetadata[
+        diagnostics.indexOf('update.prompt.suppressed')];
+    expect(suppressedMetadata['versionCode'], 8);
+    expect(suppressedMetadata['reason'], 'postponedVersion');
+  });
+
+  test('manual update check clears postponed prompt suppression', () async {
+    final repository = _FakeRepository(_manifest(versionCode: 9));
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    viewModel.postponeCurrentUpdatePrompt();
+    await viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.appResumed,
+    );
+    expect(viewModel.state.promptSuppressed, true);
+
+    await viewModel.checkForUpdates();
+
+    expect(repository.fetchCalls, 3);
+    expect(viewModel.state.status, AppUpdateStatus.available);
+    expect(viewModel.state.manifest?.versionCode, 9);
+    expect(viewModel.state.promptSuppressed, false);
+  });
+
   test(
     'mandatory gate keeps diagnostics and daemon switching actions enabled',
     () {
@@ -1140,7 +1326,7 @@ class _FakeRepository implements AppUpdateRepository {
   _FakeRepository(this.manifest, {this.fetchError});
 
   AppUpdateManifest manifest;
-  final Object? fetchError;
+  Object? fetchError;
   Completer<AppUpdateManifest>? fetchCompleter;
   int fetchCalls = 0;
 
