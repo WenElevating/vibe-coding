@@ -17,7 +17,8 @@ private LAN update channel.
 
 ## Accepted Direction
 
-Build two small enhancements on top of the current Flutter architecture:
+Build a connection-history enhancement and a foreground update-prompt
+enhancement on top of the current Flutter architecture:
 
 1. Replace the unused connection header control with no control.
 2. Add address-only recent history to the daemon address input.
@@ -76,8 +77,22 @@ Relevant existing boundaries:
 
 ### Storage
 
-Extend the existing connection configuration persistence boundary to store a
-small recent-address list.
+Add a lightweight repository boundary for recent daemon addresses instead of
+letting the connection config store grow into an implicit profile manager.
+
+Suggested interface:
+
+```text
+RecentDaemonAddressRepository
+  loadRecentAddresses() -> List<String>
+  recordSuccessfulAddress(String addressInput) -> List<String>
+```
+
+The initial implementation may use the same `SharedPreferences` backing store
+as `DaemonConnectionConfigStore`, but `DaemonConnectionViewModel` should depend
+on the repository interface rather than the concrete store. This keeps address
+history testable and makes a future split into a dedicated implementation a
+constructor-level change instead of a ViewModel rewrite.
 
 Suggested storage key:
 
@@ -91,16 +106,18 @@ Rules:
 - Trim whitespace before saving.
 - Do not store empty strings.
 - Do not store failed connection attempts.
-- Deduplicate by exact trimmed address input.
+- Deduplicate by a case-insensitive comparison of the exact trimmed input.
+- Preserve the most recently selected display spelling when two entries differ
+  only by case. For example, `HTTP://192.168.1.10` and
+  `http://192.168.1.10` are one recent address entry after trim and
+  case-folding.
+- Do not normalize compact input into URL form for deduplication. For example,
+  `192.168.1.10` and `http://192.168.1.10:4317` remain distinct entries.
 - When an address is used again, move it to the front.
 - Keep at most 8 addresses.
+- When the list exceeds 8 addresses, silently drop the oldest entries. Do not
+  show a warning or count explanation in the UI.
 - Preserve the existing last successful `DaemonConnectionConfig` behavior.
-
-The first implementation can keep the list in `DaemonConnectionConfigStore`
-because that store is already the local persistence adapter for daemon
-connection settings. If the app later needs richer connection history, promote
-the behavior behind a repository interface before it grows into profile
-management.
 
 ### ViewModel State
 
@@ -143,6 +160,11 @@ Behavior:
 - Busy connection states disable row taps.
 - Proxy mode and manual proxy input are not changed.
 - The connection action remains explicit. The user must still tap connect.
+- The dropdown has a fixed maximum height and scrolls internally when more
+  matches exist than can fit. It must not push the proxy section far down the
+  page on small phones.
+- The dropdown does not display total history count, retention rules, or "oldest
+  entries removed" copy.
 
 The dropdown should feel integrated with the current dark instrument-style gate:
 
@@ -150,6 +172,7 @@ The dropdown should feel integrated with the current dark instrument-style gate:
 - No nested cards.
 - Low-contrast panel background and one-pixel stroke.
 - Compact row height suitable for phone screens.
+- Maximum visible height around four compact rows before internal scrolling.
 - Monospace address text.
 - A simple leading history or link icon is acceptable if it improves scanning.
 - No decorative neon, glass blur, or modal sheet for this interaction.
@@ -178,6 +201,7 @@ Only do this when:
 
 - The platform is Android, using the same platform gate as installer recovery.
 - The update ViewModel exists.
+- No update check is already in flight.
 - No active update operation is running.
 - The current update status is not downloading, verifying, installing, or
   awaiting Android user confirmation.
@@ -185,25 +209,35 @@ Only do this when:
 The manual settings "check update" action remains available and should not be
 blocked by the session-level optional prompt suppression.
 
+`AppUpdateViewModel` should own the in-flight guard. The preferred shape is a
+single `_checkInFlight` future or boolean that is set before the first async
+manifest request and cleared in `finally`. Manual and silent checks should share
+that guard so rapid `resumed` events cannot start concurrent manifest requests.
+If a check is already running, additional silent triggers should record a
+skipped diagnostic and return.
+
 ### Prompt Suppression
 
-Maintain an in-memory set or single key for optional update versions already
-postponed in the current app session.
+Maintain an in-memory set of optional update version codes postponed during the
+current app session.
 
-Suggested key:
+Suggested state:
 
 ```text
-versionCode:mandatory
+postponedOptionalVersionCodes: Set<int>
 ```
 
 Rules:
 
 - If a newer optional update is found and has not been postponed in this app
   session, show the update prompt.
-- If the user taps "later", remember that version key until process exit.
+- If the user taps "later", add that optional `versionCode` to the set until
+  process exit.
 - If a higher version appears, prompt again.
 - Manual check from settings can still show current update state and actions.
-- Mandatory update state is not silently suppressed as an optional reminder.
+- Mandatory update state never consults the optional postponed set. If a version
+  that was optional becomes mandatory during the same app session, it must be
+  allowed to prompt or gate again.
 
 This is intentionally not persisted across app restarts. A restart is a
 reasonable point to remind the user again that a newer internal APK exists.
@@ -235,6 +269,22 @@ Rules:
   should keep its existing priority.
 - Silent checks must not interrupt active download/install/recovery flows.
 
+Diagnostics should use the existing `AppUpdateViewModel.recordDiagnostic` hook,
+the same mobile diagnostic path used by the current update flow. Add structured
+events rather than ad hoc console text:
+
+```text
+update.silent_check.started { trigger }
+update.silent_check.skipped { trigger, reason }
+update.silent_check.completed { trigger, status, remoteVersionCode, mandatory }
+update.silent_check.failed { trigger, errorSummary }
+update.prompt.postponed { versionCode }
+```
+
+`trigger` should be one of `connectedShellCreated` or `appResumed`. `reason`
+should distinguish at least `notAndroid`, `viewModelMissing`, `checkInFlight`,
+`activeOperation`, and `postponedVersion`.
+
 ## Layering Rules
 
 Implementation must preserve Flutter architecture boundaries:
@@ -244,7 +294,9 @@ Implementation must preserve Flutter architecture boundaries:
 - UI must not read or write `SharedPreferences`.
 - UI must not perform daemon update checks directly.
 - ViewModels own connection/update presentation state and user commands.
-- Local persistence remains in the existing service or repository boundary.
+- Local persistence remains behind service or repository boundaries. Connection
+  ViewModels depend on `RecentDaemonAddressRepository`, not
+  `SharedPreferences` or `DaemonConnectionConfigStore`.
 - Domain models remain pure and do not import Flutter.
 - `MainTabsPage` may coordinate lifecycle triggers because it already owns the
   connected shell lifecycle, but update decision logic should stay in
@@ -259,8 +311,11 @@ Connection persistence tests:
 - Saves a successful address into recent history.
 - Moves an existing address to the front.
 - Trims whitespace before saving.
+- Deduplicates case-only variants while preserving the newest display spelling.
+- Keeps compact host input and explicit URL input as distinct entries.
 - Ignores empty addresses.
 - Limits history to 8 entries.
+- Silently removes the oldest entries beyond the limit.
 - Does not disturb last successful proxy settings.
 
 Connection ViewModel tests:
@@ -271,6 +326,8 @@ Connection ViewModel tests:
 - Selecting a recent address only updates `addressInput`.
 - Selecting a recent address does not call connect.
 - Selecting a recent address leaves proxy mode and manual proxy input unchanged.
+- ViewModel depends on a recent-address repository fake, not a concrete
+  `SharedPreferences` store.
 
 Connection widget tests:
 
@@ -279,18 +336,25 @@ Connection widget tests:
 - Typing filters the recent address dropdown.
 - Tapping a recent address fills the input and closes the dropdown.
 - Busy connection state disables recent-address selection.
+- Long recent-address lists clamp to a maximum dropdown height and scroll
+  internally.
 
 Update ViewModel or shell tests:
 
 - Creating the connected shell triggers one silent update check on Android.
 - Resuming the app triggers a silent update check on Android.
+- Rapid repeated resume events do not start concurrent manifest requests.
 - Silent check is skipped during downloading, verifying, installing, or awaiting
   Android confirmation.
 - Optional update prompt appears for a newer version.
 - Choosing "later" suppresses the same version for the current app session.
 - A higher version can prompt again in the same session.
+- A same-version update that becomes mandatory is not suppressed by the optional
+  postponed set.
 - Manual settings check still works after "later".
 - Mandatory update state is not treated as a suppressed optional prompt.
+- Silent check diagnostics are emitted for start, skip, completion, and failure
+  paths.
 
 Architecture verification:
 
@@ -309,23 +373,37 @@ automatically and report the exact command for manual execution.
 ## Open Risks
 
 - A dropdown inside a small phone viewport can crowd the proxy section. Keep row
-  height compact and hide the dropdown when there are no matches.
-- Exact-string deduplication means `192.168.1.10` and
-  `http://192.168.1.10:4317` can both appear even if they normalize to the same
-  daemon. This is acceptable for address-only history because users asked to
-  save the input address, not a full normalized profile.
+  height compact, cap the dropdown to roughly four visible rows, and use
+  internal scrolling for additional matches.
+- Address-history deduplication intentionally does not normalize compact host
+  input into URL form. `192.168.1.10` and `http://192.168.1.10:4317` can both
+  appear even if they normalize to the same daemon. This is acceptable for
+  address-only history because users asked to save the input address, not a full
+  normalized profile.
+- Address case is folded only for deduplication. The visible row preserves the
+  most recently saved spelling, so users do not see unexplained canonicalization
+  of their input.
 - Silent update checks rely on the currently connected daemon. If the daemon is
   offline or stale, the app cannot discover newer APKs until a working daemon is
   connected.
 - Optional update prompt suppression is session-only by design. Users may see
   the same optional version again after restarting the app.
+- Silent update diagnostics depend on the existing mobile diagnostic sink. If
+  that sink is disabled or inaccessible, the app still behaves correctly but
+  update prompt failures are harder to inspect.
 
 ## Implementation Phases
 
-1. Extend connection config persistence with recent address history and tests.
+1. Add `RecentDaemonAddressRepository`, its SharedPreferences-backed
+   implementation, and repository tests.
 2. Expose recent addresses and selection command through the connection
    ViewModel.
-3. Update the connection page header and address input dropdown.
-4. Add foreground silent update check orchestration and prompt suppression.
-5. Add widget/ViewModel tests for the agreed behaviors.
-6. Run architecture, analysis, and focused Flutter tests.
+3. Remove the unused connection header control as a separate small UI change.
+4. Add the address input dropdown as its own UI change.
+5. Add foreground silent update check orchestration and prompt suppression.
+6. Add widget/ViewModel tests for the agreed behaviors.
+7. Run architecture, analysis, and focused Flutter tests.
+
+When preparing code review or commits, keep the header cleanup and address
+dropdown separated if possible. They do not depend on each other and are easier
+to review independently.
