@@ -59,8 +59,10 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
               children: [
                 _ConnectionHeader(
-                    title: l10n.connectionTitle,
-                    subtitle: l10n.connectionSubtitle),
+                  key: const ValueKey('connection-header'),
+                  title: l10n.connectionTitle,
+                  subtitle: l10n.connectionSubtitle,
+                ),
                 const SizedBox(height: 22),
                 _ConnectionSection(
                   title: l10n.connectionAddressSection,
@@ -116,7 +118,11 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
 }
 
 class _ConnectionHeader extends StatelessWidget {
-  const _ConnectionHeader({required this.title, required this.subtitle});
+  const _ConnectionHeader({
+    super.key,
+    required this.title,
+    required this.subtitle,
+  });
   final String title;
   final String subtitle;
 
@@ -124,18 +130,24 @@ class _ConnectionHeader extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: const TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.8)),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.8,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(subtitle,
-              style: const TextStyle(
-                  color: theme.faint,
-                  fontSize: 12.5,
-                  height: 1.35,
-                  letterSpacing: .1)),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: theme.faint,
+              fontSize: 12.5,
+              height: 1.35,
+              letterSpacing: .1,
+            ),
+          ),
         ],
       );
 }
