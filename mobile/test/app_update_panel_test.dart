@@ -103,7 +103,7 @@ void main() {
     expect(find.textContaining('Confirm'), findsWidgets);
     expect(find.widgetWithText(TextButton, 'Install'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Clear update'), findsNothing);
-    expect(find.widgetWithText(TextButton, 'Check'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'Check for updates'), findsNothing);
     expect(
       find.byKey(const ValueKey('app-update-progress-dialog')),
       findsOneWidget,
@@ -261,7 +261,8 @@ void main() {
 
     await pumpPanel(tester, state: state);
 
-    expect(find.widgetWithText(TextButton, 'Check'), findsOneWidget);
+    expect(
+        find.widgetWithText(TextButton, 'Check for updates'), findsOneWidget);
     expect(find.widgetWithText(TextButton, 'Download'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Clear update'), findsNothing);
   });
@@ -305,7 +306,8 @@ void main() {
     expect(checkingTop, idleTop);
     expect(
       tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Check'))
+          .widget<TextButton>(
+              find.widgetWithText(TextButton, 'Check for updates'))
           .enabled,
       isFalse,
     );

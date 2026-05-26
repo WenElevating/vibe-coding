@@ -92,15 +92,13 @@ class SettingsPage extends StatelessWidget {
                   : l10n.settingsGitFiles(data.gitStatus?.files.length ?? 0)),
         ]),
         const SizedBox(height: 20),
-        Subhead(l10n.settingsAppUpdateSection),
-        _SettingsAppUpdatePanel(viewModel: appUpdateViewModel),
-        const SizedBox(height: 20),
         Subhead(l10n.settingsAboutSection),
         _SettingsCard(children: [
           _SettingsRow(title: 'daemon', value: data.health.daemonVersion),
           _SettingsRow(
               title: l10n.settingsExtensionsTitle,
               value: l10n.settingsExtensionsCount(data.extensions.length)),
+          _SettingsUpdateCheckRow(viewModel: appUpdateViewModel),
         ]),
         const SizedBox(height: 18),
         Row(children: [
@@ -124,27 +122,17 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-class _SettingsAppUpdatePanel extends StatelessWidget {
-  const _SettingsAppUpdatePanel({required this.viewModel});
+class _SettingsUpdateCheckRow extends StatelessWidget {
+  const _SettingsUpdateCheckRow({required this.viewModel});
 
   final AppUpdateViewModel? viewModel;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final viewModel = this.viewModel;
     if (viewModel == null) {
-      return AppUpdatePanel(
-        state: const AppUpdateState(
-          status: AppUpdateStatus.idle,
-          installedVersionName: '',
-          installedVersionCode: 0,
-        ),
-        onCheck: () {},
-        onDownload: () {},
-        onInstall: () {},
-        onDiscard: () {},
-        onPostpone: () {},
-      );
+      return _SettingsTapRow(title: l10n.appUpdateCheckAction, onTap: () {});
     }
     return ListenableBuilder(
       listenable: viewModel,
@@ -155,9 +143,20 @@ class _SettingsAppUpdatePanel extends StatelessWidget {
         onInstall: () => unawaited(viewModel.install()),
         onDiscard: () => unawaited(viewModel.discard()),
         onPostpone: viewModel.postponeCurrentUpdatePrompt,
+        child: _SettingsTapRow(
+            title: l10n.appUpdateCheckAction,
+            value: _appUpdateRowValue(l10n, viewModel.state),
+            onTap: () => unawaited(viewModel.checkForUpdates())),
       ),
     );
   }
+}
+
+String _appUpdateRowValue(AppLocalizations l10n, AppUpdateState state) {
+  if (state.status == AppUpdateStatus.idle) {
+    return state.installedVersionName;
+  }
+  return appUpdateTitleFor(l10n, state);
 }
 
 String _languageModeLabel(AppLocalizations l10n, LanguageModePreference mode) =>
@@ -183,31 +182,51 @@ void _showLanguagePicker(BuildContext context) {
 }
 
 class _SettingsTapRow extends StatelessWidget {
-  const _SettingsTapRow(
-      {required this.title, required this.value, required this.onTap});
+  const _SettingsTapRow({required this.title, this.value, required this.onTap});
   final String title;
-  final String value;
+  final String? value;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          child: Row(children: [
-            Expanded(
-                child: Text(title,
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w800))),
-            Text(value,
-                style: const TextStyle(
-                    color: theme.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(width: 6),
-            const Icon(Icons.chevron_right_rounded,
-                color: theme.faint, size: 18),
-          ])));
+  Widget build(BuildContext context) {
+    final value = this.value;
+    return InkWell(
+        onTap: onTap,
+        child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            child: Row(children: [
+              Expanded(
+                  child: Text(title,
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w800))),
+              _SettingsTapRowTrailing(value: value),
+            ])));
+  }
+}
+
+class _SettingsTapRowTrailing extends StatelessWidget {
+  const _SettingsTapRowTrailing({required this.value});
+
+  final String? value;
+
+  @override
+  Widget build(BuildContext context) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        if (value != null && value!.isNotEmpty) ...[
+          ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 120),
+              child: Text(value!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                      color: theme.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700))),
+          const SizedBox(width: 6),
+        ],
+        const Icon(Icons.chevron_right_rounded, color: theme.faint, size: 18),
+      ]);
 }
 
 class _LanguagePickerSheet extends StatelessWidget {

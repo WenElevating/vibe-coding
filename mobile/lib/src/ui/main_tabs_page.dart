@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
+import '../services/coding_preferences_store.dart';
 import '../services/daemon_client.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
@@ -23,7 +24,8 @@ import 'features/settings/settings.dart'
         AppUpdatePanel,
         AppUpdateState,
         AppUpdateStatus,
-        AppUpdateViewModel;
+        AppUpdateViewModel,
+        appUpdateTitleFor;
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
@@ -104,7 +106,6 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
     return PageScroll(children: [
       Subhead(l10n.settingsCurrentConnectionTitle),
       _EmptyStateCard(children: [
-        _EmptyStateRow(title: 'daemon', value: health?.daemonVersion ?? '—'),
         _EmptyStateRow(
             title: l10n.settingsDaemonAddressLabel,
             value: connectionConfig.addressInput),
@@ -113,33 +114,26 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
             value: l10n.workspaceAvailableSection),
       ]),
       const SizedBox(height: 20),
-      Subhead(l10n.settingsAppUpdateSection),
-      _EmptyAppUpdatePanel(viewModel: appUpdateViewModel),
+      Subhead(l10n.settingsAboutSection),
+      _EmptyStateCard(children: [
+        _EmptyStateRow(title: 'daemon', value: health?.daemonVersion ?? '—'),
+        _EmptyAppUpdateCheckRow(viewModel: appUpdateViewModel),
+      ]),
     ]);
   }
 }
 
-class _EmptyAppUpdatePanel extends StatelessWidget {
-  const _EmptyAppUpdatePanel({required this.viewModel});
+class _EmptyAppUpdateCheckRow extends StatelessWidget {
+  const _EmptyAppUpdateCheckRow({required this.viewModel});
 
   final AppUpdateViewModel? viewModel;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final viewModel = this.viewModel;
     if (viewModel == null) {
-      return AppUpdatePanel(
-        state: const AppUpdateState(
-          status: AppUpdateStatus.idle,
-          installedVersionName: '',
-          installedVersionCode: 0,
-        ),
-        onCheck: () {},
-        onDownload: () {},
-        onInstall: () {},
-        onDiscard: () {},
-        onPostpone: () {},
-      );
+      return _EmptyStateTapRow(title: l10n.appUpdateCheckAction, onTap: () {});
     }
     return ListenableBuilder(
       listenable: viewModel,
@@ -150,9 +144,21 @@ class _EmptyAppUpdatePanel extends StatelessWidget {
         onInstall: () => unawaited(viewModel.install()),
         onDiscard: () => unawaited(viewModel.discard()),
         onPostpone: viewModel.postponeCurrentUpdatePrompt,
+        child: _EmptyStateTapRow(
+          title: l10n.appUpdateCheckAction,
+          value: _emptyAppUpdateRowValue(l10n, viewModel.state),
+          onTap: () => unawaited(viewModel.checkForUpdates()),
+        ),
       ),
     );
   }
+}
+
+String _emptyAppUpdateRowValue(AppLocalizations l10n, AppUpdateState state) {
+  if (state.status == AppUpdateStatus.idle) {
+    return state.installedVersionName;
+  }
+  return appUpdateTitleFor(l10n, state);
 }
 
 class _EmptyStateCard extends StatelessWidget {
@@ -198,11 +204,68 @@ class _EmptyStateRow extends StatelessWidget {
       );
 }
 
+class _EmptyStateTapRow extends StatelessWidget {
+  const _EmptyStateTapRow(
+      {required this.title, this.value, required this.onTap});
+
+  final String title;
+  final String? value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = this.value;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          Expanded(
+              child: Text(title,
+                  style: const TextStyle(color: theme.muted, fontSize: 12))),
+          _EmptyStateTapRowTrailing(value: value),
+        ]),
+      ),
+    );
+  }
+}
+
+class _EmptyStateTapRowTrailing extends StatelessWidget {
+  const _EmptyStateTapRowTrailing({required this.value});
+
+  final String? value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (value != null && value!.isNotEmpty) ...[
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 120),
+              child: Text(
+                value!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          const Icon(Icons.chevron_right_rounded, color: theme.faint, size: 18),
+        ],
+      );
+}
+
 class _MainTabsPageState extends State<MainTabsPage>
     with WidgetsBindingObserver {
   MainTabsViewModel? _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
+  late final CodingPreferencesStore _codingPreferencesStore;
   AppUpdateViewModel? _appUpdateViewModel;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   var _emptyActiveTab = 1;
@@ -211,6 +274,7 @@ class _MainTabsPageState extends State<MainTabsPage>
   bool _creatingWorkspace = false;
   bool _loadingWorkspace = false;
   int _appUpdateGeneration = 0;
+  int _codingPreferencesGeneration = 0;
 
   @override
   void initState() {
@@ -220,6 +284,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         widget.dependencies.createMainTabsDependencies(widget.client);
     _connectedData = pageDependencies.connectedData;
     _workbenchDependencies = pageDependencies.workbenchDependencies;
+    _codingPreferencesStore = CodingPreferencesStore();
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
     unawaited(_createAppUpdateViewModel());
@@ -229,6 +294,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         initialData: data,
         adapterRepository: _connectedData.adapterRepository,
       );
+      unawaited(_loadCodingPreferences(_viewModel!));
       unawaited(_viewModel!.ensureCodingAdaptersLoaded());
     }
   }
@@ -255,6 +321,7 @@ class _MainTabsPageState extends State<MainTabsPage>
               adapterRepository: _connectedData.adapterRepository,
             );
       if (_viewModel != null) {
+        unawaited(_loadCodingPreferences(_viewModel!));
         unawaited(_viewModel!.ensureCodingAdaptersLoaded());
       }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
@@ -355,6 +422,47 @@ class _MainTabsPageState extends State<MainTabsPage>
     );
   }
 
+  Future<void> _loadCodingPreferences(MainTabsViewModel viewModel) async {
+    final generation = _codingPreferencesGeneration;
+    try {
+      final permissionMode = await _codingPreferencesStore.loadPermissionMode();
+      if (!mounted ||
+          _viewModel != viewModel ||
+          generation != _codingPreferencesGeneration) {
+        return;
+      }
+      viewModel.setPermissionMode(permissionMode);
+    } catch (error) {
+      if (!mounted) return;
+      _connectedData.recordDiagnosticEvent(
+        'settings.permission_mode.load_failed',
+        {'error': '$error'},
+        path: 'settings',
+      );
+    }
+  }
+
+  void _handlePermissionModeChanged(String value) {
+    _codingPreferencesGeneration += 1;
+    final permissionMode =
+        CodingPreferencesStore.normalizePermissionMode(value);
+    _viewModel?.setPermissionMode(permissionMode);
+    unawaited(_savePermissionMode(permissionMode));
+  }
+
+  Future<void> _savePermissionMode(String value) async {
+    try {
+      await _codingPreferencesStore.savePermissionMode(value);
+    } catch (error) {
+      if (!mounted) return;
+      _connectedData.recordDiagnosticEvent(
+        'settings.permission_mode.save_failed',
+        {'error': '$error'},
+        path: 'settings',
+      );
+    }
+  }
+
   bool _shouldSkipForegroundUpdateCheckAfterRecovery(AppUpdateStatus status) {
     return status == AppUpdateStatus.downloading ||
         status == AppUpdateStatus.verifying ||
@@ -436,7 +544,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         expandThinking: viewModel.expandThinking,
         permissionMode: viewModel.permissionMode,
         appUpdateViewModel: _appUpdateViewModel,
-        onPermissionModeChanged: viewModel.setPermissionMode,
+        onPermissionModeChanged: _handlePermissionModeChanged,
         onStreamOutputChanged: viewModel.setStreamOutput,
         onExpandThinkingChanged: viewModel.setExpandThinking,
       ),
@@ -631,6 +739,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         adapterRepository: _connectedData.adapterRepository,
       );
     });
+    unawaited(_loadCodingPreferences(_viewModel!));
     unawaited(_viewModel!.ensureCodingAdaptersLoaded());
   }
 

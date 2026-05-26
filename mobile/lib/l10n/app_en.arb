@@ -21,7 +21,7 @@
   "settingsPermissionModeTitle": "Permission mode",
   "settingsPermissionDefault": "Default",
   "settingsPermissionAuto": "Auto",
-  "settingsPermissionSubtitle": "Default asks for CLI permission confirmation; auto lets the CLI handle permissions.",
+  "settingsPermissionSubtitle": "Applies to new sessions. Default asks for CLI permission confirmation; auto lets the CLI handle permissions.",
   "settingsDataStatusSection": "Data status",
   "settingsDiagnosticsTitle": "Code diagnostics",
   "settingsDiagnosticsCount": "{count} items",
@@ -77,7 +77,7 @@
       }
     }
   },
-  "appUpdateCheckAction": "Check",
+  "appUpdateCheckAction": "Check for updates",
   "appUpdateDownloadAction": "Download",
   "appUpdateDownloadPromptAction": "Download update",
   "appUpdateInstallAction": "Install",

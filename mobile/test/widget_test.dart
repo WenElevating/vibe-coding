@@ -22,6 +22,7 @@ import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_ca
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
+import 'package:lan_ai_cli_control/src/services/coding_preferences_store.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
@@ -42,6 +43,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void _noopString(String _) {}
+
+Future<void> _pumpNavigationFrame(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {
   const _LocalizedSettingsLabelApp();
@@ -84,7 +90,9 @@ class _LocalizedSettingsLabelAppState
 }
 
 class _LocalizedSettingsPageApp extends StatefulWidget {
-  const _LocalizedSettingsPageApp();
+  const _LocalizedSettingsPageApp({this.appUpdateViewModel});
+
+  final AppUpdateViewModel? appUpdateViewModel;
 
   @override
   State<_LocalizedSettingsPageApp> createState() =>
@@ -128,6 +136,7 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
                       streamOutput: false,
                       expandThinking: false,
                       permissionMode: 'default',
+                      appUpdateViewModel: widget.appUpdateViewModel,
                       onPermissionModeChanged: (_) {},
                       onStreamOutputChanged: (_) {},
                       onExpandThinkingChanged: (_) {})))));
@@ -272,17 +281,8 @@ class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
 }
 
 class _AdapterRefreshClient extends DaemonClient {
-  _AdapterRefreshClient()
-      : super(
-            baseUri: Uri.parse('http://127.0.0.1:4317'),
-            tokenStore: MemoryTokenStore());
-
-  int listAdaptersCalls = 0;
-
-  @override
-  Future<List<AdapterStatus>> listAdapters() async {
-    listAdaptersCalls++;
-    return const <AdapterStatus>[
+  _AdapterRefreshClient({
+    this.adapters = const <AdapterStatus>[
       AdapterStatus(adapter: 'codex', available: true, status: 'available'),
       AdapterStatus(
           adapter: 'synthetic-jsonl',
@@ -294,7 +294,18 @@ class _AdapterRefreshClient extends DaemonClient {
           available: true,
           status: 'available',
           version: 'synthetic')
-    ];
+    ],
+  }) : super(
+            baseUri: Uri.parse('http://127.0.0.1:4317'),
+            tokenStore: MemoryTokenStore());
+
+  int listAdaptersCalls = 0;
+  final List<AdapterStatus> adapters;
+
+  @override
+  Future<List<AdapterStatus>> listAdapters() async {
+    listAdaptersCalls++;
+    return adapters;
   }
 
   @override
@@ -701,6 +712,8 @@ class _NewSessionConversationRepository implements ConversationRepository {
   final sendCompleter = Completer<ConversationSummary>();
 
   String? sentText;
+  final List<String> createdAdapters = <String>[];
+  final List<String> createdPermissionModes = <String>[];
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -720,14 +733,17 @@ class _NewSessionConversationRepository implements ConversationRepository {
     String adapter = 'claude',
     String permissionMode = 'default',
     String? model,
-  }) async =>
-      _conversationSummary(
-        id: 'conv_new_running',
-        workspaceId: workspaceId,
-        status: 'idle',
-        sessionBinding: 'pending',
-        userMessageCount: 0,
-      );
+  }) async {
+    createdAdapters.add(adapter);
+    createdPermissionModes.add(permissionMode);
+    return _conversationSummary(
+      id: 'conv_new_running',
+      workspaceId: workspaceId,
+      status: 'idle',
+      sessionBinding: 'pending',
+      userMessageCount: 0,
+    );
+  }
 
   @override
   Future<List<ConversationEvent>> fetchConversationEvents(
@@ -1069,6 +1085,24 @@ void main() {
     expect(find.text('English'), findsWidgets);
   });
 
+  testWidgets('settings permission mode selection is persisted',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await _pumpNavigationFrame(tester);
+
+    await tester.tap(find.text('Settings').last);
+    await _pumpNavigationFrame(tester);
+    await tester.tap(find.text('Auto'));
+    await _pumpNavigationFrame(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(CodingPreferencesStore.permissionModeStorageKey),
+        'auto');
+  });
+
   testWidgets('settings shows active daemon address and proxy mode',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -1081,6 +1115,62 @@ void main() {
     expect(find.text('192.168.1.20:4317'), findsOneWidget);
     expect(find.text('Proxy mode'), findsOneWidget);
     expect(find.text('Manual proxy'), findsOneWidget);
+  });
+
+  testWidgets('settings update check lives in about and starts manual check',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final installer = _WidgetAppUpdateInstaller();
+    addTearDown(installer.close);
+    final repository =
+        _WidgetAppUpdateRepository(manifest: _widgetAppUpdateManifest());
+    final appUpdateViewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: AppUpdateWorkflow(
+        repository: repository,
+        installerService: installer,
+        downloaderService: _WidgetAppUpdateDownloader(),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(appUpdateViewModel.dispose);
+
+    await tester.pumpWidget(
+        _LocalizedSettingsPageApp(appUpdateViewModel: appUpdateViewModel));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.pumpAndSettle();
+
+    expect(find.text('About'), findsOneWidget);
+    expect(find.text('App update'), findsNothing);
+    expect(find.text('Check for updates'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Check for updates'), findsNothing);
+    final updateVersionRight = tester.getTopRight(find.text('1.0.0')).dx;
+    expect(
+      updateVersionRight,
+      greaterThan(tester.getTopRight(find.text('Check for updates')).dx + 24),
+    );
+    expect(
+      tester.getTopLeft(find.byIcon(Icons.chevron_right_rounded).last).dx -
+          updateVersionRight,
+      inInclusiveRange(4, 16),
+    );
+
+    await tester.tap(find.text('Check for updates'));
+    for (var attempt = 0;
+        attempt < 10 && repository.fetchLatestCalls < 1;
+        attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pumpAndSettle();
+
+    expect(repository.fetchLatestCalls, 1);
+    expect(find.text('Update available'), findsWidgets);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Later'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('renders assistant markdown instead of raw syntax',
@@ -1386,6 +1476,9 @@ void main() {
 
     expect(find.text('Daemon address'), findsOneWidget);
     expect(find.text('127.0.0.1:4317'), findsOneWidget);
+    expect(find.text('About'), findsOneWidget);
+    expect(find.text('Check for updates'), findsOneWidget);
+    expect(find.text('App update'), findsNothing);
     expect(find.textContaining('Unable to connect'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
   });
@@ -2698,6 +2791,86 @@ void main() {
     final promptTop = tester.getTopLeft(promptMessage).dy;
 
     expect(promptTop, lessThan(scrollTop + (scrollBottom - scrollTop) * .45));
+
+    conversationRepository.sendCompleter.complete(_conversationSummary(
+      id: 'conv_new_running',
+      workspaceId: 'workspace_1',
+      status: 'completed',
+      sessionBinding: 'confirmed',
+      userMessageCount: 1,
+    ));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('saved permission mode is used for new Claude sessions',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      AppLanguage.storageKey: 'en-US',
+      CodingPreferencesStore.permissionModeStorageKey: 'auto',
+    });
+    final conversationRepository = _NewSessionConversationRepository();
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient(
+      adapters: const <AdapterStatus>[
+        AdapterStatus(adapter: 'claude', available: true, status: 'available'),
+      ],
+    );
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+      ),
+    );
+    await _pumpNavigationFrame(tester);
+
+    await tester.tap(find.text('Coding'));
+    await _pumpNavigationFrame(tester);
+    await tester.tap(find.text('Current Project'));
+    await _pumpNavigationFrame(tester);
+    await tester.tap(find.text('New Session'));
+    await _pumpNavigationFrame(tester);
+
+    await tester.enterText(find.byType(TextField).last, 'Check permissions');
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(conversationRepository.createdAdapters, <String>['claude']);
+    expect(conversationRepository.createdPermissionModes, <String>['auto']);
 
     conversationRepository.sendCompleter.complete(_conversationSummary(
       id: 'conv_new_running',

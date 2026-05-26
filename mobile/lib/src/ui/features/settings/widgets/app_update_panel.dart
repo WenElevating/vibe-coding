@@ -15,6 +15,7 @@ class AppUpdatePanel extends StatefulWidget {
     required this.onInstall,
     required this.onDiscard,
     required this.onPostpone,
+    this.child,
   });
 
   final AppUpdateState state;
@@ -23,6 +24,9 @@ class AppUpdatePanel extends StatefulWidget {
   final VoidCallback onInstall;
   final VoidCallback onDiscard;
   final VoidCallback onPostpone;
+
+  // Allows settings screens to reuse update dialogs with a compact row surface.
+  final Widget? child;
 
   @override
   State<AppUpdatePanel> createState() => _AppUpdatePanelState();
@@ -155,10 +159,13 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
 
   @override
   Widget build(BuildContext context) {
+    final child = widget.child;
+    if (child != null) return child;
+
     final state = widget.state;
     final l10n = AppLocalizations.of(context);
     final checking = state.status == AppUpdateStatus.checking;
-    final title = _titleFor(l10n, state);
+    final title = appUpdateTitleFor(l10n, state);
     final subtitle = state.errorMessage ??
         l10n.appUpdateInstalledVersion(
           state.installedVersionName,
@@ -238,7 +245,7 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
   }
 }
 
-String _titleFor(AppLocalizations l10n, AppUpdateState state) {
+String appUpdateTitleFor(AppLocalizations l10n, AppUpdateState state) {
   return switch (state.status) {
     AppUpdateStatus.upToDate => l10n.appUpdateTitleUpToDate,
     AppUpdateStatus.available => state.mandatory
@@ -311,7 +318,7 @@ class _AppUpdateProgressDialog extends StatelessWidget {
         side: BorderSide(color: Colors.white.withValues(alpha: .1)),
       ),
       title: Text(
-        _titleFor(l10n, state),
+        appUpdateTitleFor(l10n, state),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
       ),
       content: SizedBox(
