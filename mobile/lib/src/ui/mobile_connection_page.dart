@@ -124,30 +124,11 @@ class _ConnectionHeader extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Expanded(
-              child: Text(title,
-                  style: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.8)),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .035),
-                  borderRadius: BorderRadius.circular(999),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: .075))),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                _TinySignalDot(color: theme.faint),
-                const SizedBox(width: 4),
-                _TinySignalDot(color: theme.muted),
-                const SizedBox(width: 4),
-                _TinySignalDot(color: theme.faint),
-              ]),
-            ),
-          ]),
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.8)),
           const SizedBox(height: 6),
           Text(subtitle,
               style: const TextStyle(
@@ -157,17 +138,6 @@ class _ConnectionHeader extends StatelessWidget {
                   letterSpacing: .1)),
         ],
       );
-}
-
-class _TinySignalDot extends StatelessWidget {
-  const _TinySignalDot({required this.color});
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-      width: 4,
-      height: 4,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle));
 }
 
 class _ConnectionSection extends StatelessWidget {

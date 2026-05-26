@@ -1067,6 +1067,8 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('System proxy'), findsOneWidget);
     expect(find.byType(BottomNav), findsNothing);
+    expect(find.byType(IconButton), findsNothing);
+    expect(find.byType(PopupMenuButton<dynamic>), findsNothing);
   });
 
   testWidgets(
