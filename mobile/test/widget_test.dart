@@ -1248,6 +1248,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.addressInput, 'http://devbox.local:4317');
+    final addressField = tester.widget<TextField>(find.byType(TextField).first);
+    expect(
+      addressField.controller?.selection,
+      const TextSelection.collapsed(offset: 24),
+    );
     expect(controller.proxyMode, DaemonProxyMode.manual);
     expect(controller.manualProxyInput, 'http://proxy.local:8080');
     expect(controller.status, DaemonConnectionStatus.idle);
@@ -1277,7 +1282,8 @@ void main() {
     await tester.tap(find.byType(TextField).first);
     await tester.pumpAndSettle();
 
-    final dropdown = find.byKey(const ValueKey('connection-recent-dropdown'));
+    final dropdown =
+        find.byKey(const ValueKey('connection-recent-address-dropdown'));
     expect(dropdown, findsOneWidget);
     expect(tester.getSize(dropdown).height, lessThanOrEqualTo(184));
     expect(find.text('192.168.1.1:4317'), findsOneWidget);

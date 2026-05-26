@@ -85,6 +85,9 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
 
   void _selectRecentAddress(String address) {
     widget.controller.selectRecentAddress(address);
+    _addressController.selection = TextSelection.collapsed(
+      offset: _addressController.text.length,
+    );
     _closeRecentDropdown();
     _addressFocusNode.requestFocus();
   }
@@ -344,7 +347,7 @@ class _RecentAddressDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        key: const ValueKey('connection-recent-dropdown'),
+        key: const ValueKey('connection-recent-address-dropdown'),
         constraints: const BoxConstraints(maxHeight: _maxHeight),
         decoration: BoxDecoration(
           color: const Color(0xFF0D0F12),
