@@ -383,6 +383,43 @@ void main() {
       '192.168.1.40',
     ]);
   });
+
+  test('delayed stale record cannot reorder newer recent address', () async {
+    final staleRecord = Completer<void>();
+    final recentRepository = _FakeRecentAddressRepository()
+      ..recordCompleters.add(staleRecord);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      recentAddressRepository: recentRepository,
+      snapshotLoader: (_) async => _snapshot(),
+      healthProbe: (_) async => _health(),
+    );
+    await controller.load();
+    controller.setAddressInput('192.168.1.50');
+
+    final firstConnection = controller.connect();
+    await pumpEventQueue();
+    expect(controller.status, DaemonConnectionStatus.connected);
+    expect(recentRepository.addresses, isEmpty);
+
+    controller.setAddressInput('192.168.1.51');
+    final secondConnection = controller.connect();
+    await pumpEventQueue();
+    expect(recentRepository.addresses, <String>['192.168.1.51']);
+
+    staleRecord.complete();
+    await Future.wait(<Future<void>>[firstConnection, secondConnection]);
+
+    expect(recentRepository.addresses, <String>[
+      '192.168.1.51',
+      '192.168.1.50',
+    ]);
+    expect(controller.recentAddresses, <String>[
+      '192.168.1.51',
+      '192.168.1.50',
+    ]);
+  });
 }
 
 class _DeferredConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
@@ -430,6 +467,7 @@ class _FakeRecentAddressRepository implements RecentDaemonAddressRepository {
   final Object? recordError;
   final recordedAddresses = <String>[];
   final loadCompleters = <Completer<List<String>>>[];
+  final recordCompleters = <Completer<void>>[];
 
   @override
   Future<List<String>> loadRecentAddresses() async {
@@ -446,6 +484,10 @@ class _FakeRecentAddressRepository implements RecentDaemonAddressRepository {
   Future<void> recordSuccessfulAddress(String addressInput) async {
     final error = recordError;
     if (error != null) throw error;
+    if (recordCompleters.isNotEmpty) {
+      final completer = recordCompleters.removeAt(0);
+      await completer.future;
+    }
     recordedAddresses.add(addressInput);
     addresses
       ..removeWhere(

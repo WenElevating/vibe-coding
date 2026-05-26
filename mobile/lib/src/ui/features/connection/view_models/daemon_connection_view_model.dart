@@ -59,6 +59,8 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonClient? _client;
   DaemonConnectionConfig? _connectedConfig;
   int _connectionAttempt = 0;
+  int _latestSuccessfulAttempt = 0;
+  String? _latestSuccessfulAddressInput;
   List<String> _recentAddresses = const <String>[];
   bool _disposed = false;
 
@@ -207,6 +209,8 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       _client = session.client;
       _initialData = session.initialData;
       _connectedConfig = session.connectedConfig;
+      _latestSuccessfulAttempt = attempt;
+      _latestSuccessfulAddressInput = session.connectedConfig.addressInput;
       _status = DaemonConnectionStatus.connected;
       notifyListeners();
       await _recordSuccessfulRecentAddress(
@@ -252,6 +256,10 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     try {
       await _recentAddressRepository.recordSuccessfulAddress(addressInput);
       if (!_isCurrentAttempt(attempt)) {
+        await _restoreLatestRecentAddressAfterStaleWrite(
+          staleAttempt: attempt,
+          staleAddressInput: addressInput,
+        );
         return;
       }
       final recentAddresses =
@@ -263,6 +271,44 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       if (!_isCurrentAttempt(attempt)) {
+        return;
+      }
+      _recordDiagnostic('connection.recent_addresses.record_failed', {
+        'errorSummary': '$error',
+      });
+    }
+  }
+
+  Future<void> _restoreLatestRecentAddressAfterStaleWrite({
+    required int staleAttempt,
+    required String staleAddressInput,
+  }) async {
+    if (_disposed || _latestSuccessfulAttempt <= staleAttempt) {
+      return;
+    }
+    final latestAddressInput = _latestSuccessfulAddressInput;
+    if (latestAddressInput == null || latestAddressInput == staleAddressInput) {
+      return;
+    }
+    final latestAttempt = _latestSuccessfulAttempt;
+    try {
+      await _recentAddressRepository.recordSuccessfulAddress(latestAddressInput);
+      if (!_isCurrentAttempt(latestAttempt)) {
+        await _restoreLatestRecentAddressAfterStaleWrite(
+          staleAttempt: latestAttempt,
+          staleAddressInput: latestAddressInput,
+        );
+        return;
+      }
+      final recentAddresses =
+          await _recentAddressRepository.loadRecentAddresses();
+      if (!_isCurrentAttempt(latestAttempt)) {
+        return;
+      }
+      _recentAddresses = List<String>.unmodifiable(recentAddresses);
+      notifyListeners();
+    } catch (error) {
+      if (!_isCurrentAttempt(latestAttempt)) {
         return;
       }
       _recordDiagnostic('connection.recent_addresses.record_failed', {
