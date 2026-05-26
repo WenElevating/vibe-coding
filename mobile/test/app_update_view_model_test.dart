@@ -1138,6 +1138,7 @@ void main() {
     expect(diagnosticMetadata.last['status'], AppUpdateStatus.available.name);
     expect(diagnosticMetadata.last['remoteVersionCode'], 3);
     expect(diagnosticMetadata.last['mandatory'], false);
+    expect(diagnosticMetadata.last['promptSuppressed'], false);
   });
 
   test('silent no-update check records completed metadata', () async {
@@ -1172,6 +1173,7 @@ void main() {
     expect(diagnosticMetadata.last['status'], AppUpdateStatus.upToDate.name);
     expect(diagnosticMetadata.last['remoteVersionCode'], 1);
     expect(diagnosticMetadata.last['mandatory'], false);
+    expect(diagnosticMetadata.last['promptSuppressed'], false);
   });
 
   test('silent update check failure keeps previous state', () async {
@@ -1278,10 +1280,17 @@ void main() {
     expect(viewModel.state.promptSuppressed, true);
     expect(diagnostics, contains('update.prompt.postponed'));
     expect(diagnostics, contains('update.prompt.suppressed'));
+    expect(
+      diagnostics.indexOf('update.prompt.suppressed'),
+      lessThan(diagnostics.indexOf('update.silent_check.completed')),
+    );
     final suppressedMetadata = diagnosticMetadata[
         diagnostics.indexOf('update.prompt.suppressed')];
     expect(suppressedMetadata['versionCode'], 8);
     expect(suppressedMetadata['reason'], 'postponedVersion');
+    final completedMetadata = diagnosticMetadata[
+        diagnostics.lastIndexOf('update.silent_check.completed')];
+    expect(completedMetadata['promptSuppressed'], true);
   });
 
   test('manual update check clears postponed prompt suppression', () async {
@@ -1308,6 +1317,38 @@ void main() {
     expect(repository.fetchCalls, 3);
     expect(viewModel.state.status, AppUpdateStatus.available);
     expect(viewModel.state.manifest?.versionCode, 9);
+    expect(viewModel.state.promptSuppressed, false);
+
+    await viewModel.checkForUpdates(
+      trigger: AppUpdateCheckTrigger.appResumed,
+    );
+
+    expect(repository.fetchCalls, 4);
+    expect(viewModel.state.status, AppUpdateStatus.available);
+    expect(viewModel.state.manifest?.versionCode, 9);
+    expect(viewModel.state.promptSuppressed, false);
+  });
+
+  test('download clears prompt suppression outside available prompt state',
+      () async {
+    final repository = _FakeRepository(_manifest(versionCode: 10));
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(repository: repository, installer: installer),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    viewModel.postponeCurrentUpdatePrompt();
+    expect(viewModel.state.promptSuppressed, true);
+
+    await viewModel.download();
+
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
     expect(viewModel.state.promptSuppressed, false);
   });
 

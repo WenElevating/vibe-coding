@@ -157,6 +157,9 @@ class AppUpdateViewModel extends ChangeNotifier {
         return;
       }
       final mandatory = manifest.isMandatoryFor(installedVersionCode);
+      if (!trigger.isSilent) {
+        _postponedOptionalVersionCodes.remove(manifest.versionCode);
+      }
       final promptSuppressed = trigger.isSilent &&
           !mandatory &&
           _postponedOptionalVersionCodes.contains(manifest.versionCode);
@@ -168,13 +171,18 @@ class AppUpdateViewModel extends ChangeNotifier {
           promptSuppressed: promptSuppressed,
         ),
       );
-      _recordSilentCheckCompleted(trigger, manifest, mandatory);
       if (trigger.isSilent && promptSuppressed) {
         _recordDiagnostic('update.prompt.suppressed', {
           'versionCode': manifest.versionCode,
           'reason': 'postponedVersion',
         });
       }
+      _recordSilentCheckCompleted(
+        trigger,
+        manifest,
+        mandatory,
+        promptSuppressed: promptSuppressed,
+      );
     } catch (error) {
       if (trigger.isSilent) {
         _recordDiagnostic('update.silent_check.failed', {
@@ -207,7 +215,12 @@ class AppUpdateViewModel extends ChangeNotifier {
   Future<void> download() async {
     final manifest = state.manifest;
     if (manifest == null) return;
-    _set(state.copyWith(status: AppUpdateStatus.downloading));
+    _set(
+      state.copyWith(
+        status: AppUpdateStatus.downloading,
+        promptSuppressed: false,
+      ),
+    );
     try {
       final result = await workflow.download(manifest, daemonBaseUri);
       if (_isStoragePreflightFailure(result)) {
@@ -227,11 +240,16 @@ class AppUpdateViewModel extends ChangeNotifier {
           },
           downloadedFile: result.file,
           errorMessage: result.message,
+          promptSuppressed: false,
         ),
       );
     } catch (error) {
       _set(
-        state.copyWith(status: AppUpdateStatus.failed, errorMessage: '$error'),
+        state.copyWith(
+          status: AppUpdateStatus.failed,
+          errorMessage: '$error',
+          promptSuppressed: false,
+        ),
       );
     }
   }
@@ -247,7 +265,12 @@ class AppUpdateViewModel extends ChangeNotifier {
     if (file == null) return;
     _installInFlight = true;
     try {
-      _set(state.copyWith(status: AppUpdateStatus.installing));
+      _set(
+        state.copyWith(
+          status: AppUpdateStatus.installing,
+          promptSuppressed: false,
+        ),
+      );
       final result = await workflow.startInstall(
         manifest: manifest,
         file: file,
@@ -266,7 +289,12 @@ class AppUpdateViewModel extends ChangeNotifier {
           );
           return;
         case AppUpdateInstallStartState.permissionNeeded:
-          _set(state.copyWith(status: AppUpdateStatus.installPermissionNeeded));
+          _set(
+            state.copyWith(
+              status: AppUpdateStatus.installPermissionNeeded,
+              promptSuppressed: false,
+            ),
+          );
           if (openPermissionSettings) {
             await workflow.openInstallPermissionSettings();
           }
@@ -276,6 +304,7 @@ class AppUpdateViewModel extends ChangeNotifier {
             state.copyWith(
               status: AppUpdateStatus.readyToInstall,
               errorMessage: result.message,
+              promptSuppressed: false,
             ),
           );
           return;
@@ -290,6 +319,7 @@ class AppUpdateViewModel extends ChangeNotifier {
         state.copyWith(
           status: AppUpdateStatus.readyToInstall,
           errorMessage: '$error',
+          promptSuppressed: false,
         ),
       );
     } finally {
@@ -338,6 +368,7 @@ class AppUpdateViewModel extends ChangeNotifier {
               mandatory: manifest.isMandatoryFor(installedVersionCode),
               downloadedFile: recovery.file,
               errorMessage: recovery.message,
+              promptSuppressed: false,
             ),
           );
           return;
@@ -351,6 +382,7 @@ class AppUpdateViewModel extends ChangeNotifier {
               manifest: manifest,
               mandatory: manifest.isMandatoryFor(installedVersionCode),
               downloadedFile: recovery.file,
+              promptSuppressed: false,
             ),
           );
           _handleInstallEvent(event);
@@ -363,6 +395,7 @@ class AppUpdateViewModel extends ChangeNotifier {
           state.copyWith(
             status: AppUpdateStatus.failed,
             errorMessage: '$error',
+            promptSuppressed: false,
           ),
         );
       }
@@ -416,6 +449,7 @@ class AppUpdateViewModel extends ChangeNotifier {
         state.copyWith(
           status: AppUpdateStatus.readyToInstall,
           errorMessage: '$error',
+          promptSuppressed: false,
         ),
       );
       return;
@@ -433,6 +467,7 @@ class AppUpdateViewModel extends ChangeNotifier {
         state.copyWith(
           status: AppUpdateStatus.installCancelled,
           errorMessage: event.message ?? 'Install cancelled.',
+          promptSuppressed: false,
         ),
       );
       return;
@@ -449,7 +484,13 @@ class AppUpdateViewModel extends ChangeNotifier {
         event.status == AndroidInstallStatus.failed) {
       _clearInstallSession(sessionId: event.sessionId);
     }
-    _set(state.copyWith(status: status, errorMessage: event.message));
+    _set(
+      state.copyWith(
+        status: status,
+        errorMessage: event.message,
+        promptSuppressed: false,
+      ),
+    );
   }
 
   bool _canRecoverInstallSession() {
@@ -505,14 +546,16 @@ class AppUpdateViewModel extends ChangeNotifier {
   void _recordSilentCheckCompleted(
     AppUpdateCheckTrigger trigger,
     AppUpdateManifest manifest,
-    bool mandatory,
-  ) {
+    bool mandatory, {
+    bool promptSuppressed = false,
+  }) {
     if (!trigger.isSilent) return;
     _recordDiagnostic('update.silent_check.completed', {
       'trigger': trigger.diagnosticName,
       'status': state.status.name,
       'remoteVersionCode': manifest.versionCode,
       'mandatory': mandatory,
+      'promptSuppressed': promptSuppressed,
     });
   }
 
