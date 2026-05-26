@@ -157,9 +157,6 @@ class AppUpdateViewModel extends ChangeNotifier {
         return;
       }
       final mandatory = manifest.isMandatoryFor(installedVersionCode);
-      if (!trigger.isSilent) {
-        _postponedOptionalVersionCodes.remove(manifest.versionCode);
-      }
       final promptSuppressed = trigger.isSilent &&
           !mandatory &&
           _postponedOptionalVersionCodes.contains(manifest.versionCode);
@@ -171,18 +168,18 @@ class AppUpdateViewModel extends ChangeNotifier {
           promptSuppressed: promptSuppressed,
         ),
       );
-      if (trigger.isSilent && promptSuppressed) {
-        _recordDiagnostic('update.prompt.suppressed', {
-          'versionCode': manifest.versionCode,
-          'reason': 'postponedVersion',
-        });
-      }
       _recordSilentCheckCompleted(
         trigger,
         manifest,
         mandatory,
         promptSuppressed: promptSuppressed,
       );
+      if (trigger.isSilent && promptSuppressed) {
+        _recordDiagnostic('update.prompt.suppressed', {
+          'versionCode': manifest.versionCode,
+          'reason': 'postponedVersion',
+        });
+      }
     } catch (error) {
       if (trigger.isSilent) {
         _recordDiagnostic('update.silent_check.failed', {
@@ -430,13 +427,15 @@ class AppUpdateViewModel extends ChangeNotifier {
     return workflow.openInstallPermissionSettings();
   }
 
-  void handleAppLifecycleStateChanged(AppLifecycleState lifecycleState) {
+  Future<void> handleAppLifecycleStateChanged(
+    AppLifecycleState lifecycleState,
+  ) async {
     if (lifecycleState == AppLifecycleState.resumed) {
       if (state.status == AppUpdateStatus.installPermissionNeeded) {
-        unawaited(_continueInstallAfterPermissionGrant());
+        await _continueInstallAfterPermissionGrant();
         return;
       }
-      unawaited(recoverInstallSession());
+      await recoverInstallSession();
     }
   }
 

@@ -14,7 +14,7 @@ class AppUpdatePanel extends StatefulWidget {
     required this.onDownload,
     required this.onInstall,
     required this.onDiscard,
-    this.onPostpone = _noop,
+    required this.onPostpone,
   });
 
   final AppUpdateState state;
@@ -228,8 +228,6 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
     );
   }
 }
-
-void _noop() {}
 
 String _titleFor(AppLocalizations l10n, AppUpdateState state) {
   return switch (state.status) {

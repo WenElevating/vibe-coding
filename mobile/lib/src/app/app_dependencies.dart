@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:path_provider/path_provider.dart';
 
 import '../data/repositories/daemon_connection_config_repository.dart';
@@ -189,6 +191,40 @@ class ConnectedDataDependencies {
     _disposed = true;
     await _dispose?.call();
   }
+
+  void recordDiagnosticEvent(
+    String event,
+    Map<String, Object?> metadata, {
+    String severity = 'info',
+    String? path,
+  }) {
+    unawaited(_recordDiagnosticEvent(
+      event,
+      metadata,
+      severity: severity,
+      path: path,
+    ));
+  }
+
+  Future<void> _recordDiagnosticEvent(
+    String event,
+    Map<String, Object?> metadata, {
+    required String severity,
+    String? path,
+  }) async {
+    if (_disposed) return;
+    try {
+      await diagnosticsRepository.recordException(
+        message: event,
+        severity: severity,
+        path: path,
+        method: event,
+        metadata: metadata,
+      );
+    } catch (_) {
+      // Diagnostics must never interfere with the foreground UI path.
+    }
+  }
 }
 
 DaemonNotificationClient _createDefaultNotificationClient(
@@ -275,6 +311,13 @@ class FeatureDependencies {
               ),
             ),
             daemonBaseUri: client.baseUri,
+            recordDiagnostic: (event, metadata) {
+              connectedData.recordDiagnosticEvent(
+                event,
+                metadata,
+                path: 'app_update',
+              );
+            },
           );
         },
         createWorkbenchDependencies: (client, connectedData) {

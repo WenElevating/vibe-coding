@@ -411,9 +411,10 @@ class _WidgetRecentAddressRepository implements RecentDaemonAddressRepository {
 }
 
 class _WidgetAppUpdateInstaller implements PackageInstallerService {
-  _WidgetAppUpdateInstaller({this.recoveredEvent});
+  _WidgetAppUpdateInstaller({this.recoveredEvent, this.returnNullRecoveryOnce});
 
   final AndroidInstallEvent? recoveredEvent;
+  final bool? returnNullRecoveryOnce;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   int recoverCalls = 0;
 
@@ -439,6 +440,9 @@ class _WidgetAppUpdateInstaller implements PackageInstallerService {
   @override
   Future<AndroidInstallEvent?> recoverInstallSession(int sessionId) async {
     recoverCalls += 1;
+    if (returnNullRecoveryOnce == true && recoverCalls == 1) {
+      return null;
+    }
     return recoveredEvent;
   }
 }
@@ -2284,6 +2288,87 @@ void main() {
     expect(installer.recoverCalls, 1);
     expect(appUpdateViewModel.state.status,
         AppUpdateStatus.awaitingUserConfirmation);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, timeout: const Timeout(Duration(seconds: 10)));
+
+  testWidgets('app update stale recovery keeps ready install state',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    PackageInfo.setMockInitialValues(
+      appName: 'LAN AI CLI Control',
+      packageName: 'com.example.lan_ai_cli_control',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    final manifest = _widgetAppUpdateManifest();
+    final installer = _WidgetAppUpdateInstaller(returnNullRecoveryOnce: true);
+    addTearDown(installer.close);
+    final downloader = _WidgetAppUpdateDownloader()
+      ..installSession = AppUpdateInstallSessionRecord(
+        sessionId: 22,
+        file: File('ready.apk'),
+      );
+    final repository = _WidgetAppUpdateRepository(manifest: manifest);
+    final appUpdateViewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: AppUpdateWorkflow(
+        repository: repository,
+        installerService: installer,
+        downloaderService: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            appUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+
+    Future<void> pumpUntilRecoveryReads(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && downloader.readSessionCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        forceAndroidForTesting: true,
+      ),
+    );
+    await pumpUntilRecoveryReads(1);
+    await tester.pump();
+
+    expect(downloader.readSessionCalls, 1);
+    expect(installer.recoverCalls, 1);
+    expect(repository.fetchLatestCalls, 1);
+    expect(appUpdateViewModel.state.status, AppUpdateStatus.readyToInstall);
 
     await tester.pumpWidget(const SizedBox.shrink());
   }, timeout: const Timeout(Duration(seconds: 10)));

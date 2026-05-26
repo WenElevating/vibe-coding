@@ -134,23 +134,29 @@ class _SettingsAppUpdatePanel extends StatelessWidget {
     final viewModel = this.viewModel;
     if (viewModel == null) {
       return AppUpdatePanel(
-          state: const AppUpdateState(
-              status: AppUpdateStatus.idle,
-              installedVersionName: '',
-              installedVersionCode: 0),
-          onCheck: () {},
-          onDownload: () {},
-          onInstall: () {},
-          onDiscard: () {});
+        state: const AppUpdateState(
+          status: AppUpdateStatus.idle,
+          installedVersionName: '',
+          installedVersionCode: 0,
+        ),
+        onCheck: () {},
+        onDownload: () {},
+        onInstall: () {},
+        onDiscard: () {},
+        onPostpone: () {},
+      );
     }
     return ListenableBuilder(
-        listenable: viewModel,
-        builder: (context, _) => AppUpdatePanel(
-            state: viewModel.state,
-            onCheck: () => unawaited(viewModel.checkForUpdates()),
-            onDownload: () => unawaited(viewModel.download()),
-            onInstall: () => unawaited(viewModel.install()),
-            onDiscard: () => unawaited(viewModel.discard())));
+      listenable: viewModel,
+      builder: (context, _) => AppUpdatePanel(
+        state: viewModel.state,
+        onCheck: () => unawaited(viewModel.checkForUpdates()),
+        onDownload: () => unawaited(viewModel.download()),
+        onInstall: () => unawaited(viewModel.install()),
+        onDiscard: () => unawaited(viewModel.discard()),
+        onPostpone: viewModel.postponeCurrentUpdatePrompt,
+      ),
+    );
   }
 }
 

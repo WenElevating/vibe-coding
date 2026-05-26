@@ -97,8 +97,7 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.installPermissionNeeded);
 
     installer.canInstall = true;
-    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await pumpEventQueue();
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 
     expect(installer.openPermissionSettingsCalls, 1);
     expect(installer.installCalls, 1);
@@ -456,12 +455,10 @@ void main() {
     await viewModel.checkForUpdates();
     expect(viewModel.state.status, AppUpdateStatus.available);
 
-    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    await pumpEventQueue();
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     expect(installer.recoveredSessionId, isNull);
 
-    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await pumpEventQueue();
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 
     expect(installer.recoveredSessionId, 15);
     expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
@@ -1282,7 +1279,7 @@ void main() {
     expect(diagnostics, contains('update.prompt.suppressed'));
     expect(
       diagnostics.indexOf('update.prompt.suppressed'),
-      lessThan(diagnostics.indexOf('update.silent_check.completed')),
+      greaterThan(diagnostics.indexOf('update.silent_check.completed')),
     );
     final suppressedMetadata = diagnosticMetadata[
         diagnostics.indexOf('update.prompt.suppressed')];
@@ -1293,7 +1290,8 @@ void main() {
     expect(completedMetadata['promptSuppressed'], true);
   });
 
-  test('manual update check clears postponed prompt suppression', () async {
+  test('manual update check shows state without clearing postponed version',
+      () async {
     final repository = _FakeRepository(_manifest(versionCode: 9));
     final installer = _FakeInstaller();
     final viewModel = AppUpdateViewModel(
@@ -1326,7 +1324,7 @@ void main() {
     expect(repository.fetchCalls, 4);
     expect(viewModel.state.status, AppUpdateStatus.available);
     expect(viewModel.state.manifest?.versionCode, 9);
-    expect(viewModel.state.promptSuppressed, false);
+    expect(viewModel.state.promptSuppressed, true);
   });
 
   test('download clears prompt suppression outside available prompt state',

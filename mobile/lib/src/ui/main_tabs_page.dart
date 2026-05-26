@@ -308,6 +308,12 @@ class _MainTabsPageState extends State<MainTabsPage>
     } catch (_) {
       if (!mounted || generation != _appUpdateGeneration) return;
       setState(() => _appUpdateViewModel = null);
+      if (widget.forceAndroidForTesting ?? Platform.isAndroid) {
+        _recordAppUpdateSilentCheckSkipped(
+          AppUpdateCheckTrigger.connectedShellCreated,
+          'viewModelMissing',
+        );
+      }
     }
   }
 
@@ -318,13 +324,46 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   Future<void> _handleAppUpdateForeground(AppUpdateCheckTrigger trigger) async {
-    if (!(widget.forceAndroidForTesting ?? Platform.isAndroid)) return;
+    if (!(widget.forceAndroidForTesting ?? Platform.isAndroid)) {
+      return;
+    }
     final viewModel = _appUpdateViewModel;
-    if (viewModel == null) return;
-    viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await Future<void>.delayed(Duration.zero);
+    if (viewModel == null) {
+      _recordAppUpdateSilentCheckSkipped(trigger, 'viewModelMissing');
+      return;
+    }
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     if (!mounted || _appUpdateViewModel != viewModel) return;
+    if (_shouldSkipForegroundUpdateCheckAfterRecovery(viewModel.state.status)) {
+      _recordAppUpdateSilentCheckSkipped(trigger, 'activeOperation');
+      return;
+    }
     await viewModel.checkForUpdates(trigger: trigger);
+  }
+
+  void _recordAppUpdateSilentCheckSkipped(
+    AppUpdateCheckTrigger trigger,
+    String reason,
+  ) {
+    _connectedData.recordDiagnosticEvent(
+      'update.silent_check.skipped',
+      {
+        'trigger': trigger.diagnosticName,
+        'reason': reason,
+      },
+      path: 'app_update',
+    );
+  }
+
+  bool _shouldSkipForegroundUpdateCheckAfterRecovery(AppUpdateStatus status) {
+    return status == AppUpdateStatus.downloading ||
+        status == AppUpdateStatus.verifying ||
+        status == AppUpdateStatus.readyToInstall ||
+        status == AppUpdateStatus.installPermissionNeeded ||
+        status == AppUpdateStatus.installing ||
+        status == AppUpdateStatus.awaitingUserConfirmation ||
+        status == AppUpdateStatus.installCancelled ||
+        status == AppUpdateStatus.installFailed;
   }
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {
