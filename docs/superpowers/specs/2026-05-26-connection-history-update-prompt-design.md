@@ -84,8 +84,8 @@ Suggested interface:
 
 ```text
 RecentDaemonAddressRepository
-  loadRecentAddresses() -> List<String>
-  recordSuccessfulAddress(String addressInput) -> List<String>
+  loadRecentAddresses() -> Future<List<String>>
+  recordSuccessfulAddress(String addressInput) -> Future<void>
 ```
 
 The initial implementation may use the same `SharedPreferences` backing store
@@ -93,6 +93,12 @@ as `DaemonConnectionConfigStore`, but `DaemonConnectionViewModel` should depend
 on the repository interface rather than the concrete store. This keeps address
 history testable and makes a future split into a dedicated implementation a
 constructor-level change instead of a ViewModel rewrite.
+
+`recordSuccessfulAddress` is write-only by contract. It trims, deduplicates,
+sorts, limits, and persists internally, but it does not return the post-write
+list. The ViewModel explicitly calls `loadRecentAddresses()` after a successful
+write when it needs to refresh visible state. This keeps the repository methods
+single-purpose and makes tests describe read and write behavior separately.
 
 Suggested storage key:
 
@@ -142,6 +148,30 @@ history after the connection has actually completed and persistence succeeds.
 
 Failed validation, health, or snapshot loading must not write address history.
 
+Recent-address load failures are non-blocking:
+
+- If `loadRecentAddresses()` throws during `load()`, the ViewModel sets
+  `recentAddresses` to an empty list, records a diagnostic, and still loads the
+  normal daemon connection config.
+- If stored recent-address data is malformed or cannot be parsed, treat it the
+  same as a load failure: empty list, diagnostic, no user-facing error.
+- If refreshing history after a successful connection fails, keep the connected
+  state and leave the previous in-memory `recentAddresses` unchanged.
+- Connection history failures must not prevent a daemon connection from
+  succeeding.
+
+The connection ViewModel does not currently have the same diagnostic hook as the
+update ViewModel. Add an optional `recordDiagnostic(event, metadata)` callback
+to the connection ViewModel or controller path for these non-disruptive history
+events instead of logging from the UI or persistence implementation.
+
+Suggested events:
+
+```text
+connection.recent_addresses.load_failed { errorSummary }
+connection.recent_addresses.record_failed { errorSummary }
+```
+
 ### UI Interaction
 
 `MobileConnectionPage` owns focus and dropdown visibility because these are
@@ -151,12 +181,19 @@ Behavior:
 
 - The address input receives focus.
 - If recent addresses exist, show a dropdown directly below the input.
+- When the address input is empty and focused, show all recent addresses without
+  filtering.
 - While the user types, filter recent addresses by case-insensitive substring
   match against the current input.
 - If the filter has no matches, hide the dropdown rather than showing an empty
   panel.
 - Tapping a row calls `selectRecentAddress(address)`, updates the text field,
   and closes the dropdown.
+- Tapping a row keeps focus on the address field and keeps the soft keyboard
+  open so the user can make small edits before connecting.
+- Android system back, Escape, or an equivalent dismiss action closes the
+  dropdown first when it is open. A following back action may then dismiss the
+  keyboard or leave the connection page according to the platform shell.
 - Busy connection states disable row taps.
 - Proxy mode and manual proxy input are not changed.
 - The connection action remains explicit. The user must still tap connect.
@@ -278,12 +315,20 @@ update.silent_check.started { trigger }
 update.silent_check.skipped { trigger, reason }
 update.silent_check.completed { trigger, status, remoteVersionCode, mandatory }
 update.silent_check.failed { trigger, errorSummary }
+update.prompt.suppressed { versionCode, reason }
 update.prompt.postponed { versionCode }
 ```
 
 `trigger` should be one of `connectedShellCreated` or `appResumed`. `reason`
 should distinguish at least `notAndroid`, `viewModelMissing`, `checkInFlight`,
-`activeOperation`, and `postponedVersion`.
+and `activeOperation` for `update.silent_check.skipped`.
+
+`postponedVersion` is not a check-level skip reason because the app must fetch
+or already have a manifest before it knows the remote `versionCode`. When a
+silent check completes and the prompt layer decides not to show the dialog
+because the optional version was postponed, record
+`update.prompt.suppressed { versionCode, reason: postponedVersion }` after the
+check completion event.
 
 ## Layering Rules
 
@@ -309,6 +354,8 @@ No new dependency is needed for these changes.
 Connection persistence tests:
 
 - Saves a successful address into recent history.
+- `recordSuccessfulAddress()` returns no list and leaves list retrieval to
+  `loadRecentAddresses()`.
 - Moves an existing address to the front.
 - Trims whitespace before saving.
 - Deduplicates case-only variants while preserving the newest display spelling.
@@ -328,13 +375,19 @@ Connection ViewModel tests:
 - Selecting a recent address leaves proxy mode and manual proxy input unchanged.
 - ViewModel depends on a recent-address repository fake, not a concrete
   `SharedPreferences` store.
+- Recent-address load failure falls back to an empty list, records a diagnostic,
+  and does not block normal connection config loading.
+- Recent-address record or refresh failure after successful connection keeps the
+  connected state and records a diagnostic.
 
 Connection widget tests:
 
 - Header no longer renders the unused top-right control.
-- Focusing the address field shows matching recent addresses.
+- Focusing an empty address field shows all recent addresses.
 - Typing filters the recent address dropdown.
 - Tapping a recent address fills the input and closes the dropdown.
+- Tapping a recent address keeps address-field focus for follow-up editing.
+- Back or Escape closes the dropdown before leaving the page.
 - Busy connection state disables recent-address selection.
 - Long recent-address lists clamp to a maximum dropdown height and scroll
   internally.
@@ -355,6 +408,8 @@ Update ViewModel or shell tests:
 - Mandatory update state is not treated as a suppressed optional prompt.
 - Silent check diagnostics are emitted for start, skip, completion, and failure
   paths.
+- Optional postponed versions emit `update.prompt.suppressed`, not
+  `update.silent_check.skipped`.
 
 Architecture verification:
 
