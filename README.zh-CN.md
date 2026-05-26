@@ -45,7 +45,8 @@ AI 编程 CLI 很强，但执行上下文非常重要。直接从手机暴露一
 - 使用 SQLite 持久化会话状态和事件历史，应用重启后仍可恢复。
 - 将底层生命周期事件保留在事件日志中，同时在主对话 UI 中隐藏低价值协议噪声。
 - 导出带 trace id 的脱敏 diagnostics，覆盖 daemon 和 mobile 侧异常。
-- 为移动端语音输入提供可选 ASR 模型元数据和断点下载接口。
+- 提供移动端 ASR 语音识别输入，支持 daemon 托管 Sherpa ONNX 模型、断点下载、本地识别，以及针对编程词汇和中文标点的最终文本后处理。
+- 通过已配对 daemon 提供私有 Android 在线更新，支持 manifest 检查、APK 断点下载、SHA-256 校验和 Android 安装器交接。
 - 保留旧的受限 task-runner API，用于 run queue、command template、Git status 和 Git diff。
 
 ## Adapter 支持矩阵
@@ -227,6 +228,9 @@ flutter test
 - `POST /api/command-templates/:templateId/invoke`
 - `POST /api/diagnostics/export`
 - `POST /api/exceptions`
+- `GET /api/app-updates/android/latest`
+- `HEAD /api/app-updates/android/apk/:versionCode`
+- `GET /api/app-updates/android/apk/:versionCode`
 - `GET /api/asr-model`
 - `GET /api/asr-model/download`
 - `POST /api/devices/{deviceId}/revoke`，用于撤销当前认证设备

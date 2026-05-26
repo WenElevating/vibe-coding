@@ -45,7 +45,8 @@ Use it when you want to:
 - Persist conversation state and event history in SQLite so sessions survive app restarts.
 - Keep low-level lifecycle events in the event log while hiding noisy protocol internals from the main transcript.
 - Export redacted diagnostics with trace ids for daemon and mobile failures.
-- Provide optional ASR model download endpoints for the mobile voice-input flow.
+- Provide mobile ASR voice input with a daemon-hosted Sherpa ONNX model, resumable downloads, local recognition, and final-text post-processing for coding terms and Chinese punctuation.
+- Deliver private Android online updates from the paired daemon, including manifest checks, resumable APK downloads, SHA-256 verification, and Android installer handoff.
 - Keep legacy bounded task-runner APIs for run queues, command templates, Git status, and Git diff.
 
 ## Adapter Support
@@ -227,6 +228,9 @@ Authenticated device endpoints:
 - `POST /api/command-templates/:templateId/invoke`
 - `POST /api/diagnostics/export`
 - `POST /api/exceptions`
+- `GET /api/app-updates/android/latest`
+- `HEAD /api/app-updates/android/apk/:versionCode`
+- `GET /api/app-updates/android/apk/:versionCode`
 - `GET /api/asr-model`
 - `GET /api/asr-model/download`
 - `POST /api/devices/{deviceId}/revoke` for the authenticated device
