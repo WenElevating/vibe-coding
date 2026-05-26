@@ -103,6 +103,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _bottomAnchorTranscript && !_bottomAnchorTranscriptUnderflow;
 
   Future<bool> handleSystemBack() async {
+    if (_currentRoute == _routeWorkspaces) return false;
     final navigator = _navigatorKey.currentState;
     if (navigator == null) return false;
     return navigator.maybePop<void>();

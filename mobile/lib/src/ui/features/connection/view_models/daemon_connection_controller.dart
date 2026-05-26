@@ -1,4 +1,4 @@
-﻿import '../../../../data/repositories/daemon_connection_config_repository.dart';
+import '../../../../data/repositories/daemon_connection_config_repository.dart';
 import '../../../../data/repositories/recent_daemon_address_repository.dart';
 import '../../../../domain/repositories/recent_daemon_address_repository.dart';
 import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
@@ -48,7 +48,7 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
     required super.recentAddressRepository,
     required SecureTokenStore tokenStore,
     ConnectToDaemonUseCase<DaemonClient>? connectToDaemon,
-    DiagnosticRecorder recordDiagnostic = noopDiagnosticRecorder,
+    super.recordDiagnostic = noopDiagnosticRecorder,
     DaemonSnapshotLoader? snapshotLoader,
     DaemonHealthProbe? healthProbe,
     Duration? connectionTimeout,
@@ -64,6 +64,5 @@ class DaemonConnectionController extends DaemonConnectionViewModel {
                 healthProbe: healthProbe,
               ),
           connectionTimeout: connectionTimeout ?? const Duration(seconds: 30),
-          recordDiagnostic: recordDiagnostic,
         );
 }

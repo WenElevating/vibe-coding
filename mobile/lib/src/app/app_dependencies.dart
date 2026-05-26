@@ -118,7 +118,7 @@ class DataDependencies {
     required this.connectionConfigRepository,
     RecentDaemonAddressRepository? recentAddressRepository,
     NotificationClientFactory? createNotificationClient,
-  }) : recentAddressRepository = recentAddressRepository ??
+  })  : recentAddressRepository = recentAddressRepository ??
             StoreRecentDaemonAddressRepository(
               store: RecentDaemonAddressStore(),
             ),

@@ -201,10 +201,11 @@ class AppUpdateViewModel extends ChangeNotifier {
 
   void postponeCurrentUpdatePrompt() {
     final manifest = state.manifest;
-    if (manifest == null || state.mandatory) return;
-    _postponedOptionalVersionCodes.add(manifest.versionCode);
+    final versionCode = manifest?.versionCode;
+    if (manifest == null || versionCode == null || state.mandatory) return;
+    _postponedOptionalVersionCodes.add(versionCode);
     _recordDiagnostic('update.prompt.postponed', {
-      'versionCode': manifest.versionCode,
+      'versionCode': versionCode,
     });
     _set(state.copyWith(promptSuppressed: true));
   }

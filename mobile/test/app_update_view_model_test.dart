@@ -1281,8 +1281,8 @@ void main() {
       diagnostics.indexOf('update.prompt.suppressed'),
       greaterThan(diagnostics.indexOf('update.silent_check.completed')),
     );
-    final suppressedMetadata = diagnosticMetadata[
-        diagnostics.indexOf('update.prompt.suppressed')];
+    final suppressedMetadata =
+        diagnosticMetadata[diagnostics.indexOf('update.prompt.suppressed')];
     expect(suppressedMetadata['versionCode'], 8);
     expect(suppressedMetadata['reason'], 'postponedVersion');
     final completedMetadata = diagnosticMetadata[

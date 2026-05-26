@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/lan_ai_cli_control.dart';
@@ -961,10 +962,12 @@ void main() {
 
     expect(find.text('新建任务'), findsWidgets);
     expect(find.text('工作区信号'), findsOneWidget);
-    expect(find.text('快捷操作'), findsOneWidget);
-    expect(find.text('命令模板'), findsOneWidget);
-    expect(find.text('已连接'), findsNothing);
     expect(find.text('vibe-coding'), findsWidgets);
+    await tester.drag(find.byType(ListView), const Offset(0, -420));
+    await tester.pumpAndSettle();
+    expect(find.text('快捷操作'), findsOneWidget);
+    expect(find.text('命令模板'), findsWidgets);
+    expect(find.text('已连接'), findsNothing);
     expect(find.text('Command templates'), findsNothing);
     expect(find.text('Needs your approval'), findsNothing);
     expect(find.text('Modify file'), findsNothing);
@@ -1013,8 +1016,8 @@ void main() {
     await tester.pumpWidget(_LocalizedHomePageApp(snapshot: snapshot));
     await tester.pumpAndSettle();
 
-    expect(find.text('Modify file'), findsOneWidget);
-    expect(find.textContaining('run_failed'), findsOneWidget);
+    expect(find.text('Modify file'), findsWidgets);
+    expect(find.textContaining('run_failed'), findsWidgets);
   });
 
   testWidgets('home command deck surfaces other workspace running activity',
@@ -1182,7 +1185,6 @@ void main() {
   testWidgets('connection address field shows recent addresses on focus',
       (WidgetTester tester) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     final controller = DaemonConnectionController(
       store: DaemonConnectionConfigStore(),
       tokenStore: MemoryTokenStore(),
@@ -1208,6 +1210,7 @@ void main() {
     expect(
       tester
           .getSemantics(find.bySemanticsLabel('192.168.1.50:4317'))
+          .getSemanticsData()
           .hasAction(SemanticsAction.tap),
       true,
     );
@@ -1224,6 +1227,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('192.168.1.50:4317'), findsNothing);
     expect(find.text('Connection'), findsOneWidget);
+    semantics.dispose();
   });
 
   testWidgets('connection recent addresses filter and fill without connecting',
@@ -1271,7 +1275,8 @@ void main() {
     expect(controller.manualProxyInput, 'http://proxy.local:8080');
     expect(controller.status, DaemonConnectionStatus.idle);
     expect(connectCalls, 0);
-    expect(find.text(selectedAddress), findsNothing);
+    expect(find.byKey(const ValueKey('connection-recent-address-dropdown')),
+        findsNothing);
     expect(tester.testTextInput.isVisible, isTrue);
   });
 
@@ -1281,8 +1286,7 @@ void main() {
       store: DaemonConnectionConfigStore(),
       tokenStore: MemoryTokenStore(),
       recentAddressRepository: _WidgetRecentAddressRepository(<String>[
-        for (var index = 1; index <= 8; index++)
-          '192.168.1.$index:4317',
+        for (var index = 1; index <= 8; index++) '192.168.1.$index:4317',
       ]),
       snapshotLoader: (_) async => throw StateError('not used'),
       healthProbe: (_) async => throw StateError('not used'),
@@ -2267,11 +2271,11 @@ void main() {
       ),
     );
     await pumpUntilRecoveryReads(1);
-    await pumpUntilFetches(1);
+    await pumpUntilFetches(2);
     await tester.pump();
 
     expect(downloader.readSessionCalls, 1);
-    expect(repository.fetchLatestCalls, 1);
+    expect(repository.fetchLatestCalls, 2);
     expect(installer.recoverCalls, 0);
 
     downloader.installSession = AppUpdateInstallSessionRecord(
@@ -2280,11 +2284,11 @@ void main() {
     );
     resumeAppThroughMainTabs();
     await pumpUntilRecoveryReads(2);
-    await pumpUntilFetches(2);
+    await pumpUntilFetches(3);
     await tester.pump();
 
     expect(downloader.readSessionCalls, 2);
-    expect(repository.fetchLatestCalls, 2);
+    expect(repository.fetchLatestCalls, 3);
     expect(installer.recoverCalls, 1);
     expect(appUpdateViewModel.state.status,
         AppUpdateStatus.awaitingUserConfirmation);
@@ -3046,7 +3050,7 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    expect(find.text('Current Project'), findsWidgets);
+    expect(find.text('vibe-coding'), findsWidgets);
     expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
   });
 

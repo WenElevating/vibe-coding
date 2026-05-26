@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -21,6 +23,7 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
   late final TextEditingController _manualProxyController;
   late final FocusNode _addressFocusNode;
   bool _recentDropdownOpen = false;
+  bool _suppressNextRecentFocusOpen = false;
 
   @override
   void initState() {
@@ -29,7 +32,8 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
         TextEditingController(text: widget.controller.addressInput);
     _manualProxyController =
         TextEditingController(text: widget.controller.manualProxyInput);
-    _addressFocusNode = FocusNode()..addListener(_handleAddressFocusChanged);
+    _addressFocusNode = FocusNode(onKeyEvent: _handleAddressKeyEvent)
+      ..addListener(_handleAddressFocusChanged);
     widget.controller.addListener(_syncFields);
   }
 
@@ -49,7 +53,18 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
       _closeRecentDropdown();
       return;
     }
+    if (_suppressNextRecentFocusOpen) {
+      _suppressNextRecentFocusOpen = false;
+      return;
+    }
     _openRecentDropdown();
+  }
+
+  KeyEventResult _handleAddressKeyEvent(FocusNode node, KeyEvent event) {
+    if (event.logicalKey != LogicalKeyboardKey.escape) {
+      return KeyEventResult.ignored;
+    }
+    return _handleEscape() ? KeyEventResult.handled : KeyEventResult.ignored;
   }
 
   void _openRecentDropdown() {
@@ -84,12 +99,17 @@ class _MobileConnectionPageState extends State<MobileConnectionPage> {
   }
 
   void _selectRecentAddress(String address) {
+    _suppressNextRecentFocusOpen = true;
     widget.controller.selectRecentAddress(address);
     _addressController.selection = TextSelection.collapsed(
       offset: _addressController.text.length,
     );
     _closeRecentDropdown();
     _addressFocusNode.requestFocus();
+    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.show'));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _suppressNextRecentFocusOpen = false;
+    });
   }
 
   bool _handleEscape() {
