@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../../domain/models/daemon_initial_data.dart';
 import '../../../../domain/repositories/daemon_connection_config_repository.dart';
+import '../../../../domain/repositories/recent_daemon_address_repository.dart';
 import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
 import '../../../../services/daemon_client.dart';
 import '../../../../services/exception_redactor.dart';
@@ -21,18 +22,31 @@ enum DaemonConnectionStatus {
   failed,
 }
 
+typedef DiagnosticRecorder = void Function(
+  String event,
+  Map<String, Object?> metadata,
+);
+
+void noopDiagnosticRecorder(String event, Map<String, Object?> metadata) {}
+
 class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonConnectionViewModel({
     required DaemonConnectionConfigRepository configRepository,
+    required RecentDaemonAddressRepository recentAddressRepository,
     required ConnectToDaemonUseCase<DaemonClient> connectToDaemon,
     Duration connectionTimeout = const Duration(seconds: 30),
+    DiagnosticRecorder recordDiagnostic = noopDiagnosticRecorder,
   })  : _configRepository = configRepository,
+        _recentAddressRepository = recentAddressRepository,
         _connectToDaemon = connectToDaemon,
-        _connectionTimeout = connectionTimeout;
+        _connectionTimeout = connectionTimeout,
+        _recordDiagnostic = recordDiagnostic;
 
   final DaemonConnectionConfigRepository _configRepository;
+  final RecentDaemonAddressRepository _recentAddressRepository;
   final ConnectToDaemonUseCase<DaemonClient> _connectToDaemon;
   final Duration _connectionTimeout;
+  final DiagnosticRecorder _recordDiagnostic;
 
   DaemonConnectionStatus _status = DaemonConnectionStatus.loadingConfig;
   String _addressInput = DaemonConnectionConfig.fallback.addressInput;
@@ -45,6 +59,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonClient? _client;
   DaemonConnectionConfig? _connectedConfig;
   int _connectionAttempt = 0;
+  List<String> _recentAddresses = const <String>[];
 
   DaemonConnectionStatus get status => _status;
   String get addressInput => _addressInput;
@@ -57,6 +72,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonClient? get client => _client;
   DaemonConnectionConfig? get connectedConfig => _connectedConfig;
   Duration get connectionTimeout => _connectionTimeout;
+  List<String> get recentAddresses => _recentAddresses;
 
   bool get isBusy =>
       _status == DaemonConnectionStatus.validating ||
@@ -75,9 +91,19 @@ class DaemonConnectionViewModel extends ChangeNotifier {
 
   Future<void> load() async {
     final config = await _configRepository.load();
+    List<String> recentAddresses;
+    try {
+      recentAddresses = await _recentAddressRepository.loadRecentAddresses();
+    } catch (error) {
+      recentAddresses = const <String>[];
+      _recordDiagnostic('connection.recent_addresses.load_failed', {
+        'errorSummary': '$error',
+      });
+    }
     _addressInput = config.addressInput;
     _proxyMode = config.proxyMode;
     _manualProxyInput = config.manualProxyInput;
+    _recentAddresses = List<String>.unmodifiable(recentAddresses);
     _status = DaemonConnectionStatus.idle;
     notifyListeners();
   }
@@ -96,6 +122,12 @@ class DaemonConnectionViewModel extends ChangeNotifier {
 
   void setManualProxyInput(String value) {
     _manualProxyInput = value;
+    _clearTransientErrors();
+    notifyListeners();
+  }
+
+  void selectRecentAddress(String address) {
+    _addressInput = address;
     _clearTransientErrors();
     notifyListeners();
   }
@@ -164,6 +196,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       _connectedConfig = session.connectedConfig;
       _status = DaemonConnectionStatus.connected;
       notifyListeners();
+      await _recordSuccessfulRecentAddress(session.connectedConfig.addressInput);
     } on DaemonConnectionConfigException catch (error) {
       if (attempt != _connectionAttempt) {
         return;
@@ -191,6 +224,20 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     _inputError = null;
     _errorSummary = null;
     _errorDetail = null;
+  }
+
+  Future<void> _recordSuccessfulRecentAddress(String addressInput) async {
+    try {
+      await _recentAddressRepository.recordSuccessfulAddress(addressInput);
+      _recentAddresses = List<String>.unmodifiable(
+        await _recentAddressRepository.loadRecentAddresses(),
+      );
+      notifyListeners();
+    } catch (error) {
+      _recordDiagnostic('connection.recent_addresses.record_failed', {
+        'errorSummary': '$error',
+      });
+    }
   }
 }
 

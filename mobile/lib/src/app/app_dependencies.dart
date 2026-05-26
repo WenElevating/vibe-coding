@@ -238,6 +238,7 @@ class FeatureDependencies {
       FeatureDependencies(
         createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
           configRepository: data.connectionConfigRepository,
+          recentAddressRepository: data.recentAddressRepository,
           connectToDaemon: domain.connectionWorkflow,
         ),
         createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
