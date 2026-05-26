@@ -8,12 +8,14 @@ import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
+import '../data/repositories/recent_daemon_address_repository.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/conversation_repository.dart';
 import '../domain/repositories/daemon_connection_config_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
+import '../domain/repositories/recent_daemon_address_repository.dart';
 import '../domain/repositories/run_repository.dart';
 import '../domain/repositories/workspace_repository.dart';
 import '../models/protocol.dart';
@@ -25,6 +27,7 @@ import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
+import '../services/recent_daemon_address_store.dart';
 import '../services/speech_input_service.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/diagnostics/diagnostics.dart';
@@ -111,19 +114,28 @@ class NetworkDependencies {
 class DataDependencies {
   DataDependencies({
     required this.connectionConfigRepository,
+    RecentDaemonAddressRepository? recentAddressRepository,
     NotificationClientFactory? createNotificationClient,
-  }) : createNotificationClient =
+  }) : recentAddressRepository = recentAddressRepository ??
+            StoreRecentDaemonAddressRepository(
+              store: RecentDaemonAddressStore(),
+            ),
+        createNotificationClient =
             createNotificationClient ?? _createDefaultNotificationClient;
 
   factory DataDependencies.createDefault() {
     final connectionConfigStore = DaemonConnectionConfigStore();
+    final recentAddressStore = RecentDaemonAddressStore();
     return DataDependencies(
       connectionConfigRepository:
           StoreDaemonConnectionConfigRepository(store: connectionConfigStore),
+      recentAddressRepository:
+          StoreRecentDaemonAddressRepository(store: recentAddressStore),
     );
   }
 
   final DaemonConnectionConfigRepository connectionConfigRepository;
+  final RecentDaemonAddressRepository recentAddressRepository;
   final NotificationClientFactory createNotificationClient;
 
   ConnectedDataDependencies forDaemonClient(DaemonClient client) {
