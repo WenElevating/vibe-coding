@@ -575,6 +575,26 @@ void main() {
       );
     }
   });
+
+  test('list endpoints report typed parse errors for malformed items',
+      () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: FakeHttpClient((_) => jsonResponse(const <String, Object?>{
+            'workspaces': <Object?>['bad'],
+          })),
+    );
+
+    await expectLater(
+      client.listWorkspaces(),
+      throwsA(isA<DaemonClientException>().having(
+        (error) => error.body['message'],
+        'message',
+        contains('workspaces'),
+      )),
+    );
+  });
 }
 
 Map<String, Object?> _conversationResponse() => const <String, Object?>{

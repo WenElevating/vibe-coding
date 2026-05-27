@@ -25,6 +25,8 @@
 - Keep `main.dart` thin and use `src/app/` as composition root.
 - Prefer ViewModel state snapshots and repository/use-case injection over direct
   concrete service calls from widgets.
+- Long-running async `ChangeNotifier` flows must guard disposal before
+  `notifyListeners`; disposal should cancel or suppress pending emissions.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test

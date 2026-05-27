@@ -61,30 +61,38 @@ class DaemonConnectionWorkflow implements ConnectToDaemonUseCase<DaemonClient> {
       manualProxy: manualProxy,
     );
 
-    onCheckingHealth?.call();
-    await _healthProbe(client);
-    if (shouldContinue != null && !shouldContinue()) {
-      throw const DaemonConnectionCancelled();
+    var completed = false;
+    try {
+      onCheckingHealth?.call();
+      await _healthProbe(client);
+      if (shouldContinue != null && !shouldContinue()) {
+        throw const DaemonConnectionCancelled();
+      }
+      onLoadingInitialData?.call();
+      final initialData = _initialDataLoader == null
+          ? await loadDaemonInitialDataBootstrap(client,
+              deviceIdentityStore: _deviceIdentityStore)
+          : await _initialDataLoader(client);
+      if (shouldContinue != null && !shouldContinue()) {
+        throw const DaemonConnectionCancelled();
+      }
+      final connectedConfig = DaemonConnectionConfig(
+        addressInput: addressInput.trim(),
+        proxyMode: proxyMode,
+        manualProxyInput: manualProxyInput.trim(),
+      );
+      await _configRepository.save(connectedConfig);
+      completed = true;
+      return ConnectedAppSession(
+        client: client,
+        initialData: initialData,
+        connectedConfig: connectedConfig,
+      );
+    } finally {
+      if (!completed) {
+        client.close();
+      }
     }
-    onLoadingInitialData?.call();
-    final initialData = _initialDataLoader == null
-        ? await loadDaemonInitialDataBootstrap(client,
-            deviceIdentityStore: _deviceIdentityStore)
-        : await _initialDataLoader(client);
-    if (shouldContinue != null && !shouldContinue()) {
-      throw const DaemonConnectionCancelled();
-    }
-    final connectedConfig = DaemonConnectionConfig(
-      addressInput: addressInput.trim(),
-      proxyMode: proxyMode,
-      manualProxyInput: manualProxyInput.trim(),
-    );
-    await _configRepository.save(connectedConfig);
-    return ConnectedAppSession(
-      client: client,
-      initialData: initialData,
-      connectedConfig: connectedConfig,
-    );
   }
 
   static DaemonClient _defaultClientFactory({

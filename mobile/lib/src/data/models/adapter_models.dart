@@ -117,7 +117,7 @@ class ShortcutCommand {
         id: json['id'] as String? ?? '',
         label: json['label'] as String? ?? '',
         prompt: json['prompt'] as String? ?? '',
-        tool: json['tool'] as String,
+        tool: json['tool'] as String? ?? 'claude',
       );
 }
 

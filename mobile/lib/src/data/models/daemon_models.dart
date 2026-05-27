@@ -69,7 +69,9 @@ class DiagnosticBundleSummary {
             json['createdAt'] as String? ?? DateTime.now().toIso8601String()),
         path: json['path'] as String? ?? '',
         redacted: json['redacted'] as bool? ?? false,
-        items: (json['items'] as List<Object?>).cast<String>(),
+        items: ((json['items'] as List<Object?>?) ?? const <Object?>[])
+            .whereType<String>()
+            .toList(growable: false),
       );
 }
 
@@ -83,5 +85,5 @@ class SmokeTestResult {
       SmokeTestResult(
           ok: json['ok'] as bool,
           adapter: json['adapter'] as String? ?? '',
-          events: json['events'] as int);
+          events: json['events'] as int? ?? 0);
 }

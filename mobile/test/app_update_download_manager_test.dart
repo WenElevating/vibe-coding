@@ -224,6 +224,53 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('mismatched 206 resume range restarts from zero', () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-range-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 14);
+    final dir = Directory(_updateDir(temp))..createSync(recursive: true);
+    final part = File(_updateFile(dir, 'app-update-14.apk.part'));
+    await part.writeAsBytes(bytes.sublist(0, 5));
+    await File(_updateFile(dir, 'app-update-14.json'))
+        .writeAsString(jsonEncode({
+      'versionCode': 14,
+      'versionName': '1.4.0',
+      'apkUrl': manifest.apkUrl,
+      'sha256': manifest.sha256,
+      'sizeBytes': bytes.length,
+      'etag': manifest.etag,
+      'downloadedBytes': 5,
+      'updatedAt': '2026-05-24T10:00:00.000Z',
+    }));
+    final seenRanges = <int?>[];
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        seenRanges.add(rangeStart);
+        if (seenRanges.length == 1) {
+          return http.StreamedResponse(
+            Stream<List<int>>.value(bytes),
+            206,
+            headers: const <String, String>{
+              'content-range': 'bytes 0-10/11',
+            },
+          );
+        }
+        return http.StreamedResponse(Stream<List<int>>.value(bytes), 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final result =
+        await manager.download(manifest, Uri.parse('http://127.0.0.1:4317'));
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(seenRanges, <int?>[5, null]);
+    expect(
+        await File(_updateFile(dir, 'app-update-14.apk')).readAsBytes(), bytes);
+    await temp.delete(recursive: true);
+  });
+
   test('transient server error pauses and keeps partial file', () async {
     final temp = await Directory.systemTemp.createTemp('app-update-5xx-');
     final bytes = utf8.encode('hello-world');

@@ -50,6 +50,7 @@ void main() {
       'loadInitialData',
     ]);
     expect(session.client, same(client));
+    expect(client.closed, isFalse);
     final workspace = session.initialData.workspace;
     expect(workspace, isNotNull);
     expect(workspace!.id, 'workspace_1');
@@ -61,6 +62,7 @@ void main() {
 
   test('connect does not load initial data when health fails', () async {
     var loadedInitialData = false;
+    final client = _WorkflowDaemonClient();
     final workflow = DaemonConnectionWorkflow(
       configRepository: StoreDaemonConnectionConfigRepository(
           store: DaemonConnectionConfigStore()),
@@ -71,7 +73,7 @@ void main() {
         required proxyMode,
         manualProxy,
       }) =>
-          _WorkflowDaemonClient(),
+          client,
       healthProbe: (_) async => throw StateError('health failed'),
       initialDataLoader: (_) async {
         loadedInitialData = true;
@@ -89,11 +91,13 @@ void main() {
     );
 
     expect(loadedInitialData, isFalse);
+    expect(client.closed, isTrue);
   });
 
   test('connect does not save config when initial data loading fails',
       () async {
     final store = DaemonConnectionConfigStore();
+    final client = _WorkflowDaemonClient();
     final workflow = DaemonConnectionWorkflow(
       configRepository: StoreDaemonConnectionConfigRepository(store: store),
       tokenStore: MemoryTokenStore(),
@@ -103,7 +107,7 @@ void main() {
         required proxyMode,
         manualProxy,
       }) =>
-          _WorkflowDaemonClient(),
+          client,
       healthProbe: (_) async {},
       initialDataLoader: (_) async => throw StateError('load failed'),
     );
@@ -119,6 +123,7 @@ void main() {
 
     final saved = await store.load();
     expect(saved.addressInput, DaemonConnectionConfig.fallback.addressInput);
+    expect(client.closed, isTrue);
   });
 }
 
@@ -128,6 +133,14 @@ class _WorkflowDaemonClient extends DaemonClient {
           baseUri: Uri.parse('http://127.0.0.1:4317'),
           tokenStore: MemoryTokenStore(),
         );
+
+  bool closed = false;
+
+  @override
+  void close() {
+    closed = true;
+    super.close();
+  }
 }
 
 DaemonHealth _health() => DaemonHealth.fromJson(const <String, Object?>{

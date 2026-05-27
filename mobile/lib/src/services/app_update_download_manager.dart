@@ -386,6 +386,25 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
             message: 'Update server returned partial content without a resume.',
           );
         }
+        if (statusCode == 206 &&
+            !_contentRangeStartsAt(
+              response.headers['content-range'],
+              currentResumeLength,
+            )) {
+          await response.stream.drain<void>();
+          if (!canRestart) {
+            return const AppUpdateDownloadResult(
+              state: AppUpdateDownloadState.failed,
+              message: 'Update server returned an invalid resume range.',
+            );
+          }
+          await _deleteIfExists(paths.part);
+          await _deleteIfExists(paths.metadata);
+          currentResumeLength = 0;
+          canRestart = false;
+          await _writeMetadata(paths.metadata, manifest, 0);
+          continue;
+        }
 
         final writeMode = statusCode == 206 && currentResumeLength > 0
             ? FileMode.append
@@ -672,6 +691,9 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     if (parent.endsWith(Platform.pathSeparator)) return '$parent$child';
     return '$parent${Platform.pathSeparator}$child';
   }
+
+  bool _contentRangeStartsAt(String? contentRange, int start) =>
+      contentRange != null && contentRange.startsWith('bytes $start-');
 }
 
 class _ActiveAppUpdateDownload {

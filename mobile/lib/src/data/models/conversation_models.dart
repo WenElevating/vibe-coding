@@ -73,8 +73,7 @@ class ConversationBlockingItem {
             ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
                 .map((item) => item.toString())
                 .toList(),
-        input: (json['input'] as Map<String, Object?>?) ??
-            const <String, Object?>{},
+        input: _objectMap(json['input']),
         multiSelect: json['multiSelect'] as bool? ?? false,
         createdAt: json['createdAt'] as String?,
         expiresAt: json['expiresAt'] as String?,
@@ -133,24 +132,22 @@ class ConversationSummary {
         sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
         title: _optionalText(json['title']),
         userMessageCount: json['userMessageCount'] as int? ?? 0,
-        blockingItem: json['blockingItem'] is Map<String, Object?>
+        blockingItem: _objectMap(json['blockingItem']).isNotEmpty
             ? ConversationBlockingItem.fromJson(
-                json['blockingItem']! as Map<String, Object?>)
+                _objectMap(json['blockingItem']))
             : null,
         idleExpiresAt: json['idleExpiresAt'] as String?,
         createdAt: json['createdAt'] as String? ?? '',
         updatedAt: json['updatedAt'] as String? ?? '',
         capabilities: ConversationCapabilities.fromJson(
-            (json['capabilities'] as Map<String, Object?>?) ??
-                const <String, Object?>{}),
+          _objectMap(json['capabilities']),
+        ),
         protocolVersion: json['protocolVersion'] as int? ?? 1,
         requestedPermissionMode:
             json['requestedPermissionMode'] as String? ?? '',
         effectivePermissionMode:
             json['effectivePermissionMode'] as String? ?? '',
-        permissionSupport:
-            (json['permissionSupport'] as Map<String, Object?>?) ??
-                const <String, Object?>{},
+        permissionSupport: _objectMap(json['permissionSupport']),
       );
 }
 
@@ -224,8 +221,7 @@ class ConversationEvent {
         updatedAt: json['updatedAt'] is String
             ? DateTime.parse(json['updatedAt']! as String)
             : null,
-        taskItems: ((json['items'] as List<Object?>?) ?? const <Object?>[])
-            .whereType<Map<String, Object?>>()
+        taskItems: _objectList(json['items'])
             .map(TaskProgressItem.fromJson)
             .where((item) => item.title.trim().isNotEmpty)
             .toList(),
@@ -240,8 +236,7 @@ class ConversationEvent {
             ((json['suggestions'] as List<Object?>?) ?? const <Object?>[])
                 .map((item) => item.toString())
                 .toList(),
-        input: (json['input'] as Map<String, Object?>?) ??
-            const <String, Object?>{},
+        input: _objectMap(json['input']),
         exitCode: json['exitCode'] as int?,
         isError: json['isError'] as bool? ?? false,
         durationMs: json['durationMs'] as int?,
@@ -251,11 +246,7 @@ class ConversationEvent {
 }
 
 List<CommittedAttachment> _attachmentsFromJson(Object? value) {
-  if (value is! Iterable) {
-    return const <CommittedAttachment>[];
-  }
-  return value
-      .whereType<Map<String, Object?>>()
+  return _objectList(value)
       .map(CommittedAttachment.fromJson)
       .toList(growable: false);
 }
@@ -277,4 +268,32 @@ class TaskProgressItem {
         title: json['title'] as String? ?? '',
         status: json['status'] as String? ?? '',
       );
+}
+
+List<Map<String, Object?>> _objectList(Object? value) {
+  if (value is! Iterable) {
+    return const <Map<String, Object?>>[];
+  }
+  return value
+      .whereType<Map>()
+      .map(_objectMap)
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+Map<String, Object?> _objectMap(Object? value) {
+  if (value is Map<String, Object?>) {
+    return value;
+  }
+  if (value is! Map) {
+    return const <String, Object?>{};
+  }
+  final result = <String, Object?>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    if (key is String) {
+      result[key] = entry.value;
+    }
+  }
+  return result;
 }

@@ -8,6 +8,7 @@ class _FakeSpeechInputService implements SpeechInputService {
   int startCalls = 0;
   int stopCalls = 0;
   int cancelCalls = 0;
+  int disposeCalls = 0;
   void Function(String text)? onPartial;
   Completer<void>? startCompleter;
   Object? startError;
@@ -35,7 +36,9 @@ class _FakeSpeechInputService implements SpeechInputService {
   }
 
   @override
-  void dispose() {}
+  void dispose() {
+    disposeCalls++;
+  }
 }
 
 void main() {
@@ -179,6 +182,24 @@ void main() {
     await Future.wait<void>([first, second]);
 
     expect(controller.state, VoiceInputState.listening);
+  });
+
+  test('dispose during initialization suppresses completion updates', () async {
+    final service = _FakeSpeechInputService()
+      ..startCompleter = Completer<void>();
+    final controller = VoiceInputController(service: service);
+
+    final start = controller.start(currentPrompt: '');
+
+    expect(controller.state, VoiceInputState.initializing);
+
+    controller.dispose();
+    service.startCompleter!.complete();
+
+    await start;
+
+    expect(service.disposeCalls, 1);
+    expect(controller.state, VoiceInputState.initializing);
   });
 
   test('initialize timeout returns failed state and cancels service', () async {

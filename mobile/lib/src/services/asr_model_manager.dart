@@ -95,6 +95,7 @@ class AsrModelManager extends ChangeNotifier {
   AsrModelState _state = const AsrModelState.idle();
   bool _cancelRequested = false;
   bool _pauseRequested = false;
+  bool _disposed = false;
 
   AsrModelState get state => _state;
 
@@ -155,6 +156,13 @@ class AsrModelManager extends ChangeNotifier {
 
   void cancel() {
     _cancelRequested = true;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _cancelRequested = true;
+    super.dispose();
   }
 
   Future<File> _download(
@@ -430,7 +438,7 @@ class AsrModelManager extends ChangeNotifier {
       contentRange != null && contentRange.startsWith('bytes $start-');
 
   void _throwIfStopped() {
-    if (_cancelRequested) {
+    if (_disposed || _cancelRequested) {
       throw const _PreparationStopped(AsrModelStatus.cancelled);
     }
     if (_pauseRequested) {
@@ -439,6 +447,7 @@ class AsrModelManager extends ChangeNotifier {
   }
 
   void _emit(AsrModelState state) {
+    if (_disposed) return;
     _state = state;
     notifyListeners();
   }

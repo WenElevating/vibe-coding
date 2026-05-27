@@ -33,6 +33,7 @@ class VoiceInputController extends ChangeNotifier {
   TextSelection _baseSelection = const TextSelection.collapsed(offset: 0);
   String? _error;
   bool _receivedPartial = false;
+  bool _disposed = false;
 
   VoiceInputState get state => _state;
   String get partialText => _partialText;
@@ -41,6 +42,10 @@ class VoiceInputController extends ChangeNotifier {
       _state != VoiceInputState.idle && _state != VoiceInputState.failed;
 
   void updateService(SpeechInputService service) {
+    if (_disposed) {
+      service.dispose();
+      return;
+    }
     if (identical(_service, service)) return;
     if (isBusy) {
       throw StateError(
@@ -56,6 +61,7 @@ class VoiceInputController extends ChangeNotifier {
     required String currentPrompt,
     TextSelection? currentSelection,
   }) async {
+    if (_disposed) return;
     if (_state == VoiceInputState.initializing ||
         _state == VoiceInputState.listening ||
         _state == VoiceInputState.stopping ||
@@ -75,14 +81,17 @@ class VoiceInputController extends ChangeNotifier {
       await _service
           .start(onPartial: _setPartialText)
           .timeout(_initializeTimeout);
+      if (_disposed) return;
       if (_state == VoiceInputState.initializing) {
         _setState(VoiceInputState.listening);
       }
     } on TimeoutException {
+      if (_disposed) return;
       _error = 'Voice input unavailable';
       _setState(VoiceInputState.failed);
       await _service.cancel();
     } catch (error) {
+      if (_disposed) return;
       _error = friendlyVoiceInputError(error);
       _setState(VoiceInputState.failed);
     }
@@ -102,10 +111,12 @@ class VoiceInputController extends ChangeNotifier {
 
   Future<TextEditingValue> stopValue(
       {required TextEditingValue currentPrompt}) async {
+    if (_disposed) return currentPrompt;
     if (_state != VoiceInputState.listening) return currentPrompt;
     _setState(VoiceInputState.stopping);
     try {
       final finalText = await _service.stop();
+      if (_disposed) return currentPrompt;
       final processedFinalText = _textPostProcessor.processFinalText(finalText);
       final preview = previewValue();
       final mergeBase = currentPrompt.text == preview.text
@@ -122,6 +133,7 @@ class VoiceInputController extends ChangeNotifier {
       _setState(VoiceInputState.idle);
       return merged;
     } catch (error) {
+      if (_disposed) return currentPrompt;
       _error = friendlyVoiceInputError(error);
       _setState(VoiceInputState.failed);
       return currentPrompt;
@@ -129,11 +141,13 @@ class VoiceInputController extends ChangeNotifier {
   }
 
   Future<void> cancel() async {
+    if (_disposed) return;
     if (_state == VoiceInputState.idle) return;
     _setState(VoiceInputState.cancelling);
     try {
       await _service.cancel();
     } finally {
+      if (_disposed) return;
       _partialText = '';
       _receivedPartial = false;
       _setState(VoiceInputState.idle);
@@ -190,18 +204,21 @@ class VoiceInputController extends ChangeNotifier {
       TextEditingValue(text: _baseText, selection: _baseSelection);
 
   void _setPartialText(String text) {
+    if (_disposed) return;
     _partialText = text;
     _receivedPartial = true;
     notifyListeners();
   }
 
   void _setState(VoiceInputState state) {
+    if (_disposed) return;
     _state = state;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _service.dispose();
     super.dispose();
   }

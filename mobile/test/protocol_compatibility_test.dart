@@ -140,6 +140,50 @@ void main() {
     expect(attachment.localPath, isNull);
   });
 
+  test('Conversation models accept loose map payload shapes', () {
+    final summary = ConversationSummary.fromJson(<String, Object?>{
+      'id': 'conv_loose',
+      'workspaceId': 'workspace_1',
+      'adapter': 'claude',
+      'status': 'waiting_input',
+      'capabilities': <dynamic, dynamic>{'waitingInput': true},
+      'blockingItem': <dynamic, dynamic>{
+        'type': 'input_request',
+        'questionId': 'q1',
+        'input': <dynamic, dynamic>{'multiSelect': true},
+      },
+    });
+    final event = ConversationEvent.fromJson(<String, Object?>{
+      'seq': 5,
+      'conversationId': 'conv_loose',
+      'type': 'task.progress',
+      'createdAt': '2026-05-20T00:00:00.000Z',
+      'items': <Object?>[
+        <dynamic, dynamic>{
+          'id': 'task_1',
+          'title': 'Review data models',
+          'status': 'completed',
+        },
+      ],
+      'attachments': <Object?>[
+        <dynamic, dynamic>{
+          'id': 'att_1',
+          'name': 'notes.txt',
+          'kind': 'textDocument',
+          'mimeType': 'text/plain',
+          'sizeBytes': 42,
+          'handling': 'text_extract',
+        },
+      ],
+    });
+
+    expect(summary.capabilities.waitingInput, isTrue);
+    expect(summary.blockingItem?.questionId, 'q1');
+    expect(summary.blockingItem?.input['multiSelect'], isTrue);
+    expect(event.taskItems.single.title, 'Review data models');
+    expect(event.attachments.single.kind, AttachmentKind.textDocument);
+  });
+
   test('Attachment protocol parsers handle staged paths and fallbacks', () {
     expect(parseAttachmentKind('pdf'), AttachmentKind.pdf);
     expect(parseAttachmentKind('unknown'), AttachmentKind.unsupported);
@@ -419,6 +463,39 @@ void main() {
     expect(content.binary, isFalse);
     expect(content.content, contains('main'));
   });
+
+  test('legacy optional daemon payload fields use safe defaults', () {
+    final shortcut = ShortcutCommand.fromJson(const <String, Object?>{
+      'id': 'review',
+      'label': 'Review',
+      'prompt': 'Review recent changes.',
+    });
+    final git = GitStatusSummary.fromJson(const <String, Object?>{
+      'workspaceId': 'workspace_1',
+      'clean': true,
+    });
+    final diagnostics = CodeDiagnosticsSummary.fromJson(const <String, Object?>{
+      'workspaceId': 'workspace_1',
+      'available': false,
+    });
+    final bundle = DiagnosticBundleSummary.fromJson(const <String, Object?>{
+      'bundleId': 'bundle_1',
+      'createdAt': '2026-05-27T00:00:00.000Z',
+      'path': r'D:\tmp\bundle.zip',
+      'redacted': true,
+    });
+    final smoke = SmokeTestResult.fromJson(const <String, Object?>{
+      'ok': true,
+      'adapter': 'synthetic-jsonl',
+    });
+
+    expect(shortcut.tool, 'claude');
+    expect(git.files, isEmpty);
+    expect(diagnostics.diagnostics, isEmpty);
+    expect(bundle.items, isEmpty);
+    expect(smoke.events, 0);
+  });
+
   test('filters Claude SDK hook protocol JSON from visible messages', () {
     final event = AgentEvent.fromJson(const <String, Object?>{
       'type': 'raw.output',

@@ -258,6 +258,40 @@ void main() {
     expect(manager.state.status, AsrModelStatus.cancelled);
     expect(part.existsSync(), true);
   });
+
+  test('dispose during download suppresses later state notifications',
+      () async {
+    final bytes = _zipBytes();
+    final releaseStream = Completer<void>();
+    final client = _FakeAsrModelClient(
+        metadata: _metadata(bytes),
+        downloadHandler: (_) => AsrModelDownloadResponse(
+            statusCode: 200,
+            headers: const <String, String>{},
+            stream: (() async* {
+              yield bytes.sublist(0, 10);
+              await releaseStream.future;
+              yield bytes.sublist(10);
+            })()));
+    final manager = AsrModelManager(
+        client: client, supportDirectoryProvider: () async => tempDir);
+
+    final task = manager.ensureReady();
+    final expectedCancellation = expectLater(task, throwsA(anything));
+    for (var attempt = 0;
+        attempt < 20 && manager.state.status != AsrModelStatus.downloading;
+        attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    expect(manager.state.status, AsrModelStatus.downloading);
+
+    manager.dispose();
+    releaseStream.complete();
+
+    await expectedCancellation;
+    expect(manager.state.status, AsrModelStatus.downloading);
+  });
 }
 
 AsrModelMetadata _metadata(List<int> bytes, {String? sha256Value}) =>

@@ -51,4 +51,22 @@ void main() {
     expect(prefs.getString(AppLanguage.storageKey), 'zh-Hans-CN');
     expect(controller.locale, AppLanguage.zhHansCnLocale);
   });
+
+  test('LanguageController suppresses pending load after dispose', () async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final controller = LanguageController();
+    var notified = false;
+    controller.addListener(() {
+      notified = true;
+    });
+
+    final loading = controller.load();
+    controller.dispose();
+
+    await loading;
+
+    expect(notified, isFalse);
+    expect(controller.loaded, isFalse);
+  });
 }

@@ -36,10 +36,7 @@ class GitStatusSummary {
       GitStatusSummary(
         workspaceId: json['workspaceId'] as String? ?? '',
         clean: json['clean'] as bool? ?? false,
-        files: (json['files'] as List<Object?>)
-            .cast<Map<String, Object?>>()
-            .map(GitStatusFile.fromJson)
-            .toList(),
+        files: _objectList(json['files']).map(GitStatusFile.fromJson).toList(),
       );
 }
 
@@ -76,11 +73,9 @@ class DirectoryListing {
       DirectoryListing(
         path: json['path'] as String? ?? '',
         parent: json['parent'] as String?,
-        directories:
-            ((json['directories'] as List<Object?>?) ?? const <Object?>[])
-                .cast<Map<String, Object?>>()
-                .map(DirectoryEntrySummary.fromJson)
-                .toList(),
+        directories: _objectList(json['directories'])
+            .map(DirectoryEntrySummary.fromJson)
+            .toList(),
       );
 }
 
@@ -111,11 +106,9 @@ class ProjectOverview {
         codeLineCount: json['codeLineCount'] as int,
         symbolCount: json['symbolCount'] as int,
         analysisScore: json['analysisScore'] as int,
-        recentFiles:
-            ((json['recentFiles'] as List<Object?>?) ?? const <Object?>[])
-                .cast<Map<String, Object?>>()
-                .map(RecentFileSummary.fromJson)
-                .toList(),
+        recentFiles: _objectList(json['recentFiles'])
+            .map(RecentFileSummary.fromJson)
+            .toList(),
       );
 }
 
@@ -139,10 +132,8 @@ class FileTreeResponse {
       FileTreeResponse(
         workspaceId: json['workspaceId'] as String? ?? '',
         root: json['root'] as String? ?? '',
-        entries: ((json['entries'] as List<Object?>?) ?? const <Object?>[])
-            .cast<Map<String, Object?>>()
-            .map(FileTreeEntry.fromJson)
-            .toList(),
+        entries:
+            _objectList(json['entries']).map(FileTreeEntry.fromJson).toList(),
       );
 }
 
@@ -161,10 +152,8 @@ class FileTreeEntry {
         name: json['name'] as String,
         path: json['path'] as String? ?? '',
         type: json['type'] as String,
-        children: ((json['children'] as List<Object?>?) ?? const <Object?>[])
-            .cast<Map<String, Object?>>()
-            .map(FileTreeEntry.fromJson)
-            .toList(),
+        children:
+            _objectList(json['children']).map(FileTreeEntry.fromJson).toList(),
       );
 }
 
@@ -248,10 +237,30 @@ class CodeDiagnosticsSummary {
       CodeDiagnosticsSummary(
         workspaceId: json['workspaceId'] as String? ?? '',
         available: json['available'] as bool? ?? true,
-        diagnostics:
-            ((json['diagnostics'] as List<Object?>?) ?? const <Object?>[])
-                .cast<Map<String, Object?>>()
-                .map(CodeDiagnostic.fromJson)
-                .toList(),
+        diagnostics: _objectList(json['diagnostics'])
+            .map(CodeDiagnostic.fromJson)
+            .toList(),
       );
+}
+
+List<Map<String, Object?>> _objectList(Object? value) {
+  if (value is! Iterable) {
+    return const <Map<String, Object?>>[];
+  }
+  return value
+      .whereType<Map>()
+      .map(_objectMap)
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+Map<String, Object?> _objectMap(Map<dynamic, dynamic> value) {
+  final result = <String, Object?>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    if (key is String) {
+      result[key] = entry.value;
+    }
+  }
+  return result;
 }

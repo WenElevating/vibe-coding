@@ -308,35 +308,26 @@ class DaemonClient
 
   Future<List<AdapterStatus>> listAdapters() async {
     final response = await _get('/api/adapters');
-    final items = _readList(response, 'adapters');
-    return items
-        .cast<Map<String, Object?>>()
-        .map(AdapterStatus.fromJson)
-        .toList();
+    final items = _readMapList(response, 'adapters');
+    return items.map(AdapterStatus.fromJson).toList();
   }
 
   Future<List<ShortcutCommand>> listShortcuts() async {
     final response = await _get('/api/shortcuts');
-    final items = _readList(response, 'shortcuts');
-    return items
-        .cast<Map<String, Object?>>()
-        .map(ShortcutCommand.fromJson)
-        .toList();
+    final items = _readMapList(response, 'shortcuts');
+    return items.map(ShortcutCommand.fromJson).toList();
   }
 
   Future<List<CommandTemplate>> listCommandTemplates() async {
     final response = await _get('/api/command-templates');
-    final items = _readList(response, 'templates');
-    return items
-        .cast<Map<String, Object?>>()
-        .map(CommandTemplate.fromJson)
-        .toList();
+    final items = _readMapList(response, 'templates');
+    return items.map(CommandTemplate.fromJson).toList();
   }
 
   Future<List<QueueItem>> listQueue() async {
     final response = await _get('/api/queue');
-    final items = _readList(response, 'queue');
-    return items.cast<Map<String, Object?>>().map(QueueItem.fromJson).toList();
+    final items = _readMapList(response, 'queue');
+    return items.map(QueueItem.fromJson).toList();
   }
 
   @override
@@ -348,11 +339,8 @@ class DaemonClient
   @override
   Future<List<DiffSummary>> gitDiff(String workspaceId) async {
     final response = await _get('/api/workspaces/$workspaceId/git/diff');
-    final items = _readList(response, 'summaries');
-    return items
-        .cast<Map<String, Object?>>()
-        .map(DiffSummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'summaries');
+    return items.map(DiffSummary.fromJson).toList();
   }
 
   @override
@@ -390,11 +378,8 @@ class DaemonClient
         path: '/api/workspaces/$workspaceId/git/commits',
         queryParameters: <String, String>{'limit': '$limit'}).toString();
     final response = await _get(requestPath);
-    final items = response['commits'] as List<Object?>;
-    return items
-        .cast<Map<String, Object?>>()
-        .map(GitCommitSummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'commits');
+    return items.map(GitCommitSummary.fromJson).toList();
   }
 
   @override
@@ -406,11 +391,8 @@ class DaemonClient
 
   Future<List<ExtensionSummary>> listExtensions() async {
     final response = await _get('/api/extensions');
-    final items = response['extensions'] as List<Object?>;
-    return items
-        .cast<Map<String, Object?>>()
-        .map(ExtensionSummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'extensions');
+    return items.map(ExtensionSummary.fromJson).toList();
   }
 
   Future<RunSummary> invokeCommandTemplate(
@@ -425,11 +407,8 @@ class DaemonClient
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
     final response = await _get('/api/workspaces');
-    final items = response['workspaces'] as List<Object?>;
-    return items
-        .cast<Map<String, Object?>>()
-        .map(WorkspaceSummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'workspaces');
+    return items.map(WorkspaceSummary.fromJson).toList();
   }
 
   @override
@@ -445,11 +424,8 @@ class DaemonClient
   @override
   Future<List<DirectoryEntrySummary>> listFileSystemRoots() async {
     final response = await _get('/api/fs/roots');
-    final items = response['roots'] as List<Object?>;
-    return items
-        .cast<Map<String, Object?>>()
-        .map(DirectoryEntrySummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'roots');
+    return items.map(DirectoryEntrySummary.fromJson).toList();
   }
 
   @override
@@ -473,8 +449,8 @@ class DaemonClient
         Uri(path: '/api/runs', queryParameters: query.isEmpty ? null : query)
             .toString();
     final response = await _get(path);
-    final items = _readList(response, 'runs');
-    return items.cast<Map<String, Object?>>().map(RunSummary.fromJson).toList();
+    final items = _readMapList(response, 'runs');
+    return items.map(RunSummary.fromJson).toList();
   }
 
   @override
@@ -497,8 +473,8 @@ class DaemonClient
   @override
   Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async {
     final response = await _get('/api/runs/$runId/events?afterSeq=$afterSeq');
-    final items = _readList(response, 'events');
-    return items.cast<Map<String, Object?>>().map(AgentEvent.fromJson).toList();
+    final items = _readMapList(response, 'events');
+    return items.map(AgentEvent.fromJson).toList();
   }
 
   @override
@@ -557,11 +533,8 @@ class DaemonClient
   @override
   Future<List<ConversationSummary>> listConversations() async {
     final response = await _get('/api/conversations');
-    final items = _readList(response, 'conversations');
-    return items
-        .cast<Map<String, Object?>>()
-        .map(ConversationSummary.fromJson)
-        .toList();
+    final items = _readMapList(response, 'conversations');
+    return items.map(ConversationSummary.fromJson).toList();
   }
 
   @override
@@ -612,11 +585,8 @@ class DaemonClient
       {int afterSeq = 0}) async {
     final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
     final response = await _get(path);
-    final items = _readList(response, 'events');
-    return items
-        .cast<Map<String, Object?>>()
-        .map((json) => ConversationEvent.fromJson(json))
-        .toList();
+    final items = _readMapList(response, 'events');
+    return items.map(ConversationEvent.fromJson).toList();
   }
 
   @override
@@ -912,6 +882,27 @@ List<Object?> _readList(Map<String, Object?> json, String key) {
     'error': 'invalid_response',
     'message': 'Expected "$key" to be a list.',
   });
+}
+
+List<Map<String, Object?>> _readMapList(
+  Map<String, Object?> json,
+  String key,
+) {
+  return _readList(json, key).map((item) {
+    if (item is Map<String, Object?>) return item;
+    if (item is Map) {
+      final mapped = <String, Object?>{};
+      for (final entry in item.entries) {
+        final entryKey = entry.key;
+        if (entryKey is String) mapped[entryKey] = entry.value;
+      }
+      if (mapped.isNotEmpty) return mapped;
+    }
+    throw DaemonClientException(200, <String, Object?>{
+      'error': 'invalid_response',
+      'message': 'Expected "$key" items to be objects.',
+    });
+  }).toList(growable: false);
 }
 
 class DaemonClientException implements Exception {
