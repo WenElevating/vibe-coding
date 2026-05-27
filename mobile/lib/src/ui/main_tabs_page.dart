@@ -8,7 +8,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
 import '../services/coding_preferences_store.dart';
-import '../services/daemon_client.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
@@ -37,18 +36,16 @@ class MainTabsPage extends StatefulWidget {
   const MainTabsPage({
     super.key,
     required this.data,
-    required this.client,
     required this.connectionConfig,
-    required this.dependencies,
+    required this.pageDependencies,
     this.forceAndroidForTesting,
   }) : emptyInitialData = null;
 
   MainTabsPage.fromInitialData({
     super.key,
     required DaemonInitialData initialData,
-    required this.client,
     required this.connectionConfig,
-    required this.dependencies,
+    required this.pageDependencies,
     this.forceAndroidForTesting,
   })  : data =
             initialData.workspace == null ? null : initialData.toAppSnapshot(),
@@ -56,9 +53,8 @@ class MainTabsPage extends StatefulWidget {
 
   final AppSnapshot? data;
   final DaemonInitialData? emptyInitialData;
-  final DaemonClient client;
   final DaemonConnectionConfig connectionConfig;
-  final AppDependencies dependencies;
+  final MainTabsDependencies pageDependencies;
   final bool? forceAndroidForTesting;
 
   @override
@@ -277,10 +273,8 @@ class _MainTabsPageState extends State<MainTabsPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final pageDependencies =
-        widget.dependencies.createMainTabsDependencies(widget.client);
-    _connectedData = pageDependencies.connectedData;
-    _workbenchDependencies = pageDependencies.workbenchDependencies;
+    _connectedData = widget.pageDependencies.connectedData;
+    _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
     _codingPreferencesStore = CodingPreferencesStore();
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
@@ -299,13 +293,11 @@ class _MainTabsPageState extends State<MainTabsPage>
   @override
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.client != widget.client) {
+    if (oldWidget.pageDependencies != widget.pageDependencies) {
       final oldWorkbenchDependencies = _workbenchDependencies;
       final oldConnectedData = _connectedData;
-      final pageDependencies =
-          widget.dependencies.createMainTabsDependencies(widget.client);
-      _connectedData = pageDependencies.connectedData;
-      _workbenchDependencies = pageDependencies.workbenchDependencies;
+      _connectedData = widget.pageDependencies.connectedData;
+      _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
       _disposeAppUpdateViewModel();
       unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
@@ -354,10 +346,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final versionCode = int.tryParse(packageInfo.buildNumber) ?? 0;
-      final viewModel =
-          await widget.dependencies.features.createAppUpdateViewModel(
-        client: widget.client,
-        connectedData: _connectedData,
+      final viewModel = await widget.pageDependencies.createAppUpdateViewModel(
         installedVersionCode: versionCode,
         installedVersionName: packageInfo.version,
       );
@@ -559,7 +548,8 @@ class _MainTabsPageState extends State<MainTabsPage>
                   route: viewModel.activeRoute,
                   data: data,
                   connectedData: _connectedData,
-                  featureDependencies: widget.dependencies.features,
+                  featureDependencies:
+                      widget.pageDependencies.featureDependencies,
                   onBack: viewModel.closeOverlay,
                 ),
         ),
@@ -722,8 +712,7 @@ class _MainTabsPageState extends State<MainTabsPage>
       _emptyError = null;
     });
     try {
-      final snapshot = await loadWorkspaceBootstrap(
-        widget.client,
+      final snapshot = await widget.pageDependencies.loadWorkspaceBootstrap(
         health: health,
         workspaces: workspaces,
         workspace: workspace,

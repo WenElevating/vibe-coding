@@ -201,25 +201,11 @@ class BadView {}
     expect(output.toString(), contains('UI imports concrete DaemonClient'));
   });
 
-  test('ui daemon client imports remain allowed for connection and main tabs',
+  test('ui daemon client imports remain allowed for connection boundary',
       () async {
     File('${tempDir.path}${Platform.pathSeparator}pubspec.yaml')
       ..createSync(recursive: true)
       ..writeAsStringSync('name: architecture_imports_fixture\n');
-
-    final mainTabs = File(
-      '${tempDir.path}${Platform.pathSeparator}'
-      'lib${Platform.pathSeparator}'
-      'src${Platform.pathSeparator}'
-      'ui${Platform.pathSeparator}'
-      'main_tabs_page.dart',
-    )..createSync(recursive: true);
-
-    mainTabs.writeAsStringSync('''
-import '../services/daemon_client.dart';
-
-class MainTabsPage {}
-''');
 
     final viewModel = File(
       '${tempDir.path}${Platform.pathSeparator}'

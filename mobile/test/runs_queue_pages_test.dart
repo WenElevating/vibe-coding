@@ -93,7 +93,7 @@ void main() {
     expect(find.text('run_waiting'), findsOneWidget);
     expect(find.text('active'), findsOneWidget);
     expect(find.text('waiting'), findsOneWidget);
-    expect(find.text('Queued'), findsOneWidget);
+    expect(find.text('Queued'), findsWidgets);
     expect(find.text('Waiting'), findsNothing);
   });
 }

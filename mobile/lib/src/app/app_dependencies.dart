@@ -31,6 +31,7 @@ import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
 import '../services/recent_daemon_address_store.dart';
 import '../services/speech_input_service.dart';
+import '../shell/app_snapshot.dart';
 import '../ui/features/connection/view_models/daemon_connection_view_model.dart';
 import '../ui/features/diagnostics/diagnostics.dart';
 import '../ui/features/run_detail/run_detail.dart';
@@ -84,6 +85,28 @@ class AppDependencies {
         client,
         connectedData,
       ),
+      featureDependencies: features,
+      createAppUpdateViewModel: ({
+        required installedVersionCode,
+        required installedVersionName,
+      }) =>
+          features.createAppUpdateViewModel(
+        client: client,
+        connectedData: connectedData,
+        installedVersionCode: installedVersionCode,
+        installedVersionName: installedVersionName,
+      ),
+      loadWorkspaceBootstrap: ({
+        required health,
+        required workspaces,
+        required workspace,
+      }) =>
+          loadWorkspaceBootstrap(
+        client,
+        health: health,
+        workspaces: workspaces,
+        workspace: workspace,
+      ),
     );
   }
 }
@@ -92,10 +115,23 @@ class MainTabsDependencies {
   MainTabsDependencies({
     required this.connectedData,
     required this.workbenchDependencies,
+    required this.featureDependencies,
+    required this.createAppUpdateViewModel,
+    required this.loadWorkspaceBootstrap,
   });
 
   final ConnectedDataDependencies connectedData;
   final WorkbenchDependencies workbenchDependencies;
+  final FeatureDependencies featureDependencies;
+  final Future<AppUpdateViewModel> Function({
+    required int installedVersionCode,
+    required String installedVersionName,
+  }) createAppUpdateViewModel;
+  final Future<AppSnapshot> Function({
+    required DaemonHealth health,
+    required List<WorkspaceSummary> workspaces,
+    required WorkspaceSummary workspace,
+  }) loadWorkspaceBootstrap;
 }
 
 class NetworkDependencies {

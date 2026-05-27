@@ -1,15 +1,15 @@
-import '../../../../data/repositories/daemon_connection_config_repository.dart';
-import '../../../../data/repositories/recent_daemon_address_repository.dart';
-import '../../../../domain/repositories/recent_daemon_address_repository.dart';
-import '../../../../domain/use_cases/connect_to_daemon_use_case.dart';
-import '../../../../services/daemon_client.dart';
-import '../../../../services/daemon_connection_config_store.dart';
-import '../../../../services/recent_daemon_address_store.dart';
-import '../../../../shell/app_snapshot.dart';
-import '../../../../workflows/connection/daemon_connection_workflow.dart';
-import 'daemon_connection_view_model.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_connection_config_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/recent_daemon_address_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/recent_daemon_address_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
+import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
+import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
+import 'package:lan_ai_cli_control/src/services/recent_daemon_address_store.dart';
+import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart';
+import 'package:lan_ai_cli_control/src/workflows/connection/daemon_connection_workflow.dart';
 
-export 'daemon_connection_view_model.dart'
+export 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart'
     show
         DaemonConnectionStatus,
         DiagnosticRecorder,
@@ -17,7 +17,8 @@ export 'daemon_connection_view_model.dart'
         noopDiagnosticRecorder;
 
 typedef DaemonSnapshotLoader = Future<AppSnapshot> Function(
-    DaemonClient client);
+  DaemonClient client,
+);
 
 class DaemonConnectionController extends DaemonConnectionViewModel {
   DaemonConnectionController({

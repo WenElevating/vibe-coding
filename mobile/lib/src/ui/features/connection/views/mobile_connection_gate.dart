@@ -27,16 +27,55 @@ class MobileConnectionGate extends StatelessWidget {
         if (viewModel.status == DaemonConnectionStatus.connected &&
             viewModel.initialData != null &&
             viewModel.client != null) {
-          final initialData = viewModel.initialData!;
-          return MainTabsPage.fromInitialData(
-            initialData: initialData,
-            client: viewModel.client!,
-            connectionConfig: viewModel.connectedConfig!,
+          return _ConnectedMainTabsHost(
+            viewModel: viewModel,
             dependencies: dependencies,
           );
         }
         return MobileConnectionPage(controller: viewModel);
       },
+    );
+  }
+}
+
+class _ConnectedMainTabsHost extends StatefulWidget {
+  const _ConnectedMainTabsHost({
+    required this.viewModel,
+    required this.dependencies,
+  });
+
+  final DaemonConnectionViewModel viewModel;
+  final AppDependencies dependencies;
+
+  @override
+  State<_ConnectedMainTabsHost> createState() => _ConnectedMainTabsHostState();
+}
+
+class _ConnectedMainTabsHostState extends State<_ConnectedMainTabsHost> {
+  Object? _clientIdentity;
+  MainTabsDependencies? _pageDependencies;
+
+  @override
+  void didUpdateWidget(covariant _ConnectedMainTabsHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dependencies != widget.dependencies) {
+      _clientIdentity = null;
+      _pageDependencies = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final client = widget.viewModel.client!;
+    if (!identical(_clientIdentity, client)) {
+      _clientIdentity = client;
+      _pageDependencies =
+          widget.dependencies.createMainTabsDependencies(client);
+    }
+    return MainTabsPage.fromInitialData(
+      initialData: widget.viewModel.initialData!,
+      connectionConfig: widget.viewModel.connectedConfig!,
+      pageDependencies: _pageDependencies!,
     );
   }
 }

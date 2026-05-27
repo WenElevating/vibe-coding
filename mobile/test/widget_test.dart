@@ -34,7 +34,6 @@ import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_pi
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
-import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_controller.dart';
 import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
@@ -42,11 +41,23 @@ import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_a
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/daemon_connection_controller.dart';
+
 void _noopString(String _) {}
 
 Future<void> _pumpNavigationFrame(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
+}
+
+void _setMockPackageInfo() {
+  PackageInfo.setMockInitialValues(
+    appName: 'LAN AI CLI Control',
+    packageName: 'com.example.lan_ai_cli_control',
+    version: '1.0.0',
+    buildNumber: '1',
+    buildSignature: '',
+  );
 }
 
 class _LocalizedSettingsLabelApp extends StatefulWidget {
@@ -203,11 +214,26 @@ class _MainTabsHarness extends StatefulWidget {
 
 class _MainTabsHarnessState extends State<_MainTabsHarness> {
   late final LanguageController _languageController;
+  late AppDependencies _dependencies;
+  late MainTabsDependencies _pageDependencies;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
+    _dependencies = widget.dependencies ?? AppDependencies.createDefault();
+    _pageDependencies = _dependencies.createMainTabsDependencies(widget.client);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MainTabsHarness oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.client != widget.client ||
+        oldWidget.dependencies != widget.dependencies) {
+      _dependencies = widget.dependencies ?? AppDependencies.createDefault();
+      _pageDependencies =
+          _dependencies.createMainTabsDependencies(widget.client);
+    }
   }
 
   @override
@@ -230,20 +256,19 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
               theme: theme.buildAppTheme(),
               home: MainTabsPage(
                   data: widget.snapshot ?? _testSnapshot(),
-                  client: widget.client,
                   connectionConfig: const DaemonConnectionConfig(
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
                       manualProxyInput: ''),
                   forceAndroidForTesting: widget.forceAndroidForTesting,
-                  dependencies: widget.dependencies ??
-                      AppDependencies.createDefault()))));
+                  pageDependencies: _pageDependencies))));
 }
 
 class _MobileConnectionHarness extends StatefulWidget {
-  const _MobileConnectionHarness({required this.controller});
+  const _MobileConnectionHarness({required this.controller, this.dependencies});
 
   final DaemonConnectionViewModel controller;
+  final AppDependencies? dependencies;
 
   @override
   State<_MobileConnectionHarness> createState() =>
@@ -277,7 +302,10 @@ class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
               localeResolutionCallback: (locale, supportedLocales) =>
                   resolveSupportedLocale(locale, supportedLocales),
               theme: theme.buildAppTheme(),
-              home: MobileUi(connectionController: widget.controller))));
+              home: MobileUi(
+                connectionController: widget.controller,
+                dependencies: widget.dependencies,
+              ))));
 }
 
 class _AdapterRefreshClient extends DaemonClient {
@@ -1317,7 +1345,7 @@ void main() {
     ));
 
     await tester.enterText(find.byType(TextField), ' ');
-    await tester.tap(find.text('连接'));
+    await tester.tap(find.text('连接').last);
     await tester.pump();
 
     expect(find.text('请输入 daemon 地址。'), findsOneWidget);
@@ -1549,8 +1577,49 @@ void main() {
     );
     addTearDown(controller.dispose);
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    _setMockPackageInfo();
+    final installer = _WidgetAppUpdateInstaller();
+    addTearDown(installer.close);
+    final appUpdateViewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: AppUpdateWorkflow(
+        repository: _WidgetAppUpdateRepository(
+          manifest: _widgetAppUpdateManifest(),
+        ),
+        installerService: installer,
+        downloaderService: _WidgetAppUpdateDownloader(),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    final dependencies = AppDependencies.createDefault();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            appUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
 
-    await tester.pumpWidget(_MobileConnectionHarness(controller: controller));
+    await tester.pumpWidget(_MobileConnectionHarness(
+      controller: controller,
+      dependencies: testDependencies,
+    ));
     await controller.load();
     await controller.connect();
     await tester.pumpAndSettle();

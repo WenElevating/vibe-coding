@@ -10,9 +10,7 @@ const migrationOnlyRoots = <String>[
 const productionTestingRoot = 'src/testing/';
 
 const allowedUiDaemonClientBoundaryImports = <String>{
-  'lib/src/ui/main_tabs_page.dart',
   'lib/src/ui/features/connection/view_models/daemon_connection_view_model.dart',
-  'lib/src/ui/features/connection/view_models/daemon_connection_controller.dart',
 };
 
 const allowedMigrationDebt = <_AllowedDebt>[];

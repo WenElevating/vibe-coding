@@ -9,8 +9,9 @@ import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
-import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/daemon_connection_controller.dart';
 
 void main() {
   setUp(() {
@@ -131,7 +132,8 @@ void main() {
     expect(() => controller.selectRecentAddress('192.168.1.50:4317'),
         returnsNormally);
 
-    expect(controller.addressInput, DaemonConnectionConfig.fallback.addressInput);
+    expect(
+        controller.addressInput, DaemonConnectionConfig.fallback.addressInput);
     expect(controller.proxyMode, DaemonConnectionConfig.fallback.proxyMode);
     expect(
       controller.manualProxyInput,
