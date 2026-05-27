@@ -294,11 +294,22 @@ class VoiceInputViewModel extends ChangeNotifier {
   void dispose() {
     _controller.removeListener(notifyListeners);
     if (isBusy) {
-      unawaited(_controller.cancel().whenComplete(_controller.dispose));
+      unawaited(_cancelAndDisposeController());
     } else {
       _controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _cancelAndDisposeController() async {
+    try {
+      await _controller.cancel();
+    } catch (_) {
+      // Dispose is best-effort cleanup; cancellation errors are already no
+      // longer actionable once the owning view model is being torn down.
+    } finally {
+      _controller.dispose();
+    }
   }
 }
 

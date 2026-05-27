@@ -89,6 +89,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? _error;
   String? _errorTraceId;
   String? _currentAttachmentClientMessageId;
+  bool _disposed = false;
 
   WorkbenchRouteState get routeState => _routeState;
   List<SessionItem> get optimisticSessions =>
@@ -118,6 +119,17 @@ class WorkbenchViewModel extends ChangeNotifier {
       List.unmodifiable(_eventTraceEntries);
   List<DraftAttachment> get draftAttachments =>
       List.unmodifiable(_draftAttachments);
+
+  void _notifyListeners() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _modelUpdateGeneration++;
+    super.dispose();
+  }
   ConversationViewState get conversationState => _conversationState;
   int get lastSeq => _lastSeq;
   String? get pendingQuestionId {
@@ -155,7 +167,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       workspaces: _routeState.workspaces,
       notice: notice,
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void showSessions(WorkspaceSummary workspace) {
@@ -163,7 +175,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       workspace: workspace,
       workspaces: _routeState.workspaces,
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void showConversation(WorkspaceSummary workspace) {
@@ -171,7 +183,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       workspace: workspace,
       workspaces: _routeState.workspaces,
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void showCreatingWorkspace({required String requestLabel}) {
@@ -179,7 +191,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       previousWorkspaces: _routeState.workspaces,
       requestLabel: requestLabel,
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void confirmWorkspaceCreated({
@@ -190,14 +202,14 @@ class WorkbenchViewModel extends ChangeNotifier {
       workspace: workspace,
       workspaces: List.unmodifiable(workspaces),
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void cancelWorkspaceCreation(List<WorkspaceSummary> workspaces) {
     _routeState = WorkspaceListRouteState(
       workspaces: List.unmodifiable(workspaces),
     );
-    notifyListeners();
+    _notifyListeners();
   }
 
   void openSession(SessionItem item, {bool notify = true}) {
@@ -209,7 +221,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _resetConversationModelUpdateState();
     }
     _selectActiveConversationAdapter(item.conversation);
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void updateActiveConversation(
@@ -231,7 +243,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _resetConversationModelUpdateState();
     }
     _selectActiveConversationAdapter(conversation);
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void clearActiveConversation({bool notify = true}) {
@@ -250,7 +262,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _modelUpdateError = null;
     _conversationModelUpdatesUnsupported = false;
     _modelUpdateGeneration++;
-    if (changed && notify) notifyListeners();
+    if (changed && notify) _notifyListeners();
   }
 
   void resetConversationDisplay({
@@ -289,7 +301,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _conversationModelUpdatesUnsupported = false;
       _modelUpdateGeneration++;
     }
-    if (changed && notify) notifyListeners();
+    if (changed && notify) _notifyListeners();
   }
 
   void setCancelledConversationDisplayStatus(
@@ -315,7 +327,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       clearActiveConversation(notify: false);
     }
     _lastSeq = 0;
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void addUserMessage(String prompt,
@@ -324,7 +336,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         ? _draftAttachmentsForOptimisticMessage()
         : const <CommittedAttachment>[];
     _messages.add(WorkbenchMessage.user(prompt, attachments: attachments));
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void prepareNewConversationSend(
@@ -335,7 +347,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     updateActiveConversation(runningConversation, runId: run.id, notify: false);
     _lastSeq = 0;
     _resolvedApprovalIds.clear();
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void markConversationRunning({bool notify = true}) {
@@ -350,7 +362,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   void removeQuestionMessages({bool notify = true}) {
     final before = _messages.length;
     _messages.removeWhere((message) => message.role == 'question');
-    if (notify && _messages.length != before) notifyListeners();
+    if (notify && _messages.length != before) _notifyListeners();
   }
 
   bool applyConversationEvents(
@@ -373,7 +385,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _conversationState.apply(newEvents, streamOutput: streamOutput);
     _rebuildMessagesFromConversationState();
     _restorePendingOptimisticUserMessages(optimisticUserMessages);
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
     return true;
   }
 
@@ -398,7 +410,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     );
     if (!stillCurrent()) return false;
     final hasChanged = changed || previewChanged;
-    if (notify && hasChanged) notifyListeners();
+    if (notify && hasChanged) _notifyListeners();
     return hasChanged;
   }
 
@@ -423,20 +435,20 @@ class WorkbenchViewModel extends ChangeNotifier {
     } else {
       _messages.add(WorkbenchMessage.status('Denied permission request'));
     }
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void beginOperation({bool notify = true}) {
     _sending = true;
     _error = null;
     _errorTraceId = null;
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void finishOperation({bool notify = true}) {
     if (!_sending) return;
     _sending = false;
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void setOperationError(
@@ -446,14 +458,14 @@ class WorkbenchViewModel extends ChangeNotifier {
   }) {
     _error = message;
     _errorTraceId = traceId;
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void clearOperationError({bool notify = true}) {
     final changed = _error != null || _errorTraceId != null;
     _error = null;
     _errorTraceId = null;
-    if (changed && notify) notifyListeners();
+    if (changed && notify) _notifyListeners();
   }
 
   void setSelectedAdapter(String? adapter) {
@@ -463,7 +475,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _draftModel = _preferredModelFor(selectedAdapterStatus);
     _modelNotice = null;
     _revalidateDraftAttachments();
-    notifyListeners();
+    _notifyListeners();
   }
 
   Future<bool> selectModel(String? model) async {
@@ -482,13 +494,13 @@ class WorkbenchViewModel extends ChangeNotifier {
       _draftModel = normalized;
       _modelNotice = null;
       _revalidateDraftAttachments();
-      if (changed) notifyListeners();
+      if (changed) _notifyListeners();
       return true;
     }
 
     if (_conversationModelUpdatesUnsupported) {
       _modelUpdateError = _unsupportedModelUpdateMessage;
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
 
@@ -496,7 +508,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     final modelUpdateGeneration = ++_modelUpdateGeneration;
     _modelUpdating = true;
     _modelUpdateError = null;
-    notifyListeners();
+    _notifyListeners();
     try {
       final conversation =
           await repository.updateConversationModel(conversationId, normalized);
@@ -509,7 +521,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _modelUpdateError = null;
       _modelUpdating = false;
       _revalidateDraftAttachments();
-      notifyListeners();
+      _notifyListeners();
       return true;
     } on ConversationRepositoryException catch (error) {
       if (!_isCurrentModelUpdate(modelUpdateGeneration, conversationId)) {
@@ -524,7 +536,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _modelUpdateError =
             message == null || message.isEmpty ? error.toString() : message;
       }
-      notifyListeners();
+      _notifyListeners();
       return false;
     } catch (error) {
       if (!_isCurrentModelUpdate(modelUpdateGeneration, conversationId)) {
@@ -532,7 +544,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       }
       _modelUpdating = false;
       _modelUpdateError = error.toString();
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
   }
@@ -540,7 +552,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   void clearModelNotice({bool notify = true}) {
     if (_modelNotice == null) return;
     _modelNotice = null;
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void updateFromSnapshot(AppSnapshot snapshot) {
@@ -558,7 +570,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _reconcileSelectedModel();
     }
     _revalidateDraftAttachments();
-    notifyListeners();
+    _notifyListeners();
   }
 
   void updateAdapters(List<AdapterStatus> adapters, {bool notify = true}) {
@@ -573,7 +585,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       _reconcileSelectedModel();
     }
     _revalidateDraftAttachments();
-    if (notify) notifyListeners();
+    if (notify) _notifyListeners();
   }
 
   void _applyAdapters(List<AdapterStatus> adapters) {
@@ -599,7 +611,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       );
     }
     _revalidateDraftAttachments();
-    notifyListeners();
+    _notifyListeners();
   }
 
   @visibleForTesting
@@ -611,7 +623,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (index < 0 || index >= _draftAttachments.length) return;
     _draftAttachments.removeAt(index);
     _revalidateDraftAttachments();
-    notifyListeners();
+    _notifyListeners();
   }
 
   bool canSendComposer({required String text}) {
@@ -649,6 +661,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   bool _isCurrentModelUpdate(int generation, String conversationId) =>
+      !_disposed &&
       _modelUpdateGeneration == generation &&
       _activeConversationId == conversationId;
 
@@ -675,7 +688,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         changed = true;
       }
     }
-    if (changed && notify) notifyListeners();
+    if (changed && notify) _notifyListeners();
   }
 
   Future<WorkbenchNewConversationSendResult> createAndSend({
@@ -700,7 +713,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       run: runSummaryFromConversation(runningConversation),
       conversation: runningConversation,
     );
-    notifyListeners();
+    _notifyListeners();
     return WorkbenchNewConversationSendResult(
       conversation: conversation,
       runningConversation: runningConversation,

@@ -306,7 +306,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _cancelBackgroundEventDisconnectTimer();
     _conversationEventSubscriptionGeneration += 1;
     unawaited(_conversationEventSubscription?.cancel());
-    if (_voiceInput.isBusy) unawaited(_voiceInput.cancel());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
     _workbenchViewModel.removeListener(_syncWorkbenchViewModel);

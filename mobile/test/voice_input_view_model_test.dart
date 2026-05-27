@@ -7,8 +7,10 @@ class _FakeSpeechInputService implements SpeechInputService {
   int startCalls = 0;
   int stopCalls = 0;
   int cancelCalls = 0;
+  int disposeCalls = 0;
   void Function(String text)? onPartial;
   Completer<void>? startCompleter;
+  Object? cancelError;
   String stopText = 'voice result';
 
   @override
@@ -28,10 +30,14 @@ class _FakeSpeechInputService implements SpeechInputService {
   @override
   Future<void> cancel() async {
     cancelCalls++;
+    final error = cancelError;
+    if (error != null) throw error;
   }
 
   @override
-  void dispose() {}
+  void dispose() {
+    disposeCalls++;
+  }
 }
 
 void main() {
@@ -77,5 +83,24 @@ void main() {
     expect(service.cancelCalls, 1);
     expect(service.stopCalls, 0);
     expect(viewModel.state, VoiceInputState.idle);
+  });
+
+  test('dispose consumes busy cancellation failures', () async {
+    final service = _FakeSpeechInputService()
+      ..startCompleter = Completer<void>()
+      ..cancelError = StateError('cancel failed');
+    final viewModel = VoiceInputViewModel(service: service);
+
+    final start = viewModel.start(currentPrompt: 'typed');
+    await pumpEventQueue();
+
+    viewModel.dispose();
+    await pumpEventQueue();
+    service.startCompleter!.complete();
+    await start;
+    await pumpEventQueue();
+
+    expect(service.cancelCalls, 1);
+    expect(service.disposeCalls, 1);
   });
 }

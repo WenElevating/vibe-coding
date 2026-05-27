@@ -387,6 +387,20 @@
   "workbenchComposerFollowUpHint": "要求后续变更…",
   "workbenchComposerDefaultModel": "默认模型",
   "workbenchComposerModelChangedNotice": "模型已切换到可用选项",
+  "workbenchComposerPromptHint": "输入你的需求...",
+  "workbenchVoiceListeningStatus": "正在听写...松开后完成",
+  "workbenchAttachmentAddTooltip": "添加附件",
+  "workbenchAttachmentRemoveTooltip": "移除 {name}",
+  "@workbenchAttachmentRemoveTooltip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchVoiceInputSemantics": "语音输入",
+  "workbenchVoiceInputEnabledTooltip": "点击或按住说话",
+  "workbenchVoiceInputUnavailableTooltip": "当前平台暂不支持语音输入。",
   "workbenchAttachmentUnsupported": "所选模型不支持这个文件。",
   "workbenchAttachmentTooLarge": "这个文件太大。",
   "workbenchAttachmentAddInstruction": "为这些文件补充一条说明。",

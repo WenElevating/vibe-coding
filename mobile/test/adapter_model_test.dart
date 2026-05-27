@@ -153,6 +153,28 @@ void main() {
       expect(viewModel.modelUpdateError, isNull);
     });
 
+    test('dispose suppresses in-flight model update completion notification',
+        () async {
+      final repository = _FakeConversationRepository();
+      final updateCompleter = Completer<ConversationSummary>();
+      repository.updateCompleter = updateCompleter;
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(adapter: 'codex', model: 'gpt-5-codex'),
+      );
+
+      final pendingSelection = viewModel.selectModel('gpt-5-mini');
+      expect(viewModel.modelUpdating, isTrue);
+
+      viewModel.dispose();
+      updateCompleter.complete(_conversation(model: 'gpt-5-mini'));
+
+      expect(await pendingSelection, isFalse);
+    });
+
     test('existing conversation model update failure keeps confirmed model',
         () async {
       final repository = _FakeConversationRepository()

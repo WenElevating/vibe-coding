@@ -1745,6 +1745,43 @@ void main() {
     expect(find.textContaining('Listening'), findsOneWidget);
   });
 
+  testWidgets('coding composer voice strings use active locale',
+      (WidgetTester tester) async {
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: CodingComposer(
+                controller: controller,
+                adapter: 'codex',
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                running: false,
+                canSend: false,
+                sending: false,
+                voiceState: VoiceInputState.listening,
+                voiceEnabled: true,
+                voiceError: null,
+                cliLocked: false,
+                modelLocked: false,
+                onCliTap: () {},
+                onModelTap: () {},
+                onVoiceStart: () {},
+                onVoiceStop: () {},
+                onVoiceCancel: () {},
+                onTextChanged: (_) {},
+                onSend: () {},
+                onCancel: () {}))));
+
+    expect(find.text('输入你的需求...'), findsOneWidget);
+    expect(find.text('正在听写...松开后完成'), findsOneWidget);
+    expect(find.bySemanticsLabel('语音输入'), findsOneWidget);
+  });
+
   testWidgets('coding composer reports text edits while voice is listening',
       (WidgetTester tester) async {
     String? editedText;
@@ -4618,8 +4655,12 @@ void main() {
     expect(zh.asrModelDownloading('zipformer'), '正在下载 zipformer');
     expect(zh.asrModelPauseAction, '暂停');
     expect(zh.asrModelCancelAction, '取消');
+    expect(zh.workbenchComposerPromptHint, '输入你的需求...');
+    expect(zh.workbenchAttachmentRemoveTooltip('image.png'), '移除 image.png');
     expect(en.asrModelDialogTitle, 'Voice model');
     expect(en.asrModelDownloading('zipformer'), 'Downloading zipformer');
+    expect(en.workbenchComposerPromptHint, 'Add feedback...');
+    expect(en.workbenchAttachmentRemoveTooltip('image.png'), 'Remove image.png');
   });
 
   test('duplicate approvals collapse and approval response becomes command',

@@ -387,6 +387,20 @@
   "workbenchComposerFollowUpHint": "Request follow-up changes?",
   "workbenchComposerDefaultModel": "Default model",
   "workbenchComposerModelChangedNotice": "Model changed to an available option",
+  "workbenchComposerPromptHint": "Add feedback...",
+  "workbenchVoiceListeningStatus": "Listening... release to finish",
+  "workbenchAttachmentAddTooltip": "Add attachment",
+  "workbenchAttachmentRemoveTooltip": "Remove {name}",
+  "@workbenchAttachmentRemoveTooltip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchVoiceInputSemantics": "Voice input",
+  "workbenchVoiceInputEnabledTooltip": "Tap or hold to speak",
+  "workbenchVoiceInputUnavailableTooltip": "Voice input is not available on this platform yet.",
   "workbenchAttachmentUnsupported": "This file is not supported by the selected model.",
   "workbenchAttachmentTooLarge": "This file is too large.",
   "workbenchAttachmentAddInstruction": "Add an instruction for these files.",

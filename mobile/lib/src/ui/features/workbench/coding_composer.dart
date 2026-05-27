@@ -63,6 +63,7 @@ class CodingComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final attachmentStatus =
         _firstLocalizedAttachmentError(context, draftAttachments);
     return Container(
@@ -111,15 +112,12 @@ class CodingComposer extends StatelessWidget {
                         isDense: true,
                         border: InputBorder.none,
                         hintText: adapter == null
-                            ? AppLocalizations.of(context)
-                                .workbenchComposerNoAdapter
+                            ? l10n.workbenchComposerNoAdapter
                             : running
-                                ? AppLocalizations.of(context)
-                                    .workbenchComposerFollowUpHint
+                                ? l10n.workbenchComposerFollowUpHint
                                 : draftAttachments.isNotEmpty
-                                    ? AppLocalizations.of(context)
-                                        .workbenchAttachmentAddInstruction
-                                    : 'Add feedback...',
+                                    ? l10n.workbenchAttachmentAddInstruction
+                                    : l10n.workbenchComposerPromptHint,
                         hintStyle: theme.appTextStyle.copyWith(
                             color: theme.faint,
                             fontSize: 14.5,
@@ -135,7 +133,7 @@ class CodingComposer extends StatelessWidget {
                       voiceState == VoiceInputState.listening ||
                       voiceState == VoiceInputState.stopping) ...[
                     const SizedBox(height: 8),
-                    const _VoiceInputStatus('Listening… release to finish'),
+                    _VoiceInputStatus(l10n.workbenchVoiceListeningStatus),
                   ],
                   if (modelNotice != null &&
                       modelNotice!.trim().isNotEmpty) ...[
@@ -168,7 +166,7 @@ class CodingComposer extends StatelessWidget {
                     const SizedBox(width: 8),
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Tooltip(
-                          message: 'Add attachment',
+                          message: l10n.workbenchAttachmentAddTooltip,
                           child: InkWell(
                               onTap:
                                   running || sending ? null : onAttachmentTap,
@@ -228,6 +226,7 @@ class _AttachmentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final invalid = !attachment.isValid;
     final errorMessage = _localizedAttachmentError(context, attachment);
     return Tooltip(
@@ -258,7 +257,8 @@ class _AttachmentTile extends StatelessWidget {
                           letterSpacing: 0))),
               const SizedBox(width: 4),
               Tooltip(
-                  message: 'Remove ${attachment.name}',
+                  message:
+                      l10n.workbenchAttachmentRemoveTooltip(attachment.name),
                   child: InkWell(
                       onTap: onRemove,
                       borderRadius: BorderRadius.circular(999),
@@ -557,34 +557,38 @@ class _VoiceInputButton extends StatelessWidget {
       state == VoiceInputState.stopping;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-      label: 'Voice input',
-      button: true,
-      enabled: enabled,
-      child: GestureDetector(
-          onTap: enabled ? (_active ? onStop : onStart) : null,
-          onLongPressStart: enabled ? (_) => onStart() : null,
-          onLongPressEnd: enabled ? (_) => onStop() : null,
-          onLongPressCancel: enabled ? onCancel : null,
-          child: Tooltip(
-              message: enabled
-                  ? 'Tap or hold to speak'
-                  : 'Voice input is not available on this platform yet.',
-              child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                      color: _active
-                          ? theme.purple.withValues(alpha: .18)
-                          : Colors.transparent,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: _active ? theme.purple : Colors.transparent)),
-                  child: Icon(
-                      _active ? Icons.mic_rounded : Icons.mic_none_rounded,
-                      color: enabled ? theme.muted : theme.faint,
-                      size: 19)))));
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Semantics(
+        label: l10n.workbenchVoiceInputSemantics,
+        button: true,
+        enabled: enabled,
+        child: GestureDetector(
+            onTap: enabled ? (_active ? onStop : onStart) : null,
+            onLongPressStart: enabled ? (_) => onStart() : null,
+            onLongPressEnd: enabled ? (_) => onStop() : null,
+            onLongPressCancel: enabled ? onCancel : null,
+            child: Tooltip(
+                message: enabled
+                    ? l10n.workbenchVoiceInputEnabledTooltip
+                    : l10n.workbenchVoiceInputUnavailableTooltip,
+                child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                        color: _active
+                            ? theme.purple.withValues(alpha: .18)
+                            : Colors.transparent,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color:
+                                _active ? theme.purple : Colors.transparent)),
+                    child: Icon(
+                        _active ? Icons.mic_rounded : Icons.mic_none_rounded,
+                        color: enabled ? theme.muted : theme.faint,
+                        size: 19)))));
+  }
 }
 
 class _VoiceInputStatus extends StatelessWidget {
