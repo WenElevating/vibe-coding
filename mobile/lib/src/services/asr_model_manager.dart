@@ -93,13 +93,41 @@ class AsrModelManager extends ChangeNotifier {
   final Future<Directory> Function() _supportDirectoryProvider;
   final DateTime Function() _now;
   AsrModelState _state = const AsrModelState.idle();
+  Future<String>? _activePreparation;
   bool _cancelRequested = false;
   bool _pauseRequested = false;
   bool _disposed = false;
 
   AsrModelState get state => _state;
 
-  Future<String> ensureReady() async {
+  Future<String> ensureReady() {
+    final activePreparation = _activePreparation;
+    if (activePreparation != null) return activePreparation;
+
+    final completer = Completer<String>();
+    final future = completer.future;
+    _activePreparation = future;
+    unawaited(_runActivePreparation(completer, future));
+    return future;
+  }
+
+  Future<void> _runActivePreparation(
+      Completer<String> completer, Future<String> future) async {
+    try {
+      final path = await _ensureReadyInternal();
+      if (identical(_activePreparation, future)) {
+        _activePreparation = null;
+      }
+      if (!completer.isCompleted) completer.complete(path);
+    } catch (error, stackTrace) {
+      if (identical(_activePreparation, future)) {
+        _activePreparation = null;
+      }
+      if (!completer.isCompleted) completer.completeError(error, stackTrace);
+    }
+  }
+
+  Future<String> _ensureReadyInternal() async {
     _cancelRequested = false;
     _pauseRequested = false;
     _emit(const AsrModelState(status: AsrModelStatus.checking));

@@ -3764,7 +3764,7 @@ test('Codex conversation adapter starts first turn with global approval before e
   await handle.sendUserMessage('hello');
 
   assert.equal(spawnCommand, 'codex');
-  assert.deepEqual(spawnArgs.slice(0, 5), ['--ask-for-approval', 'never', 'exec', '--json', '-C']);
+  assert.deepEqual(spawnArgs.slice(0, 7), ['--ask-for-approval', 'never', '-c', 'tool_timeout_sec=600', 'exec', '--json', '-C']);
   assert.equal(spawnArgs.includes('--skip-git-repo-check'), true);
   assert.equal(spawnArgs.includes('--dangerously-bypass-approvals-and-sandbox'), false);
   assert.equal(spawnArgs[spawnArgs.length - 1], 'hello');
@@ -3830,6 +3830,31 @@ test('Codex attachment dispatch adds image flags to exec and resume argv', () =>
   assert.deepEqual(resumeArgs.slice(resumeArgs.indexOf('--image'), resumeArgs.indexOf('--image') + 2), ['--image', 'D:\\scratch\\a.png']);
   assert.equal(resumeArgs.indexOf('thread_1') < resumeArgs.indexOf('--image'), true);
   assert.equal(resumeArgs.indexOf('Inspect again.') < resumeArgs.indexOf('--image'), true);
+});
+
+test('Codex command timeout config is explicit and configurable', () => {
+  const { buildCodexExecArgs, buildCodexResumeArgs } = require('../daemon/src/codex-conversation-adapter');
+
+  const execArgs = buildCodexExecArgs({
+    prompt: 'Run tests.',
+    workspacePath: 'D:\\Repo',
+    toolTimeoutSec: 900
+  });
+  const resumeArgs = buildCodexResumeArgs({
+    prompt: 'Continue tests.',
+    sessionId: 'thread_1',
+    workspacePath: 'D:\\Repo',
+    toolTimeoutSec: 900
+  });
+  const defaultArgs = buildCodexExecArgs({
+    prompt: 'Run without override.',
+    workspacePath: 'D:\\Repo',
+    toolTimeoutSec: null
+  });
+
+  assert.deepEqual(execArgs.slice(0, 5), ['--ask-for-approval', 'on-request', '-c', 'tool_timeout_sec=900', 'exec']);
+  assert.deepEqual(resumeArgs.slice(0, 5), ['--ask-for-approval', 'on-request', '-c', 'tool_timeout_sec=900', 'exec']);
+  assert.deepEqual(defaultArgs.slice(0, 3), ['--ask-for-approval', 'on-request', 'exec']);
 });
 
 test('Codex capability detection allows slow Windows npm shim startup', () => {
@@ -4032,13 +4057,13 @@ test('Codex conversation adapter resumes captured thread with authorized workspa
   const handle = await adapter.startConversation({ conversationId: 'conv_codex_resume', workspacePath: 'D:\\Authorized\\Repo', permissionMode: 'default', sessionId: 'thread_1', onEvent: () => {} });
   await handle.sendUserMessage('second');
 
-  assert.deepEqual(spawnCalls[0].args.slice(0, 5), ['--ask-for-approval', 'on-request', 'exec', 'resume', '--json']);
+  assert.deepEqual(spawnCalls[0].args.slice(0, 7), ['--ask-for-approval', 'on-request', '-c', 'tool_timeout_sec=600', 'exec', 'resume', '--json']);
   assert.equal(spawnCalls[0].args.includes('-C'), false);
   assert.equal(spawnCalls[0].args.includes('--cd'), false);
   assert.equal(spawnCalls[0].options.cwd, 'D:\\Authorized\\Repo');
   assert.equal(spawnCalls[0].args.includes('--skip-git-repo-check'), true);
-  assert.equal(spawnCalls[0].args[6], 'thread_1');
-  assert.equal(spawnCalls[0].args[7], 'second');
+  assert.equal(spawnCalls[0].args[8], 'thread_1');
+  assert.equal(spawnCalls[0].args[9], 'second');
   spawnCalls[0].child.emit('exit', 0, null);
 });
 
@@ -4759,7 +4784,7 @@ test('Codex conversation HTTP API sends message and stores CLI thread id', async
     assert.equal(conversation.status, 'idle');
     const approvalIndex = spawned[0].args.indexOf('--ask-for-approval');
     assert.notEqual(approvalIndex, -1);
-    assert.deepEqual(spawned[0].args.slice(approvalIndex, approvalIndex + 5), ['--ask-for-approval', 'never', 'exec', '--json', '-C']);
+    assert.deepEqual(spawned[0].args.slice(approvalIndex, approvalIndex + 7), ['--ask-for-approval', 'never', '-c', 'tool_timeout_sec=600', 'exec', '--json', '-C']);
     const events = await request(port, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, token);
     assert.equal(events.body.events.some((event) => event.type === 'assistant.message' && event.text === 'hello from codex'), true);
     assert.equal(events.body.events.some((event) => event.type === 'conversation.completed'), true);
@@ -9954,8 +9979,9 @@ test('android update install recovery is wired through ViewModel and app lifecyc
     'utf8'
   );
 
-  const installIndex = viewModel.indexOf('Future<void> install() async');
-  assert.notEqual(installIndex, -1);
+  const installMatch = viewModel.match(/Future<void>\s+install\([^)]*\)\s+async/);
+  assert.notEqual(installMatch, null);
+  const installIndex = installMatch.index;
   const installBody = viewModel.slice(
     installIndex,
     viewModel.indexOf('\n  Future<void> recoverInstallSession', installIndex)
@@ -9965,7 +9991,7 @@ test('android update install recovery is wired through ViewModel and app lifecyc
   assert.match(installBody, /return;/);
   assert.match(viewModel, /workflow\.startInstall\(/);
   assert.match(viewModel, /Future<void> recoverInstallSession\(\) async/);
-  assert.match(viewModel, /void handleAppLifecycleStateChanged\(AppLifecycleState lifecycleState\)/);
+  assert.match(viewModel, /Future<void>\s+handleAppLifecycleStateChanged\(\s*AppLifecycleState lifecycleState,\s*\)\s+async/);
   assert.match(viewModel, /recoverInstallSession\(\)/);
   assert.match(viewModel, /workflow\.recoverInstall\(/);
   assert.match(viewModel, /workflow\.clearAllInstallSessions\(\)/);

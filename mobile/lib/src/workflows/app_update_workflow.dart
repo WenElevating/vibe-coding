@@ -122,7 +122,15 @@ class AppUpdateWorkflow {
       );
     }
     if (manifest != null) {
-      await _downloader.recordInstallSession(manifest, sessionId);
+      try {
+        await _downloader.recordInstallSession(manifest, sessionId);
+      } catch (error) {
+        return AppUpdateInstallStartResult(
+          state: AppUpdateInstallStartState.committed,
+          sessionId: sessionId,
+          message: '$error',
+        );
+      }
     }
     return AppUpdateInstallStartResult(
       state: AppUpdateInstallStartState.committed,

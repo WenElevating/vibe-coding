@@ -631,6 +631,9 @@ class _StoredHistoryConversationRepository extends _LazyConversationRepository {
 }
 
 class _LifecycleConversationRepository implements ConversationRepository {
+  _LifecycleConversationRepository({this.cancelError});
+
+  final Object? cancelError;
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
   int watchCalls = 0;
@@ -675,6 +678,8 @@ class _LifecycleConversationRepository implements ConversationRepository {
     controller = StreamController<ConversationEvent>(
       onCancel: () {
         cancelCalls += 1;
+        final error = cancelError;
+        if (error != null) throw error;
       },
     );
     return controller.stream;
@@ -2497,6 +2502,95 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets(
+      'disposing workbench consumes conversation event cancellation failures',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository(
+      cancelError: StateError('cancel failed'),
+    );
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(
+          conversations: <ConversationSummary>[
+            _conversationSummary(
+              id: 'conv_cancel_failure',
+              workspaceId: 'workspace_1',
+              status: 'running',
+              sessionBinding: 'confirmed',
+              userMessageCount: 1,
+              title: 'Cancel failure task',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Cancel failure task'));
+    await pumpUntilWatchCalls(1);
+
+    expect(conversationRepository.watchCalls, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    expect(conversationRepository.cancelCalls, 1);
+  });
+
   testWidgets('app update recovery runs on create and resume',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -3042,9 +3136,11 @@ void main() {
     await tester.tap(find.text('New Session'));
     await _pumpNavigationFrame(tester);
 
-    await tester.enterText(find.byType(TextField).last, 'Dispose while sending');
+    await tester.enterText(
+        find.byType(TextField).last, 'Dispose while sending');
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
     await tester.pump();
 
     expect(conversationRepository.createdAdapters, <String>['codex']);
@@ -4660,7 +4756,8 @@ void main() {
     expect(en.asrModelDialogTitle, 'Voice model');
     expect(en.asrModelDownloading('zipformer'), 'Downloading zipformer');
     expect(en.workbenchComposerPromptHint, 'Add feedback...');
-    expect(en.workbenchAttachmentRemoveTooltip('image.png'), 'Remove image.png');
+    expect(
+        en.workbenchAttachmentRemoveTooltip('image.png'), 'Remove image.png');
   });
 
   test('duplicate approvals collapse and approval response becomes command',

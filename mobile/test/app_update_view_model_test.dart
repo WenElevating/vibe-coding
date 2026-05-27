@@ -189,6 +189,54 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.available);
   });
 
+  test('install remains in progress when session metadata recording fails',
+      () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+      recordSessionError: StateError('metadata write failed'),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+
+    expect(installer.installCalls, 1);
+    expect(downloader.recordedSessionId, 7);
+    expect(viewModel.state.status, AppUpdateStatus.installing);
+    expect(diagnostics, contains('update.install.session_record_failed'));
+    final failureIndex =
+        diagnostics.indexOf('update.install.session_record_failed');
+    expect(diagnosticMetadata[failureIndex]['sessionId'], 7);
+    expect(
+      diagnosticMetadata[failureIndex]['errorSummary'],
+      contains('metadata write failed'),
+    );
+  });
+
   test('failed redownload clears stale downloaded file', () async {
     final installer = _FakeInstaller();
     final readyFile = await _readyApk();
@@ -1060,6 +1108,61 @@ void main() {
     expect(diagnostics, isNot(contains('update.install.clear_session_failed')));
   });
 
+  test(
+    'dispose consumes install event subscription cancellation failures',
+    () async {
+      final installer = _FakeInstaller(
+        eventCancelError: StateError('cancel failed'),
+      );
+      final viewModel = AppUpdateViewModel(
+        installedVersionCode: 1,
+        installedVersionName: '1.0.0',
+        workflow: _workflow(
+          repository: _FakeRepository(_manifest()),
+          installer: installer,
+        ),
+        daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      );
+
+      viewModel.dispose();
+      await pumpEventQueue();
+
+      await installer.close();
+    },
+  );
+
+  test('install event stream errors are reported as diagnostics', () async {
+    final diagnostics = <String>[];
+    final diagnosticMetadata = <Map<String, Object?>>[];
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+      recordDiagnostic: (event, metadata) {
+        diagnostics.add(event);
+        diagnosticMetadata.add(metadata);
+      },
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    installer.emitError(StateError('event channel unavailable'));
+    await pumpEventQueue();
+
+    expect(viewModel.state.status, AppUpdateStatus.idle);
+    expect(diagnostics, contains('update.install.events_failed'));
+    final failureIndex = diagnostics.indexOf('update.install.events_failed');
+    expect(
+      diagnosticMetadata[failureIndex]['errorSummary'],
+      contains('event channel unavailable'),
+    );
+  });
+
   test('install rolls back when installer returns no session id', () async {
     final installer = _FakeInstaller(sessionId: -1);
     final readyFile = await _readyApk();
@@ -1471,7 +1574,15 @@ class _FakeInstaller implements PackageInstallerService {
     this.canInstallCompleter,
     this.recoverCompleter,
     this.canInstallError,
-  });
+    Object? eventCancelError,
+  }) : _eventController = StreamController<AndroidInstallEvent>.broadcast() {
+    _events = eventCancelError == null
+        ? _eventController.stream
+        : _CancelFailureStream<AndroidInstallEvent>(
+            _eventController.stream,
+            eventCancelError,
+          );
+  }
 
   bool canInstall;
   final int sessionId;
@@ -1480,18 +1591,21 @@ class _FakeInstaller implements PackageInstallerService {
   final Completer<bool>? canInstallCompleter;
   final Completer<AndroidInstallEvent?>? recoverCompleter;
   final Object? canInstallError;
-  final _events = StreamController<AndroidInstallEvent>.broadcast();
+  final StreamController<AndroidInstallEvent> _eventController;
+  late final Stream<AndroidInstallEvent> _events;
   String? installedPath;
   int installCalls = 0;
   int openPermissionSettingsCalls = 0;
   int? recoveredSessionId;
 
-  void emit(AndroidInstallEvent event) => _events.add(event);
+  void emit(AndroidInstallEvent event) => _eventController.add(event);
 
-  Future<void> close() => _events.close();
+  void emitError(Object error) => _eventController.addError(error);
+
+  Future<void> close() => _eventController.close();
 
   @override
-  Stream<AndroidInstallEvent> get events => _events.stream;
+  Stream<AndroidInstallEvent> get events => _events;
 
   @override
   Future<int> availableBytes() async => 1000000;
@@ -1528,6 +1642,66 @@ class _FakeInstaller implements PackageInstallerService {
   }
 }
 
+class _CancelFailureStream<T> extends Stream<T> {
+  const _CancelFailureStream(this._delegate, this._cancelError);
+
+  final Stream<T> _delegate;
+  final Object _cancelError;
+
+  @override
+  StreamSubscription<T> listen(
+    void Function(T event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return _CancelFailureSubscription<T>(
+      _delegate.listen(
+        onData,
+        onError: onError,
+        onDone: onDone,
+        cancelOnError: cancelOnError,
+      ),
+      _cancelError,
+    );
+  }
+}
+
+class _CancelFailureSubscription<T> implements StreamSubscription<T> {
+  const _CancelFailureSubscription(this._delegate, this._cancelError);
+
+  final StreamSubscription<T> _delegate;
+  final Object _cancelError;
+
+  @override
+  Future<void> cancel() async {
+    await _delegate.cancel();
+    throw _cancelError;
+  }
+
+  @override
+  void onData(void Function(T data)? handleData) =>
+      _delegate.onData(handleData);
+
+  @override
+  void onError(Function? handleError) => _delegate.onError(handleError);
+
+  @override
+  void onDone(void Function()? handleDone) => _delegate.onDone(handleDone);
+
+  @override
+  void pause([Future<void>? resumeSignal]) => _delegate.pause(resumeSignal);
+
+  @override
+  void resume() => _delegate.resume();
+
+  @override
+  bool get isPaused => _delegate.isPaused;
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => _delegate.asFuture(futureValue);
+}
+
 class _FakeDownloader implements AppUpdateDownloader {
   _FakeDownloader({
     this.result = const AppUpdateDownloadResult(
@@ -1537,6 +1711,7 @@ class _FakeDownloader implements AppUpdateDownloader {
     this.downloadCompleter,
     this.clearSessionCompleter,
     this.clearSessionError,
+    this.recordSessionError,
   });
 
   AppUpdateDownloadResult result;
@@ -1544,6 +1719,7 @@ class _FakeDownloader implements AppUpdateDownloader {
   Completer<AppUpdateDownloadResult>? downloadCompleter;
   Completer<void>? clearSessionCompleter;
   Object? clearSessionError;
+  Object? recordSessionError;
   int? discardedVersionCode;
   int? recordedSessionId;
   AppUpdateManifest? recordedManifest;
@@ -1575,6 +1751,8 @@ class _FakeDownloader implements AppUpdateDownloader {
   ) async {
     recordedManifest = manifest;
     recordedSessionId = sessionId;
+    final error = recordSessionError;
+    if (error != null) throw error;
   }
 
   @override

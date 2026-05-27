@@ -634,6 +634,36 @@ void main() {
     expect(viewModel.messages, isEmpty);
   });
 
+  test('async event apply notifies before stale target return', () async {
+    final viewModel = WorkbenchViewModel(
+      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    );
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+    var notificationCount = 0;
+    viewModel.addListener(() => notificationCount += 1);
+    var currentCheckCount = 0;
+
+    final changed = await viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        _event(seq: 1, type: 'assistant.message', text: 'done'),
+      ],
+      streamOutput: false,
+      isCurrent: () {
+        currentCheckCount += 1;
+        return currentCheckCount == 1;
+      },
+    );
+
+    expect(changed, isFalse);
+    expect(viewModel.lastSeq, 1);
+    expect(viewModel.messages.single.body, 'done');
+    expect(notificationCount, 1);
+  });
+
   test('workbench view model exposes pending question id', () {
     final viewModel = WorkbenchViewModel(
       initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),

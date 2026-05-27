@@ -17,7 +17,12 @@ class FakeSpeechPermission implements SpeechPermission {
 }
 
 class FakeSpeechRecorder implements SpeechRecorder {
-  final StreamController<List<int>> controller = StreamController<List<int>>();
+  FakeSpeechRecorder({Object? streamCancelError})
+      : controller = StreamController<List<int>>(onCancel: () {
+          if (streamCancelError != null) throw streamCancelError;
+        });
+
+  final StreamController<List<int>> controller;
   bool started = false;
   bool stopped = false;
   bool disposed = false;

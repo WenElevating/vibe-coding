@@ -15,6 +15,9 @@
 
 - `domain/` must not import Flutter, HTTP clients, `SharedPreferences`, UI code,
   `data/`, `services/`, workflows, shell code, or concrete `DaemonClient`.
+- `services/`, `data/`, `domain/`, and `workflows/` must not import UI feature
+  code. Shared platform contracts, such as speech input interfaces, belong in a
+  lower layer and may be exported through UI barrels only for compatibility.
 - New production code should not be added to retired migration roots:
   `mobile/lib/src/features`, `mobile/lib/src/widgets`, `mobile/lib/src/theme`,
   or `mobile/lib/src/state`.

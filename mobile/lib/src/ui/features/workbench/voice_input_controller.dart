@@ -89,7 +89,7 @@ class VoiceInputController extends ChangeNotifier {
       if (_disposed) return;
       _error = 'Voice input unavailable';
       _setState(VoiceInputState.failed);
-      await _service.cancel();
+      await _cancelServiceBestEffort();
     } catch (error) {
       if (_disposed) return;
       _error = friendlyVoiceInputError(error);
@@ -144,13 +144,18 @@ class VoiceInputController extends ChangeNotifier {
     if (_disposed) return;
     if (_state == VoiceInputState.idle) return;
     _setState(VoiceInputState.cancelling);
+    await _cancelServiceBestEffort();
+    if (_disposed) return;
+    _partialText = '';
+    _receivedPartial = false;
+    _setState(VoiceInputState.idle);
+  }
+
+  Future<void> _cancelServiceBestEffort() async {
     try {
       await _service.cancel();
-    } finally {
-      if (_disposed) return;
-      _partialText = '';
-      _receivedPartial = false;
-      _setState(VoiceInputState.idle);
+    } catch (_) {
+      // Cancellation is cleanup; failures should not escape UI lifecycle paths.
     }
   }
 
@@ -343,7 +348,6 @@ int _clampOffset(int value, int max) {
   return value;
 }
 
-@visibleForTesting
 String friendlyVoiceInputError(Object error) {
   if (error is PlatformException) {
     final details = [

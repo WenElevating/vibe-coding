@@ -11,6 +11,7 @@ const { textAttachmentWrapper } = require('./attachment-validation');
 const DEFAULT_MAX_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES = 32 * 1024;
+const DEFAULT_CODEX_TOOL_TIMEOUT_SEC = 600;
 const CODEX_DETECTION_TIMEOUT_MS = 30000;
 
 class CodexConversationAdapter {
@@ -21,7 +22,8 @@ class CodexConversationAdapter {
     cliResolverOptions = {},
     killProcessTreeFn = defaultKillProcessTree,
     maxJsonLineBytes = DEFAULT_MAX_JSON_LINE_BYTES,
-    maxAggregatedOutputBytes = DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES
+    maxAggregatedOutputBytes = DEFAULT_MAX_AGGREGATED_OUTPUT_BYTES,
+    toolTimeoutSec = DEFAULT_CODEX_TOOL_TIMEOUT_SEC
   } = {}) {
     this.name = 'codex';
     this.command = command;
@@ -30,6 +32,7 @@ class CodexConversationAdapter {
     this.killProcessTreeFn = killProcessTreeFn;
     this.maxJsonLineBytes = maxJsonLineBytes;
     this.maxAggregatedOutputBytes = maxAggregatedOutputBytes;
+    this.toolTimeoutSec = normalizeCodexToolTimeoutSec(toolTimeoutSec);
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.modelCapability = defaultModelCapability();
@@ -173,8 +176,8 @@ class CodexConversationHandle {
     const resumeSupportsCd = this.adapter.capability?.capabilities?.resumeWorkspaceOverride === true;
     const model = this.adapter.modelCapability?.canSelectModel === true ? this.model : null;
     const args = this.sessionId
-      ? buildCodexResumeArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd, model })
-      : buildCodexExecArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, workspacePath: this.workspacePath, permissionMode: this.permissionMode, model });
+      ? buildCodexResumeArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, sessionId: this.sessionId, permissionMode: this.permissionMode, workspacePath: this.workspacePath, resumeSupportsCd, model, toolTimeoutSec: this.adapter.toolTimeoutSec })
+      : buildCodexExecArgs({ prompt: userMessage.prompt, imagePaths: userMessage.imagePaths, workspacePath: this.workspacePath, permissionMode: this.permissionMode, model, toolTimeoutSec: this.adapter.toolTimeoutSec });
     const child = this.adapter.spawnFn(this.adapter.invocation.command, [...this.adapter.invocation.argsPrefix, ...args], {
       cwd: this.workspacePath,
       windowsHide: true,
@@ -304,9 +307,10 @@ function buildImageArgs(imagePaths) {
   return args;
 }
 
-function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default', model, imagePaths = [] }) {
+function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default', model, imagePaths = [], toolTimeoutSec = null }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
+    ...buildCodexToolTimeoutConfig(toolTimeoutSec),
     'exec',
     '--json',
     ...(model ? ['--model', model] : []),
@@ -318,9 +322,10 @@ function buildCodexExecArgs({ prompt, workspacePath, permissionMode = 'default',
   ];
 }
 
-function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false, model, imagePaths = [] }) {
+function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', workspacePath, resumeSupportsCd = false, model, imagePaths = [], toolTimeoutSec = null }) {
   return [
     '--ask-for-approval', approvalPolicy(permissionMode),
+    ...buildCodexToolTimeoutConfig(toolTimeoutSec),
     'exec',
     'resume',
     '--json',
@@ -335,6 +340,19 @@ function buildCodexResumeArgs({ prompt, sessionId, permissionMode = 'default', w
 
 function approvalPolicy(permissionMode) {
   return permissionMode === 'auto' ? 'never' : 'on-request';
+}
+
+function buildCodexToolTimeoutConfig(toolTimeoutSec) {
+  const normalized = normalizeCodexToolTimeoutSec(toolTimeoutSec);
+  return normalized === null ? [] : ['-c', `tool_timeout_sec=${normalized}`];
+}
+
+function normalizeCodexToolTimeoutSec(value) {
+  if (value === null || value === false) return null;
+  if (value === undefined || value === '') return DEFAULT_CODEX_TOOL_TIMEOUT_SEC;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_CODEX_TOOL_TIMEOUT_SEC;
+  return Math.floor(numeric);
 }
 
 function mapCodexEvent(raw, options = {}) {

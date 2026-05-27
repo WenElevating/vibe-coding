@@ -35,6 +35,9 @@ void main() {
           Stream<List<int>>.value(bytes.sublist(5)),
           206,
           contentLength: bytes.length - 5,
+          headers: <String, String>{
+            'content-range': 'bytes 5-${bytes.length - 1}/${bytes.length}',
+          },
         );
       },
       availableBytes: () async => 10000000,

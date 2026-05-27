@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-05-24
-- Last verified: 2026-05-25
+- Last verified: 2026-05-27
 
 ## Context
 
@@ -40,13 +40,18 @@ for an active user download or install flow. If the daemon manifest is
 unavailable or no longer newer than the installed app, Dart clears orphan
 install-session ids from cached update metadata only after the ViewModel
 recovery guard still passes, avoiding retries of the same stale recovery on
-every resume without racing an active download. While the UI is installing or waiting for
-Android user confirmation, `install()` must not create another
+every resume without racing an active download. While the UI is installing or
+waiting for Android user confirmation, `install()` must not create another
 `PackageInstaller.Session` for the same APK; the existing session must resolve
-or the user must discard/retry from a non-pending state. Terminal installer
-events clear the persisted `installSessionId` while keeping the verified APK
-cache metadata, preventing a future startup from recovering a completed or
-failed native session as a ghost pending update.
+or the user must discard/retry from a non-pending state. If Dart fails to record
+the `installSessionId` after Android has already accepted the install session,
+the ViewModel keeps the install in progress and records diagnostics instead of
+returning to a retryable install state. Terminal installer events clear the
+persisted `installSessionId` while keeping the verified APK cache metadata,
+preventing a future startup from recovering a completed or failed native session
+as a ghost pending update. Installer event-stream failures are diagnostic-only
+on Dart; they must not escape as unhandled asynchronous errors or mutate update
+state.
 
 The daemon validates the manifest-referenced APK digest when a new file identity
 is observed, then caches that validated identity by real path, device/inode,

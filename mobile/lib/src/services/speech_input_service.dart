@@ -140,8 +140,11 @@ class SherpaSpeechInputService implements SpeechInputService {
 
   Future<void> _cleanupFailedStart() async {
     _started = false;
-    await _audioSubscription?.cancel();
+    final audioSubscription = _audioSubscription;
     _audioSubscription = null;
+    if (audioSubscription != null) {
+      await _cancelAudioSubscriptionBestEffort(audioSubscription);
+    }
     await _recorder.stop().catchError((Object _) => null);
     _recognizer?.cancel();
   }
@@ -155,8 +158,11 @@ class SherpaSpeechInputService implements SpeechInputService {
   Future<String> stop() async {
     if (_disposed) return _latestText;
     _started = false;
-    await _audioSubscription?.cancel();
+    final audioSubscription = _audioSubscription;
     _audioSubscription = null;
+    if (audioSubscription != null) {
+      await _cancelAudioSubscriptionBestEffort(audioSubscription);
+    }
     await _recorder.stop();
     final finalText = _recognizer?.finalResult() ?? '';
     if (finalText.isNotEmpty) {
@@ -170,8 +176,11 @@ class SherpaSpeechInputService implements SpeechInputService {
     if (_disposed) return;
     _latestText = '';
     _started = false;
-    await _audioSubscription?.cancel();
+    final audioSubscription = _audioSubscription;
     _audioSubscription = null;
+    if (audioSubscription != null) {
+      await _cancelAudioSubscriptionBestEffort(audioSubscription);
+    }
     await _recorder.stop();
     _recognizer?.cancel();
   }
@@ -181,11 +190,24 @@ class SherpaSpeechInputService implements SpeechInputService {
     if (_disposed) return;
     _disposed = true;
     _started = false;
-    unawaited(_audioSubscription?.cancel());
+    final audioSubscription = _audioSubscription;
     _audioSubscription = null;
+    if (audioSubscription != null) {
+      unawaited(_cancelAudioSubscriptionBestEffort(audioSubscription));
+    }
     _recognizer?.dispose();
     _recognizer = null;
     _recorder.dispose();
+  }
+
+  Future<void> _cancelAudioSubscriptionBestEffort(
+    StreamSubscription<List<int>> audioSubscription,
+  ) async {
+    try {
+      await audioSubscription.cancel();
+    } catch (_) {
+      // Cleanup is best-effort; cancellation failures must not escape lifecycle paths.
+    }
   }
 }
 

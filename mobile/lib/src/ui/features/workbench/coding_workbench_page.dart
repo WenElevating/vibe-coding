@@ -303,9 +303,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _cancelBackgroundEventDisconnectTimer();
-    _conversationEventSubscriptionGeneration += 1;
-    unawaited(_conversationEventSubscription?.cancel());
+    unawaited(_cancelConversationEventSubscription());
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
     _workbenchViewModel.removeListener(_syncWorkbenchViewModel);
@@ -375,27 +373,38 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   Future<void> _showVoiceErrorDialog(String message) async {
-    if (_voiceErrorDialogOpen) return;
+    if (_voiceErrorDialogOpen || !mounted) return;
     _voiceErrorDialogOpen = true;
-    await showDialog<void>(
-        context: context,
-        builder: (context) => _VoiceInputErrorDialog(message: message));
-    _voiceErrorDialogOpen = false;
+    try {
+      await showDialog<void>(
+          context: context,
+          builder: (context) => _VoiceInputErrorDialog(message: message));
+    } catch (_) {
+      // Voice error presentation must not introduce a secondary async failure.
+    } finally {
+      _voiceErrorDialogOpen = false;
+    }
   }
 
   Future<void> _startVoiceInput() async {
-    if (widget.speechInputService == null && _ownedSpeechInputService == null) {
-      final readyState = _asrModelManager.state;
-      final modelDirectory = readyState.status == AsrModelStatus.ready
-          ? readyState.modelDirectory
-          : await _showAsrDownloadDialog();
-      if (modelDirectory == null || !mounted) return;
-      final nextService =
-          widget.dependencies.speechInputServiceBuilder(modelDirectory);
-      _ownedSpeechInputService = nextService;
-      _voiceInput.updateService(nextService);
+    try {
+      if (widget.speechInputService == null &&
+          _ownedSpeechInputService == null) {
+        final readyState = _asrModelManager.state;
+        final modelDirectory = readyState.status == AsrModelStatus.ready
+            ? readyState.modelDirectory
+            : await _showAsrDownloadDialog();
+        if (modelDirectory == null || !mounted) return;
+        final nextService =
+            widget.dependencies.speechInputServiceBuilder(modelDirectory);
+        _ownedSpeechInputService = nextService;
+        _voiceInput.updateService(nextService);
+      }
+      await _voiceInput.startValue(currentPrompt: _prompt.value);
+    } catch (error) {
+      if (!mounted) return;
+      await _showVoiceErrorDialog(friendlyVoiceInputError(error));
     }
-    await _voiceInput.startValue(currentPrompt: _prompt.value);
   }
 
   Future<String?> _showAsrDownloadDialog() {
@@ -531,9 +540,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _pickAttachments() async {
     if (_isRunningCli || _sending) return;
-    final attachments = await _attachmentPicker.pickAttachments();
-    if (!mounted || attachments.isEmpty) return;
-    _workbenchViewModel.addDraftAttachments(attachments);
+    try {
+      final attachments = await _attachmentPicker.pickAttachments();
+      if (!mounted || attachments.isEmpty) return;
+      _workbenchViewModel.addDraftAttachments(attachments);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _workbenchViewModel.setOperationError(
+          'Attachment selection failed. Please try again.',
+          notify: false,
+        );
+      });
+    }
   }
 
   Future<void> _refreshAdapterCapabilities() async {
@@ -911,7 +930,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _conversationEventSubscriptionGeneration += 1;
     final subscription = _conversationEventSubscription;
     _conversationEventSubscription = null;
-    await subscription?.cancel();
+    try {
+      await subscription?.cancel();
+    } catch (_) {
+      // Cleanup is best-effort; cancellation failures must not escape lifecycle changes.
+    }
   }
 
   void _cancelBackgroundEventDisconnectTimer() {
@@ -951,14 +974,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             ))
         .listen((_) {}, onError: (Object error, StackTrace stack) {
       if (generation != _conversationEventSubscriptionGeneration) return;
-      unawaited(_workbenchViewModel.recordException(
-        message: error.toString(),
-        stack: stack.toString(),
-        path: '/api/notifications/ws',
-        conversationId: conversationId,
-        runId: runId,
-        operation: 'watchConversationEvents',
-      ));
+      unawaited(_workbenchViewModel
+          .recordException(
+            message: error.toString(),
+            stack: stack.toString(),
+            path: '/api/notifications/ws',
+            conversationId: conversationId,
+            runId: runId,
+            operation: 'watchConversationEvents',
+          )
+          .catchError((Object _) => ''));
     });
   }
 

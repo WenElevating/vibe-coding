@@ -60,8 +60,7 @@ void main() {
 
     await viewModel.start(currentPrompt: 'typed');
     service.onPartial?.call('partial');
-    final merged =
-        await viewModel.finishForSend(currentPrompt: 'typedpartial');
+    final merged = await viewModel.finishForSend(currentPrompt: 'typedpartial');
 
     expect(merged, 'typedfinal');
     expect(service.stopCalls, 1);
@@ -82,6 +81,34 @@ void main() {
     expect(merged, isNull);
     expect(service.cancelCalls, 1);
     expect(service.stopCalls, 0);
+    expect(viewModel.state, VoiceInputState.idle);
+  });
+
+  test('start timeout consumes cleanup cancellation failures', () async {
+    final service = _FakeSpeechInputService()
+      ..startCompleter = Completer<void>()
+      ..cancelError = StateError('cancel failed');
+    final viewModel = VoiceInputViewModel(
+      service: service,
+      initializeTimeout: const Duration(milliseconds: 1),
+    );
+    addTearDown(viewModel.dispose);
+
+    await viewModel.start(currentPrompt: 'typed');
+
+    expect(service.cancelCalls, 1);
+    expect(viewModel.state, VoiceInputState.failed);
+  });
+
+  test('cancel consumes service cancellation failures', () async {
+    final service = _FakeSpeechInputService()..cancelError = StateError('fail');
+    final viewModel = VoiceInputViewModel(service: service);
+    addTearDown(viewModel.dispose);
+
+    await viewModel.start(currentPrompt: 'typed');
+    await viewModel.cancel();
+
+    expect(service.cancelCalls, 1);
     expect(viewModel.state, VoiceInputState.idle);
   });
 

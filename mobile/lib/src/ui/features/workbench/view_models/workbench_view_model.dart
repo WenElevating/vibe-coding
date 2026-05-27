@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -89,6 +90,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? _error;
   String? _errorTraceId;
   String? _currentAttachmentClientMessageId;
+  String? _currentAttachmentConversationId;
   bool _disposed = false;
 
   WorkbenchRouteState get routeState => _routeState;
@@ -130,6 +132,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     _modelUpdateGeneration++;
     super.dispose();
   }
+
   ConversationViewState get conversationState => _conversationState;
   int get lastSeq => _lastSeq;
   String? get pendingQuestionId {
@@ -403,12 +406,18 @@ class WorkbenchViewModel extends ChangeNotifier {
       notify: false,
     );
     if (!changed) return false;
-    if (!stillCurrent()) return false;
+    if (!stillCurrent()) {
+      if (notify) _notifyListeners();
+      return false;
+    }
     final previewChanged = await _bindAndResolveAttachmentPreviews(
       events,
       isCurrent: stillCurrent,
     );
-    if (!stillCurrent()) return false;
+    if (!stillCurrent()) {
+      if (notify) _notifyListeners();
+      return false;
+    }
     final hasChanged = changed || previewChanged;
     if (notify && hasChanged) _notifyListeners();
     return hasChanged;
@@ -603,6 +612,7 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void addDraftAttachments(List<DraftAttachment> attachments) {
     if (attachments.isEmpty) return;
+    _resetAttachmentClientMessageId(orphanPending: true);
     _draftAttachments.addAll(attachments);
     if (_draftAttachments.length > _maxDraftAttachments) {
       _draftAttachments.removeRange(
@@ -621,6 +631,7 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void removeDraftAttachment(int index) {
     if (index < 0 || index >= _draftAttachments.length) return;
+    _resetAttachmentClientMessageId(orphanPending: true);
     _draftAttachments.removeAt(index);
     _revalidateDraftAttachments();
     _notifyListeners();
@@ -750,13 +761,13 @@ class WorkbenchViewModel extends ChangeNotifier {
           await repository.sendConversationMessage(conversationId, request);
       if (request.attachments.isNotEmpty) {
         _draftAttachments.clear();
-        _currentAttachmentClientMessageId = null;
+        _clearAttachmentClientMessageId();
       }
       return conversation;
     } on ConversationRepositoryException catch (error) {
       if (request.attachments.isNotEmpty &&
           !_keepsAttachmentClientMessageId(error)) {
-        _currentAttachmentClientMessageId = null;
+        _resetAttachmentClientMessageId(orphanPending: true);
       }
       rethrow;
     }
@@ -779,7 +790,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (attachments.isEmpty) {
       return ConversationMessageSendRequest(text: prompt);
     }
+    if (_currentAttachmentConversationId != null &&
+        _currentAttachmentConversationId != conversationId) {
+      _resetAttachmentClientMessageId(orphanPending: true);
+    }
     _currentAttachmentClientMessageId ??= _generateUuidV4();
+    _currentAttachmentConversationId = conversationId;
     final clientMessageId = _currentAttachmentClientMessageId!;
     final pendingIdentities = <AttachmentPreviewIdentity>[];
     for (var index = 0; index < _draftAttachments.length; index += 1) {
@@ -926,6 +942,41 @@ class WorkbenchViewModel extends ChangeNotifier {
     String clientMessageId,
   ) =>
       '$conversationId|$clientMessageId';
+
+  void _resetAttachmentClientMessageId({required bool orphanPending}) {
+    final clientMessageId = _currentAttachmentClientMessageId;
+    final conversationId = _currentAttachmentConversationId;
+    _clearAttachmentClientMessageId();
+    if (clientMessageId == null || conversationId == null) return;
+    _pendingAttachmentPreviewIdentities.remove(
+      _pendingAttachmentPreviewKey(conversationId, clientMessageId),
+    );
+    if (orphanPending) {
+      unawaited(_markAttachmentClientMessageOrphanedBestEffort(
+        conversationId: conversationId,
+        clientMessageId: clientMessageId,
+      ));
+    }
+  }
+
+  void _clearAttachmentClientMessageId() {
+    _currentAttachmentClientMessageId = null;
+    _currentAttachmentConversationId = null;
+  }
+
+  Future<void> _markAttachmentClientMessageOrphanedBestEffort({
+    required String conversationId,
+    required String clientMessageId,
+  }) async {
+    try {
+      await _attachmentPreviewCache.markClientMessageOrphaned(
+        conversationId: conversationId,
+        clientMessageId: clientMessageId,
+      );
+    } catch (_) {
+      // Preview cache cleanup is best-effort and must not block editing drafts.
+    }
+  }
 
   AttachmentHandling _draftAttachmentHandling(AttachmentKind kind) {
     final capabilities = _selectedAttachmentCapabilities();

@@ -67,6 +67,15 @@ mirror-configured command for manual execution.
 This rule exists because local Dart/Flutter tool invocations have timed out in
 agent runs while passing when the user ran the same command manually.
 
+When running Flutter/Dart commands through the agent tool, keep the executable
+as the top-level command (for example, `flutter test ...` or `dart analyze ...`)
+instead of prefixing PowerShell environment assignments in the same command
+string. Composite commands such as `$env:NAME='value'; flutter test ...` may not
+match the approved command prefix, causing Flutter to run in the sandbox and
+fail or hang while opening the SDK cache lockfile outside the workspace. If a
+one-off command truly needs inline environment setup, run it with explicit
+escalation instead of relying on the approved prefix.
+
 ## Knowledge Check
 
 Run from repo root:

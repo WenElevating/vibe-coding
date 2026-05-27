@@ -248,6 +248,49 @@ flutter test --no-pub test\coding_workbench_controller_test.dart test\widget_tes
 
 - Last verified: 2026-05-25
 
+## Symptom: Codex command_execution Times Out But The Same Command Works In PowerShell
+
+- Symptom: the workbench command card reports output such as
+  `120 seconds timed out`, while copying the same command into PowerShell
+  finishes successfully.
+- Action: treat this as Codex CLI tool execution timeout first, not as a daemon
+  HTTP timeout or PowerShell failure. The daemon starts Codex without wrapping
+  model-generated shell commands itself, so the 120-second limit comes from
+  Codex. Conversation launches pass `-c tool_timeout_sec=<seconds>` before
+  `exec`; the product default is 600 seconds and can be changed with
+  `CODEX_TOOL_TIMEOUT_SEC`.
+- Related file:
+  [codex-conversation-adapter.js](../../daemon/src/codex-conversation-adapter.js)
+- Verification:
+
+```powershell
+npm test
+npm run lint
+```
+
+- Last verified: 2026-05-27
+
+## Symptom: ASR Model Download Fails With Missing `.zip.part`
+
+- Symptom: mobile voice-model preparation fails with a missing
+  `<version>.zip.part` path, or one preparation flow appears to delete or move
+  the partial download while another flow is still writing it.
+- Action: check for concurrent `AsrModelManager.ensureReady()` calls before
+  changing archive extraction or filesystem paths. ASR model preparation must be
+  single-flight: while an active preparation future is running, later callers
+  should reuse that future instead of opening a second download against the same
+  `.zip.part` file.
+- Related file:
+  [asr_model_manager.dart](../../mobile/lib/src/services/asr_model_manager.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name "concurrent ensureReady calls share the active preparation"
+```
+
+- Last verified: 2026-05-27
+
 ## Symptom: Workbench Send Reports StreamSink Is Closed
 
 - Symptom: a prompt or attachment send succeeds in daemon persistence, but

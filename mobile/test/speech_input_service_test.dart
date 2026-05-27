@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -207,6 +208,26 @@ void main() {
     expect(recognizer.canceled, isTrue);
   });
 
+  test('cancel consumes subscription cancellation failures', () async {
+    final recorder = FakeSpeechRecorder(
+      streamCancelError: StateError('cancel failed'),
+    );
+    final recognizer = FakeSpeechRecognizer()..partials.add('partial');
+    final service = SherpaSpeechInputService(
+      modelDirectory: 'unused',
+      permissionFactory: () => FakeSpeechPermission(),
+      recorderFactory: () => recorder,
+      recognizerFactory: (_) => recognizer,
+    );
+
+    await service.start(onPartial: (_) {});
+
+    await service.cancel();
+
+    expect(recorder.stopped, isTrue);
+    expect(recognizer.canceled, isTrue);
+  });
+
   test('stop cancels subscription and returns final text', () async {
     final recorder = FakeSpeechRecorder();
     final recognizer = FakeSpeechRecognizer()
@@ -234,6 +255,31 @@ void main() {
     expect(recorder.hasListener, isFalse);
   });
 
+  test('stop consumes subscription cancellation failures', () async {
+    final recorder = FakeSpeechRecorder(
+      streamCancelError: StateError('cancel failed'),
+    );
+    final recognizer = FakeSpeechRecognizer()
+      ..partials.add('partial')
+      ..partials.add('final');
+    final partials = <String>[];
+    final service = SherpaSpeechInputService(
+      modelDirectory: 'unused',
+      permissionFactory: () => FakeSpeechPermission(),
+      recorderFactory: () => recorder,
+      recognizerFactory: (_) => recognizer,
+    );
+
+    await service.start(onPartial: partials.add);
+    recorder.controller.add(<int>[0, 0]);
+    await pumpEventQueue();
+
+    final finalText = await service.stop();
+
+    expect(finalText, 'final');
+    expect(recorder.stopped, isTrue);
+  });
+
   test('dispose tears down recorder and recognizer', () async {
     final recorder = FakeSpeechRecorder();
     final recognizer = FakeSpeechRecognizer();
@@ -246,6 +292,26 @@ void main() {
 
     await service.start(onPartial: (_) {});
     service.dispose();
+
+    expect(recorder.disposed, isTrue);
+    expect(recognizer.disposed, isTrue);
+  });
+
+  test('dispose consumes subscription cancellation failures', () async {
+    final recorder = FakeSpeechRecorder(
+      streamCancelError: StateError('cancel failed'),
+    );
+    final recognizer = FakeSpeechRecognizer();
+    final service = SherpaSpeechInputService(
+      modelDirectory: 'unused',
+      permissionFactory: () => FakeSpeechPermission(),
+      recorderFactory: () => recorder,
+      recognizerFactory: (_) => recognizer,
+    );
+
+    await service.start(onPartial: (_) {});
+    service.dispose();
+    await pumpEventQueue();
 
     expect(recorder.disposed, isTrue);
     expect(recognizer.disposed, isTrue);

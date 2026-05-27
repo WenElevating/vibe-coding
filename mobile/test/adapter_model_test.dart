@@ -574,6 +574,65 @@ void main() {
       expect(viewModel.draftAttachments, isEmpty);
       expect(repository.sentRequests.last.clientMessageId, firstId);
     });
+
+    test(
+        'changing draft attachments after retryable failure starts a new preview identity',
+        () async {
+      final repository = _FakeConversationRepository()
+        ..sendError = const ConversationRepositoryException(
+          statusCode: 422,
+          code: 'attachment_context_too_large',
+        );
+      final cache = _FakeAttachmentPreviewCache();
+      final viewModel = WorkbenchViewModel(
+        initialData: _snapshot(
+          adapters: const <AdapterStatus>[_codexImageModel],
+        ),
+        conversationRepository: repository,
+        attachmentPreviewCache: cache,
+      );
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\first.png',
+        name: 'first.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      await expectLater(
+        viewModel.sendExistingConversationPrompt(
+          conversationId: 'conv_1',
+          prompt: 'inspect',
+        ),
+        throwsA(isA<ConversationRepositoryException>()),
+      );
+      final firstId = repository.sentRequests.single.clientMessageId;
+      expect(firstId, isNotNull);
+
+      viewModel.removeDraftAttachment(0);
+      await pumpEventQueue();
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\second.png',
+        name: 'second.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      repository.sendError = null;
+      await viewModel.sendExistingConversationPrompt(
+        conversationId: 'conv_1',
+        prompt: 'inspect',
+      );
+      final secondId = repository.sentRequests.last.clientMessageId;
+
+      expect(secondId, isNot(firstId));
+      expect(cache.orphaned, <String>['conv_1|$firstId']);
+      expect(cache.remembered, <String>[
+        'conv_1|$firstId|0|first.png|image/png|120034',
+        'conv_1|$secondId|0|second.png|image/png|120034',
+      ]);
+    });
   });
 }
 
@@ -858,6 +917,7 @@ class _FakeConversationRepository implements ConversationRepository {
 
 class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
   final List<String> remembered = <String>[];
+  final List<String> orphaned = <String>[];
   Object? rememberError;
 
   @override
@@ -901,5 +961,7 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
   Future<void> markClientMessageOrphaned({
     required String conversationId,
     required String clientMessageId,
-  }) async {}
+  }) async {
+    orphaned.add('$conversationId|$clientMessageId');
+  }
 }

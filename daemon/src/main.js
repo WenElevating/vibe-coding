@@ -57,6 +57,7 @@ function createApp({
   mode = process.env.DAEMON_MODE || 'dev',
   claudeCommand = process.env.CLAUDE_COMMAND || 'claude',
   codexCommand = process.env.CODEX_COMMAND || 'codex',
+  codexToolTimeoutSec = process.env.CODEX_TOOL_TIMEOUT_SEC,
   codexEnabled = process.env.CODEX_ENABLED === '1',
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
@@ -97,7 +98,7 @@ function createApp({
     workspaces,
     eventStore: conversationEventStore,
     auditLog,
-    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand }),
+    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
@@ -119,10 +120,10 @@ function createApp({
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
-function createConversationAdapters({ claudeCommand, codexCommand }) {
+function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec }) {
   return new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
-    ['codex', new CodexConversationAdapter({ command: codexCommand })],
+    ['codex', new CodexConversationAdapter({ command: codexCommand, toolTimeoutSec: codexToolTimeoutSec })],
     ['opencode', notImplementedConversationAdapter('OpenCode')]
   ]);
 }

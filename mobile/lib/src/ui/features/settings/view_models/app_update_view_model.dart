@@ -97,7 +97,10 @@ class AppUpdateViewModel extends ChangeNotifier {
           installedVersionName: installedVersionName,
           installedVersionCode: installedVersionCode,
         ) {
-    _installSubscription = workflow.installEvents.listen(_handleInstallEvent);
+    _installSubscription = workflow.installEvents.listen(
+      _handleInstallEvent,
+      onError: _handleInstallEventError,
+    );
   }
 
   final int installedVersionCode;
@@ -319,6 +322,13 @@ class AppUpdateViewModel extends ChangeNotifier {
           _recordDiagnostic('update.install.committed', {
             'sessionId': result.sessionId,
           });
+          final message = result.message;
+          if (message != null) {
+            _recordDiagnostic('update.install.session_record_failed', {
+              'sessionId': result.sessionId,
+              'errorSummary': message,
+            });
+          }
           return;
       }
     } catch (error) {
@@ -502,6 +512,12 @@ class AppUpdateViewModel extends ChangeNotifier {
     );
   }
 
+  void _handleInstallEventError(Object error, StackTrace stackTrace) {
+    _recordDiagnostic('update.install.events_failed', {
+      'errorSummary': '$error',
+    });
+  }
+
   bool _canRecoverInstallSession() {
     return state.status == AppUpdateStatus.idle ||
         state.status == AppUpdateStatus.upToDate ||
@@ -582,7 +598,15 @@ class AppUpdateViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    unawaited(_installSubscription.cancel());
+    unawaited(_cancelInstallSubscriptionBestEffort());
     super.dispose();
+  }
+
+  Future<void> _cancelInstallSubscriptionBestEffort() async {
+    try {
+      await _installSubscription.cancel();
+    } catch (_) {
+      // Cleanup is best-effort; cancellation failures must not escape dispose.
+    }
   }
 }

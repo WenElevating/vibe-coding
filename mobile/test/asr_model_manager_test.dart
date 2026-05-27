@@ -259,6 +259,52 @@ void main() {
     expect(part.existsSync(), true);
   });
 
+  test('concurrent ensureReady calls share the active preparation', () async {
+    final bytes = _zipBytes();
+    final releaseStream = Completer<void>();
+    var activeDownloadStarted = false;
+    final client = _FakeAsrModelClient(
+        metadata: _metadata(bytes),
+        downloadHandler: (_) {
+          if (releaseStream.isCompleted) {
+            return _downloadResponse(200, bytes, null);
+          }
+          if (activeDownloadStarted) {
+            throw StateError('duplicate ASR model download');
+          }
+          activeDownloadStarted = true;
+          return AsrModelDownloadResponse(
+              statusCode: 200,
+              headers: const <String, String>{},
+              stream: (() async* {
+                yield bytes.sublist(0, 10);
+                await releaseStream.future;
+                yield bytes.sublist(10);
+              })());
+        });
+    final manager = AsrModelManager(
+        client: client, supportDirectoryProvider: () async => tempDir);
+
+    final first = manager.ensureReady();
+    for (var attempt = 0;
+        attempt < 20 && manager.state.status != AsrModelStatus.downloading;
+        attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(manager.state.status, AsrModelStatus.downloading);
+
+    final second = manager.ensureReady();
+    releaseStream.complete();
+
+    final firstPath = await first;
+    final secondPath = await second;
+
+    expect(firstPath, secondPath);
+    expect(client.metadataCalls, 1);
+    expect(client.downloadCalls, 1);
+    expect(manager.state.status, AsrModelStatus.ready);
+  });
+
   test('resume download failure updates state without unhandled async error',
       () async {
     final bytes = _zipBytes();
@@ -303,7 +349,11 @@ void main() {
     expect(manager.state.status, AsrModelStatus.paused);
 
     manager.resume();
-    await pumpEventQueue();
+    for (var attempt = 0;
+        attempt < 20 && manager.state.status != AsrModelStatus.failed;
+        attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
 
     expect(manager.state.status, AsrModelStatus.failed);
     expect(manager.state.errorMessage, 'download unavailable');
@@ -416,10 +466,14 @@ class _FakeAsrModelClient extends AsrModelClient {
   final AsrModelMetadata _metadata;
   final AsrModelDownloadResponse Function(int? start)? downloadHandler;
   final List<int?> requestedStarts = <int?>[];
+  int metadataCalls = 0;
   int downloadCalls = 0;
 
   @override
-  Future<AsrModelMetadata> metadata() async => _metadata;
+  Future<AsrModelMetadata> metadata() async {
+    metadataCalls++;
+    return _metadata;
+  }
 
   @override
   Future<AsrModelDownloadResponse> download({int? start}) async {
