@@ -716,6 +716,9 @@ class _LifecycleConversationRepository implements ConversationRepository {
 }
 
 class _NewSessionConversationRepository implements ConversationRepository {
+  _NewSessionConversationRepository({this.createCompleter});
+
+  final Completer<ConversationSummary>? createCompleter;
   final sendCompleter = Completer<ConversationSummary>();
 
   String? sentText;
@@ -743,6 +746,8 @@ class _NewSessionConversationRepository implements ConversationRepository {
   }) async {
     createdAdapters.add(adapter);
     createdPermissionModes.add(permissionMode);
+    final createCompleter = this.createCompleter;
+    if (createCompleter != null) return createCompleter.future;
     return _conversationSummary(
       id: 'conv_new_running',
       workspaceId: workspaceId,
@@ -1124,6 +1129,20 @@ void main() {
     expect(find.text('192.168.1.20:4317'), findsOneWidget);
     expect(find.text('Proxy mode'), findsOneWidget);
     expect(find.text('Manual proxy'), findsOneWidget);
+  });
+
+  testWidgets('settings hides update check when update service is unavailable',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(const _LocalizedSettingsPageApp());
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.pumpAndSettle();
+
+    expect(find.text('About'), findsOneWidget);
+    expect(find.text('Check for updates'), findsNothing);
   });
 
   testWidgets('settings update check lives in about and starts manual check',
@@ -2932,6 +2951,80 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('new conversation send completion after dispose is ignored',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final createCompleter = Completer<ConversationSummary>();
+    final conversationRepository =
+        _NewSessionConversationRepository(createCompleter: createCompleter);
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+      ),
+    );
+    await _pumpNavigationFrame(tester);
+
+    await tester.tap(find.text('Coding'));
+    await _pumpNavigationFrame(tester);
+    await tester.tap(find.text('Current Project'));
+    await _pumpNavigationFrame(tester);
+    await tester.tap(find.text('New Session'));
+    await _pumpNavigationFrame(tester);
+
+    await tester.enterText(find.byType(TextField).last, 'Dispose while sending');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await tester.pump();
+
+    expect(conversationRepository.createdAdapters, <String>['codex']);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    createCompleter.complete(_conversationSummary(
+      id: 'conv_new_running',
+      workspaceId: 'workspace_1',
+      status: 'running',
+      sessionBinding: 'pending',
+      userMessageCount: 0,
+    ));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('saved permission mode is used for new Claude sessions',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -3771,6 +3864,14 @@ void main() {
           id: 'workspace_a', name: 'Agent', path: r'D:\AiProject\Agent'),
       WorkspaceSummary(
           id: 'workspace_b', name: 'Agent copy', path: r'D:\AiProject\Agent'),
+      WorkspaceSummary(
+          id: 'workspace_trailing',
+          name: 'Agent trailing',
+          path: 'D:\\AiProject\\Agent\\'),
+      WorkspaceSummary(
+          id: 'workspace_case',
+          name: 'Agent case',
+          path: r'd:\aiproject\agent'),
       WorkspaceSummary(
           id: 'workspace_c', name: 'cli-ui', path: r'D:\AiProject\cli-ui'),
     ]);

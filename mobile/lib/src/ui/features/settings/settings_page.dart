@@ -98,7 +98,8 @@ class SettingsPage extends StatelessWidget {
           _SettingsRow(
               title: l10n.settingsExtensionsTitle,
               value: l10n.settingsExtensionsCount(data.extensions.length)),
-          _SettingsUpdateCheckRow(viewModel: appUpdateViewModel),
+          if (appUpdateViewModel != null)
+            _SettingsUpdateCheckRow(viewModel: appUpdateViewModel!),
         ]),
         const SizedBox(height: 18),
         Row(children: [
@@ -125,15 +126,11 @@ class SettingsPage extends StatelessWidget {
 class _SettingsUpdateCheckRow extends StatelessWidget {
   const _SettingsUpdateCheckRow({required this.viewModel});
 
-  final AppUpdateViewModel? viewModel;
+  final AppUpdateViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final viewModel = this.viewModel;
-    if (viewModel == null) {
-      return _SettingsTapRow(title: l10n.appUpdateCheckAction, onTap: () {});
-    }
     return ListenableBuilder(
       listenable: viewModel,
       builder: (context, _) => AppUpdatePanel(

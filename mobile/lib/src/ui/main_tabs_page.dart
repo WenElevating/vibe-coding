@@ -117,7 +117,8 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
       Subhead(l10n.settingsAboutSection),
       _EmptyStateCard(children: [
         _EmptyStateRow(title: 'daemon', value: health?.daemonVersion ?? '—'),
-        _EmptyAppUpdateCheckRow(viewModel: appUpdateViewModel),
+        if (appUpdateViewModel != null)
+          _EmptyAppUpdateCheckRow(viewModel: appUpdateViewModel!),
       ]),
     ]);
   }
@@ -126,15 +127,11 @@ class _ConnectedEmptySettingsPage extends StatelessWidget {
 class _EmptyAppUpdateCheckRow extends StatelessWidget {
   const _EmptyAppUpdateCheckRow({required this.viewModel});
 
-  final AppUpdateViewModel? viewModel;
+  final AppUpdateViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final viewModel = this.viewModel;
-    if (viewModel == null) {
-      return _EmptyStateTapRow(title: l10n.appUpdateCheckAction, onTap: () {});
-    }
     return ListenableBuilder(
       listenable: viewModel,
       builder: (context, _) => AppUpdatePanel(

@@ -167,11 +167,19 @@ List<WorkspaceSummary> dedupeWorkspacesByPath(
   final seen = <String>{};
   final visible = <WorkspaceSummary>[];
   for (final workspace in workspaces) {
-    final key = workspace.path.replaceAll('\\', '/').toLowerCase();
+    final key = _workspacePathKey(workspace.path);
     if (!seen.add(key)) continue;
     visible.add(workspace);
   }
   return visible;
+}
+
+String _workspacePathKey(String path) {
+  var normalized = path.trim().replaceAll('\\', '/').toLowerCase();
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized;
 }
 
 class _AdapterChoiceRow extends StatelessWidget {
@@ -289,6 +297,7 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
               repository: widget.workspaceRepository,
             ));
     if (selectedPath != null && selectedPath.isNotEmpty) {
+      if (!mounted) return;
       setState(() => _path.text = selectedPath);
     }
   }

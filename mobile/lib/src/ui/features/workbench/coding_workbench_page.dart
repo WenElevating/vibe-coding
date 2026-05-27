@@ -177,6 +177,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _openSession(SessionItem item) async {
     await _cancelConversationEventSubscription();
+    if (!mounted) return;
     setState(() {
       _resetConversationState(
           bottomAnchorTranscript: item.conversation != null);
@@ -787,6 +788,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           permissionMode: widget.permissionMode,
           model: model,
         );
+        if (!mounted) return;
         setState(() {
           _workbenchViewModel.prepareNewConversationSend(
               result.runningConversation,
@@ -811,6 +813,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           questionId: pendingQuestionId,
           text: prompt,
         );
+        if (!mounted) return;
         setState(() {
           _workbenchViewModel.updateActiveConversation(conversation,
               notify: false);
@@ -851,6 +854,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         activeConversationId: _activeConversationId,
         activeRunId: _activeRunId,
       );
+      if (!mounted) return;
       if (sendAcknowledgementTimedOut) {
         setState(() {
           _workbenchViewModel.clearOperationError(notify: false);
@@ -863,6 +867,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         stack,
         operation: 'sendMessage',
       );
+      if (!mounted) return;
       setState(() {
         if (_prompt.text.isEmpty && draft.isNotEmpty) {
           _prompt.value = TextEditingValue(
