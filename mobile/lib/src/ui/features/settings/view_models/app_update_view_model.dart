@@ -62,19 +62,24 @@ class AppUpdateState {
   AppUpdateState copyWith({
     AppUpdateStatus? status,
     AppUpdateManifest? manifest,
+    bool clearManifest = false,
     bool? mandatory,
     bool? promptSuppressed,
     File? downloadedFile,
+    bool clearDownloadedFile = false,
     String? errorMessage,
   }) {
+    assert(!clearManifest || manifest == null);
+    assert(!clearDownloadedFile || downloadedFile == null);
     return AppUpdateState(
       status: status ?? this.status,
       installedVersionName: installedVersionName,
       installedVersionCode: installedVersionCode,
-      manifest: manifest ?? this.manifest,
+      manifest: clearManifest ? null : manifest ?? this.manifest,
       mandatory: mandatory ?? this.mandatory,
       promptSuppressed: promptSuppressed ?? this.promptSuppressed,
-      downloadedFile: downloadedFile ?? this.downloadedFile,
+      downloadedFile:
+          clearDownloadedFile ? null : downloadedFile ?? this.downloadedFile,
       errorMessage: errorMessage,
     );
   }
@@ -151,6 +156,7 @@ class AppUpdateViewModel extends ChangeNotifier {
             manifest: manifest,
             mandatory: false,
             promptSuppressed: false,
+            clearDownloadedFile: true,
           ),
         );
         _recordSilentCheckCompleted(trigger, manifest, false);
@@ -217,6 +223,7 @@ class AppUpdateViewModel extends ChangeNotifier {
       state.copyWith(
         status: AppUpdateStatus.downloading,
         promptSuppressed: false,
+        clearDownloadedFile: true,
       ),
     );
     try {
@@ -237,6 +244,7 @@ class AppUpdateViewModel extends ChangeNotifier {
             AppUpdateDownloadState.failed => AppUpdateStatus.failed,
           },
           downloadedFile: result.file,
+          clearDownloadedFile: result.file == null,
           errorMessage: result.message,
           promptSuppressed: false,
         ),
@@ -247,6 +255,7 @@ class AppUpdateViewModel extends ChangeNotifier {
           status: AppUpdateStatus.failed,
           errorMessage: '$error',
           promptSuppressed: false,
+          clearDownloadedFile: true,
         ),
       );
     }

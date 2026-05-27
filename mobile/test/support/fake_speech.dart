@@ -6,9 +6,14 @@ class FakeSpeechPermission implements SpeechPermission {
   FakeSpeechPermission({this.granted = true});
 
   bool granted;
+  Completer<bool>? requestCompleter;
 
   @override
-  Future<bool> request() async => granted;
+  Future<bool> request() async {
+    final completer = requestCompleter;
+    if (completer != null) return completer.future;
+    return granted;
+  }
 }
 
 class FakeSpeechRecorder implements SpeechRecorder {

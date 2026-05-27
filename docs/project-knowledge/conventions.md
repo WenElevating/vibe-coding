@@ -27,6 +27,8 @@
   concrete service calls from widgets.
 - Long-running async `ChangeNotifier` flows must guard disposal before
   `notifyListeners`; disposal should cancel or suppress pending emissions.
+- ViewModel state `copyWith` methods with nullable fields need explicit clear
+  semantics; `value ?? previousValue` silently preserves stale optional state.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test

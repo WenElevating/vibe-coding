@@ -189,6 +189,45 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.available);
   });
 
+  test('failed redownload clears stale downloaded file', () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.downloadedFile?.path, readyFile.path);
+
+    downloader.result = const AppUpdateDownloadResult(
+      state: AppUpdateDownloadState.failed,
+      message: 'network unavailable',
+    );
+    await viewModel.download();
+
+    expect(viewModel.state.status, AppUpdateStatus.failed);
+    expect(viewModel.state.downloadedFile, isNull);
+    expect(viewModel.state.errorMessage, 'network unavailable');
+  });
+
   test('install cancelled remains visible and retryable', () async {
     final installer = _FakeInstaller();
     final readyFile = await _readyApk();

@@ -89,6 +89,33 @@ void main() {
     expect(recognizerCreated, isFalse);
   });
 
+  test('dispose during permission request suppresses recorder startup',
+      () async {
+    final permissionCompleter = Completer<bool>();
+    final permission = FakeSpeechPermission()
+      ..requestCompleter = permissionCompleter;
+    final recorder = FakeSpeechRecorder();
+    var recognizerCreated = false;
+    final service = SherpaSpeechInputService(
+      modelDirectory: 'unused',
+      permissionFactory: () => permission,
+      recorderFactory: () => recorder,
+      recognizerFactory: (_) {
+        recognizerCreated = true;
+        return FakeSpeechRecognizer();
+      },
+    );
+
+    final start = service.start(onPartial: (_) {});
+    await pumpEventQueue();
+    service.dispose();
+    permissionCompleter.complete(true);
+    await start;
+
+    expect(recorder.started, isFalse);
+    expect(recognizerCreated, isFalse);
+  });
+
   test('recorder start failure cleans up and can be retried', () async {
     final permission = FakeSpeechPermission();
     final recorder = FakeSpeechRecorder()

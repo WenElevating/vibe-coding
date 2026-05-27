@@ -104,22 +104,30 @@ class SherpaSpeechInputService implements SpeechInputService {
   StreamSubscription<List<int>>? _audioSubscription;
   SpeechRecognizer? _recognizer;
   bool _started = false;
+  bool _disposed = false;
   String _latestText = '';
 
   @override
   Future<void> start({required void Function(String text) onPartial}) async {
-    if (_started) return;
+    if (_disposed || _started) return;
     _latestText = '';
     final permissionGranted = await _permission.request();
+    if (_disposed) return;
     if (!permissionGranted) {
       throw StateError('Microphone permission denied');
     }
     try {
       await _ensureRecognizer();
+      if (_disposed) return;
       final recognizer = _recognizer!;
       recognizer.cancel();
       final audioStream = await _recorder.startStream();
+      if (_disposed) {
+        await _recorder.stop().catchError((Object _) => null);
+        return;
+      }
       _audioSubscription = audioStream.listen((data) {
+        if (_disposed) return;
         _latestText = recognizer.acceptWaveform(data);
         onPartial(_latestText);
       });
@@ -145,6 +153,7 @@ class SherpaSpeechInputService implements SpeechInputService {
 
   @override
   Future<String> stop() async {
+    if (_disposed) return _latestText;
     _started = false;
     await _audioSubscription?.cancel();
     _audioSubscription = null;
@@ -158,6 +167,7 @@ class SherpaSpeechInputService implements SpeechInputService {
 
   @override
   Future<void> cancel() async {
+    if (_disposed) return;
     _latestText = '';
     _started = false;
     await _audioSubscription?.cancel();
@@ -168,8 +178,13 @@ class SherpaSpeechInputService implements SpeechInputService {
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _started = false;
     unawaited(_audioSubscription?.cancel());
+    _audioSubscription = null;
     _recognizer?.dispose();
+    _recognizer = null;
     _recorder.dispose();
   }
 }
