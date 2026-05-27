@@ -22,7 +22,7 @@ class MainTabsViewModel extends ChangeNotifier {
   int _activeTab = 0;
   bool _streamOutput = false;
   bool _expandThinking = false;
-  String _permissionMode = 'default';
+  String _permissionMode = 'auto';
   bool _codingSessionListOpen = true;
   int _openSessionListRequest = 0;
   CodingAdapterLoadState _adapterLoadState = CodingAdapterLoadState.idle;

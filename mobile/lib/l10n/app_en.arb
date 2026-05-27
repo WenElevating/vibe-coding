@@ -21,7 +21,7 @@
   "settingsPermissionModeTitle": "Permission mode",
   "settingsPermissionDefault": "Default",
   "settingsPermissionAuto": "Auto",
-  "settingsPermissionSubtitle": "Applies to new sessions. Default asks for CLI permission confirmation; auto lets the CLI handle permissions.",
+  "settingsPermissionSubtitle": "Applies to new sessions. Auto lets the CLI handle permissions; default asks for CLI permission confirmation.",
   "settingsDataStatusSection": "Data status",
   "settingsDiagnosticsTitle": "Code diagnostics",
   "settingsDiagnosticsCount": "{count} items",

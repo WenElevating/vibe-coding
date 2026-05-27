@@ -67,6 +67,16 @@ mirror-configured command for manual execution.
 This rule exists because local Dart/Flutter tool invocations have timed out in
 agent runs while passing when the user ran the same command manually.
 
+Observed root cause: the Flutter Windows wrappers (`dart.bat` and
+`flutter.bat`) acquire `bin/cache/flutter.bat.lock` under the Flutter SDK
+directory before launching the tool. In the agent's default sandbox, the
+workspace is writable but `D:\sdk\flutter_sdk\flutter\bin\cache` is not, so the
+wrapper can wait until the tool call times out. Running the same command in the
+user's PowerShell, or running it with explicit escalation, can succeed because it
+is allowed to write the SDK cache lock. Pure Dart formatting can also bypass the
+wrapper by invoking `D:\sdk\flutter_sdk\flutter\bin\cache\dart-sdk\bin\dart.exe`
+directly, but Flutter commands still need the wrapper and should be escalated.
+
 When running Flutter/Dart commands through the agent tool, keep the executable
 as the top-level command (for example, `flutter test ...` or `dart analyze ...`)
 instead of prefixing PowerShell environment assignments in the same command

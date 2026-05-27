@@ -128,6 +128,16 @@ List<String> _adapterNames(MainTabsViewModel viewModel) =>
     viewModel.data.adapters.map((adapter) => adapter.adapter).toList();
 
 void main() {
+  test('defaults new coding sessions to auto permission mode', () {
+    final viewModel = MainTabsViewModel(
+      initialData: _snapshot(),
+      adapterRepository: _FakeAdapterRepository(),
+    );
+    addTearDown(viewModel.dispose);
+
+    expect(viewModel.permissionMode, 'auto');
+  });
+
   test('loads coding adapters through repository once', () async {
     final repository = _FakeAdapterRepository();
     final viewModel = MainTabsViewModel(

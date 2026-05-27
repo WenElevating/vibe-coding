@@ -3158,11 +3158,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('saved permission mode is used for new Claude sessions',
+  testWidgets('auto permission mode is used by default for new Claude sessions',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       AppLanguage.storageKey: 'en-US',
-      CodingPreferencesStore.permissionModeStorageKey: 'auto',
     });
     final conversationRepository = _NewSessionConversationRepository();
     final dependencies = AppDependencies.createDefault();
