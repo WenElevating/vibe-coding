@@ -27,6 +27,9 @@
   concrete service calls from widgets.
 - Long-running async `ChangeNotifier` flows must guard disposal before
   `notifyListeners`; disposal should cancel or suppress pending emissions.
+- Fire-and-forget async work must consume Future errors after projecting failure
+  into state; otherwise the same failure can surface as an unhandled async
+  exception.
 - ViewModel state `copyWith` methods with nullable fields need explicit clear
   semantics; `value ?? previousValue` silently preserves stale optional state.
 - Conversation message clients should preserve `clientMessageId` and

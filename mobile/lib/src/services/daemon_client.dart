@@ -133,7 +133,7 @@ class DaemonClient
 
   String? _deviceId;
   String? _token;
-  Completer<void>? _refreshCompleter;
+  Future<void>? _refreshTask;
   bool _closed = false;
 
   String? get currentToken => _token;
@@ -234,50 +234,54 @@ class DaemonClient
   }
 
   @override
-  Future<void> refreshToken() async {
-    if (_refreshCompleter != null) return _refreshCompleter!.future;
-    _refreshCompleter = Completer<void>();
-    try {
-      final deviceId = _deviceId;
-      if (deviceId == null) {
-        throw const DaemonClientException(401, <String, Object?>{
-          'error': 'missing_device',
-          'message': 'No paired device is available for token refresh.',
-        });
+  Future<void> refreshToken() {
+    final activeRefresh = _refreshTask;
+    if (activeRefresh != null) return activeRefresh;
+
+    late final Future<void> refresh;
+    refresh = _refreshTokenOnce().whenComplete(() {
+      if (identical(_refreshTask, refresh)) {
+        _refreshTask = null;
       }
-      final refreshSession = await tokenStore.readRefreshTokenSession(deviceId);
-      final refreshToken = refreshSession?.token;
-      if (refreshToken == null || refreshToken.isEmpty) {
-        throw const DaemonClientException(401, <String, Object?>{
-          'error': 'missing_refresh_token',
-          'message': 'No refresh token is available for this device.',
-        });
-      }
-      final response = await _post(
-        '/api/token/refresh',
-        <String, Object?>{'deviceId': deviceId, 'refreshToken': refreshToken},
-        authorize: false,
-      );
-      _deviceId = response['deviceId'] as String;
-      _token = response['token'] as String;
-      await tokenStore.writeAccessTokenSession(
+    });
+    _refreshTask = refresh;
+    return refresh;
+  }
+
+  Future<void> _refreshTokenOnce() async {
+    final deviceId = _deviceId;
+    if (deviceId == null) {
+      throw const DaemonClientException(401, <String, Object?>{
+        'error': 'missing_device',
+        'message': 'No paired device is available for token refresh.',
+      });
+    }
+    final refreshSession = await tokenStore.readRefreshTokenSession(deviceId);
+    final refreshToken = refreshSession?.token;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw const DaemonClientException(401, <String, Object?>{
+        'error': 'missing_refresh_token',
+        'message': 'No refresh token is available for this device.',
+      });
+    }
+    final response = await _post(
+      '/api/token/refresh',
+      <String, Object?>{'deviceId': deviceId, 'refreshToken': refreshToken},
+      authorize: false,
+    );
+    _deviceId = response['deviceId'] as String;
+    _token = response['token'] as String;
+    await tokenStore.writeAccessTokenSession(
+        _deviceId!,
+        _sessionFromResponse(response,
+            tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
+    final nextRefreshToken = response['refreshToken'] as String?;
+    if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) {
+      await tokenStore.writeRefreshTokenSession(
           _deviceId!,
           _sessionFromResponse(response,
-              tokenKey: 'token', expiresAtKey: 'accessTokenExpiresAt'));
-      final nextRefreshToken = response['refreshToken'] as String?;
-      if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) {
-        await tokenStore.writeRefreshTokenSession(
-            _deviceId!,
-            _sessionFromResponse(response,
-                tokenKey: 'refreshToken',
-                expiresAtKey: 'refreshTokenExpiresAt'));
-      }
-      _refreshCompleter!.complete();
-    } catch (e, st) {
-      _refreshCompleter!.completeError(e, st);
-      rethrow;
-    } finally {
-      _refreshCompleter = null;
+              tokenKey: 'refreshToken',
+              expiresAtKey: 'refreshTokenExpiresAt'));
     }
   }
 

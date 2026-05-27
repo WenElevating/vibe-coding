@@ -1,7 +1,7 @@
 # Module Boundaries
 
 - Status: active seed
-- Last verified: 2026-05-22
+- Last verified: 2026-05-27
 
 ## Mobile Ownership
 
@@ -14,7 +14,7 @@
 ## Boundary Rules
 
 - `domain/` must not import Flutter, HTTP clients, `SharedPreferences`, UI code,
-  or concrete `DaemonClient`.
+  `data/`, `services/`, workflows, shell code, or concrete `DaemonClient`.
 - New production code should not be added to retired migration roots:
   `mobile/lib/src/features`, `mobile/lib/src/widgets`, `mobile/lib/src/theme`,
   or `mobile/lib/src/state`.

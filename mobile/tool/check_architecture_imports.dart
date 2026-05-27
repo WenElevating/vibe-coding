@@ -343,6 +343,9 @@ String? _domainRule(String uri, String normalizedTarget) {
   if (_targetsRoot(normalizedTarget, 'src/ui/')) {
     return 'domain must not import UI';
   }
+  if (_targetsRoot(normalizedTarget, 'src/data/')) {
+    return 'domain must not import data';
+  }
   if (_targetsRoot(normalizedTarget, 'src/services/')) {
     return 'domain must not import services';
   }

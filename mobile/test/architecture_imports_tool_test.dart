@@ -49,6 +49,38 @@ class BadRepository {}
     expect(output.toString(), contains('workflows'));
   });
 
+  test('domain importing data is reported as forbidden', () async {
+    File('${tempDir.path}${Platform.pathSeparator}pubspec.yaml')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('name: architecture_imports_fixture\n');
+
+    final repository = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      'lib${Platform.pathSeparator}'
+      'src${Platform.pathSeparator}'
+      'domain${Platform.pathSeparator}'
+      'repositories${Platform.pathSeparator}'
+      'bad_repository.dart',
+    )..createSync(recursive: true);
+
+    repository.writeAsStringSync('''
+import '../../data/models/app_update_models.dart';
+
+class BadRepository {}
+''');
+
+    final output = StringBuffer();
+
+    final exitCode = await checker.checkArchitectureImports(
+      root: tempDir,
+      err: output,
+    );
+
+    expect(exitCode, isNonZero);
+    expect(output.toString(), contains('domain'));
+    expect(output.toString(), contains('data'));
+  });
+
   test('domain importing shell is reported as forbidden', () async {
     File('${tempDir.path}${Platform.pathSeparator}pubspec.yaml')
       ..createSync(recursive: true)

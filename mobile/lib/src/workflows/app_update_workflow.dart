@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import '../data/models/app_update_models.dart';
+import '../domain/models/app_update_manifest.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../services/android_package_installer.dart' as installer;
 import '../services/app_update_download_manager.dart' as downloader;

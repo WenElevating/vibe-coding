@@ -151,7 +151,9 @@ class AsrModelManager extends ChangeNotifier {
 
   void resume() {
     if (_state.status != AsrModelStatus.paused) return;
-    unawaited(ensureReady());
+    unawaited(ensureReady().catchError((Object _) {
+      return '';
+    }));
   }
 
   void cancel() {

@@ -259,6 +259,57 @@ void main() {
     expect(part.existsSync(), true);
   });
 
+  test('resume download failure updates state without unhandled async error',
+      () async {
+    final bytes = _zipBytes();
+    final releaseStream = Completer<void>();
+    var downloadCalls = 0;
+    final client = _FakeAsrModelClient(
+        metadata: _metadata(bytes),
+        downloadHandler: (_) {
+          downloadCalls++;
+          if (downloadCalls == 1) {
+            return AsrModelDownloadResponse(
+                statusCode: 200,
+                headers: const <String, String>{},
+                stream: (() async* {
+                  yield bytes.sublist(0, 10);
+                  await releaseStream.future;
+                })());
+          }
+          throw const AsrModelClientException(503, <String, Object?>{
+            'error': <String, Object?>{
+              'message': 'download unavailable',
+              'traceId': 'trace-1',
+            },
+          });
+        });
+    final manager = AsrModelManager(
+        client: client, supportDirectoryProvider: () async => tempDir);
+
+    final task = manager.ensureReady();
+    final expectedPause = expectLater(task, throwsA(anything));
+    for (var attempt = 0;
+        attempt < 20 && manager.state.status != AsrModelStatus.downloading;
+        attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(manager.state.status, AsrModelStatus.downloading);
+
+    manager.pause();
+    releaseStream.complete();
+    await expectedPause;
+
+    expect(manager.state.status, AsrModelStatus.paused);
+
+    manager.resume();
+    await pumpEventQueue();
+
+    expect(manager.state.status, AsrModelStatus.failed);
+    expect(manager.state.errorMessage, 'download unavailable');
+    expect(manager.state.traceId, 'trace-1');
+  });
+
   test('dispose during download suppresses later state notifications',
       () async {
     final bytes = _zipBytes();

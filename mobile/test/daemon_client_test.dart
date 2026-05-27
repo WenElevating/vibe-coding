@@ -401,6 +401,35 @@ void main() {
     expect(client.currentToken, 'access-2');
   });
 
+  test('refresh failure is reported once without unhandled completer errors',
+      () async {
+    final tokenStore = MemoryTokenStore();
+    await tokenStore.writeAccessTokenSession(
+      'device-1',
+      TokenSession(
+          token: 'access-1',
+          expiresAt: DateTime.parse('2026-05-11T08:05:00.000Z')),
+    );
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: tokenStore,
+      now: () => DateTime.parse('2026-05-11T08:00:00.000Z'),
+      httpClient: MockClient((request) async {
+        fail('refresh without a stored refresh token should not call daemon');
+      }),
+    );
+
+    await expectLater(
+      client.ensurePaired(
+          deviceIdentityStore: MemoryDeviceIdentityStore(deviceId: 'device-1')),
+      throwsA(isA<DaemonClientException>()
+          .having((error) => error.statusCode, 'statusCode', 401)
+          .having((error) => error.body['error'], 'error',
+              'missing_refresh_token')),
+    );
+    expect(await tokenStore.readAccessToken('device-1'), isNull);
+  });
+
   test('authorized request refreshes and retries once after auth required',
       () async {
     final tokenStore = MemoryTokenStore();

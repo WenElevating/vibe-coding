@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 
-import '../../../../data/models/app_update_models.dart';
+import '../../../../domain/models/app_update_manifest.dart';
 import '../../../../workflows/app_update_workflow.dart';
 
 enum AppUpdateStatus {

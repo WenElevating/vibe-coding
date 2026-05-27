@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../data/models/app_update_models.dart';
+import '../domain/models/app_update_manifest.dart';
 
 typedef AuthorizedRawGet = Future<http.Response> Function(
   String path, {
