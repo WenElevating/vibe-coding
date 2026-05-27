@@ -31,18 +31,34 @@ void main() {
     test('rejects empty address', () {
       expect(
         () => normalizeDaemonAddress('  '),
-        throwsA(isA<DaemonConnectionConfigException>().having(
-            (error) => error.message, 'message', 'Enter a daemon address.')),
+        throwsA(isA<DaemonConnectionConfigException>()
+            .having(
+              (error) => error.message,
+              'message',
+              'Enter a daemon address.',
+            )
+            .having(
+              (error) => error.code,
+              'code',
+              DaemonConnectionConfigErrorCode.emptyDaemonAddress,
+            )),
       );
     });
 
     test('rejects unsupported schemes', () {
       expect(
         () => normalizeDaemonAddress('ftp://127.0.0.1:4317'),
-        throwsA(isA<DaemonConnectionConfigException>().having(
-            (error) => error.message,
-            'message',
-            'Daemon address must use http or https.')),
+        throwsA(isA<DaemonConnectionConfigException>()
+            .having(
+              (error) => error.message,
+              'message',
+              'Daemon address must use http or https.',
+            )
+            .having(
+              (error) => error.code,
+              'code',
+              DaemonConnectionConfigErrorCode.unsupportedDaemonAddressScheme,
+            )),
       );
     });
   });
@@ -63,8 +79,17 @@ void main() {
     test('rejects empty manual proxy input', () {
       expect(
         () => normalizeManualProxy(' '),
-        throwsA(isA<DaemonConnectionConfigException>().having(
-            (error) => error.message, 'message', 'Enter a proxy address.')),
+        throwsA(isA<DaemonConnectionConfigException>()
+            .having(
+              (error) => error.message,
+              'message',
+              'Enter a proxy address.',
+            )
+            .having(
+              (error) => error.code,
+              'code',
+              DaemonConnectionConfigErrorCode.emptyProxyAddress,
+            )),
       );
     });
   });

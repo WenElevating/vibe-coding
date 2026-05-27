@@ -61,10 +61,20 @@ class NormalizedDaemonAddress {
   final Uri uri;
 }
 
+enum DaemonConnectionConfigErrorCode {
+  emptyDaemonAddress,
+  invalidDaemonAddress,
+  unsupportedDaemonAddressScheme,
+  emptyProxyAddress,
+  invalidProxyAddress,
+  unsupportedManualProxyScheme,
+}
+
 class DaemonConnectionConfigException implements Exception {
-  const DaemonConnectionConfigException(this.message);
+  const DaemonConnectionConfigException(this.message, {required this.code});
 
   final String message;
+  final DaemonConnectionConfigErrorCode code;
 
   @override
   String toString() => message;
@@ -73,18 +83,25 @@ class DaemonConnectionConfigException implements Exception {
 NormalizedDaemonAddress normalizeDaemonAddress(String input) {
   final trimmed = input.trim();
   if (trimmed.isEmpty) {
-    throw const DaemonConnectionConfigException('Enter a daemon address.');
+    throw const DaemonConnectionConfigException(
+      'Enter a daemon address.',
+      code: DaemonConnectionConfigErrorCode.emptyDaemonAddress,
+    );
   }
 
   final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
   final parsed = Uri.tryParse(withScheme);
   if (parsed == null || parsed.host.trim().isEmpty) {
     throw const DaemonConnectionConfigException(
-        'Enter a valid daemon address.');
+      'Enter a valid daemon address.',
+      code: DaemonConnectionConfigErrorCode.invalidDaemonAddress,
+    );
   }
   if (parsed.scheme != 'http' && parsed.scheme != 'https') {
     throw const DaemonConnectionConfigException(
-        'Daemon address must use http or https.');
+      'Daemon address must use http or https.',
+      code: DaemonConnectionConfigErrorCode.unsupportedDaemonAddressScheme,
+    );
   }
 
   final uri = parsed.hasPort
@@ -96,17 +113,25 @@ NormalizedDaemonAddress normalizeDaemonAddress(String input) {
 Uri normalizeManualProxy(String input) {
   final trimmed = input.trim();
   if (trimmed.isEmpty) {
-    throw const DaemonConnectionConfigException('Enter a proxy address.');
+    throw const DaemonConnectionConfigException(
+      'Enter a proxy address.',
+      code: DaemonConnectionConfigErrorCode.emptyProxyAddress,
+    );
   }
 
   final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
   final parsed = Uri.tryParse(withScheme);
   if (parsed == null || parsed.host.trim().isEmpty || !parsed.hasPort) {
     throw const DaemonConnectionConfigException(
-        'Enter a valid proxy host and port.');
+      'Enter a valid proxy host and port.',
+      code: DaemonConnectionConfigErrorCode.invalidProxyAddress,
+    );
   }
   if (parsed.scheme != 'http') {
-    throw const DaemonConnectionConfigException('Manual proxy must use http.');
+    throw const DaemonConnectionConfigException(
+      'Manual proxy must use http.',
+      code: DaemonConnectionConfigErrorCode.unsupportedManualProxyScheme,
+    );
   }
   return parsed;
 }

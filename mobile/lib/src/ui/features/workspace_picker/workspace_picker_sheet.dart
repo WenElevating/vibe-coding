@@ -131,7 +131,7 @@ class WorkspaceListPage extends StatelessWidget {
                         color: theme.text,
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: -.2))),
+                        letterSpacing: 0))),
             _WorkspaceAddIconButton(onTap: onAddWorkspace),
           ])),
       Expanded(
@@ -209,7 +209,7 @@ class _AdapterChoiceRow extends StatelessWidget {
                           color: theme.text,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: -.1)),
+                          letterSpacing: 0)),
                   const SizedBox(height: 2),
                   Text(displayVersion(adapter.version),
                       style:
@@ -350,7 +350,7 @@ class _AddWorkspaceSheetState extends State<AddWorkspaceSheet> {
                                   color: theme.text,
                                   fontSize: 16.5,
                                   fontWeight: FontWeight.w900,
-                                  letterSpacing: -.2)),
+                                  letterSpacing: 0)),
                           const SizedBox(height: 2),
                           Text(l10n.workspaceListFootnote,
                               style: const TextStyle(

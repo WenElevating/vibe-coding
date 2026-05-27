@@ -321,6 +321,13 @@ class _AdapterRefreshClient extends DaemonClient {
       ];
 }
 
+class _WorkspaceBootstrapFailureClient extends _AdapterRefreshClient {
+  @override
+  Future<List<RunSummary>> listRuns(
+          {String? tool, String? workspaceId, String? status}) async =>
+      throw StateError('list runs unavailable');
+}
+
 class _ImmediateConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
   const _ImmediateConnectUseCase(this.session);
 
@@ -979,6 +986,7 @@ void main() {
     expect(find.text('新建任务'), findsWidgets);
     expect(find.text('工作区信号'), findsOneWidget);
     expect(find.text('vibe-coding'), findsWidgets);
+    expect(find.text('daemon 在线'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -420));
     await tester.pumpAndSettle();
     expect(find.text('快捷操作'), findsOneWidget);
@@ -987,6 +995,7 @@ void main() {
     expect(find.text('Command templates'), findsNothing);
     expect(find.text('Needs your approval'), findsNothing);
     expect(find.text('Modify file'), findsNothing);
+    expect(find.text('daemon online'), findsNothing);
     expect(find.text('online'), findsNothing);
   });
 
@@ -1233,6 +1242,62 @@ void main() {
     expect(find.text('Connection'), findsNothing);
     expect(find.text('Network proxy'), findsNothing);
     expect(find.text('Not connected'), findsNothing);
+  });
+
+  testWidgets('connection error page uses active locale',
+      (WidgetTester tester) async {
+    var retried = false;
+
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: MobileConnectionErrorPage(
+        error: 'boom',
+        onRetry: () => retried = true,
+      ),
+    ));
+
+    expect(find.text('连接失败'), findsOneWidget);
+    expect(find.text('无法连接到本地 daemon'), findsOneWidget);
+    expect(find.text('重试连接'), findsOneWidget);
+    expect(find.textContaining('start-daemon.bat'), findsOneWidget);
+    expect(find.text('Retry connection'), findsNothing);
+
+    await tester.tap(find.text('重试连接'));
+
+    expect(retried, isTrue);
+  });
+
+  testWidgets('connection input validation uses active locale',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: MobileConnectionPage(controller: controller),
+    ));
+
+    await tester.enterText(find.byType(TextField), ' ');
+    await tester.tap(find.text('连接'));
+    await tester.pump();
+
+    expect(find.text('请输入 daemon 地址。'), findsOneWidget);
+    expect(find.text('Enter a daemon address.'), findsNothing);
   });
 
   testWidgets('connection page keeps address and proxy editable after failure',
@@ -1483,6 +1548,52 @@ void main() {
     expect(find.textContaining('Bad state'), findsNothing);
   });
 
+  testWidgets('workspace bootstrap failure returns to empty workspace list',
+      (WidgetTester tester) async {
+    const workspace = WorkspaceSummary(
+        id: 'workspace_1',
+        name: 'Current Project',
+        path: r'D:\AiProject\vibe-coding');
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _ImmediateConnectUseCase(
+        ConnectedAppSession<DaemonClient>(
+          client: _WorkspaceBootstrapFailureClient(),
+          initialData: DaemonInitialData(
+            health: _testSnapshot().health,
+            workspaces: const <WorkspaceSummary>[workspace],
+            workspace: null,
+            adapters: const <AdapterStatus>[],
+            runs: const <RunSummary>[],
+            conversations: const <ConversationSummary>[],
+            queue: const <QueueItem>[],
+          ),
+          connectedConfig: const DaemonConnectionConfig(
+            addressInput: '127.0.0.1:4317',
+            proxyMode: DaemonProxyMode.system,
+            manualProxyInput: '',
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    await tester.pumpWidget(_MobileConnectionHarness(controller: controller));
+    await controller.load();
+    await controller.connect();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Loading workspace...'), findsNothing);
+    expect(find.textContaining('list runs unavailable'), findsOneWidget);
+  });
+
   testWidgets('MobileUiFrame renders supplied child',
       (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(
@@ -1490,6 +1601,23 @@ void main() {
     ));
 
     expect(find.text('frame child'), findsOneWidget);
+  });
+
+  testWidgets('top bar uses neutral letter spacing',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: theme.buildAppTheme(),
+      home: const Scaffold(
+        body: TopBar(
+          title: 'Title',
+          subtitle: 'Subtitle',
+          statusLabel: 'Ready',
+        ),
+      ),
+    ));
+
+    expect(tester.widget<Text>(find.text('Title')).style?.letterSpacing, 0);
+    expect(tester.widget<Text>(find.text('Subtitle')).style?.letterSpacing, 0);
   });
 
   testWidgets('coding composer exposes voice input semantics',

@@ -813,7 +813,7 @@ class _ThinkingFoldoutState extends State<_ThinkingFoldout> {
                                   color: theme.muted,
                                   fontSize: 12.4,
                                   fontWeight: FontWeight.w800,
-                                  letterSpacing: .1))),
+                                  letterSpacing: 0))),
                       Icon(
                           _expanded
                               ? Icons.keyboard_arrow_up_rounded
@@ -897,7 +897,7 @@ class _ApprovalActionButton extends StatelessWidget {
               style: TextStyle(
                   color: primary ? theme.text : color,
                   fontSize: 13,
-                  letterSpacing: .4,
+                  letterSpacing: 0,
                   fontWeight: FontWeight.w800))));
 }
 
@@ -952,7 +952,7 @@ class _TaskProgressCard extends StatelessWidget {
                         color: theme.text,
                         fontSize: 14.5,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: .1))),
+                        letterSpacing: 0))),
             _TaskProgressBadge(completed: completed, total: total),
           ]),
           const SizedBox(height: 12),
@@ -1216,7 +1216,7 @@ class _ToolKindBadge extends StatelessWidget {
               fontSize: 9.5,
               fontFamily: 'Consolas',
               fontWeight: FontWeight.w900,
-              letterSpacing: .45)));
+              letterSpacing: 0)));
 }
 
 class _ToolDetailBlock extends StatefulWidget {
@@ -1244,7 +1244,7 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                         fontSize: 9.5,
                         fontFamily: 'Consolas',
                         fontWeight: FontWeight.w800,
-                        letterSpacing: .7))),
+                        letterSpacing: 0))),
             Material(
                 color: Colors.transparent,
                 child: InkWell(

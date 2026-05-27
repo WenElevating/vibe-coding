@@ -136,8 +136,9 @@ class _AgentConsolePanel extends StatelessWidget {
     final primaryLabel = summary.needsAttention
         ? l10n.homeInterruptsTitle
         : l10n.homeNewTaskTitle;
-    final healthLabel =
-        daemon.status.toLowerCase() == 'ok' ? 'daemon online' : daemon.status;
+    final healthLabel = daemon.status.toLowerCase() == 'ok'
+        ? l10n.homeDaemonOnline
+        : daemon.status;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),

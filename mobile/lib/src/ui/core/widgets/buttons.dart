@@ -30,19 +30,30 @@ class FloatingPlus extends StatelessWidget {
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton(this.text, {super.key, required this.onTap});
   final String text;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      child: Container(
-          height: 44,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-              gradient:
-                  const LinearGradient(colors: [theme.purple, theme.purple2]),
-              borderRadius: BorderRadius.circular(8)),
-          child:
-              Text(text, style: const TextStyle(fontWeight: FontWeight.w900))));
+  Widget build(BuildContext context) {
+    final isEnabled = onTap != null;
+    return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                gradient: isEnabled
+                    ? const LinearGradient(
+                        colors: [theme.purple, theme.purple2])
+                    : null,
+                color:
+                    isEnabled ? null : Colors.white.withValues(alpha: .04),
+                borderRadius: BorderRadius.circular(8),
+                border: isEnabled ? null : Border.all(color: theme.stroke)),
+            child: Text(text,
+                style: TextStyle(
+                    color: isEnabled ? theme.text : theme.muted,
+                    fontWeight: FontWeight.w900))));
+  }
 }
 
 class GhostButton extends StatelessWidget {

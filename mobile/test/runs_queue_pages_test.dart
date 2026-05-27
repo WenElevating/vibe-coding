@@ -26,6 +26,18 @@ void main() {
     expect(opened, <RoutePage>[RoutePage.detail]);
   });
 
+  testWidgets('runs page search placeholder uses active locale',
+      (tester) async {
+    await tester.pumpWidget(_Harness(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      child: RunsPage(data: _snapshot(), open: (_) {}),
+    ));
+
+    expect(find.text('搜索运行、工作区或工具...'), findsOneWidget);
+    expect(find.text('Search tasks, descriptions, tools...'), findsNothing);
+  });
+
   testWidgets('runs page shows populated rows and opens detail',
       (tester) async {
     final opened = <RoutePage>[];
@@ -81,17 +93,20 @@ void main() {
     expect(find.text('run_waiting'), findsOneWidget);
     expect(find.text('active'), findsOneWidget);
     expect(find.text('waiting'), findsOneWidget);
+    expect(find.text('Queued'), findsOneWidget);
+    expect(find.text('Waiting'), findsNothing);
   });
 }
 
 class _Harness extends StatelessWidget {
-  const _Harness({required this.child});
+  const _Harness({required this.child, this.locale = const Locale('en', 'US')});
 
   final Widget child;
+  final Locale locale;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        locale: const Locale('en', 'US'),
+        locale: locale,
         supportedLocales: appSupportedLocales,
         localizationsDelegates: appLocalizationsDelegates,
         theme: theme.buildAppTheme(),

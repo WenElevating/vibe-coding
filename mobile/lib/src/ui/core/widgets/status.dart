@@ -129,10 +129,12 @@ class WaitingRow extends StatelessWidget {
       {super.key,
       required this.index,
       required this.title,
-      required this.tool});
+      required this.tool,
+      required this.statusLabel});
   final String index;
   final String title;
   final String tool;
+  final String statusLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +150,7 @@ class WaitingRow extends StatelessWidget {
           const SizedBox(height: 5),
           Text(tool, style: const TextStyle(color: theme.muted, fontSize: 12))
         ])),
-        StatusBadge('Waiting', color: theme.amber)
+        StatusBadge(statusLabel, color: theme.amber)
       ]),
     );
   }

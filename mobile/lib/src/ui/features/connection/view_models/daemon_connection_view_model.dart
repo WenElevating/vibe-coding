@@ -53,6 +53,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonProxyMode _proxyMode = DaemonConnectionConfig.fallback.proxyMode;
   String _manualProxyInput = DaemonConnectionConfig.fallback.manualProxyInput;
   String? _inputError;
+  DaemonConnectionConfigErrorCode? _inputErrorCode;
   String? _errorSummary;
   String? _errorDetail;
   DaemonInitialData? _initialData;
@@ -69,6 +70,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   DaemonProxyMode get proxyMode => _proxyMode;
   String get manualProxyInput => _manualProxyInput;
   String? get inputError => _inputError;
+  DaemonConnectionConfigErrorCode? get inputErrorCode => _inputErrorCode;
   String? get errorSummary => _errorSummary;
   String? get errorDetail => _errorDetail;
   DaemonInitialData? get initialData => _initialData;
@@ -124,24 +126,28 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   }
 
   void setAddressInput(String value) {
+    if (_disposed) return;
     _addressInput = value;
     _clearTransientErrors();
     notifyListeners();
   }
 
   void setProxyMode(DaemonProxyMode value) {
+    if (_disposed) return;
     _proxyMode = value;
     _clearTransientErrors();
     notifyListeners();
   }
 
   void setManualProxyInput(String value) {
+    if (_disposed) return;
     _manualProxyInput = value;
     _clearTransientErrors();
     notifyListeners();
   }
 
   void selectRecentAddress(String address) {
+    if (_disposed) return;
     _addressInput = address;
     _clearTransientErrors();
     notifyListeners();
@@ -155,6 +161,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     final attempt = ++_connectionAttempt;
     _status = DaemonConnectionStatus.validating;
     _inputError = null;
+    _inputErrorCode = null;
     _errorSummary = null;
     _errorDetail = null;
     notifyListeners();
@@ -222,6 +229,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         return;
       }
       _inputError = error.message;
+      _inputErrorCode = error.code;
       _status = DaemonConnectionStatus.failed;
       notifyListeners();
     } on DaemonConnectionCancelled {
@@ -242,6 +250,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
 
   void _clearTransientErrors() {
     _inputError = null;
+    _inputErrorCode = null;
     _errorSummary = null;
     _errorDetail = null;
   }

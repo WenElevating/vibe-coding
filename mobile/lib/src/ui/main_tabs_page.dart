@@ -724,23 +724,32 @@ class _MainTabsPageState extends State<MainTabsPage>
       _loadingWorkspace = true;
       _emptyError = null;
     });
-    final snapshot = await loadWorkspaceBootstrap(
-      widget.client,
-      health: health,
-      workspaces: workspaces,
-      workspace: workspace,
-    );
-    if (!mounted) return;
-    setState(() {
-      _creatingWorkspace = false;
-      _loadingWorkspace = false;
-      _viewModel = MainTabsViewModel(
-        initialData: snapshot,
-        adapterRepository: _connectedData.adapterRepository,
+    try {
+      final snapshot = await loadWorkspaceBootstrap(
+        widget.client,
+        health: health,
+        workspaces: workspaces,
+        workspace: workspace,
       );
-    });
-    unawaited(_loadCodingPreferences(_viewModel!));
-    unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      if (!mounted) return;
+      setState(() {
+        _creatingWorkspace = false;
+        _loadingWorkspace = false;
+        _viewModel = MainTabsViewModel(
+          initialData: snapshot,
+          adapterRepository: _connectedData.adapterRepository,
+        );
+      });
+      unawaited(_loadCodingPreferences(_viewModel!));
+      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _creatingWorkspace = false;
+        _loadingWorkspace = false;
+        _emptyError = error;
+      });
+    }
   }
 
   Widget _buildCodingTab() {

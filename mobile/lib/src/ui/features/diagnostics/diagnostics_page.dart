@@ -28,23 +28,16 @@ class DiagnosticsPage extends StatelessWidget {
         const SizedBox(height: 14),
         GlassCard(
             child: Column(children: [
-          _DiagRow(l10n.diagnosticsSystemInfo, '1.2 KB'),
+          _DiagRow(l10n.diagnosticsSystemInfo),
           const Hairline(),
-          _DiagRow(l10n.diagnosticsAdapterStatus, '2.4 KB'),
+          _DiagRow(l10n.diagnosticsAdapterStatus),
           const Hairline(),
-          _DiagRow(l10n.diagnosticsRunLogsRecent, '512 KB'),
+          _DiagRow(l10n.diagnosticsRunLogsRecent),
           const Hairline(),
-          _DiagRow(l10n.diagnosticsEventRecordsRecent, '3.1 MB'),
+          _DiagRow(l10n.diagnosticsEventRecordsRecent),
           const Hairline(),
-          _DiagRow(l10n.diagnosticsConfigInfo, '1.8 KB')
+          _DiagRow(l10n.diagnosticsConfigInfo)
         ])),
-        const SizedBox(height: 18),
-        Row(children: [
-          Text(l10n.diagnosticsEstimatedSize,
-              style: const TextStyle(color: theme.muted, fontSize: 12)),
-          const Spacer(),
-          const Text('5.1 MB', style: TextStyle(fontWeight: FontWeight.w800))
-        ]),
         if (viewModel.error != null) ...[
           const SizedBox(height: 12),
           Text(viewModel.error!,
@@ -62,7 +55,7 @@ class DiagnosticsPage extends StatelessWidget {
         const SizedBox(height: 18),
         PrimaryButton(
           l10n.diagnosticsGenerateAction,
-          onTap: viewModel.isLoading ? () {} : viewModel.createBundle,
+          onTap: viewModel.isLoading ? null : viewModel.createBundle,
         ),
         const SizedBox(height: 8),
         GhostButton(l10n.commonBack, color: theme.purple, onTap: onBack),
@@ -72,8 +65,8 @@ class DiagnosticsPage extends StatelessWidget {
 }
 
 class _DiagRow extends StatelessWidget {
-  const _DiagRow(this.title, this.size);
-  final String title, size;
+  const _DiagRow(this.title);
+  final String title;
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 11),
@@ -83,6 +76,5 @@ class _DiagRow extends StatelessWidget {
         Expanded(
             child: Text(title,
                 style: const TextStyle(fontWeight: FontWeight.w800))),
-        Text(size, style: const TextStyle(color: theme.muted, fontSize: 12))
       ]));
 }

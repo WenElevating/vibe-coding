@@ -4,7 +4,9 @@ import '../../../../l10n/app_localizations.dart';
 import '../theme/theme.dart' as theme;
 
 class AppSearchBar extends StatelessWidget {
-  const AppSearchBar({super.key});
+  const AppSearchBar({super.key, required this.placeholder});
+
+  final String placeholder;
 
   @override
   Widget build(BuildContext context) {
@@ -17,11 +19,15 @@ class AppSearchBar extends StatelessWidget {
               color: theme.panelHi,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: theme.stroke)),
-          child: const Row(children: [
-            Icon(Icons.search_rounded, color: theme.muted, size: 18),
-            SizedBox(width: 8),
-            Text('Search tasks, descriptions, tools...',
-                style: TextStyle(color: theme.faint, fontSize: 13))
+          child: Row(children: [
+            const Icon(Icons.search_rounded, color: theme.muted, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(placeholder,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: theme.faint, fontSize: 13)),
+            )
           ]),
         ),
       ),

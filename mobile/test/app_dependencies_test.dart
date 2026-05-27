@@ -28,6 +28,26 @@ void main() {
 
     expect(notificationClient.closeCalls, 1);
   });
+
+  test('connected data disposal suppresses notification close failures',
+      () async {
+    final notificationClient = _FailingCloseNotificationClient();
+    final data = DataDependencies(
+      connectionConfigRepository: _FakeConnectionConfigRepository(),
+      createNotificationClient: (_) => notificationClient,
+    );
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+    );
+    final connectedData = data.forDaemonClient(client);
+
+    await connectedData.dispose();
+    await connectedData.dispose();
+    client.close();
+
+    expect(notificationClient.closeCalls, 1);
+  });
 }
 
 class _FakeConnectionConfigRepository
@@ -53,5 +73,23 @@ class _CloseRecordingNotificationClient extends DaemonNotificationClient {
   @override
   Future<void> close() async {
     closeCalls += 1;
+  }
+}
+
+class _FailingCloseNotificationClient extends DaemonNotificationClient {
+  _FailingCloseNotificationClient()
+      : super(
+          baseUri: Uri.parse('http://127.0.0.1:4317'),
+          tokenProvider: () => null,
+          fetchBackfill: (_, {required afterSeq}) async =>
+              const <ConversationEvent>[],
+        );
+
+  int closeCalls = 0;
+
+  @override
+  Future<void> close() async {
+    closeCalls += 1;
+    throw StateError('notification close unavailable');
   }
 }

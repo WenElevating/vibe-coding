@@ -55,7 +55,9 @@ void main() {
 
     expect(find.text('codex'), findsOneWidget);
     expect(find.text('claude'), findsOneWidget);
+    expect(find.text('Status OK'), findsOneWidget);
     expect(find.textContaining('missing binary'), findsOneWidget);
+    expect(find.textContaining('Status OK\nmissing binary'), findsNothing);
     expect(find.text('GitHub'), findsOneWidget);
     expect(find.text('not installed'), findsOneWidget);
   });

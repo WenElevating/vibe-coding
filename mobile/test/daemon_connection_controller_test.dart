@@ -91,6 +91,54 @@ void main() {
     expect(controller.errorDetail, isNot(contains('Alice')));
   });
 
+  test('invalid editable config exposes stable input error code', () async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    await controller.load();
+    controller.setAddressInput(' ');
+
+    await controller.connect();
+
+    expect(controller.status, DaemonConnectionStatus.failed);
+    expect(controller.inputError, 'Enter a daemon address.');
+    expect(
+      controller.inputErrorCode,
+      DaemonConnectionConfigErrorCode.emptyDaemonAddress,
+    );
+  });
+
+  test('editable setters are ignored after dispose', () async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async => throw StateError('not used'),
+    );
+    await controller.load();
+    controller.dispose();
+
+    expect(() => controller.setAddressInput('192.168.1.23'), returnsNormally);
+    expect(
+      () => controller.setProxyMode(DaemonProxyMode.manual),
+      returnsNormally,
+    );
+    expect(() => controller.setManualProxyInput('http://proxy.local:8080'),
+        returnsNormally);
+    expect(() => controller.selectRecentAddress('192.168.1.50:4317'),
+        returnsNormally);
+
+    expect(controller.addressInput, DaemonConnectionConfig.fallback.addressInput);
+    expect(controller.proxyMode, DaemonConnectionConfig.fallback.proxyMode);
+    expect(
+      controller.manualProxyInput,
+      DaemonConnectionConfig.fallback.manualProxyInput,
+    );
+  });
+
   test('successful connection saves config and exposes snapshot', () async {
     final store = DaemonConnectionConfigStore();
     final snapshot = _snapshot();

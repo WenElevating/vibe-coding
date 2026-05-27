@@ -1937,7 +1937,7 @@ class _CodingHeader extends StatelessWidget {
                     color: theme.text,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -.15))),
+                    letterSpacing: 0))),
         const SizedBox(width: 46),
       ]);
 }

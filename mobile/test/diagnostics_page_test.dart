@@ -62,6 +62,21 @@ void main() {
 
     expect(find.text(r'D:\diag\bundle.zip'), findsOneWidget);
   });
+
+  testWidgets('diagnostics page does not show fabricated bundle sizes',
+      (tester) async {
+    final viewModel = DiagnosticsViewModel(
+      repository: _FakeDiagnosticsRepository(
+        bundle: _bundle(path: r'D:\diag\bundle.zip'),
+      ),
+    );
+
+    await tester.pumpWidget(_Harness(viewModel: viewModel));
+
+    expect(find.text('Estimated size'), findsNothing);
+    expect(find.text('1.2 KB'), findsNothing);
+    expect(find.text('5.1 MB'), findsNothing);
+  });
 }
 
 class _Harness extends StatelessWidget {

@@ -189,7 +189,11 @@ class ConnectedDataDependencies {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    await _dispose?.call();
+    try {
+      await _dispose?.call();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
   }
 
   void recordDiagnosticEvent(

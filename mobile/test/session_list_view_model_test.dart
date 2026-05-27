@@ -55,6 +55,38 @@ void main() {
       );
     });
 
+    test('snapshot conversation replaces optimistic session when persisted',
+        () {
+      final viewModel = SessionListViewModel(
+        conversations: const <ConversationSummary>[],
+        runs: const <RunSummary>[],
+      );
+      viewModel.rememberSession(SessionItem(
+        run: _run('conversation_1', status: 'running'),
+        conversation: _conversation(
+          'conversation_1',
+          status: 'idle',
+          userMessageCount: 0,
+        ),
+      ));
+
+      viewModel.updateFromSnapshot(
+        conversations: <ConversationSummary>[
+          _conversation(
+            'conversation_1',
+            status: 'running',
+            userMessageCount: 1,
+            title: 'Persisted title',
+          ),
+        ],
+        runs: const <RunSummary>[],
+      );
+
+      expect(viewModel.items, hasLength(1));
+      expect(viewModel.items.single.conversation?.title, 'Persisted title');
+      expect(viewModel.items.single.run.status, 'running');
+    });
+
     test('filters idle conversations without user activity', () {
       final viewModel = SessionListViewModel(
         conversations: <ConversationSummary>[
@@ -80,6 +112,7 @@ ConversationSummary _conversation(
   String id, {
   String status = 'running',
   int userMessageCount = 0,
+  String? title,
 }) =>
     ConversationSummary(
       id: id,
@@ -96,4 +129,5 @@ ConversationSummary _conversation(
       createdAt: '2026-05-16T00:00:00.000Z',
       updatedAt: '2026-05-16T00:00:00.000Z',
       userMessageCount: userMessageCount,
+      title: title,
     );

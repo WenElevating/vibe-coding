@@ -115,6 +115,15 @@
   "connectionStatusError": "ERROR",
   "connectionTargetLabel": "Target",
   "connectionProxyLabel": "Proxy",
+  "connectionFailureHeadline": "Unable to connect to the local daemon",
+  "connectionRetryAction": "Retry connection",
+  "connectionFailureHelp": "Run start-daemon.bat from D:\\AiProject\\vibe-coding. The preview uses http://127.0.0.1:4317.",
+  "connectionErrorEnterDaemonAddress": "Enter a daemon address.",
+  "connectionErrorEnterValidDaemonAddress": "Enter a valid daemon address.",
+  "connectionErrorDaemonAddressHttp": "Daemon address must use http or https.",
+  "connectionErrorEnterProxyAddress": "Enter a proxy address.",
+  "connectionErrorEnterValidProxy": "Enter a valid proxy host and port.",
+  "connectionErrorManualProxyHttp": "Manual proxy must use http.",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {
@@ -156,6 +165,7 @@
   "homeNowTitle": "Now",
   "homeInterruptsTitle": "Needs attention",
   "homeExecutionStreamTitle": "Execution stream",
+  "homeDaemonOnline": "daemon online",
   "homeWorkspaceSignalsTitle": "Workspace signals",
   "homeIdleNow": "No blockers in this workspace",
   "homeNoRecentActivity": "No recent activity in this workspace",
@@ -170,6 +180,7 @@
   "runsCompletedPill": "Completed {count}",
   "runsFailedPill": "Failed {count}",
   "runsEmpty": "No runs yet. Start a real AI CLI task from command templates.",
+  "runsSearchPlaceholder": "Search runs, workspaces, or tools...",
   "queueTitle": "Run queue",
   "queueCountAction": "{count} items",
   "queueRunningPill": "Running {count}",
@@ -179,6 +190,7 @@
   "queueWaitingSection": "Queued",
   "queueNoRunning": "No running queue items",
   "queueNoWaiting": "No waiting tasks",
+  "queueWaitingStatus": "Queued",
   "queueFootnote": "Queue data comes from the daemon. Tasks run in workspace order.",
   "@homeFilesLinesNote": {
     "placeholders": {
@@ -267,7 +279,7 @@
   "adaptersExtensionsSection": "Extensions",
   "adaptersNoExtensions": "No extension information",
   "adaptersNotInstalled": "not installed",
-  "adaptersStatusOk": "Status                         OK",
+  "adaptersStatusOk": "Status OK",
   "adaptersCapabilitiesLabel": "Capabilities",
   "diagnosticsTitle": "Diagnostics",
   "diagnosticsDescription": "Export a redacted diagnostics bundle for troubleshooting",

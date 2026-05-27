@@ -55,25 +55,6 @@ int unresolvedApprovalCount(Iterable<AgentEvent> events) {
   return requested.difference(resolved).length;
 }
 
-class NotificationPreferenceState {
-  const NotificationPreferenceState(
-      {required this.permissionGranted, this.privacyMode = true});
-
-  final bool permissionGranted;
-  final bool privacyMode;
-
-  String messageFor(AgentEvent event) {
-    if (privacyMode) {
-      if (event.type == 'approval.required') {
-        return 'Approval required for a LAN AI CLI run.';
-      }
-      if (event.type == 'run.completed') return 'LAN AI CLI run completed.';
-      if (event.type == 'run.failed') return 'LAN AI CLI run failed.';
-    }
-    return event.text ?? event.type;
-  }
-}
-
 enum RunConnectionState {
   disconnected,
   connecting,

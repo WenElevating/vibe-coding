@@ -27,7 +27,7 @@ class RunsPage extends StatelessWidget {
           Pill(l10n.runsFailedPill(data.failedRuns.length)),
         ]),
         const SizedBox(height: 14),
-        const AppSearchBar(),
+        AppSearchBar(placeholder: l10n.runsSearchPlaceholder),
         const SizedBox(height: 14),
         if (data.runs.isEmpty)
           GlassCard(

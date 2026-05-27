@@ -348,7 +348,7 @@ class _ConnectionHeader extends StatelessWidget {
             style: const TextStyle(
               fontSize: 25,
               fontWeight: FontWeight.w900,
-              letterSpacing: -0.8,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 6),
@@ -358,7 +358,7 @@ class _ConnectionHeader extends StatelessWidget {
               color: theme.faint,
               fontSize: 12.5,
               height: 1.35,
-              letterSpacing: .1,
+              letterSpacing: 0,
             ),
           ),
         ],
@@ -382,7 +382,7 @@ class _ConnectionSection extends StatelessWidget {
                       color: theme.faint,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 1.1))),
+                      letterSpacing: 0))),
           child,
         ],
       );
@@ -600,7 +600,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: -.1))),
+                      letterSpacing: 0))),
           _ConnectionStatusTrailing(controller: controller, l10n: l10n),
         ]),
         const SizedBox(height: 12),
@@ -613,7 +613,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
         if (controller.inputError != null ||
             controller.errorSummary != null) ...[
           const SizedBox(height: 12),
-          Text(controller.inputError ?? controller.errorSummary!,
+          Text(_connectionErrorLabel(l10n, controller),
               style:
                   const TextStyle(color: theme.red, fontSize: 12, height: 1.4)),
         ],
@@ -651,7 +651,7 @@ class _ConnectionStatusTrailing extends StatelessWidget {
               color: theme.red,
               fontSize: 10,
               fontWeight: FontWeight.w900,
-              letterSpacing: 1.1));
+              letterSpacing: 0));
     }
     return const SizedBox.shrink();
   }
@@ -679,6 +679,31 @@ String _proxyModeLabel(AppLocalizations l10n, DaemonProxyMode mode) =>
       DaemonProxyMode.manual => l10n.settingsProxyManual,
     };
 
+String _connectionErrorLabel(
+  AppLocalizations l10n,
+  DaemonConnectionViewModel controller,
+) {
+  final inputError = controller.inputError;
+  if (inputError == null) {
+    return controller.errorSummary!;
+  }
+  return switch (controller.inputErrorCode) {
+    DaemonConnectionConfigErrorCode.emptyDaemonAddress =>
+      l10n.connectionErrorEnterDaemonAddress,
+    DaemonConnectionConfigErrorCode.invalidDaemonAddress =>
+      l10n.connectionErrorEnterValidDaemonAddress,
+    DaemonConnectionConfigErrorCode.unsupportedDaemonAddressScheme =>
+      l10n.connectionErrorDaemonAddressHttp,
+    DaemonConnectionConfigErrorCode.emptyProxyAddress =>
+      l10n.connectionErrorEnterProxyAddress,
+    DaemonConnectionConfigErrorCode.invalidProxyAddress =>
+      l10n.connectionErrorEnterValidProxy,
+    DaemonConnectionConfigErrorCode.unsupportedManualProxyScheme =>
+      l10n.connectionErrorManualProxyHttp,
+    null => inputError,
+  };
+}
+
 class _ConnectionMetaRow extends StatelessWidget {
   const _ConnectionMetaRow({required this.label, required this.value});
   final String label;
@@ -693,7 +718,7 @@ class _ConnectionMetaRow extends StatelessWidget {
                     color: theme.faint,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: .2))),
+                    letterSpacing: 0))),
         Expanded(
             child: Text(value,
                 maxLines: 1,
@@ -735,7 +760,7 @@ class _ConnectionActionButton extends StatelessWidget {
                   color: foregroundColor,
                   fontSize: 13.5,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: .1))),
+                  letterSpacing: 0))),
     );
   }
 }

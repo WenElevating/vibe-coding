@@ -59,7 +59,8 @@ class QueuePage extends StatelessWidget {
                     WaitingRow(
                         index: '${item.position}',
                         title: item.runId,
-                        tool: item.reason.isEmpty ? item.status : item.reason),
+                        tool: item.reason.isEmpty ? item.status : item.reason,
+                        statusLabel: l10n.queueWaitingStatus),
                     if (item != waiting.last) const Hairline(),
                   ],
                 ]),

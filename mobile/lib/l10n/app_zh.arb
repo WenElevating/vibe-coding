@@ -115,6 +115,15 @@
   "connectionStatusError": "错误",
   "connectionTargetLabel": "目标",
   "connectionProxyLabel": "代理",
+  "connectionFailureHeadline": "无法连接到本地 daemon",
+  "connectionRetryAction": "重试连接",
+  "connectionFailureHelp": "在 D:\\AiProject\\vibe-coding 中运行 start-daemon.bat。预览默认使用 http://127.0.0.1:4317。",
+  "connectionErrorEnterDaemonAddress": "请输入 daemon 地址。",
+  "connectionErrorEnterValidDaemonAddress": "请输入有效的 daemon 地址。",
+  "connectionErrorDaemonAddressHttp": "daemon 地址必须使用 http 或 https。",
+  "connectionErrorEnterProxyAddress": "请输入代理地址。",
+  "connectionErrorEnterValidProxy": "请输入有效的代理主机和端口。",
+  "connectionErrorManualProxyHttp": "手动代理必须使用 http。",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {
@@ -156,6 +165,7 @@
   "homeNowTitle": "当前焦点",
   "homeInterruptsTitle": "需要关注",
   "homeExecutionStreamTitle": "执行流",
+  "homeDaemonOnline": "daemon 在线",
   "homeWorkspaceSignalsTitle": "工作区信号",
   "homeIdleNow": "当前工作区无阻塞",
   "homeNoRecentActivity": "当前工作区暂无活动",
@@ -170,6 +180,7 @@
   "runsCompletedPill": "已完成 {count}",
   "runsFailedPill": "失败 {count}",
   "runsEmpty": "暂无运行记录。可以从命令模板启动真实 AI CLI 任务。",
+  "runsSearchPlaceholder": "搜索运行、工作区或工具...",
   "queueTitle": "运行队列",
   "queueCountAction": "{count} 项",
   "queueRunningPill": "运行中 {count}",
@@ -179,6 +190,7 @@
   "queueWaitingSection": "排队中",
   "queueNoRunning": "暂无运行中队列项",
   "queueNoWaiting": "暂无等待任务",
+  "queueWaitingStatus": "排队中",
   "queueFootnote": "队列数据来自 daemon。任务会按工作区顺序运行。",
   "@homeFilesLinesNote": {
     "placeholders": {
@@ -267,8 +279,8 @@
   "adaptersExtensionsSection": "扩展",
   "adaptersNoExtensions": "暂无扩展信息",
   "adaptersNotInstalled": "未安装",
-  "adaptersStatusOk": "状态                         正常",
-  "adaptersCapabilitiesLabel": "状态                         正常",
+  "adaptersStatusOk": "状态正常",
+  "adaptersCapabilitiesLabel": "能力",
   "diagnosticsTitle": "诊断",
   "diagnosticsDescription": "导出已脱敏的诊断包，用于排查问题",
   "diagnosticsSystemInfo": "系统信息",

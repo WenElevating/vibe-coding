@@ -38,7 +38,7 @@ class TopBar extends StatelessWidget {
                       style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5)),
+                          letterSpacing: 0)),
                   if (subtitle != null) ...[
                     const SizedBox(height: 4),
                     Row(children: [
@@ -49,7 +49,7 @@ class TopBar extends StatelessWidget {
                               style: const TextStyle(
                                   color: theme.muted,
                                   fontSize: 12,
-                                  letterSpacing: .5))),
+                                  letterSpacing: 0))),
                       if (statusLabel != null) ...[
                         const SizedBox(width: 8),
                         Text(statusLabel!,

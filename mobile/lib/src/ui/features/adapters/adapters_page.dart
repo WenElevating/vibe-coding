@@ -28,8 +28,15 @@ class AdaptersPage extends StatelessWidget {
                   style: const TextStyle(color: theme.muted)))
         else
           for (final adapter in viewModel.adapters)
-            _AdapterRow(adapter.adapter, adapter.statusText,
-                displayVersion(adapter.version), toolColor(adapter.adapter)),
+            _AdapterRow(
+              name: adapter.adapter,
+              subtitle: adapter.available
+                  ? l10n.adaptersStatusOk
+                  : adapter.statusText,
+              trailing: displayVersion(adapter.version),
+              color: adapter.available ? toolColor(adapter.adapter) : theme.red,
+              healthy: adapter.available,
+            ),
         const SizedBox(height: 16),
         Subhead(l10n.adaptersExtensionsSection),
         if (viewModel.extensions.isEmpty)
@@ -39,12 +46,14 @@ class AdaptersPage extends StatelessWidget {
         else
           for (final extension in viewModel.extensions)
             _AdapterRow(
-                extension.name,
-                extension.description,
-                extension.installed
-                    ? extension.status
-                    : l10n.adaptersNotInstalled,
-                theme.purple),
+              name: extension.name,
+              subtitle: extension.description,
+              trailing: extension.installed
+                  ? extension.status
+                  : l10n.adaptersNotInstalled,
+              color: extension.installed ? theme.purple : theme.amber,
+              healthy: extension.installed,
+            ),
         const SizedBox(height: 16),
         PrimaryButton(l10n.commonBack, onTap: onBack),
       ]),
@@ -53,12 +62,19 @@ class AdaptersPage extends StatelessWidget {
 }
 
 class _AdapterRow extends StatelessWidget {
-  const _AdapterRow(this.name, this.protocol, this.version, this.color);
-  final String name, protocol, version;
+  const _AdapterRow({
+    required this.name,
+    required this.subtitle,
+    required this.trailing,
+    required this.color,
+    required this.healthy,
+  });
+  final String name, subtitle, trailing;
   final Color color;
+  final bool healthy;
+
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
     return GlassCard(
         child: Row(children: [
       AgentIcon(color: color),
@@ -68,16 +84,25 @@ class _AdapterRow extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
-        Text(
-            '${l10n.adaptersStatusOk}\n${l10n.adaptersCapabilitiesLabel}\n$protocol',
+        Text(subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style:
                 const TextStyle(color: theme.muted, fontSize: 12, height: 1.45))
       ])),
-      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text(version, style: const TextStyle(color: theme.muted, fontSize: 12)),
-        const SizedBox(height: 8),
-        const Dot(color: theme.green, size: 5)
-      ])
+      const SizedBox(width: 10),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 96),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text(trailing,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: theme.muted, fontSize: 12)),
+          const SizedBox(height: 8),
+          Dot(color: healthy ? theme.green : theme.amber, size: 5)
+        ]),
+      )
     ]));
   }
 }
