@@ -185,10 +185,18 @@ void main() {
 
     final conversation = await client.sendConversationMessage(
       'conv_1',
-      const ConversationServiceMessageSendRequest(text: 'hello'),
+      const ConversationServiceMessageSendRequest(
+        text: 'hello',
+        clientMessageId: 'client_1',
+        capabilityVersion: '4bcf6aa44f7e2e074229f9cd',
+      ),
     );
 
-    expect(uploaded, const <String, Object?>{'text': 'hello'});
+    expect(uploaded, const <String, Object?>{
+      'text': 'hello',
+      'clientMessageId': 'client_1',
+      'capabilityVersion': '4bcf6aa44f7e2e074229f9cd',
+    });
     expect(conversation.id, 'conv_1');
   });
 

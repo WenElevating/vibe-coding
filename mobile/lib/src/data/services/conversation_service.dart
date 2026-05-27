@@ -31,24 +31,26 @@ class ConversationServiceMessageSendRequest {
 }
 
 Map<String, Object?> conversationServiceMessagePayload(
-  ConversationServiceMessageSendRequest request,
-) =>
+  ConversationServiceMessageSendRequest request, {
+  bool includeAttachments = true,
+}) =>
     <String, Object?>{
       'text': request.text,
       if (request.clientMessageId != null)
         'clientMessageId': request.clientMessageId,
       if (request.capabilityVersion != null)
         'capabilityVersion': request.capabilityVersion,
-      'attachments': <Map<String, Object?>>[
-        for (var index = 0; index < request.attachments.length; index++)
-          <String, Object?>{
-            'field': 'files[$index]',
-            'name': request.attachments[index].name,
-            'mimeType': request.attachments[index].mimeType,
-            'kind': request.attachments[index].kind,
-            'sizeBytes': request.attachments[index].sizeBytes,
-          },
-      ],
+      if (includeAttachments)
+        'attachments': <Map<String, Object?>>[
+          for (var index = 0; index < request.attachments.length; index++)
+            <String, Object?>{
+              'field': 'files[$index]',
+              'name': request.attachments[index].name,
+              'mimeType': request.attachments[index].mimeType,
+              'kind': request.attachments[index].kind,
+              'sizeBytes': request.attachments[index].sizeBytes,
+            },
+        ],
     };
 
 abstract class ConversationService {

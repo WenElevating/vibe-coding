@@ -1,7 +1,7 @@
 # Conventions
 
 - Status: active seed
-- Last verified: 2026-05-22
+- Last verified: 2026-05-27
 
 ## Editing
 
@@ -29,6 +29,9 @@
   `notifyListeners`; disposal should cancel or suppress pending emissions.
 - ViewModel state `copyWith` methods with nullable fields need explicit clear
   semantics; `value ?? previousValue` silently preserves stale optional state.
+- Conversation message clients should preserve `clientMessageId` and
+  `capabilityVersion` on JSON and multipart sends. JSON sends must omit the
+  `attachments` key; the daemon reserves attachments for multipart/form-data.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test

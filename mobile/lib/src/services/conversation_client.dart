@@ -69,9 +69,10 @@ class ConversationClient {
     }
     final response = await _post(
       '/api/conversations/$conversationId/messages',
-      <String, Object?>{
-        'text': request.text,
-      },
+      conversationServiceMessagePayload(
+        request,
+        includeAttachments: false,
+      ),
     );
     return ConversationSummary.fromJson(
       response['conversation'] as Map<String, Object?>,

@@ -574,7 +574,13 @@ class DaemonClient
       ConversationServiceMessageSendRequest request) async {
     final path = '/api/conversations/$conversationId/messages';
     final response = request.attachments.isEmpty
-        ? await _post(path, <String, Object?>{'text': request.text})
+        ? await _post(
+            path,
+            conversationServiceMessagePayload(
+              request,
+              includeAttachments: false,
+            ),
+          )
         : await _postMultipartConversationMessage(path, request);
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);

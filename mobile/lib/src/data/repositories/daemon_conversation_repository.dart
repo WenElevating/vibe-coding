@@ -43,12 +43,7 @@ class DaemonConversationRepository implements ConversationRepository {
         _toServiceMessageRequest(request),
       );
     } on DaemonClientException catch (error) {
-      throw ConversationRepositoryException(
-        statusCode: error.statusCode,
-        code: _daemonErrorCode(error.body),
-        message: _daemonErrorMessage(error.body),
-        cause: error,
-      );
+      throw _toRepositoryException(error);
     }
   }
 
@@ -60,12 +55,7 @@ class DaemonConversationRepository implements ConversationRepository {
     try {
       return await _client.updateConversationModel(conversationId, model);
     } on DaemonClientException catch (error) {
-      throw ConversationRepositoryException(
-        statusCode: error.statusCode,
-        code: _daemonErrorCode(error.body),
-        message: _daemonErrorMessage(error.body),
-        cause: error,
-      );
+      throw _toRepositoryException(error);
     }
   }
 
@@ -91,20 +81,43 @@ class DaemonConversationRepository implements ConversationRepository {
     String conversationId,
     String questionId,
     String text,
-  ) =>
-      _client.answerConversationQuestion(conversationId, questionId, text);
+  ) async {
+    try {
+      return await _client.answerConversationQuestion(
+        conversationId,
+        questionId,
+        text,
+      );
+    } on DaemonClientException catch (error) {
+      throw _toRepositoryException(error);
+    }
+  }
 
   @override
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
     String decision,
-  ) =>
-      _client.respondConversationApproval(conversationId, approvalId, decision);
+  ) async {
+    try {
+      return await _client.respondConversationApproval(
+        conversationId,
+        approvalId,
+        decision,
+      );
+    } on DaemonClientException catch (error) {
+      throw _toRepositoryException(error);
+    }
+  }
 
   @override
-  Future<ConversationSummary> cancelConversation(String conversationId) =>
-      _client.cancelConversation(conversationId);
+  Future<ConversationSummary> cancelConversation(String conversationId) async {
+    try {
+      return await _client.cancelConversation(conversationId);
+    } on DaemonClientException catch (error) {
+      throw _toRepositoryException(error);
+    }
+  }
 }
 
 ConversationServiceMessageSendRequest _toServiceMessageRequest(
@@ -124,6 +137,16 @@ ConversationServiceMessageSendRequest _toServiceMessageRequest(
             sizeBytes: attachment.sizeBytes,
           ),
       ],
+    );
+
+ConversationRepositoryException _toRepositoryException(
+  DaemonClientException error,
+) =>
+    ConversationRepositoryException(
+      statusCode: error.statusCode,
+      code: _daemonErrorCode(error.body),
+      message: _daemonErrorMessage(error.body),
+      cause: error,
     );
 
 String? _daemonErrorCode(Map<String, Object?> body) {
