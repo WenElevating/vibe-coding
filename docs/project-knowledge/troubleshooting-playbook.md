@@ -304,6 +304,10 @@ flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name 
   and approval recovery should restart it. Also check that cancelling the last
   watcher clears the cached notification socket reference before closing it, so
   a quick resubscribe cannot write `subscribe` to an already closed sink.
+  Cancelling a watcher also treats `unsubscribe` writes as best-effort; if the
+  socket sink is already closed, `subscription.cancel()` must still complete and
+  the notification client should close/reconnect the socket path instead of
+  surfacing the write failure to UI lifecycle code.
 - Related files:
   [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
   [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart),
@@ -314,10 +318,11 @@ flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name 
 cd D:\AIProject\vibe-coding\mobile
 dart analyze lib test
 flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "resubscribing after last watcher cancel waits for a fresh socket"
+flutter test --no-pub test\daemon_notification_client_test.dart -r expanded --plain-name "cancel ignores unsubscribe write failures and closes current socket"
 flutter test --no-pub test\widget_test.dart -r expanded --plain-name "sending existing conversation keeps current event subscription"
 ```
 
-- Last verified: 2026-05-24
+- Last verified: 2026-05-27
 
 ## Symptom: Workspace Is Missing Until Re-adding The Same Path
 

@@ -898,6 +898,28 @@ void main() {
     await subscription.cancel();
   });
 
+  test('cancel ignores unsubscribe write failures and closes current socket',
+      () async {
+    final socket = FakeNotificationSocket(
+      throwOnFrameTypes: const <String>{'unsubscribe'},
+    );
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(connector: (_, __) async => socket),
+    );
+
+    final subscription =
+        client.watchConversationEvents('conv_1', afterSeq: 7).listen((_) {});
+    await waitFor(() => socket.sentJson.isNotEmpty);
+
+    await subscription.cancel();
+
+    expect(socket.closeCalls, 1);
+    await client.close();
+  });
+
   test('close wakes delayed reconnect', () async {
     final delay = ControlledDelay();
     var attempts = 0;
@@ -1109,12 +1131,14 @@ class FakeNotificationSocket implements NotificationSocket {
   FakeNotificationSocket({
     this.clientCloseCompletesStream = true,
     this.throwOnAddAfterClose = false,
+    this.throwOnFrameTypes = const <String>{},
   });
 
   final StreamController<Object?> _incoming = StreamController<Object?>();
   final List<Map<String, Object?>> sentJson = <Map<String, Object?>>[];
   final bool clientCloseCompletesStream;
   final bool throwOnAddAfterClose;
+  final Set<String> throwOnFrameTypes;
   Map<String, String> connectHeaders = <String, String>{};
   int? _closeCode;
   String? _closeReason;
@@ -1137,7 +1161,12 @@ class FakeNotificationSocket implements NotificationSocket {
     if (throwOnAddAfterClose && _clientClosed) {
       throw StateError('StreamSink is closed');
     }
-    sentJson.add(jsonObject(data));
+    final frame = jsonObject(data);
+    final type = frame['type'];
+    if (type is String && throwOnFrameTypes.contains(type)) {
+      throw StateError('StreamSink is closed');
+    }
+    sentJson.add(frame);
   }
 
   void serverAddJson(Map<String, Object?> json) {

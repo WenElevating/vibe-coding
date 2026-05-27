@@ -316,7 +316,11 @@ class DaemonNotificationClient implements NotificationService {
     if (_closed || route.isEmpty || socket == null) {
       return;
     }
-    _sendScopedFrame('subscribe', route, afterSeq: route.afterSeq);
+    try {
+      _sendScopedFrame('subscribe', route, afterSeq: route.afterSeq);
+    } catch (_) {
+      _handleSocketWriteFailure(socket);
+    }
   }
 
   void _sendUnsubscribe(_ConversationRoute route) {
@@ -324,7 +328,11 @@ class DaemonNotificationClient implements NotificationService {
     if (_closed || socket == null) {
       return;
     }
-    _sendScopedFrame('unsubscribe', route);
+    try {
+      _sendScopedFrame('unsubscribe', route);
+    } catch (_) {
+      _handleSocketWriteFailure(socket);
+    }
   }
 
   void _sendScopedFrame(
@@ -346,6 +354,13 @@ class DaemonNotificationClient implements NotificationService {
     socket.add(jsonEncode(<String, Object?>{
       ...frame,
     }));
+  }
+
+  void _handleSocketWriteFailure(NotificationSocket socket) {
+    if (_socket == socket) {
+      _socket = null;
+    }
+    unawaited(_closeSocket(socket));
   }
 
   void _deliverConversationEvent(ConversationEvent event) {
