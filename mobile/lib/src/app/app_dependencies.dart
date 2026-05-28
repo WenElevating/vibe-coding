@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../data/repositories/cached_adapter_repository.dart';
+import '../data/repositories/cached_conversation_repository.dart';
+import '../data/repositories/cached_run_repository.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_app_update_repository.dart';
@@ -184,16 +187,28 @@ class DataDependencies {
           client.getAuthorizedRaw(path, headers: headers),
       authorizedStreamSend: client.sendAuthorizedStream,
     );
+    final rawAdapterRepository = DaemonAdapterRepository(client: client);
+    final rawConversationRepository = DaemonConversationRepository(
+      client: client,
+      notificationService: notificationClient,
+    );
+    final rawRunRepository = DaemonRunRepository(client: client);
+    final adapterRepository = CachedAdapterRepository(
+      delegate: rawAdapterRepository,
+    );
+    final conversationRepository = CachedConversationRepository(
+      delegate: rawConversationRepository,
+    );
+    final runRepository = CachedRunRepository(
+      delegate: rawRunRepository,
+    );
     return ConnectedDataDependencies(
       authRepository: DaemonAuthRepository(client: client),
-      adapterRepository: DaemonAdapterRepository(client: client),
+      adapterRepository: adapterRepository,
       appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
-      conversationRepository: DaemonConversationRepository(
-        client: client,
-        notificationService: notificationClient,
-      ),
+      conversationRepository: conversationRepository,
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
-      runRepository: DaemonRunRepository(client: client),
+      runRepository: runRepository,
       workspaceRepository: DaemonWorkspaceRepository(client: client),
       dispose: notificationClient.close,
     );
@@ -203,21 +218,31 @@ class DataDependencies {
 class ConnectedDataDependencies {
   ConnectedDataDependencies({
     required this.authRepository,
-    required this.adapterRepository,
+    required AdapterRepository adapterRepository,
     required this.appUpdateRepository,
-    required this.conversationRepository,
+    required ConversationRepository conversationRepository,
     required this.diagnosticsRepository,
-    required this.runRepository,
+    required RunRepository runRepository,
     required this.workspaceRepository,
     Future<void> Function()? dispose,
-  }) : _dispose = dispose;
+  })  : adapterRepository = adapterRepository is CachedAdapterRepository
+            ? adapterRepository
+            : CachedAdapterRepository(delegate: adapterRepository),
+        conversationRepository =
+            conversationRepository is CachedConversationRepository
+                ? conversationRepository
+                : CachedConversationRepository(delegate: conversationRepository),
+        runRepository = runRepository is CachedRunRepository
+            ? runRepository
+            : CachedRunRepository(delegate: runRepository),
+        _dispose = dispose;
 
   final AuthRepository authRepository;
-  final AdapterRepository adapterRepository;
+  final CachedAdapterRepository adapterRepository;
   final AppUpdateRepository appUpdateRepository;
-  final ConversationRepository conversationRepository;
+  final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
-  final RunRepository runRepository;
+  final CachedRunRepository runRepository;
   final WorkspaceRepository workspaceRepository;
   final Future<void> Function()? _dispose;
   bool _disposed = false;
@@ -232,6 +257,21 @@ class ConnectedDataDependencies {
     }
     try {
       workspaceRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      adapterRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      conversationRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      runRepository.dispose();
     } catch (_) {
       // Cleanup failures must not surface as unhandled async errors.
     }
