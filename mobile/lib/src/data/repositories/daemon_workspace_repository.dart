@@ -39,19 +39,7 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   @override
   Future<void> refresh() async {
     final generation = _startOperation();
-    try {
-      final loaded = await _listWorkspacesFromClient();
-      if (_isCurrentOperation(generation)) {
-        _applyWorkspaceCatalog(loaded);
-      }
-    } catch (error) {
-      if (_isCurrentOperation(generation)) {
-        _error = error;
-      }
-      rethrow;
-    } finally {
-      _finishOperation(generation);
-    }
+    await _refreshAndReturn(generation: generation);
   }
 
   @override
@@ -63,7 +51,10 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     if (!_workspaces.any((workspace) => workspace.id == workspaceId)) {
       return false;
     }
-    if (selectedWorkspace?.id == workspaceId) return true;
+    if (selectedWorkspace?.id == workspaceId) {
+      _selectedWorkspaceId = workspaceId;
+      return true;
+    }
     _selectedWorkspaceId = workspaceId;
     notifyListeners();
     return true;
@@ -71,8 +62,8 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
 
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
-    await refresh();
-    return workspaces;
+    final generation = _startOperation();
+    return _refreshAndReturn(generation: generation);
   }
 
   @override
@@ -94,6 +85,25 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
         _applyWorkspaceCatalog(refreshed, preferredWorkspaceId: created.id);
       }
       return created;
+    } catch (error) {
+      if (_isCurrentOperation(generation)) {
+        _error = error;
+      }
+      rethrow;
+    } finally {
+      _finishOperation(generation);
+    }
+  }
+
+  Future<List<WorkspaceSummary>> _refreshAndReturn({
+    required int generation,
+  }) async {
+    try {
+      final loaded = await _listWorkspacesFromClient();
+      if (_isCurrentOperation(generation)) {
+        _applyWorkspaceCatalog(loaded);
+      }
+      return loaded;
     } catch (error) {
       if (_isCurrentOperation(generation)) {
         _error = error;

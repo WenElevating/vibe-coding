@@ -230,6 +230,11 @@ class ConnectedDataDependencies {
     } catch (_) {
       // Cleanup failures must not surface as unhandled async errors.
     }
+    try {
+      workspaceRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
   }
 
   void recordDiagnosticEvent(
