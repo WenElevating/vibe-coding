@@ -829,7 +829,6 @@ class _MainTabsPageState extends State<MainTabsPage>
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
     if (viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
       return CodingPage(
-        data: viewModel.data,
         workbenchDependencies: _workbenchDependencies,
         workbenchKey: _codingWorkbenchKey,
         onBack: () => viewModel.selectTab(0),

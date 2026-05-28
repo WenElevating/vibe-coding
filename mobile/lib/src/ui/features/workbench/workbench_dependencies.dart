@@ -1,8 +1,8 @@
-import '../../../domain/repositories/adapter_repository.dart';
-import '../../../domain/repositories/conversation_repository.dart';
+import '../../../data/repositories/cached_adapter_repository.dart';
+import '../../../data/repositories/cached_conversation_repository.dart';
+import '../../../data/repositories/cached_run_repository.dart';
+import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
-import '../../../domain/repositories/run_repository.dart';
-import '../../../domain/repositories/workspace_repository.dart';
 import '../../../services/asr_model_manager.dart';
 import '../../../services/speech_input_contract.dart';
 import 'attachments/attachment_preview_cache.dart';
@@ -20,11 +20,11 @@ class WorkbenchDependencies {
   });
 
   final AttachmentPreviewCache attachmentPreviewCache;
-  final AdapterRepository adapterRepository;
+  final CachedAdapterRepository adapterRepository;
   final AsrModelManager asrModelManager;
-  final ConversationRepository conversationRepository;
+  final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
-  final RunRepository runRepository;
+  final CachedRunRepository runRepository;
   final SpeechInputServiceBuilder speechInputServiceBuilder;
   final WorkspaceRepository workspaceRepository;
 }
