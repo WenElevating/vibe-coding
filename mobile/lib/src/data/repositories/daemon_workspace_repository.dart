@@ -63,15 +63,17 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     if (!_workspaces.any((workspace) => workspace.id == workspaceId)) {
       return false;
     }
-    if (_selectedWorkspaceId == workspaceId) return true;
+    if (selectedWorkspace?.id == workspaceId) return true;
     _selectedWorkspaceId = workspaceId;
     notifyListeners();
     return true;
   }
 
   @override
-  Future<List<WorkspaceSummary>> listWorkspaces() =>
-      _listWorkspacesFromClient();
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    await refresh();
+    return workspaces;
+  }
 
   @override
   Future<WorkspaceSummary> createWorkspace({
@@ -192,5 +194,5 @@ String? _resolveSelectedWorkspaceId(
       workspaces.any((workspace) => workspace.id == currentWorkspaceId)) {
     return currentWorkspaceId;
   }
-  return workspaces.isEmpty ? null : workspaces.first.id;
+  return null;
 }

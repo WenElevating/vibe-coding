@@ -37,6 +37,34 @@ void main() {
     expect(snapshots.last.selectedWorkspaceId, 'w1');
   });
 
+  test('listWorkspaces refreshes cache and notifies listeners', () async {
+    final client = _FakeWorkspaceDaemonClient(
+      workspaces: const <WorkspaceSummary>[
+        WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+      ],
+    );
+    final repository = DaemonWorkspaceRepository(client: client);
+    final snapshots = <_RepositorySnapshot>[];
+    repository.addListener(() {
+      snapshots.add(_RepositorySnapshot.from(repository));
+    });
+
+    final listed = await repository.listWorkspaces();
+
+    expect(listed.map((workspace) => workspace.id), const <String>['w1']);
+    expect(
+      repository.workspaces.map((workspace) => workspace.id),
+      const <String>['w1'],
+    );
+    expect(repository.selectedWorkspace?.id, 'w1');
+    expect(snapshots, hasLength(2));
+    expect(snapshots.first.loading, isTrue);
+    expect(snapshots.first.workspaceIds, isEmpty);
+    expect(snapshots.last.loading, isFalse);
+    expect(snapshots.last.workspaceIds, const <String>['w1']);
+    expect(snapshots.last.selectedWorkspaceId, 'w1');
+  });
+
   test(
     'create refreshes catalog, selects created workspace, and notifies',
     () async {
@@ -139,6 +167,28 @@ void main() {
       final accepted = repository.select('missing');
 
       expect(accepted, isFalse);
+      expect(repository.selectedWorkspace?.id, 'w1');
+      expect(notifications, 0);
+    },
+  );
+
+  test(
+    'select returns true for fallback first workspace without notifying',
+    () async {
+      final repository = DaemonWorkspaceRepository(
+        client: _FakeWorkspaceDaemonClient(
+          workspaces: const <WorkspaceSummary>[
+            WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          ],
+        ),
+      );
+      await repository.load();
+      var notifications = 0;
+      repository.addListener(() => notifications++);
+
+      final accepted = repository.select('w1');
+
+      expect(accepted, isTrue);
       expect(repository.selectedWorkspace?.id, 'w1');
       expect(notifications, 0);
     },
