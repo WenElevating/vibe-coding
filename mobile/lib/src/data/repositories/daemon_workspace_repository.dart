@@ -10,6 +10,7 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   String? _selectedWorkspaceId;
   bool _loading = false;
   Object? _error;
+  int _operationGeneration = 0;
 
   @override
   List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
@@ -37,47 +38,25 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
 
   @override
   Future<void> refresh() async {
-    _loading = true;
-    _error = null;
-    notifyListeners();
+    final generation = _startOperation();
     try {
-      final loaded = await listWorkspaces();
-      _workspaces = List<WorkspaceSummary>.unmodifiable(loaded);
-      _selectedWorkspaceId = _resolveSelectedWorkspaceId(
-        _selectedWorkspaceId,
-        _workspaces,
-      );
+      final loaded = await _listWorkspacesFromClient();
+      if (_isCurrentOperation(generation)) {
+        _applyWorkspaceCatalog(loaded);
+      }
     } catch (error) {
-      _error = error;
+      if (_isCurrentOperation(generation)) {
+        _error = error;
+      }
       rethrow;
     } finally {
-      _loading = false;
-      notifyListeners();
+      _finishOperation(generation);
     }
   }
 
   @override
-  Future<WorkspaceSummary> create({required String path, String? name}) async {
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final created = await createWorkspace(path: path, name: name);
-      final refreshed = await listWorkspaces();
-      _workspaces = List<WorkspaceSummary>.unmodifiable(refreshed);
-      _selectedWorkspaceId =
-          _workspaces.any((workspace) => workspace.id == created.id)
-          ? created.id
-          : _resolveSelectedWorkspaceId(_selectedWorkspaceId, _workspaces);
-      return created;
-    } catch (error) {
-      _error = error;
-      rethrow;
-    } finally {
-      _loading = false;
-      notifyListeners();
-    }
-  }
+  Future<WorkspaceSummary> create({required String path, String? name}) =>
+      _createAndRefresh(path: path, name: name);
 
   @override
   bool select(String workspaceId) {
@@ -91,13 +70,75 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   }
 
   @override
-  Future<List<WorkspaceSummary>> listWorkspaces() => _client.listWorkspaces();
+  Future<List<WorkspaceSummary>> listWorkspaces() =>
+      _listWorkspacesFromClient();
 
   @override
   Future<WorkspaceSummary> createWorkspace({
     required String path,
     String? name,
-  }) => _client.createWorkspace(path: path, name: name);
+  }) =>
+      _createAndRefresh(path: path, name: name);
+
+  Future<WorkspaceSummary> _createAndRefresh({
+    required String path,
+    String? name,
+  }) async {
+    final generation = _startOperation();
+    try {
+      final created = await _createWorkspaceOnClient(path: path, name: name);
+      final refreshed = await _listWorkspacesFromClient();
+      if (_isCurrentOperation(generation)) {
+        _applyWorkspaceCatalog(refreshed, preferredWorkspaceId: created.id);
+      }
+      return created;
+    } catch (error) {
+      if (_isCurrentOperation(generation)) {
+        _error = error;
+      }
+      rethrow;
+    } finally {
+      _finishOperation(generation);
+    }
+  }
+
+  int _startOperation() {
+    final generation = ++_operationGeneration;
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    return generation;
+  }
+
+  bool _isCurrentOperation(int generation) =>
+      generation == _operationGeneration;
+
+  void _finishOperation(int generation) {
+    if (_isCurrentOperation(generation)) {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  void _applyWorkspaceCatalog(
+    List<WorkspaceSummary> workspaces, {
+    String? preferredWorkspaceId,
+  }) {
+    _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
+    _selectedWorkspaceId = _resolveSelectedWorkspaceId(
+      preferredWorkspaceId ?? _selectedWorkspaceId,
+      _workspaces,
+    );
+  }
+
+  Future<List<WorkspaceSummary>> _listWorkspacesFromClient() =>
+      _client.listWorkspaces();
+
+  Future<WorkspaceSummary> _createWorkspaceOnClient({
+    required String path,
+    String? name,
+  }) =>
+      _client.createWorkspace(path: path, name: name);
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) =>
@@ -108,7 +149,8 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     String workspaceId, {
     String path = '',
     int maxDepth = 8,
-  }) => _client.fileTree(workspaceId, path: path, maxDepth: maxDepth);
+  }) =>
+      _client.fileTree(workspaceId, path: path, maxDepth: maxDepth);
 
   @override
   Future<FileContent> fileContent(String workspaceId, String path) =>
@@ -126,7 +168,8 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   Future<List<GitCommitSummary>> gitCommits(
     String workspaceId, {
     int limit = 20,
-  }) => _client.gitCommits(workspaceId, limit: limit);
+  }) =>
+      _client.gitCommits(workspaceId, limit: limit);
 
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) =>

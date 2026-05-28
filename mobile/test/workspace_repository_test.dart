@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
@@ -11,8 +13,10 @@ void main() {
       ],
     );
     final repository = DaemonWorkspaceRepository(client: client);
-    var notifications = 0;
-    repository.addListener(() => notifications++);
+    final snapshots = <_RepositorySnapshot>[];
+    repository.addListener(() {
+      snapshots.add(_RepositorySnapshot.from(repository));
+    });
 
     await repository.load();
 
@@ -23,7 +27,14 @@ void main() {
       const <String>['w1'],
     );
     expect(repository.selectedWorkspace?.id, 'w1');
-    expect(notifications, greaterThanOrEqualTo(2));
+    expect(snapshots, hasLength(2));
+    expect(snapshots.first.loading, isTrue);
+    expect(snapshots.first.error, isNull);
+    expect(snapshots.first.workspaceIds, isEmpty);
+    expect(snapshots.last.loading, isFalse);
+    expect(snapshots.last.error, isNull);
+    expect(snapshots.last.workspaceIds, const <String>['w1']);
+    expect(snapshots.last.selectedWorkspaceId, 'w1');
   });
 
   test(
@@ -45,8 +56,10 @@ void main() {
       );
       final repository = DaemonWorkspaceRepository(client: client);
       await repository.load();
-      var notifications = 0;
-      repository.addListener(() => notifications++);
+      final snapshots = <_RepositorySnapshot>[];
+      repository.addListener(() {
+        snapshots.add(_RepositorySnapshot.from(repository));
+      });
 
       final created = await repository.create(path: r'D:\new', name: 'New');
 
@@ -56,7 +69,56 @@ void main() {
         const <String>['old', 'new'],
       );
       expect(repository.selectedWorkspace?.id, 'new');
-      expect(notifications, greaterThanOrEqualTo(2));
+      expect(snapshots, hasLength(2));
+      expect(snapshots.first.loading, isTrue);
+      expect(snapshots.first.error, isNull);
+      expect(snapshots.first.workspaceIds, const <String>['old']);
+      expect(snapshots.first.selectedWorkspaceId, 'old');
+      expect(snapshots.last.loading, isFalse);
+      expect(snapshots.last.error, isNull);
+      expect(snapshots.last.workspaceIds, const <String>['old', 'new']);
+      expect(snapshots.last.selectedWorkspaceId, 'new');
+    },
+  );
+
+  test(
+    'createWorkspace refreshes catalog and selects created workspace',
+    () async {
+      final client = _FakeWorkspaceDaemonClient(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'old', name: 'Old', path: r'D:\old'),
+        ],
+        createdWorkspace: const WorkspaceSummary(
+          id: 'new',
+          name: 'New',
+          path: r'D:\new',
+        ),
+        refreshedWorkspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'old', name: 'Old', path: r'D:\old'),
+          WorkspaceSummary(id: 'new', name: 'New', path: r'D:\new'),
+        ],
+      );
+      final repository = DaemonWorkspaceRepository(client: client);
+      await repository.load();
+      final snapshots = <_RepositorySnapshot>[];
+      repository.addListener(() {
+        snapshots.add(_RepositorySnapshot.from(repository));
+      });
+
+      final created =
+          await repository.createWorkspace(path: r'D:\new', name: 'New');
+
+      expect(created.id, 'new');
+      expect(
+        repository.workspaces.map((workspace) => workspace.id),
+        const <String>['old', 'new'],
+      );
+      expect(repository.selectedWorkspace?.id, 'new');
+      expect(snapshots, hasLength(2));
+      expect(snapshots.first.loading, isTrue);
+      expect(snapshots.last.loading, isFalse);
+      expect(snapshots.last.workspaceIds, const <String>['old', 'new']);
+      expect(snapshots.last.selectedWorkspaceId, 'new');
     },
   );
 
@@ -92,6 +154,10 @@ void main() {
       )..createError = StateError('create failed');
       final repository = DaemonWorkspaceRepository(client: client);
       await repository.load();
+      final snapshots = <_RepositorySnapshot>[];
+      repository.addListener(() {
+        snapshots.add(_RepositorySnapshot.from(repository));
+      });
 
       await expectLater(
         repository.create(path: r'D:\bad'),
@@ -105,8 +171,78 @@ void main() {
         const <String>['w1'],
       );
       expect(repository.selectedWorkspace?.id, 'w1');
+      expect(snapshots, hasLength(2));
+      expect(snapshots.first.loading, isTrue);
+      expect(snapshots.first.error, isNull);
+      expect(snapshots.last.loading, isFalse);
+      expect(snapshots.last.error, isA<StateError>());
+      expect(snapshots.last.workspaceIds, const <String>['w1']);
+      expect(snapshots.last.selectedWorkspaceId, 'w1');
     },
   );
+
+  test(
+    'stale overlapping refresh does not overwrite newer create result',
+    () async {
+      final refreshCompleter = Completer<List<WorkspaceSummary>>();
+      final client = _FakeWorkspaceDaemonClient(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'old', name: 'Old', path: r'D:\old'),
+        ],
+        createdWorkspace: const WorkspaceSummary(
+          id: 'new',
+          name: 'New',
+          path: r'D:\new',
+        ),
+        refreshedWorkspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'old', name: 'Old', path: r'D:\old'),
+          WorkspaceSummary(id: 'new', name: 'New', path: r'D:\new'),
+        ],
+      )..queuedListWorkspaces.add(refreshCompleter.future);
+      final repository = DaemonWorkspaceRepository(client: client);
+
+      final staleRefresh = repository.refresh();
+      await pumpEventQueue();
+
+      final created = await repository.create(path: r'D:\new', name: 'New');
+      refreshCompleter.complete(const <WorkspaceSummary>[
+        WorkspaceSummary(id: 'stale', name: 'Stale', path: r'D:\stale'),
+      ]);
+      await staleRefresh;
+
+      expect(created.id, 'new');
+      expect(repository.loading, isFalse);
+      expect(
+        repository.workspaces.map((workspace) => workspace.id),
+        const <String>['old', 'new'],
+      );
+      expect(repository.selectedWorkspace?.id, 'new');
+    },
+  );
+}
+
+class _RepositorySnapshot {
+  const _RepositorySnapshot({
+    required this.loading,
+    required this.error,
+    required this.workspaceIds,
+    required this.selectedWorkspaceId,
+  });
+
+  factory _RepositorySnapshot.from(DaemonWorkspaceRepository repository) =>
+      _RepositorySnapshot(
+        loading: repository.loading,
+        error: repository.error,
+        workspaceIds: repository.workspaces
+            .map((workspace) => workspace.id)
+            .toList(growable: false),
+        selectedWorkspaceId: repository.selectedWorkspace?.id,
+      );
+
+  final bool loading;
+  final Object? error;
+  final List<String> workspaceIds;
+  final String? selectedWorkspaceId;
 }
 
 class _FakeWorkspaceDaemonClient implements DaemonClient {
@@ -114,17 +250,23 @@ class _FakeWorkspaceDaemonClient implements DaemonClient {
     required List<WorkspaceSummary> workspaces,
     WorkspaceSummary? createdWorkspace,
     List<WorkspaceSummary>? refreshedWorkspaces,
-  }) : _workspaces = workspaces,
-       _createdWorkspace = createdWorkspace,
-       _refreshedWorkspaces = refreshedWorkspaces;
+  })  : _workspaces = workspaces,
+        _createdWorkspace = createdWorkspace,
+        _refreshedWorkspaces = refreshedWorkspaces;
 
   List<WorkspaceSummary> _workspaces;
   final WorkspaceSummary? _createdWorkspace;
   final List<WorkspaceSummary>? _refreshedWorkspaces;
+  final queuedListWorkspaces = <Future<List<WorkspaceSummary>>>[];
   Object? createError;
 
   @override
-  Future<List<WorkspaceSummary>> listWorkspaces() async => _workspaces;
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    if (queuedListWorkspaces.isNotEmpty) {
+      return queuedListWorkspaces.removeAt(0);
+    }
+    return _workspaces;
+  }
 
   @override
   Future<WorkspaceSummary> createWorkspace({
@@ -133,8 +275,7 @@ class _FakeWorkspaceDaemonClient implements DaemonClient {
   }) async {
     final error = createError;
     if (error != null) throw error;
-    final created =
-        _createdWorkspace ??
+    final created = _createdWorkspace ??
         WorkspaceSummary(id: 'created', name: name ?? path, path: path);
     _workspaces =
         _refreshedWorkspaces ?? <WorkspaceSummary>[..._workspaces, created];
