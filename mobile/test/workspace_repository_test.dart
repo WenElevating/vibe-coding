@@ -398,6 +398,36 @@ void main() {
 
     expect(workspaceRepository.disposeCalls, 1);
   });
+
+  test(
+    'pending refresh completion after dispose does not notify or mutate',
+    () async {
+      final refreshCompleter = Completer<List<WorkspaceSummary>>();
+      final client = _FakeWorkspaceDaemonClient(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'initial', name: 'Initial', path: r'D:\initial'),
+        ],
+      )..queuedListWorkspaces.add(refreshCompleter.future);
+      final repository = DaemonWorkspaceRepository(client: client);
+      var notifications = 0;
+      repository.addListener(() => notifications++);
+
+      final pendingRefresh = repository.refresh();
+      await pumpEventQueue();
+
+      expect(notifications, 1);
+      repository.dispose();
+      refreshCompleter.complete(const <WorkspaceSummary>[
+        WorkspaceSummary(id: 'late', name: 'Late', path: r'D:\late'),
+      ]);
+
+      await pendingRefresh;
+
+      expect(notifications, 1);
+      expect(repository.workspaces, isEmpty);
+      expect(repository.selectedWorkspace, isNull);
+    },
+  );
 }
 
 class _RepositorySnapshot {

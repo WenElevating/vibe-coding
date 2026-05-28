@@ -11,9 +11,10 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   bool _loading = false;
   Object? _error;
   int _operationGeneration = 0;
+  bool _disposed = false;
 
   @override
-  List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
+  List<WorkspaceSummary> get workspaces => _workspaces;
 
   @override
   WorkspaceSummary? get selectedWorkspace {
@@ -48,6 +49,7 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
 
   @override
   bool select(String workspaceId) {
+    if (_disposed) return false;
     if (!_workspaces.any((workspace) => workspace.id == workspaceId)) {
       return false;
     }
@@ -81,12 +83,12 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     try {
       final created = await _createWorkspaceOnClient(path: path, name: name);
       final refreshed = await _listWorkspacesFromClient();
-      if (_isCurrentOperation(generation)) {
+      if (_canApplyOperation(generation)) {
         _applyWorkspaceCatalog(refreshed, preferredWorkspaceId: created.id);
       }
       return created;
     } catch (error) {
-      if (_isCurrentOperation(generation)) {
+      if (_canApplyOperation(generation)) {
         _error = error;
       }
       rethrow;
@@ -100,12 +102,12 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   }) async {
     try {
       final loaded = await _listWorkspacesFromClient();
-      if (_isCurrentOperation(generation)) {
+      if (_canApplyOperation(generation)) {
         _applyWorkspaceCatalog(loaded);
       }
       return loaded;
     } catch (error) {
-      if (_isCurrentOperation(generation)) {
+      if (_canApplyOperation(generation)) {
         _error = error;
       }
       rethrow;
@@ -116,19 +118,23 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
 
   int _startOperation() {
     final generation = ++_operationGeneration;
+    if (_disposed) return generation;
     _loading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
     return generation;
   }
 
   bool _isCurrentOperation(int generation) =>
       generation == _operationGeneration;
 
+  bool _canApplyOperation(int generation) =>
+      !_disposed && _isCurrentOperation(generation);
+
   void _finishOperation(int generation) {
-    if (_isCurrentOperation(generation)) {
+    if (_canApplyOperation(generation)) {
       _loading = false;
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
@@ -136,6 +142,7 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     List<WorkspaceSummary> workspaces, {
     String? preferredWorkspaceId,
   }) {
+    if (_disposed) return;
     _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
     _selectedWorkspaceId = _resolveSelectedWorkspaceId(
       preferredWorkspaceId ?? _selectedWorkspaceId,
@@ -151,6 +158,19 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     String? name,
   }) =>
       _client.createWorkspace(path: path, name: name);
+
+  void _notifyListeners() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _operationGeneration++;
+    super.dispose();
+  }
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) =>
