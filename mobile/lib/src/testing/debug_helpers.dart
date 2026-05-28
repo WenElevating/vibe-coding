@@ -504,6 +504,7 @@ Widget buildCodingWorkbenchEntryPreview() {
               streamOutput: false,
               expandThinking: false,
               permissionMode: 'default',
+              onWorkspaceCatalogChanged: (_) {},
               dependencies: WorkbenchDependencies(
                 adapterRepository: DaemonAdapterRepository(client: client),
                 asrModelManager:

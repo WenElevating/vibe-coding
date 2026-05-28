@@ -843,11 +843,15 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
     List<DirectoryEntrySummary> roots = const <DirectoryEntrySummary>[],
     Map<String, DirectoryListing> directories =
         const <String, DirectoryListing>{},
+    this.createdWorkspace,
+    this.listedWorkspaces = const <WorkspaceSummary>[],
   })  : _roots = roots,
         _directories = directories;
 
   final List<DirectoryEntrySummary> _roots;
   final Map<String, DirectoryListing> _directories;
+  final WorkspaceSummary? createdWorkspace;
+  final List<WorkspaceSummary> listedWorkspaces;
 
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
@@ -857,8 +861,11 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   Future<WorkspaceSummary> createWorkspace({
     required String path,
     String? name,
-  }) async =>
-      throw UnimplementedError();
+  }) async {
+    final workspace = createdWorkspace;
+    if (workspace == null) throw UnimplementedError();
+    return workspace;
+  }
 
   @override
   Future<FileContent> fileContent(String workspaceId, String path) async =>
@@ -896,8 +903,7 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   Future<List<DirectoryEntrySummary>> listFileSystemRoots() async => _roots;
 
   @override
-  Future<List<WorkspaceSummary>> listWorkspaces() async =>
-      const <WorkspaceSummary>[];
+  Future<List<WorkspaceSummary>> listWorkspaces() async => listedWorkspaces;
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) async =>
@@ -3662,6 +3668,84 @@ void main() {
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
+  });
+
+  testWidgets('created workspace remains listed after settings tab round trip',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const current = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding',
+    );
+    const created = WorkspaceSummary(
+      id: 'workspace_new',
+      name: 'New Workspace',
+      path: r'D:\AiProject\new-workspace',
+    );
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final workspaceRepository = _WidgetTestWorkspaceRepository(
+      createdWorkspace: created,
+      listedWorkspaces: const <WorkspaceSummary>[current, created],
+    );
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: FeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.adapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: connectedData.conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(_MainTabsHarness(
+      client: client,
+      dependencies: testDependencies,
+      snapshot: _testSnapshot(workspaces: const <WorkspaceSummary>[current]),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add workspace'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byType(TextField).at(0), r'D:\AiProject\new-workspace');
+    await tester.enterText(find.byType(TextField).at(1), 'New Workspace');
+    await tester.tap(find.text('Create and use'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('New Workspace'), findsOneWidget);
   });
 
   testWidgets('system back walks coding nested navigator before home',

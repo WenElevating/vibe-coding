@@ -37,6 +37,7 @@ class CodingWorkbenchPage extends StatefulWidget {
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
+    required this.onWorkspaceCatalogChanged,
     required this.dependencies,
     this.speechInputService,
   });
@@ -47,6 +48,7 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final ValueChanged<List<WorkspaceSummary>> onWorkspaceCatalogChanged;
   final SpeechInputService? speechInputService;
   final WorkbenchDependencies dependencies;
 
@@ -588,6 +590,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+        widget.onWorkspaceCatalogChanged(workspaces);
         _workbenchViewModel.confirmWorkspaceCreated(
           workspace: workspace,
           workspaces: workspaces,

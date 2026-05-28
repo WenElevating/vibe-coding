@@ -154,6 +154,29 @@ void main() {
     expect(_adapterNames(viewModel), const <String>['codex']);
   });
 
+  test('updates workspace catalog without replacing selected workspace data',
+      () {
+    const created = WorkspaceSummary(
+      id: 'workspace_new',
+      name: 'New Workspace',
+      path: r'D:\AIProject\new-workspace',
+    );
+    final viewModel = MainTabsViewModel(
+      initialData: _snapshot(),
+      adapterRepository: _FakeAdapterRepository(),
+    );
+    addTearDown(viewModel.dispose);
+
+    viewModel.updateWorkspaceCatalog(<WorkspaceSummary>[
+      viewModel.data.workspace,
+      created,
+    ]);
+
+    expect(viewModel.data.workspaces, contains(created));
+    expect(viewModel.data.workspace.id, 'workspace_1');
+    expect(viewModel.data.overview.workspaceId, 'workspace_1');
+  });
+
   test('reports adapter load failures and retries', () async {
     final repository = _FakeAdapterRepository(failOnce: true);
     final viewModel = MainTabsViewModel(

@@ -342,3 +342,29 @@ node scripts/run-tests.js
 ```
 
 - Last verified: 2026-05-25
+
+## Symptom: Newly Created Workspace Disappears After Tab Switch
+
+- Symptom: after creating a workspace from the mobile Coding tab, the app opens
+  that workspace's session list. Switching to Settings and back to Coding makes
+  the new workspace disappear from the in-memory workspace list, but restarting
+  the app shows it again.
+- Action: inspect the boundary between `WorkbenchViewModel` and
+  `MainTabsViewModel`. Workspace creation refreshes the daemon workspace
+  catalog in the workbench flow; the refreshed catalog must also be written back
+  to `MainTabsViewModel.data`. Otherwise `CodingWorkbenchPage.didUpdateWidget`
+  can rebuild from a stale `AppSnapshot` during a tab round trip and overwrite
+  the workbench route state with the old workspace list.
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\widget_test.dart --plain-name "created workspace remains listed after settings tab round trip"
+flutter test --no-pub test\main_tabs_view_model_test.dart --plain-name "updates workspace catalog"
+```
+
+- Last verified: 2026-05-28

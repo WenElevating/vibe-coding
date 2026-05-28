@@ -752,6 +752,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         streamOutput: viewModel.streamOutput,
         expandThinking: viewModel.expandThinking,
         permissionMode: viewModel.permissionMode,
+        onWorkspaceCatalogChanged: viewModel.updateWorkspaceCatalog,
       );
     }
     return _CodingAdapterGate(

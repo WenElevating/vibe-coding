@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../models/protocol.dart';
 import '../../../shell/app_snapshot.dart';
 import '../../features/workbench/workbench.dart';
 
@@ -15,6 +16,7 @@ class CodingPage extends StatelessWidget {
     required this.streamOutput,
     required this.expandThinking,
     required this.permissionMode,
+    required this.onWorkspaceCatalogChanged,
   });
 
   final AppSnapshot data;
@@ -26,6 +28,7 @@ class CodingPage extends StatelessWidget {
   final bool streamOutput;
   final bool expandThinking;
   final String permissionMode;
+  final ValueChanged<List<WorkspaceSummary>> onWorkspaceCatalogChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +41,7 @@ class CodingPage extends StatelessWidget {
       streamOutput: streamOutput,
       expandThinking: expandThinking,
       permissionMode: permissionMode,
+      onWorkspaceCatalogChanged: onWorkspaceCatalogChanged,
       dependencies: workbenchDependencies,
     );
   }

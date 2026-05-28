@@ -97,6 +97,11 @@ class MainTabsViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateWorkspaceCatalog(List<WorkspaceSummary> workspaces) {
+    _data = _snapshotWithWorkspaces(_data, List.unmodifiable(workspaces));
+    notifyListeners();
+  }
+
   void resetForNewClient({
     required AdapterRepository adapterRepository,
     required AppSnapshot data,
@@ -157,6 +162,26 @@ AppSnapshot _snapshotWithAdapters(
       workspace: snapshot.workspace,
       overview: snapshot.overview,
       adapters: adapters,
+      runs: snapshot.runs,
+      conversations: snapshot.conversations,
+      queue: snapshot.queue,
+      templates: snapshot.templates,
+      gitStatus: snapshot.gitStatus,
+      diffs: snapshot.diffs,
+      commits: snapshot.commits,
+      fileTree: snapshot.fileTree,
+      diagnostics: snapshot.diagnostics,
+      extensions: snapshot.extensions,
+    );
+
+AppSnapshot _snapshotWithWorkspaces(
+        AppSnapshot snapshot, List<WorkspaceSummary> workspaces) =>
+    AppSnapshot(
+      health: snapshot.health,
+      workspaces: workspaces,
+      workspace: snapshot.workspace,
+      overview: snapshot.overview,
+      adapters: snapshot.adapters,
       runs: snapshot.runs,
       conversations: snapshot.conversations,
       queue: snapshot.queue,
