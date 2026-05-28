@@ -1,0 +1,224 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
+import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/ui/pages/home_view_model.dart';
+
+void main() {
+  test('home deck updates when workspace repository notifies', () async {
+    final workspaceRepository = _FakeWorkspaceRepository(
+      workspaces: const <WorkspaceSummary>[
+        WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+      ],
+    );
+    final conversationRepository = _FakeCachedConversationRepository();
+    final runRepository = _FakeCachedRunRepository();
+    final viewModel = HomeViewModel(
+      workspaceRepository: workspaceRepository,
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
+    );
+
+    workspaceRepository.select('w2');
+
+    expect(viewModel.currentWorkspace?.id, 'w2');
+    expect(viewModel.deck?.now.workspaceId, 'w2');
+  });
+
+  test('home empty state does not require AppSnapshot', () async {
+    final viewModel = HomeViewModel(
+      workspaceRepository:
+          _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      conversationRepository: _FakeCachedConversationRepository(),
+      runRepository: _FakeCachedRunRepository(),
+    );
+
+    expect(viewModel.currentWorkspace, isNull);
+    expect(viewModel.deck, isNull);
+  });
+
+  test('home refresh delegates to all repositories', () async {
+    final workspaceRepository =
+        _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]);
+    final conversationRepository = _FakeCachedConversationRepository();
+    final runRepository = _FakeCachedRunRepository();
+    final viewModel = HomeViewModel(
+      workspaceRepository: workspaceRepository,
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
+    );
+
+    await viewModel.refresh();
+
+    expect(workspaceRepository.refreshCalls, 1);
+    expect(conversationRepository.refreshCalls, 1);
+    expect(runRepository.refreshCalls, 1);
+  });
+
+  test('home removes repository listeners on dispose', () async {
+    final workspaceRepository =
+        _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]);
+    final conversationRepository = _FakeCachedConversationRepository();
+    final runRepository = _FakeCachedRunRepository();
+    final viewModel = HomeViewModel(
+      workspaceRepository: workspaceRepository,
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
+    );
+
+    viewModel.dispose();
+    workspaceRepository.notifyForTest();
+    conversationRepository.notifyForTest();
+    runRepository.notifyForTest();
+
+    expect(workspaceRepository.listenerCount, 0);
+    expect(conversationRepository.listenerCount, 0);
+    expect(runRepository.listenerCount, 0);
+  });
+}
+
+class _FakeWorkspaceRepository extends WorkspaceRepository {
+  _FakeWorkspaceRepository({required List<WorkspaceSummary> workspaces})
+      : _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces),
+        _selectedWorkspaceId = workspaces.isEmpty ? null : workspaces.first.id;
+
+  final List<WorkspaceSummary> _workspaces;
+  String? _selectedWorkspaceId;
+  int refreshCalls = 0;
+  int listenerCount = 0;
+
+  @override
+  List<WorkspaceSummary> get workspaces => _workspaces;
+
+  @override
+  WorkspaceSummary? get selectedWorkspace {
+    final selectedId = _selectedWorkspaceId;
+    if (selectedId == null) return null;
+    for (final workspace in _workspaces) {
+      if (workspace.id == selectedId) return workspace;
+    }
+    return null;
+  }
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  void addListener(VoidCallback listener) {
+    listenerCount += 1;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    listenerCount -= 1;
+    super.removeListener(listener);
+  }
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {
+    refreshCalls += 1;
+  }
+
+  @override
+  Future<WorkspaceSummary> create({required String path, String? name}) =>
+      throw UnimplementedError();
+
+  @override
+  bool select(String workspaceId) {
+    if (!_workspaces.any((workspace) => workspace.id == workspaceId)) {
+      return false;
+    }
+    _selectedWorkspaceId = workspaceId;
+    notifyListeners();
+    return true;
+  }
+
+  void notifyForTest() => notifyListeners();
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeCachedConversationRepository extends CachedConversationRepository {
+  _FakeCachedConversationRepository()
+      : super(delegate: _UnusedConversationRepository());
+
+  int refreshCalls = 0;
+  int listenerCount = 0;
+
+  @override
+  List<ConversationSummary> get conversations => const <ConversationSummary>[];
+
+  @override
+  Future<void> refresh() async {
+    refreshCalls += 1;
+  }
+
+  @override
+  void addListener(VoidCallback listener) {
+    listenerCount += 1;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    listenerCount -= 1;
+    super.removeListener(listener);
+  }
+
+  void notifyForTest() => notifyListeners();
+}
+
+class _FakeCachedRunRepository extends CachedRunRepository {
+  _FakeCachedRunRepository() : super(delegate: _UnusedRunRepository());
+
+  int refreshCalls = 0;
+  int listenerCount = 0;
+
+  @override
+  List<RunSummary> get runs => const <RunSummary>[];
+
+  @override
+  List<QueueItem> get queue => const <QueueItem>[];
+
+  @override
+  Future<void> refresh() async {
+    refreshCalls += 1;
+  }
+
+  @override
+  void addListener(VoidCallback listener) {
+    listenerCount += 1;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    listenerCount -= 1;
+    super.removeListener(listener);
+  }
+
+  void notifyForTest() => notifyListeners();
+}
+
+class _UnusedConversationRepository implements ConversationRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedRunRepository implements RunRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}

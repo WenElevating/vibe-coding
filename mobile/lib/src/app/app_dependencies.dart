@@ -16,6 +16,7 @@ import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../data/repositories/recent_daemon_address_repository.dart';
 import '../data/repositories/workspace_repository.dart';
+import '../domain/models/daemon_connection_config.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
@@ -42,6 +43,7 @@ import '../ui/features/run_detail/run_detail.dart';
 import '../ui/features/settings/settings.dart';
 import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
+import '../ui/pages/home_view_model.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
@@ -242,10 +244,10 @@ class ConnectedDataDependencies {
   })  : adapterRepository = adapterRepository is CachedAdapterRepository
             ? adapterRepository
             : CachedAdapterRepository(delegate: adapterRepository),
-        conversationRepository =
-            conversationRepository is CachedConversationRepository
-                ? conversationRepository
-                : CachedConversationRepository(delegate: conversationRepository),
+        conversationRepository = conversationRepository
+                is CachedConversationRepository
+            ? conversationRepository
+            : CachedConversationRepository(delegate: conversationRepository),
         runRepository = runRepository is CachedRunRepository
             ? runRepository
             : CachedRunRepository(delegate: runRepository),
@@ -360,6 +362,8 @@ class DomainDependencies {
 class FeatureDependencies {
   FeatureDependencies({
     required this.createDaemonConnectionViewModel,
+    required this.createHomeViewModel,
+    required this.createSettingsViewModel,
     required this.createDiagnosticsViewModel,
     required this.createRunDetailViewModel,
     required this.createAppUpdateViewModel,
@@ -375,6 +379,28 @@ class FeatureDependencies {
           configRepository: data.connectionConfigRepository,
           recentAddressRepository: data.recentAddressRepository,
           connectToDaemon: domain.connectionWorkflow,
+        ),
+        createHomeViewModel: (connectedData) => HomeViewModel(
+          workspaceRepository: connectedData.workspaceRepository,
+          conversationRepository: connectedData.conversationRepository,
+          runRepository: connectedData.runRepository,
+        ),
+        createSettingsViewModel: ({
+          required ConnectedDataDependencies connectedData,
+          required DaemonConnectionConfig connectionConfig,
+          required DaemonHealth health,
+          CodeDiagnosticsSummary? diagnostics,
+          GitStatusSummary? gitStatus,
+          int extensionsCount = 0,
+        }) =>
+            SettingsViewModel(
+          workspaceRepository: connectedData.workspaceRepository,
+          codingPreferencesRepository: data.codingPreferencesRepository,
+          connectionConfig: connectionConfig,
+          health: health,
+          diagnostics: diagnostics,
+          gitStatus: gitStatus,
+          extensionsCount: extensionsCount,
         ),
         createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
           repository: connectedData.diagnosticsRepository,
@@ -436,6 +462,16 @@ class FeatureDependencies {
       );
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
+  final HomeViewModel Function(ConnectedDataDependencies connectedData)
+      createHomeViewModel;
+  final SettingsViewModel Function({
+    required ConnectedDataDependencies connectedData,
+    required DaemonConnectionConfig connectionConfig,
+    required DaemonHealth health,
+    CodeDiagnosticsSummary? diagnostics,
+    GitStatusSummary? gitStatus,
+    int extensionsCount,
+  }) createSettingsViewModel;
   final DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)
       createDiagnosticsViewModel;
   final RunDetailViewModel Function(

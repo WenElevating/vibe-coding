@@ -23,6 +23,7 @@ import 'features/settings/settings.dart'
         AppUpdateState,
         AppUpdateStatus,
         AppUpdateViewModel,
+        SettingsViewModel,
         appUpdateTitleFor;
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
@@ -255,6 +256,8 @@ class _EmptyStateTapRowTrailing extends StatelessWidget {
 class _MainTabsPageState extends State<MainTabsPage>
     with WidgetsBindingObserver {
   MainTabsViewModel? _viewModel;
+  HomeViewModel? _homeViewModel;
+  SettingsViewModel? _settingsViewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
   AppUpdateViewModel? _appUpdateViewModel;
@@ -265,7 +268,6 @@ class _MainTabsPageState extends State<MainTabsPage>
   bool _creatingWorkspace = false;
   bool _loadingWorkspace = false;
   int _appUpdateGeneration = 0;
-  int _codingPreferencesGeneration = 0;
 
   @override
   void initState() {
@@ -273,6 +275,9 @@ class _MainTabsPageState extends State<MainTabsPage>
     WidgetsBinding.instance.addObserver(this);
     _connectedData = widget.pageDependencies.connectedData;
     _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
+    widget.pageDependencies.codingPreferencesRepository.addListener(
+      _handleCodingPreferencesRepositoryChanged,
+    );
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
     unawaited(_createAppUpdateViewModel());
@@ -282,6 +287,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         initialData: data,
         adapterRepository: _connectedData.adapterRepository,
       );
+      _createRepositoryBackedViewModels(data);
       unawaited(_loadCodingPreferences(_viewModel!));
       unawaited(_viewModel!.ensureCodingAdaptersLoaded());
     }
@@ -291,11 +297,21 @@ class _MainTabsPageState extends State<MainTabsPage>
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageDependencies != widget.pageDependencies) {
+      if (oldWidget.pageDependencies.codingPreferencesRepository !=
+          widget.pageDependencies.codingPreferencesRepository) {
+        oldWidget.pageDependencies.codingPreferencesRepository.removeListener(
+          _handleCodingPreferencesRepositoryChanged,
+        );
+        widget.pageDependencies.codingPreferencesRepository.addListener(
+          _handleCodingPreferencesRepositoryChanged,
+        );
+      }
       final oldWorkbenchDependencies = _workbenchDependencies;
       final oldConnectedData = _connectedData;
       _connectedData = widget.pageDependencies.connectedData;
       _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
       _disposeAppUpdateViewModel();
+      _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       final data = widget.data;
@@ -307,6 +323,7 @@ class _MainTabsPageState extends State<MainTabsPage>
               adapterRepository: _connectedData.adapterRepository,
             );
       if (_viewModel != null) {
+        _createRepositoryBackedViewModels(data!);
         unawaited(_loadCodingPreferences(_viewModel!));
         unawaited(_viewModel!.ensureCodingAdaptersLoaded());
       }
@@ -319,12 +336,20 @@ class _MainTabsPageState extends State<MainTabsPage>
         _viewModel?.adapterLoadState != CodingAdapterLoadState.loaded) {
       _viewModel?.updateData(widget.data!);
     }
+    final data = _viewModel?.data;
+    if (data != null) {
+      _updateSettingsViewModelInputs(data);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.pageDependencies.codingPreferencesRepository.removeListener(
+      _handleCodingPreferencesRepositoryChanged,
+    );
     _disposeWorkbenchDependencies(_workbenchDependencies);
+    _disposeRepositoryBackedViewModels();
     _disposeAppUpdateViewModel();
     unawaited(_connectedData.dispose());
     _viewModel?.dispose();
@@ -406,13 +431,10 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   Future<void> _loadCodingPreferences(MainTabsViewModel viewModel) async {
-    final generation = _codingPreferencesGeneration;
     try {
       final repository = widget.pageDependencies.codingPreferencesRepository;
       await repository.load();
-      if (!mounted ||
-          _viewModel != viewModel ||
-          generation != _codingPreferencesGeneration) {
+      if (!mounted || _viewModel != viewModel) {
         return;
       }
       viewModel.setPermissionMode(repository.permissionMode);
@@ -426,26 +448,61 @@ class _MainTabsPageState extends State<MainTabsPage>
     }
   }
 
-  void _handlePermissionModeChanged(String value) {
-    _codingPreferencesGeneration += 1;
+  void _handleCodingPreferencesRepositoryChanged() {
     final permissionMode =
-        widget.pageDependencies.normalizeCodingPermissionMode(value);
+        widget.pageDependencies.normalizeCodingPermissionMode(
+      widget.pageDependencies.codingPreferencesRepository.permissionMode,
+    );
     _viewModel?.setPermissionMode(permissionMode);
-    unawaited(_savePermissionMode(permissionMode));
   }
 
-  Future<void> _savePermissionMode(String value) async {
+  void _createRepositoryBackedViewModels(AppSnapshot data) {
+    _disposeRepositoryBackedViewModels();
+    final homeViewModel =
+        widget.pageDependencies.featureDependencies.createHomeViewModel(
+      _connectedData,
+    );
+    _homeViewModel = homeViewModel;
+    _settingsViewModel =
+        widget.pageDependencies.featureDependencies.createSettingsViewModel(
+      connectedData: _connectedData,
+      connectionConfig: widget.connectionConfig,
+      health: data.health,
+      diagnostics: data.diagnostics,
+      gitStatus: data.gitStatus,
+      extensionsCount: data.extensions.length,
+    );
+    unawaited(_refreshHomeViewModel(homeViewModel));
+  }
+
+  void _updateSettingsViewModelInputs(AppSnapshot data) {
+    _settingsViewModel?.updateShellInputs(
+      connectionConfig: widget.connectionConfig,
+      health: data.health,
+      diagnostics: data.diagnostics,
+      gitStatus: data.gitStatus,
+      extensionsCount: data.extensions.length,
+    );
+  }
+
+  Future<void> _refreshHomeViewModel(HomeViewModel viewModel) async {
     try {
-      await widget.pageDependencies.codingPreferencesRepository
-          .setPermissionMode(value);
+      await viewModel.refresh();
     } catch (error) {
       if (!mounted) return;
       _connectedData.recordDiagnosticEvent(
-        'settings.permission_mode.save_failed',
+        'home.repository_refresh_failed',
         {'error': '$error'},
-        path: 'settings',
+        path: 'home',
       );
     }
+  }
+
+  void _disposeRepositoryBackedViewModels() {
+    _homeViewModel?.dispose();
+    _homeViewModel = null;
+    _settingsViewModel?.dispose();
+    _settingsViewModel = null;
   }
 
   bool _shouldSkipForegroundUpdateCheckAfterRecovery(AppUpdateStatus status) {
@@ -515,21 +572,24 @@ class _MainTabsPageState extends State<MainTabsPage>
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyShell(context, l10n);
     final data = viewModel.data;
+    final homeViewModel = _homeViewModel;
+    final settingsViewModel = _settingsViewModel;
+    if (homeViewModel == null || settingsViewModel == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final pages = [
       HomePage(
           open: viewModel.openOverlay,
           selectTab: viewModel.selectTab,
-          data: data),
+          viewModel: homeViewModel,
+          health: data.health),
       _buildCodingTab(),
       SettingsPage(
         open: viewModel.openOverlay,
-        data: data,
-        connectionConfig: widget.connectionConfig,
+        viewModel: settingsViewModel,
         streamOutput: viewModel.streamOutput,
         expandThinking: viewModel.expandThinking,
-        permissionMode: viewModel.permissionMode,
         appUpdateViewModel: _appUpdateViewModel,
-        onPermissionModeChanged: _handlePermissionModeChanged,
         onStreamOutputChanged: viewModel.setStreamOutput,
         onExpandThinkingChanged: viewModel.setExpandThinking,
       ),
@@ -724,6 +784,7 @@ class _MainTabsPageState extends State<MainTabsPage>
           initialData: snapshot,
           adapterRepository: _connectedData.adapterRepository,
         );
+        _createRepositoryBackedViewModels(snapshot);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
       unawaited(_viewModel!.ensureCodingAdaptersLoaded());
