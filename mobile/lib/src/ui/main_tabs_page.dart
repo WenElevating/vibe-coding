@@ -30,7 +30,7 @@ import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
-import 'view_models/main_tabs_view_model.dart';
+import 'view_models/main_tabs_shell_view_model.dart';
 
 class MainTabsPage extends StatefulWidget {
   const MainTabsPage({
@@ -255,7 +255,7 @@ class _EmptyStateTapRowTrailing extends StatelessWidget {
 
 class _MainTabsPageState extends State<MainTabsPage>
     with WidgetsBindingObserver {
-  MainTabsViewModel? _viewModel;
+  MainTabsShellViewModel? _viewModel;
   HomeViewModel? _homeViewModel;
   SettingsViewModel? _settingsViewModel;
   late ConnectedDataDependencies _connectedData;
@@ -283,13 +283,10 @@ class _MainTabsPageState extends State<MainTabsPage>
     unawaited(_createAppUpdateViewModel());
     final data = widget.data;
     if (data != null) {
-      _viewModel = MainTabsViewModel(
-        initialData: data,
-        adapterRepository: _connectedData.adapterRepository,
-      );
+      _viewModel = MainTabsShellViewModel();
       _createRepositoryBackedViewModels(data);
       unawaited(_loadCodingPreferences(_viewModel!));
-      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      unawaited(_connectedData.adapterRepository.load());
     }
   }
 
@@ -318,29 +315,20 @@ class _MainTabsPageState extends State<MainTabsPage>
       _viewModel?.dispose();
       _viewModel = data == null
           ? null
-          : MainTabsViewModel(
-              initialData: data,
-              adapterRepository: _connectedData.adapterRepository,
-            );
+          : MainTabsShellViewModel();
       if (_viewModel != null) {
         _createRepositoryBackedViewModels(data!);
         unawaited(_loadCodingPreferences(_viewModel!));
-        unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+        unawaited(_connectedData.adapterRepository.load());
       }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
       unawaited(oldConnectedData.dispose());
       return;
     }
-    if (oldWidget.data != widget.data &&
-        widget.data != null &&
-        _viewModel?.adapterLoadState != CodingAdapterLoadState.loaded) {
-      _viewModel?.updateData(widget.data!);
-    }
-    final data = _viewModel?.data;
-    if (data != null) {
-      _seedWorkspaceRepository(data);
-      _updateHomeViewModelInputs(data);
-      _updateSettingsViewModelInputs(data);
+    if (oldWidget.data != widget.data && widget.data != null) {
+      _seedWorkspaceRepository(widget.data!);
+      _updateHomeViewModelInputs(widget.data!);
+      _updateSettingsViewModelInputs(widget.data!);
     }
   }
 
@@ -432,7 +420,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     );
   }
 
-  Future<void> _loadCodingPreferences(MainTabsViewModel viewModel) async {
+  Future<void> _loadCodingPreferences(MainTabsShellViewModel viewModel) async {
     try {
       final repository = widget.pageDependencies.codingPreferencesRepository;
       await repository.load();
@@ -597,10 +585,10 @@ class _MainTabsPageState extends State<MainTabsPage>
     final l10n = AppLocalizations.of(context);
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyShell(context, l10n);
-    final data = viewModel.data;
+    final data = widget.data;
     final homeViewModel = _homeViewModel;
     final settingsViewModel = _settingsViewModel;
-    if (homeViewModel == null || settingsViewModel == null) {
+    if (data == null || homeViewModel == null || settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
     }
     final pages = [
@@ -806,14 +794,11 @@ class _MainTabsPageState extends State<MainTabsPage>
       setState(() {
         _creatingWorkspace = false;
         _loadingWorkspace = false;
-        _viewModel = MainTabsViewModel(
-          initialData: snapshot,
-          adapterRepository: _connectedData.adapterRepository,
-        );
+        _viewModel = MainTabsShellViewModel();
         _createRepositoryBackedViewModels(snapshot);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
-      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      unawaited(_connectedData.adapterRepository.load());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -827,8 +812,15 @@ class _MainTabsPageState extends State<MainTabsPage>
   Widget _buildCodingTab() {
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
-    if (viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
-      return CodingPage(
+    final adapterRepo = _connectedData.adapterRepository;
+    if (!adapterRepo.loading && adapterRepo.error == null && adapterRepo.adapters.isNotEmpty) {
+      return _CodingAdapterGate(
+        failed: adapterRepo.error != null,
+        error: adapterRepo.error,
+        onRetry: () => unawaited(adapterRepo.load()),
+      );
+    }
+    return CodingPage(
         workbenchDependencies: _workbenchDependencies,
         workbenchKey: _codingWorkbenchKey,
         onBack: () => viewModel.selectTab(0),
@@ -838,12 +830,6 @@ class _MainTabsPageState extends State<MainTabsPage>
         expandThinking: viewModel.expandThinking,
         permissionMode: viewModel.permissionMode,
       );
-    }
-    return _CodingAdapterGate(
-      failed: viewModel.adapterLoadState == CodingAdapterLoadState.failed,
-      error: viewModel.adapterLoadError,
-      onRetry: () => unawaited(viewModel.ensureCodingAdaptersLoaded()),
-    );
   }
 }
 
