@@ -1261,7 +1261,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           onCancel: _cancelActiveRun),
       ComposerWorkspaceCloud(
           workspace: workspace,
+          adapter: adapter,
           running: _isRunningCli,
+          cliLocked: _isConversationAdapterLocked,
+          onCliTap: _showAdapterPicker,
           onTap: _showWorkspacePicker),
     ]);
   }

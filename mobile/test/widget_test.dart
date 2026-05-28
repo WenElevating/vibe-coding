@@ -1927,9 +1927,8 @@ void main() {
     expect(find.textContaining('未检测到可用麦克风'), findsNothing);
   });
 
-  testWidgets('coding composer renders separate CLI and model chips',
+  testWidgets('coding composer keeps model chip in the input surface',
       (WidgetTester tester) async {
-    var cliTaps = 0;
     var modelTaps = 0;
     final controller = TextEditingController();
     await tester.pumpWidget(MaterialApp(
@@ -1953,7 +1952,7 @@ void main() {
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
                 voiceError: null,
-                onCliTap: () => cliTaps++,
+                onCliTap: () {},
                 onModelTap: () => modelTaps++,
                 onVoiceStart: () {},
                 onVoiceStop: () {},
@@ -1962,59 +1961,72 @@ void main() {
                 onSend: () {},
                 onCancel: () {}))));
 
-    expect(find.text('codex'), findsOneWidget);
+    expect(find.text('codex'), findsNothing);
     expect(find.text('GPT-5 Codex'), findsOneWidget);
     expect(find.text('Model changed to an available option'), findsOneWidget);
 
-    await tester.tap(find.text('codex'));
     await tester.tap(find.text('GPT-5 Codex'));
 
-    expect(cliTaps, 1);
     expect(modelTaps, 1);
   });
 
-  testWidgets('coding composer can lock CLI while model remains selectable',
+  testWidgets('composer workspace cloud renders CLI selector on the left',
       (WidgetTester tester) async {
     var cliTaps = 0;
-    var modelTaps = 0;
-    final controller = TextEditingController();
+    var workspaceTaps = 0;
     await tester.pumpWidget(MaterialApp(
         supportedLocales: appSupportedLocales,
         localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
-            body: CodingComposer(
-                controller: controller,
-                adapter: 'codex',
-                model: 'GPT-5 Codex',
+            body: ComposerWorkspaceCloud(
                 workspace: const WorkspaceSummary(
                     id: 'workspace_1',
                     name: 'Current Project',
                     path: r'D:\AiProject\vibe-coding'),
+                adapter: 'codex',
                 running: false,
-                cliLocked: true,
-                modelLocked: false,
-                canSend: false,
-                sending: false,
-                voiceState: VoiceInputState.idle,
-                voiceEnabled: true,
-                voiceError: null,
+                cliLocked: false,
                 onCliTap: () => cliTaps++,
-                onModelTap: () => modelTaps++,
-                onVoiceStart: () {},
-                onVoiceStop: () {},
-                onVoiceCancel: () {},
-                onTextChanged: (_) {},
-                onSend: () {},
-                onCancel: () {}))));
+                onTap: () => workspaceTaps++))));
+
+    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.text('codex'), findsOneWidget);
+
+    final cliRight = tester.getTopRight(find.text('codex')).dx;
+    final workspaceLeft = tester.getTopLeft(find.text('vibe-coding')).dx;
+    expect(cliRight, lessThan(workspaceLeft));
 
     await tester.tap(find.text('codex'));
-    await tester.tap(find.text('GPT-5 Codex'));
+    await tester.tap(find.text('vibe-coding'));
 
-    expect(cliTaps, 0);
-    expect(modelTaps, 1);
+    expect(cliTaps, 1);
+    expect(workspaceTaps, 1);
   });
 
-  testWidgets('coding composer wraps long CLI and model chips on compact width',
+  testWidgets('composer workspace cloud can lock CLI selection',
+      (WidgetTester tester) async {
+    var cliTaps = 0;
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: ComposerWorkspaceCloud(
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                adapter: 'codex',
+                running: false,
+                cliLocked: true,
+                onCliTap: () => cliTaps++,
+                onTap: () {}))));
+
+    await tester.tap(find.text('codex'));
+
+    expect(cliTaps, 0);
+  });
+
+  testWidgets('coding composer keeps actions right-aligned on compact width',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(320, 520);
     tester.view.devicePixelRatio = 1;
@@ -2051,6 +2063,10 @@ void main() {
                 onSend: () {},
                 onCancel: () {}))));
 
+    final sendRight = tester
+        .getTopRight(find.byKey(const ValueKey('workbench-send-prompt-button')))
+        .dx;
+    expect(sendRight, greaterThan(280));
     expect(tester.takeException(), isNull);
   });
 

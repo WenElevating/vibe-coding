@@ -151,18 +151,13 @@ class CodingComposer extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                     Flexible(
-                        child: Wrap(spacing: 8, runSpacing: 6, children: [
-                      InkWell(
-                          onTap: cliLocked ? null : onCliTap,
-                          borderRadius: BorderRadius.circular(999),
-                          child: _ComposerCliPill(
-                              adapter: adapter, locked: cliLocked)),
-                      InkWell(
-                          onTap: modelLocked ? null : onModelTap,
-                          borderRadius: BorderRadius.circular(999),
-                          child: _ComposerModelPill(
-                              model: model, locked: modelLocked)),
-                    ])),
+                        child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: InkWell(
+                                onTap: modelLocked ? null : onModelTap,
+                                borderRadius: BorderRadius.circular(999),
+                                child: _ComposerModelPill(
+                                    model: model, locked: modelLocked)))),
                     const SizedBox(width: 8),
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Tooltip(
@@ -355,39 +350,56 @@ class ComposerWorkspaceCloud extends StatelessWidget {
   const ComposerWorkspaceCloud(
       {super.key,
       required this.workspace,
+      required this.adapter,
       required this.running,
+      required this.cliLocked,
+      required this.onCliTap,
       required this.onTap});
   final WorkspaceSummary workspace;
+  final String? adapter;
   final bool running;
+  final bool cliLocked;
+  final VoidCallback onCliTap;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => Container(
       width: double.infinity,
       color: const Color(0xF608090B),
-      padding: const EdgeInsets.fromLTRB(23, 0, 28, 7),
+      padding: const EdgeInsets.fromLTRB(23, 0, 18, 7),
       child: SafeArea(
           top: false,
-          child: Align(
-              alignment: Alignment.centerLeft,
-              child: InkWell(
-                  onTap: running ? null : onTap,
-                  borderRadius: BorderRadius.circular(999),
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 4),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.cloud_outlined,
-                            color: theme.muted, size: 16),
-                        const SizedBox(width: 10),
-                        Text(workspaceDisplayName(workspace),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: theme.muted,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500)),
-                      ]))))));
+          child: Row(children: [
+            Expanded(
+                child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                        onTap: cliLocked ? null : onCliTap,
+                        borderRadius: BorderRadius.circular(999),
+                        child: _ComposerCliLabel(
+                            adapter: adapter, locked: cliLocked)))),
+            const SizedBox(width: 10),
+            InkWell(
+                onTap: running ? null : onTap,
+                borderRadius: BorderRadius.circular(999),
+                child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.cloud_outlined,
+                          color: theme.muted, size: 16),
+                      const SizedBox(width: 10),
+                      ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 168),
+                          child: Text(workspaceDisplayName(workspace),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500))),
+                    ]))),
+          ])));
 }
 
 class _SendPromptButton extends StatelessWidget {
@@ -454,30 +466,32 @@ class _SendPromptButton extends StatelessWidget {
   }
 }
 
-class _ComposerCliPill extends StatelessWidget {
-  const _ComposerCliPill({required this.adapter, required this.locked});
+class _ComposerCliLabel extends StatelessWidget {
+  const _ComposerCliLabel({required this.adapter, required this.locked});
   final String? adapter;
   final bool locked;
 
   @override
-  Widget build(BuildContext context) => _ComposerPillShell(
-      locked: locked,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.terminal_rounded,
-            color: locked ? theme.faint : theme.muted, size: 14),
-        const SizedBox(width: 7),
-        Flexible(
-            child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 126),
-                child: Text(adapter ?? 'CLI',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: locked ? theme.muted : theme.text,
-                        fontSize: 11.5,
-                        fontFamily: 'Consolas',
-                        fontWeight: FontWeight.w800)))),
-      ]));
+  Widget build(BuildContext context) => Opacity(
+      opacity: locked ? .58 : 1,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.terminal_rounded,
+                color: locked ? theme.faint : theme.muted, size: 16),
+            const SizedBox(width: 10),
+            Flexible(
+                child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 168),
+                    child: Text(adapter ?? 'CLI',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: theme.muted,
+                            fontSize: 12.5,
+                            fontFamily: 'Consolas',
+                            fontWeight: FontWeight.w800)))),
+          ])));
 }
 
 class _ComposerModelPill extends StatelessWidget {
