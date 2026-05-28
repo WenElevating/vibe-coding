@@ -7,7 +7,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
-import '../services/coding_preferences_store.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
@@ -258,7 +257,6 @@ class _MainTabsPageState extends State<MainTabsPage>
   MainTabsViewModel? _viewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
-  late final CodingPreferencesStore _codingPreferencesStore;
   AppUpdateViewModel? _appUpdateViewModel;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   var _emptyActiveTab = 1;
@@ -275,7 +273,6 @@ class _MainTabsPageState extends State<MainTabsPage>
     WidgetsBinding.instance.addObserver(this);
     _connectedData = widget.pageDependencies.connectedData;
     _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
-    _codingPreferencesStore = CodingPreferencesStore();
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
     unawaited(_createAppUpdateViewModel());
@@ -411,13 +408,14 @@ class _MainTabsPageState extends State<MainTabsPage>
   Future<void> _loadCodingPreferences(MainTabsViewModel viewModel) async {
     final generation = _codingPreferencesGeneration;
     try {
-      final permissionMode = await _codingPreferencesStore.loadPermissionMode();
+      final repository = widget.pageDependencies.codingPreferencesRepository;
+      await repository.load();
       if (!mounted ||
           _viewModel != viewModel ||
           generation != _codingPreferencesGeneration) {
         return;
       }
-      viewModel.setPermissionMode(permissionMode);
+      viewModel.setPermissionMode(repository.permissionMode);
     } catch (error) {
       if (!mounted) return;
       _connectedData.recordDiagnosticEvent(
@@ -431,14 +429,15 @@ class _MainTabsPageState extends State<MainTabsPage>
   void _handlePermissionModeChanged(String value) {
     _codingPreferencesGeneration += 1;
     final permissionMode =
-        CodingPreferencesStore.normalizePermissionMode(value);
+        widget.pageDependencies.normalizeCodingPermissionMode(value);
     _viewModel?.setPermissionMode(permissionMode);
     unawaited(_savePermissionMode(permissionMode));
   }
 
   Future<void> _savePermissionMode(String value) async {
     try {
-      await _codingPreferencesStore.savePermissionMode(value);
+      await widget.pageDependencies.codingPreferencesRepository
+          .setPermissionMode(value);
     } catch (error) {
       if (!mounted) return;
       _connectedData.recordDiagnosticEvent(

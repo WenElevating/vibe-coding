@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../data/repositories/cached_adapter_repository.dart';
 import '../data/repositories/cached_conversation_repository.dart';
 import '../data/repositories/cached_run_repository.dart';
+import '../data/repositories/coding_preferences_repository.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_app_update_repository.dart';
@@ -84,6 +85,9 @@ class AppDependencies {
     final connectedData = data.forDaemonClient(client);
     return MainTabsDependencies(
       connectedData: connectedData,
+      codingPreferencesRepository: data.codingPreferencesRepository,
+      normalizeCodingPermissionMode:
+          CodingPreferencesRepository.normalizePermissionMode,
       workbenchDependencies: features.createWorkbenchDependencies(
         client,
         connectedData,
@@ -117,6 +121,8 @@ class AppDependencies {
 class MainTabsDependencies {
   MainTabsDependencies({
     required this.connectedData,
+    required this.codingPreferencesRepository,
+    required this.normalizeCodingPermissionMode,
     required this.workbenchDependencies,
     required this.featureDependencies,
     required this.createAppUpdateViewModel,
@@ -124,6 +130,8 @@ class MainTabsDependencies {
   });
 
   final ConnectedDataDependencies connectedData;
+  final CodingPreferencesRepository codingPreferencesRepository;
+  final String Function(String? value) normalizeCodingPermissionMode;
   final WorkbenchDependencies workbenchDependencies;
   final FeatureDependencies featureDependencies;
   final Future<AppUpdateViewModel> Function({
@@ -155,9 +163,12 @@ class NetworkDependencies {
 class DataDependencies {
   DataDependencies({
     required this.connectionConfigRepository,
+    CodingPreferencesRepository? codingPreferencesRepository,
     RecentDaemonAddressRepository? recentAddressRepository,
     NotificationClientFactory? createNotificationClient,
-  })  : recentAddressRepository = recentAddressRepository ??
+  })  : codingPreferencesRepository =
+            codingPreferencesRepository ?? CodingPreferencesRepository(),
+        recentAddressRepository = recentAddressRepository ??
             StoreRecentDaemonAddressRepository(
               store: RecentDaemonAddressStore(),
             ),
@@ -166,16 +177,19 @@ class DataDependencies {
 
   factory DataDependencies.createDefault() {
     final connectionConfigStore = DaemonConnectionConfigStore();
+    final codingPreferencesRepository = CodingPreferencesRepository();
     final recentAddressStore = RecentDaemonAddressStore();
     return DataDependencies(
       connectionConfigRepository:
           StoreDaemonConnectionConfigRepository(store: connectionConfigStore),
+      codingPreferencesRepository: codingPreferencesRepository,
       recentAddressRepository:
           StoreRecentDaemonAddressRepository(store: recentAddressStore),
     );
   }
 
   final DaemonConnectionConfigRepository connectionConfigRepository;
+  final CodingPreferencesRepository codingPreferencesRepository;
   final RecentDaemonAddressRepository recentAddressRepository;
   final NotificationClientFactory createNotificationClient;
 
