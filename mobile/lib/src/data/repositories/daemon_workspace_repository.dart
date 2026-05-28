@@ -63,6 +63,26 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   }
 
   @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    if (_disposed) return;
+    final nextWorkspaces = <WorkspaceSummary>[
+      ...workspaces,
+      if (!workspaces.any((workspace) => workspace.id == selectedWorkspace.id))
+        selectedWorkspace,
+    ];
+    final changed = !_sameWorkspaceCatalog(_workspaces, nextWorkspaces) ||
+        _selectedWorkspaceId != selectedWorkspace.id;
+    _workspaces = List<WorkspaceSummary>.unmodifiable(nextWorkspaces);
+    _selectedWorkspaceId = selectedWorkspace.id;
+    if (changed) {
+      _notifyListeners();
+    }
+  }
+
+  @override
   Future<List<WorkspaceSummary>> listWorkspaces() async {
     final generation = _startOperation();
     return _refreshAndReturn(generation: generation);
@@ -225,4 +245,21 @@ String? _resolveSelectedWorkspaceId(
     return currentWorkspaceId;
   }
   return null;
+}
+
+bool _sameWorkspaceCatalog(
+  List<WorkspaceSummary> current,
+  List<WorkspaceSummary> next,
+) {
+  if (current.length != next.length) return false;
+  for (var index = 0; index < current.length; index++) {
+    final currentWorkspace = current[index];
+    final nextWorkspace = next[index];
+    if (currentWorkspace.id != nextWorkspace.id ||
+        currentWorkspace.name != nextWorkspace.name ||
+        currentWorkspace.path != nextWorkspace.path) {
+      return false;
+    }
+  }
+  return true;
 }

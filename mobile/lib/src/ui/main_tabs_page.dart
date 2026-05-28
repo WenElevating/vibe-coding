@@ -338,6 +338,8 @@ class _MainTabsPageState extends State<MainTabsPage>
     }
     final data = _viewModel?.data;
     if (data != null) {
+      _seedWorkspaceRepository(data);
+      _updateHomeViewModelInputs(data);
       _updateSettingsViewModelInputs(data);
     }
   }
@@ -458,9 +460,11 @@ class _MainTabsPageState extends State<MainTabsPage>
 
   void _createRepositoryBackedViewModels(AppSnapshot data) {
     _disposeRepositoryBackedViewModels();
+    _seedWorkspaceRepository(data);
     final homeViewModel =
         widget.pageDependencies.featureDependencies.createHomeViewModel(
       _connectedData,
+      signalMetrics: _homeWorkspaceSignalMetrics(data),
     );
     _homeViewModel = homeViewModel;
     _settingsViewModel =
@@ -473,6 +477,17 @@ class _MainTabsPageState extends State<MainTabsPage>
       extensionsCount: data.extensions.length,
     );
     unawaited(_refreshHomeViewModel(homeViewModel));
+  }
+
+  void _seedWorkspaceRepository(AppSnapshot data) {
+    _connectedData.workspaceRepository.applyBootstrapCatalog(
+      selectedWorkspace: data.workspace,
+      workspaces: data.workspaces,
+    );
+  }
+
+  void _updateHomeViewModelInputs(AppSnapshot data) {
+    _homeViewModel?.updateSignalMetrics(_homeWorkspaceSignalMetrics(data));
   }
 
   void _updateSettingsViewModelInputs(AppSnapshot data) {
@@ -497,6 +512,17 @@ class _MainTabsPageState extends State<MainTabsPage>
       );
     }
   }
+
+  HomeWorkspaceSignalMetrics _homeWorkspaceSignalMetrics(AppSnapshot data) =>
+      HomeWorkspaceSignalMetrics(
+        changedFiles: data.gitStatus?.files.length,
+        diagnostics: data.diagnostics.available
+            ? data.diagnostics.diagnostics.length
+            : null,
+        recentFiles: data.diagnostics.available
+            ? data.overview.recentFiles.length
+            : null,
+      );
 
   void _disposeRepositoryBackedViewModels() {
     _homeViewModel?.dispose();

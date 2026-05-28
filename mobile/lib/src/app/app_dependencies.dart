@@ -380,10 +380,11 @@ class FeatureDependencies {
           recentAddressRepository: data.recentAddressRepository,
           connectToDaemon: domain.connectionWorkflow,
         ),
-        createHomeViewModel: (connectedData) => HomeViewModel(
+        createHomeViewModel: (connectedData, {signalMetrics}) => HomeViewModel(
           workspaceRepository: connectedData.workspaceRepository,
           conversationRepository: connectedData.conversationRepository,
           runRepository: connectedData.runRepository,
+          signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
         ),
         createSettingsViewModel: ({
           required ConnectedDataDependencies connectedData,
@@ -462,8 +463,10 @@ class FeatureDependencies {
       );
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
-  final HomeViewModel Function(ConnectedDataDependencies connectedData)
-      createHomeViewModel;
+  final HomeViewModel Function(
+    ConnectedDataDependencies connectedData, {
+    HomeWorkspaceSignalMetrics? signalMetrics,
+  }) createHomeViewModel;
   final SettingsViewModel Function({
     required ConnectedDataDependencies connectedData,
     required DaemonConnectionConfig connectionConfig,

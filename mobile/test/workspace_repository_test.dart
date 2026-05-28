@@ -204,6 +204,32 @@ void main() {
   );
 
   test(
+    'applyBootstrapCatalog seeds and pins selected workspace before refresh',
+    () async {
+      final client = _FakeWorkspaceDaemonClient(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        ],
+      );
+      final repository = DaemonWorkspaceRepository(client: client);
+
+      repository.applyBootstrapCatalog(
+        selectedWorkspace:
+            const WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        ],
+      );
+
+      expect(repository.selectedWorkspace?.id, 'w2');
+      await repository.refresh();
+      expect(repository.selectedWorkspace?.id, 'w2');
+    },
+  );
+
+  test(
     'explicitly selecting fallback first workspace survives refreshed reorder',
     () async {
       final client = _FakeWorkspaceDaemonClient(
@@ -541,6 +567,12 @@ class _UnusedRepository extends WorkspaceRepository
 
   @override
   bool select(String workspaceId) => false;
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {}
 
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() => throw UnimplementedError();

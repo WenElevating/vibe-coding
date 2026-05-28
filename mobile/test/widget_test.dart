@@ -345,8 +345,10 @@ class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
 
 FeatureDependencies _testFeatureDependencies({
   required DaemonConnectionViewModel Function() createDaemonConnectionViewModel,
-  HomeViewModel Function(ConnectedDataDependencies connectedData)?
-      createHomeViewModel,
+  HomeViewModel Function(
+    ConnectedDataDependencies connectedData, {
+    HomeWorkspaceSignalMetrics? signalMetrics,
+  })? createHomeViewModel,
   SettingsViewModel Function({
     required ConnectedDataDependencies connectedData,
     required DaemonConnectionConfig connectionConfig,
@@ -386,12 +388,14 @@ FeatureDependencies _testFeatureDependencies({
     );
 
 HomeViewModel _defaultTestHomeViewModelFactory(
-  ConnectedDataDependencies connectedData,
-) =>
+  ConnectedDataDependencies connectedData, {
+  HomeWorkspaceSignalMetrics? signalMetrics,
+}) =>
     HomeViewModel(
       workspaceRepository: connectedData.workspaceRepository,
       conversationRepository: connectedData.conversationRepository,
       runRepository: connectedData.runRepository,
+      signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
     );
 
 SettingsViewModel _defaultTestSettingsViewModelFactory({
@@ -451,6 +455,27 @@ class _AdapterRefreshClient extends DaemonClient {
           userMessageCount: 500,
         ),
       ];
+}
+
+class _WorkspaceSelectionClient extends _AdapterRefreshClient {
+  _WorkspaceSelectionClient({required this.workspaceCatalog});
+
+  final List<WorkspaceSummary> workspaceCatalog;
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async => workspaceCatalog;
+
+  @override
+  Future<List<RunSummary>> listRuns(
+          {String? tool, String? workspaceId, String? status}) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      const <ConversationSummary>[];
 }
 
 class _WorkspaceBootstrapFailureClient extends _AdapterRefreshClient {
@@ -950,6 +975,15 @@ HomeViewModel _homeViewModelForSnapshot(AppSnapshot snapshot) => HomeViewModel(
         runs: snapshot.runs,
         queue: snapshot.queue,
       ),
+      signalMetrics: HomeWorkspaceSignalMetrics(
+        changedFiles: snapshot.gitStatus?.files.length,
+        diagnostics: snapshot.diagnostics.available
+            ? snapshot.diagnostics.diagnostics.length
+            : null,
+        recentFiles: snapshot.diagnostics.available
+            ? snapshot.overview.recentFiles.length
+            : null,
+      ),
     );
 
 class _SnapshotWorkspaceRepository
@@ -997,6 +1031,15 @@ class _SnapshotWorkspaceRepository
     _selectedWorkspaceId = workspaceId;
     notifyListeners();
     return true;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _selectedWorkspaceId = selectedWorkspace.id;
+    notifyListeners();
   }
 
   @override
@@ -1879,6 +1922,110 @@ void main() {
     expect(find.text('App update'), findsNothing);
     expect(find.textContaining('Unable to connect'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
+  });
+
+  testWidgets(
+      'opening second workspace pins repository-backed home and settings',
+      (WidgetTester tester) async {
+    const workspaces = <WorkspaceSummary>[
+      WorkspaceSummary(id: 'workspace_1', name: 'One', path: r'D:\one'),
+      WorkspaceSummary(id: 'workspace_2', name: 'Two', path: r'D:\two'),
+    ];
+    final client = _WorkspaceSelectionClient(workspaceCatalog: workspaces);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _ImmediateConnectUseCase(
+        ConnectedAppSession<DaemonClient>(
+          client: client,
+          initialData: DaemonInitialData(
+            health: _testSnapshot().health,
+            workspaces: workspaces,
+            workspace: null,
+            adapters: const <AdapterStatus>[],
+            runs: const <RunSummary>[],
+            conversations: const <ConversationSummary>[],
+            queue: const <QueueItem>[],
+          ),
+          connectedConfig: const DaemonConnectionConfig(
+            addressInput: '127.0.0.1:4317',
+            proxyMode: DaemonProxyMode.system,
+            manualProxyInput: '',
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    _setMockPackageInfo();
+    final dependencies = AppDependencies.createDefault();
+    HomeViewModel? openedHomeViewModel;
+    SettingsViewModel? openedSettingsViewModel;
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createHomeViewModel: (connectedData, {signalMetrics}) {
+          final viewModel = _defaultTestHomeViewModelFactory(
+            connectedData,
+            signalMetrics: signalMetrics,
+          );
+          openedHomeViewModel = viewModel;
+          return viewModel;
+        },
+        createSettingsViewModel: ({
+          required ConnectedDataDependencies connectedData,
+          required DaemonConnectionConfig connectionConfig,
+          required DaemonHealth health,
+          CodeDiagnosticsSummary? diagnostics,
+          GitStatusSummary? gitStatus,
+          int extensionsCount = 0,
+        }) {
+          final viewModel = _defaultTestSettingsViewModelFactory(
+            connectedData: connectedData,
+            connectionConfig: connectionConfig,
+            health: health,
+            diagnostics: diagnostics,
+            gitStatus: gitStatus,
+            extensionsCount: extensionsCount,
+          );
+          openedSettingsViewModel = viewModel;
+          return viewModel;
+        },
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            throw StateError('not used'),
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+
+    await tester.pumpWidget(_MobileConnectionHarness(
+      controller: controller,
+      dependencies: testDependencies,
+    ));
+    await controller.load();
+    await controller.connect();
+    await tester.pumpAndSettle();
+    expect(find.text('Two'), findsOneWidget);
+
+    await tester.tap(find.text('Two'));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(openedHomeViewModel?.currentWorkspace?.id, 'workspace_2');
+    expect(openedSettingsViewModel?.selectedWorkspace?.id, 'workspace_2');
   });
 
   testWidgets('workspace bootstrap failure returns to empty workspace list',

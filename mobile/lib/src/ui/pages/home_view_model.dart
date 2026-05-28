@@ -6,14 +6,40 @@ import '../../data/repositories/workspace_repository.dart';
 import '../../models/protocol.dart';
 import 'home_command_deck_model.dart';
 
+class HomeWorkspaceSignalMetrics {
+  const HomeWorkspaceSignalMetrics({
+    this.changedFiles,
+    this.diagnostics,
+    this.recentFiles,
+  });
+
+  final int? changedFiles;
+  final int? diagnostics;
+  final int? recentFiles;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HomeWorkspaceSignalMetrics &&
+          other.changedFiles == changedFiles &&
+          other.diagnostics == diagnostics &&
+          other.recentFiles == recentFiles;
+
+  @override
+  int get hashCode => Object.hash(changedFiles, diagnostics, recentFiles);
+}
+
 class HomeViewModel extends ChangeNotifier {
   HomeViewModel({
     required WorkspaceRepository workspaceRepository,
     required CachedConversationRepository conversationRepository,
     required CachedRunRepository runRepository,
+    HomeWorkspaceSignalMetrics signalMetrics =
+        const HomeWorkspaceSignalMetrics(),
   })  : _workspaceRepository = workspaceRepository,
         _conversationRepository = conversationRepository,
-        _runRepository = runRepository {
+        _runRepository = runRepository,
+        _signalMetrics = signalMetrics {
     _workspaceRepository.addListener(_onRepositoryChanged);
     _conversationRepository.addListener(_onRepositoryChanged);
     _runRepository.addListener(_onRepositoryChanged);
@@ -22,6 +48,7 @@ class HomeViewModel extends ChangeNotifier {
   final WorkspaceRepository _workspaceRepository;
   final CachedConversationRepository _conversationRepository;
   final CachedRunRepository _runRepository;
+  HomeWorkspaceSignalMetrics _signalMetrics;
 
   List<WorkspaceSummary> get workspaces => _workspaceRepository.workspaces;
   WorkspaceSummary? get currentWorkspace =>
@@ -44,10 +71,16 @@ class HomeViewModel extends ChangeNotifier {
       runs: _runRepository.runs,
       conversations: _conversationRepository.conversations,
       queue: _runRepository.queue,
-      changedFiles: null,
-      diagnostics: null,
-      recentFiles: null,
+      changedFiles: _signalMetrics.changedFiles,
+      diagnostics: _signalMetrics.diagnostics,
+      recentFiles: _signalMetrics.recentFiles,
     );
+  }
+
+  void updateSignalMetrics(HomeWorkspaceSignalMetrics signalMetrics) {
+    if (_signalMetrics == signalMetrics) return;
+    _signalMetrics = signalMetrics;
+    notifyListeners();
   }
 
   Future<void> refresh() async {

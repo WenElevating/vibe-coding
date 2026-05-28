@@ -35,6 +35,20 @@ void main() {
     expect(viewModel.permissionMode, 'default');
   });
 
+  test('settings records permission mode persistence failures', () async {
+    final preferences = _FakeCodingPreferencesRepository()
+      ..setPermissionModeError = StateError('write failed');
+    final viewModel = _settingsViewModel(
+      _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      preferences: preferences,
+    );
+
+    await viewModel.setPermissionMode('default');
+
+    expect(viewModel.error, isA<StateError>());
+    expect(viewModel.permissionMode, 'auto');
+  });
+
   test('settings exposes shell connection and health inputs', () async {
     final viewModel = _settingsViewModel(
       _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
@@ -159,6 +173,14 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
     return true;
   }
 
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    throw UnimplementedError();
+  }
+
   void notifyForTest() => notifyListeners();
 
   @override
@@ -168,6 +190,7 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
   String _permissionMode = 'auto';
   int listenerCount = 0;
+  Object? setPermissionModeError;
 
   @override
   String get permissionMode => _permissionMode;
@@ -195,6 +218,8 @@ class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
 
   @override
   Future<void> setPermissionMode(String value) async {
+    final error = setPermissionModeError;
+    if (error != null) throw error;
     _permissionMode =
         CodingPreferencesRepository.normalizePermissionMode(value);
     notifyListeners();

@@ -519,6 +519,12 @@ class _UnusedRepository extends WorkspaceRepository
   bool select(String workspaceId) => false;
 
   @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {}
+
+  @override
   Future<ProjectOverview> projectOverview(String workspaceId) =>
       throw UnimplementedError();
 

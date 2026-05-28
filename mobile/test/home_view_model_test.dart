@@ -42,6 +42,55 @@ void main() {
     expect(viewModel.deck, isNull);
   });
 
+  test('home deck includes bootstrap workspace signal metrics', () async {
+    final viewModel = HomeViewModel(
+      workspaceRepository: _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      ),
+      conversationRepository: _FakeCachedConversationRepository(),
+      runRepository: _FakeCachedRunRepository(),
+      signalMetrics: const HomeWorkspaceSignalMetrics(
+        changedFiles: 3,
+        diagnostics: 2,
+        recentFiles: 5,
+      ),
+    );
+
+    expect(viewModel.deck?.signals.changedFiles, 3);
+    expect(viewModel.deck?.signals.diagnostics, 2);
+    expect(viewModel.deck?.signals.recentFiles, 5);
+  });
+
+  test('home deck updates when bootstrap workspace signal metrics change',
+      () async {
+    final viewModel = HomeViewModel(
+      workspaceRepository: _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      ),
+      conversationRepository: _FakeCachedConversationRepository(),
+      runRepository: _FakeCachedRunRepository(),
+    );
+    var notifications = 0;
+    viewModel.addListener(() => notifications += 1);
+
+    viewModel.updateSignalMetrics(
+      const HomeWorkspaceSignalMetrics(
+        changedFiles: 4,
+        diagnostics: 1,
+        recentFiles: 7,
+      ),
+    );
+
+    expect(notifications, 1);
+    expect(viewModel.deck?.signals.changedFiles, 4);
+    expect(viewModel.deck?.signals.diagnostics, 1);
+    expect(viewModel.deck?.signals.recentFiles, 7);
+  });
+
   test('home refresh delegates to all repositories', () async {
     final workspaceRepository =
         _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]);
@@ -143,6 +192,14 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
     _selectedWorkspaceId = workspaceId;
     notifyListeners();
     return true;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    throw UnimplementedError();
   }
 
   void notifyForTest() => notifyListeners();

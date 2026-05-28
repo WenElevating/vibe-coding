@@ -32,6 +32,7 @@ class SettingsViewModel extends ChangeNotifier {
   CodeDiagnosticsSummary? _diagnostics;
   GitStatusSummary? _gitStatus;
   int _extensionsCount;
+  Object? _permissionModeSaveError;
 
   WorkspaceSummary? get selectedWorkspace =>
       _workspaceRepository.selectedWorkspace;
@@ -45,7 +46,9 @@ class SettingsViewModel extends ChangeNotifier {
   bool get loading =>
       _workspaceRepository.loading || _codingPreferencesRepository.loading;
   Object? get error =>
-      _workspaceRepository.error ?? _codingPreferencesRepository.error;
+      _permissionModeSaveError ??
+      _workspaceRepository.error ??
+      _codingPreferencesRepository.error;
 
   void updateShellInputs({
     required DaemonConnectionConfig connectionConfig,
@@ -64,8 +67,18 @@ class SettingsViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setPermissionMode(String value) =>
-      _codingPreferencesRepository.setPermissionMode(value);
+  Future<void> setPermissionMode(String value) async {
+    try {
+      await _codingPreferencesRepository.setPermissionMode(value);
+      if (_permissionModeSaveError != null) {
+        _permissionModeSaveError = null;
+        notifyListeners();
+      }
+    } catch (error) {
+      _permissionModeSaveError = error;
+      notifyListeners();
+    }
+  }
 
   void _onRepositoryChanged() => notifyListeners();
 
