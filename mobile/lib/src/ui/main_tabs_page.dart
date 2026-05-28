@@ -7,7 +7,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
-import '../services/coding_preferences_store.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
@@ -24,13 +23,14 @@ import 'features/settings/settings.dart'
         AppUpdateState,
         AppUpdateStatus,
         AppUpdateViewModel,
+        SettingsViewModel,
         appUpdateTitleFor;
 import 'features/workbench/workbench.dart';
 import 'main_tab_items.dart';
 import 'main_route_overlay.dart';
 import 'mobile_ui_frame.dart';
 import 'pages/pages.dart';
-import 'view_models/main_tabs_view_model.dart';
+import 'view_models/main_tabs_shell_view_model.dart';
 
 class MainTabsPage extends StatefulWidget {
   const MainTabsPage({
@@ -255,10 +255,11 @@ class _EmptyStateTapRowTrailing extends StatelessWidget {
 
 class _MainTabsPageState extends State<MainTabsPage>
     with WidgetsBindingObserver {
-  MainTabsViewModel? _viewModel;
+  MainTabsShellViewModel? _viewModel;
+  HomeViewModel? _homeViewModel;
+  SettingsViewModel? _settingsViewModel;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
-  late final CodingPreferencesStore _codingPreferencesStore;
   AppUpdateViewModel? _appUpdateViewModel;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   var _emptyActiveTab = 1;
@@ -267,7 +268,6 @@ class _MainTabsPageState extends State<MainTabsPage>
   bool _creatingWorkspace = false;
   bool _loadingWorkspace = false;
   int _appUpdateGeneration = 0;
-  int _codingPreferencesGeneration = 0;
 
   @override
   void initState() {
@@ -275,18 +275,18 @@ class _MainTabsPageState extends State<MainTabsPage>
     WidgetsBinding.instance.addObserver(this);
     _connectedData = widget.pageDependencies.connectedData;
     _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
-    _codingPreferencesStore = CodingPreferencesStore();
+    widget.pageDependencies.codingPreferencesRepository.addListener(
+      _handleCodingPreferencesRepositoryChanged,
+    );
     _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(
         widget.emptyInitialData?.workspaces ?? const <WorkspaceSummary>[]);
     unawaited(_createAppUpdateViewModel());
     final data = widget.data;
     if (data != null) {
-      _viewModel = MainTabsViewModel(
-        initialData: data,
-        adapterRepository: _connectedData.adapterRepository,
-      );
+      _viewModel = MainTabsShellViewModel();
+      _createRepositoryBackedViewModels(data);
       unawaited(_loadCodingPreferences(_viewModel!));
-      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      unawaited(_connectedData.adapterRepository.load());
     }
   }
 
@@ -294,40 +294,52 @@ class _MainTabsPageState extends State<MainTabsPage>
   void didUpdateWidget(covariant MainTabsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageDependencies != widget.pageDependencies) {
+      if (oldWidget.pageDependencies.codingPreferencesRepository !=
+          widget.pageDependencies.codingPreferencesRepository) {
+        oldWidget.pageDependencies.codingPreferencesRepository.removeListener(
+          _handleCodingPreferencesRepositoryChanged,
+        );
+        widget.pageDependencies.codingPreferencesRepository.addListener(
+          _handleCodingPreferencesRepositoryChanged,
+        );
+      }
       final oldWorkbenchDependencies = _workbenchDependencies;
       final oldConnectedData = _connectedData;
       _connectedData = widget.pageDependencies.connectedData;
       _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
       _disposeAppUpdateViewModel();
+      _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       final data = widget.data;
       _viewModel?.dispose();
       _viewModel = data == null
           ? null
-          : MainTabsViewModel(
-              initialData: data,
-              adapterRepository: _connectedData.adapterRepository,
-            );
+          : MainTabsShellViewModel();
       if (_viewModel != null) {
+        _createRepositoryBackedViewModels(data!);
         unawaited(_loadCodingPreferences(_viewModel!));
-        unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+        unawaited(_connectedData.adapterRepository.load());
       }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
       unawaited(oldConnectedData.dispose());
       return;
     }
-    if (oldWidget.data != widget.data &&
-        widget.data != null &&
-        _viewModel?.adapterLoadState != CodingAdapterLoadState.loaded) {
-      _viewModel?.updateData(widget.data!);
+    if (oldWidget.data != widget.data && widget.data != null) {
+      _seedWorkspaceRepository(widget.data!);
+      _updateHomeViewModelInputs(widget.data!);
+      _updateSettingsViewModelInputs(widget.data!);
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.pageDependencies.codingPreferencesRepository.removeListener(
+      _handleCodingPreferencesRepositoryChanged,
+    );
     _disposeWorkbenchDependencies(_workbenchDependencies);
+    _disposeRepositoryBackedViewModels();
     _disposeAppUpdateViewModel();
     unawaited(_connectedData.dispose());
     _viewModel?.dispose();
@@ -408,16 +420,14 @@ class _MainTabsPageState extends State<MainTabsPage>
     );
   }
 
-  Future<void> _loadCodingPreferences(MainTabsViewModel viewModel) async {
-    final generation = _codingPreferencesGeneration;
+  Future<void> _loadCodingPreferences(MainTabsShellViewModel viewModel) async {
     try {
-      final permissionMode = await _codingPreferencesStore.loadPermissionMode();
-      if (!mounted ||
-          _viewModel != viewModel ||
-          generation != _codingPreferencesGeneration) {
+      final repository = widget.pageDependencies.codingPreferencesRepository;
+      await repository.load();
+      if (!mounted || _viewModel != viewModel) {
         return;
       }
-      viewModel.setPermissionMode(permissionMode);
+      viewModel.setPermissionMode(repository.permissionMode);
     } catch (error) {
       if (!mounted) return;
       _connectedData.recordDiagnosticEvent(
@@ -428,25 +438,85 @@ class _MainTabsPageState extends State<MainTabsPage>
     }
   }
 
-  void _handlePermissionModeChanged(String value) {
-    _codingPreferencesGeneration += 1;
+  void _handleCodingPreferencesRepositoryChanged() {
     final permissionMode =
-        CodingPreferencesStore.normalizePermissionMode(value);
+        widget.pageDependencies.normalizeCodingPermissionMode(
+      widget.pageDependencies.codingPreferencesRepository.permissionMode,
+    );
     _viewModel?.setPermissionMode(permissionMode);
-    unawaited(_savePermissionMode(permissionMode));
   }
 
-  Future<void> _savePermissionMode(String value) async {
+  void _createRepositoryBackedViewModels(AppSnapshot data) {
+    _disposeRepositoryBackedViewModels();
+    _seedWorkspaceRepository(data);
+    final homeViewModel =
+        widget.pageDependencies.featureDependencies.createHomeViewModel(
+      _connectedData,
+      signalMetrics: _homeWorkspaceSignalMetrics(data),
+    );
+    _homeViewModel = homeViewModel;
+    _settingsViewModel =
+        widget.pageDependencies.featureDependencies.createSettingsViewModel(
+      connectedData: _connectedData,
+      connectionConfig: widget.connectionConfig,
+      health: data.health,
+      diagnostics: data.diagnostics,
+      gitStatus: data.gitStatus,
+      extensionsCount: data.extensions.length,
+    );
+    unawaited(_refreshHomeViewModel(homeViewModel));
+  }
+
+  void _seedWorkspaceRepository(AppSnapshot data) {
+    _connectedData.workspaceRepository.applyBootstrapCatalog(
+      selectedWorkspace: data.workspace,
+      workspaces: data.workspaces,
+    );
+  }
+
+  void _updateHomeViewModelInputs(AppSnapshot data) {
+    _homeViewModel?.updateSignalMetrics(_homeWorkspaceSignalMetrics(data));
+  }
+
+  void _updateSettingsViewModelInputs(AppSnapshot data) {
+    _settingsViewModel?.updateShellInputs(
+      connectionConfig: widget.connectionConfig,
+      health: data.health,
+      diagnostics: data.diagnostics,
+      gitStatus: data.gitStatus,
+      extensionsCount: data.extensions.length,
+    );
+  }
+
+  Future<void> _refreshHomeViewModel(HomeViewModel viewModel) async {
     try {
-      await _codingPreferencesStore.savePermissionMode(value);
+      await viewModel.refresh();
     } catch (error) {
       if (!mounted) return;
       _connectedData.recordDiagnosticEvent(
-        'settings.permission_mode.save_failed',
+        'home.repository_refresh_failed',
         {'error': '$error'},
-        path: 'settings',
+        path: 'home',
       );
     }
+  }
+
+  HomeWorkspaceSignalMetrics _homeWorkspaceSignalMetrics(AppSnapshot data) =>
+      HomeWorkspaceSignalMetrics(
+        changedFiles: data.gitStatus?.files.length,
+        diagnostics: data.diagnostics.available
+            ? data.diagnostics.diagnostics.length
+            : null,
+        recentFiles: data.diagnostics.available
+            ? data.overview.recentFiles.length
+            : null,
+      );
+
+  void _disposeRepositoryBackedViewModels() {
+    _homeViewModel?.dispose();
+    _homeViewModel = null;
+    _settingsViewModel?.dispose();
+    _settingsViewModel = null;
   }
 
   bool _shouldSkipForegroundUpdateCheckAfterRecovery(AppUpdateStatus status) {
@@ -515,22 +585,25 @@ class _MainTabsPageState extends State<MainTabsPage>
     final l10n = AppLocalizations.of(context);
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyShell(context, l10n);
-    final data = viewModel.data;
+    final data = widget.data;
+    final homeViewModel = _homeViewModel;
+    final settingsViewModel = _settingsViewModel;
+    if (data == null || homeViewModel == null || settingsViewModel == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final pages = [
       HomePage(
           open: viewModel.openOverlay,
           selectTab: viewModel.selectTab,
-          data: data),
+          viewModel: homeViewModel,
+          health: data.health),
       _buildCodingTab(),
       SettingsPage(
         open: viewModel.openOverlay,
-        data: data,
-        connectionConfig: widget.connectionConfig,
+        viewModel: settingsViewModel,
         streamOutput: viewModel.streamOutput,
         expandThinking: viewModel.expandThinking,
-        permissionMode: viewModel.permissionMode,
         appUpdateViewModel: _appUpdateViewModel,
-        onPermissionModeChanged: _handlePermissionModeChanged,
         onStreamOutputChanged: viewModel.setStreamOutput,
         onExpandThinkingChanged: viewModel.setExpandThinking,
       ),
@@ -721,13 +794,11 @@ class _MainTabsPageState extends State<MainTabsPage>
       setState(() {
         _creatingWorkspace = false;
         _loadingWorkspace = false;
-        _viewModel = MainTabsViewModel(
-          initialData: snapshot,
-          adapterRepository: _connectedData.adapterRepository,
-        );
+        _viewModel = MainTabsShellViewModel();
+        _createRepositoryBackedViewModels(snapshot);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
-      unawaited(_viewModel!.ensureCodingAdaptersLoaded());
+      unawaited(_connectedData.adapterRepository.load());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -741,9 +812,15 @@ class _MainTabsPageState extends State<MainTabsPage>
   Widget _buildCodingTab() {
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
-    if (viewModel.adapterLoadState == CodingAdapterLoadState.loaded) {
-      return CodingPage(
-        data: viewModel.data,
+    final adapterRepo = _connectedData.adapterRepository;
+    if (!adapterRepo.loading && adapterRepo.error == null && adapterRepo.adapters.isNotEmpty) {
+      return _CodingAdapterGate(
+        failed: adapterRepo.error != null,
+        error: adapterRepo.error,
+        onRetry: () => unawaited(adapterRepo.load()),
+      );
+    }
+    return CodingPage(
         workbenchDependencies: _workbenchDependencies,
         workbenchKey: _codingWorkbenchKey,
         onBack: () => viewModel.selectTab(0),
@@ -753,12 +830,6 @@ class _MainTabsPageState extends State<MainTabsPage>
         expandThinking: viewModel.expandThinking,
         permissionMode: viewModel.permissionMode,
       );
-    }
-    return _CodingAdapterGate(
-      failed: viewModel.adapterLoadState == CodingAdapterLoadState.failed,
-      error: viewModel.adapterLoadError,
-      onRetry: () => unawaited(viewModel.ensureCodingAdaptersLoaded()),
-    );
   }
 }
 

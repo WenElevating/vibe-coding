@@ -7,7 +7,6 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../../shell/shell.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
@@ -30,7 +29,6 @@ import 'workbench_dependencies.dart';
 class CodingWorkbenchPage extends StatefulWidget {
   const CodingWorkbenchPage({
     super.key,
-    required this.data,
     required this.onBack,
     required this.onSessionListChanged,
     required this.openSessionListRequest,
@@ -40,7 +38,6 @@ class CodingWorkbenchPage extends StatefulWidget {
     required this.dependencies,
     this.speechInputService,
   });
-  final AppSnapshot data;
   final VoidCallback onBack;
   final ValueChanged<bool> onSessionListChanged;
   final int openSessionListRequest;
@@ -83,8 +80,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _bottomAnchorTranscript = false;
   bool _bottomAnchorTranscriptUnderflow = false;
 
-  List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems(
-      widget.data.conversations, widget.data.runs);
+  List<SessionItem> get _sessionItems =>
+      _workbenchViewModel.sessionItems;
 
   List<WorkspaceSummary> get _workspaces => _workbenchViewModel.workspaces;
 
@@ -153,7 +150,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _goToSessions(WorkspaceSummary workspace) {
     unawaited(_cancelConversationEventSubscription());
-    _workbenchViewModel.showSessions(workspace);
+    _workbenchViewModel.showSessions(workspace.id);
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeSessions, (route) => route.settings.name == _routeWorkspaces);
   }
@@ -162,7 +159,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final workspace = _routeWorkspace;
     if (workspace != null &&
         _workbenchViewModel.routeState is! ConversationRouteState) {
-      _workbenchViewModel.showConversation(workspace);
+      _workbenchViewModel.showConversation(workspace.id);
     }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeConversation, (route) => route.settings.name == _routeSessions);
@@ -184,7 +181,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.openSession(item, notify: false);
       _workbenchViewModel.clearOperationError(notify: false);
     });
-    _workbenchViewModel.showConversation(_workspaceForId(item.run.workspaceId));
+    _workbenchViewModel.showConversationRoute(
+        _workspaceForId(item.run.workspaceId).id, item.conversation?.id ?? '');
     final conversation = item.conversation;
     if (conversation != null) {
       final generation = _conversationEventSubscriptionGeneration;
@@ -235,7 +233,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     for (final workspace in _workspaces) {
       if (workspace.id == workspaceId) return workspace;
     }
-    return _routeWorkspace ?? widget.data.workspace;
+    return _routeWorkspace ?? _workbenchViewModel.selectedWorkspace ?? _workspaces.first;
   }
 
   Future<void> _cancelActiveRun() async {
@@ -269,11 +267,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     WidgetsBinding.instance.addObserver(this);
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     _workbenchViewModel = WorkbenchViewModel(
-      initialData: widget.data,
-      conversationRepository: widget.dependencies.conversationRepository,
-      diagnosticsRepository: widget.dependencies.diagnosticsRepository,
-      runRepository: widget.dependencies.runRepository,
       workspaceRepository: widget.dependencies.workspaceRepository,
+      adapterRepository: widget.dependencies.adapterRepository,
+      conversationRepository: widget.dependencies.conversationRepository,
+      runRepository: widget.dependencies.runRepository,
+      diagnosticsRepository: widget.dependencies.diagnosticsRepository,
       attachmentPreviewCache: widget.dependencies.attachmentPreviewCache,
     )..addListener(_syncWorkbenchViewModel);
     _attachmentPicker = const WorkbenchAttachmentPicker();
@@ -288,7 +286,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _workbenchViewModel.updateFromSnapshot(widget.data);
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -481,7 +478,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _activeConversationId != null &&
       _workbenchViewModel.conversationModelUpdatesUnsupported;
 
-  List<AdapterStatus> get _availableAdapters => widget.data.adapters
+  List<AdapterStatus> get _availableAdapters => _workbenchViewModel
+      .availableAdaptersFromCache
       .where((adapter) => adapter.available && _isSelectableCliAdapter(adapter))
       .toList();
 
@@ -570,7 +568,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               workspaceRepository: widget.dependencies.workspaceRepository,
             ));
     if (request == null || !mounted) return;
-    final previousWorkspaces = List<WorkspaceSummary>.of(_workspaces);
     _workbenchViewModel.showCreatingWorkspace(
         requestLabel: request.name ?? request.path);
     setState(() {
@@ -587,18 +584,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted) return;
 
     switch (outcome) {
-      case CreateWorkspaceSuccess(:final workspace, :final workspaces):
+      case CreateWorkspaceSuccess(:final workspace):
         _workbenchViewModel.confirmWorkspaceCreated(
-          workspace: workspace,
-          workspaces: workspaces,
+          workspaceId: workspace.id,
         );
         setState(() {
           _resetConversationState();
           _workbenchViewModel.clearOperationError(notify: false);
         });
         _goToSessions(workspace);
-      case CreateWorkspaceNotConfirmed(:final workspaces):
-        _workbenchViewModel.cancelWorkspaceCreation(workspaces);
+      case CreateWorkspaceNotConfirmed():
+        _workbenchViewModel.cancelWorkspaceCreation();
         setState(() {
           _workbenchViewModel.clearOperationError(notify: false);
         });
@@ -608,7 +604,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               'The workspace was created, but the daemon did not include it in the refreshed list yet.',
         );
       case CreateWorkspaceTimeout():
-        _workbenchViewModel.cancelWorkspaceCreation(previousWorkspaces);
+        _workbenchViewModel.cancelWorkspaceCreation();
         setState(() {
           _workbenchViewModel.clearOperationError(notify: false);
         });
@@ -617,7 +613,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           message: 'The daemon did not finish creating the workspace in time.',
         );
       case CreateWorkspaceFailure(:final error):
-        _workbenchViewModel.cancelWorkspaceCreation(previousWorkspaces);
+        _workbenchViewModel.cancelWorkspaceCreation();
         setState(() {
           _workbenchViewModel.setOperationError(error.toString(),
               notify: false);
@@ -1032,7 +1028,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _goToWorkspaces();
       return;
     }
-    _workbenchViewModel.showConversation(workspace);
+    _workbenchViewModel.showConversation(workspace.id);
     setState(() {
       _resetConversationState();
       _workbenchViewModel.clearOperationError(notify: false);
@@ -1164,7 +1160,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final workspace = _routeWorkspace;
     if (workspace == null) return _buildWorkspaceList();
     return CodingSessionListPage(
-        data: widget.data,
         items: _sessionItems,
         currentWorkspace: workspace,
         onNewSession: _startNewSessionFromList,

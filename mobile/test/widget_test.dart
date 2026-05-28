@@ -13,21 +13,30 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
+    as data_repositories;
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/recent_daemon_address_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
 import 'package:lan_ai_cli_control/src/services/coding_preferences_store.dart';
+import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
+import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/settings_view_model.dart';
 import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
@@ -112,15 +121,31 @@ class _LocalizedSettingsPageApp extends StatefulWidget {
 
 class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
   late final LanguageController _languageController;
+  late final SettingsViewModel _settingsViewModel;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
+    final snapshot = _testSnapshot();
+    _settingsViewModel = SettingsViewModel(
+      workspaceRepository: _SnapshotWorkspaceRepository(snapshot),
+      codingPreferencesRepository:
+          _WidgetCodingPreferencesRepository(permissionMode: 'default'),
+      connectionConfig: const DaemonConnectionConfig(
+          addressInput: '192.168.1.20:4317',
+          proxyMode: DaemonProxyMode.manual,
+          manualProxyInput: 'http://proxy.local:8080'),
+      health: snapshot.health,
+      diagnostics: snapshot.diagnostics,
+      gitStatus: snapshot.gitStatus,
+      extensionsCount: snapshot.extensions.length,
+    );
   }
 
   @override
   void dispose() {
+    _settingsViewModel.dispose();
     _languageController.dispose();
     super.dispose();
   }
@@ -139,16 +164,10 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
               home: Scaffold(
                   body: settings_feature.SettingsPage(
                       open: (_) {},
-                      data: _testSnapshot(),
-                      connectionConfig: const DaemonConnectionConfig(
-                          addressInput: '192.168.1.20:4317',
-                          proxyMode: DaemonProxyMode.manual,
-                          manualProxyInput: 'http://proxy.local:8080'),
+                      viewModel: _settingsViewModel,
                       streamOutput: false,
                       expandThinking: false,
-                      permissionMode: 'default',
                       appUpdateViewModel: widget.appUpdateViewModel,
-                      onPermissionModeChanged: (_) {},
                       onStreamOutputChanged: (_) {},
                       onExpandThinkingChanged: (_) {})))));
 }
@@ -164,15 +183,30 @@ class _LocalizedHomePageApp extends StatefulWidget {
 
 class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
   late final LanguageController _languageController;
+  late HomeViewModel _homeViewModel;
+  late AppSnapshot _snapshot;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
+    _snapshot = widget.snapshot ?? _testSnapshot();
+    _homeViewModel = _homeViewModelForSnapshot(_snapshot);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalizedHomePageApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.snapshot != widget.snapshot) {
+      _homeViewModel.dispose();
+      _snapshot = widget.snapshot ?? _testSnapshot();
+      _homeViewModel = _homeViewModelForSnapshot(_snapshot);
+    }
   }
 
   @override
   void dispose() {
+    _homeViewModel.dispose();
     _languageController.dispose();
     super.dispose();
   }
@@ -192,7 +226,8 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                   body: HomePage(
                       open: (_) {},
                       selectTab: (_) {},
-                      data: widget.snapshot ?? _testSnapshot())))));
+                      viewModel: _homeViewModel,
+                      health: _snapshot.health)))));
 }
 
 class _MainTabsHarness extends StatefulWidget {
@@ -308,6 +343,79 @@ class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
               ))));
 }
 
+FeatureDependencies _testFeatureDependencies({
+  required DaemonConnectionViewModel Function() createDaemonConnectionViewModel,
+  HomeViewModel Function(
+    ConnectedDataDependencies connectedData, {
+    HomeWorkspaceSignalMetrics? signalMetrics,
+  })? createHomeViewModel,
+  SettingsViewModel Function({
+    required ConnectedDataDependencies connectedData,
+    required DaemonConnectionConfig connectionConfig,
+    required DaemonHealth health,
+    CodeDiagnosticsSummary? diagnostics,
+    GitStatusSummary? gitStatus,
+    int extensionsCount,
+  })? createSettingsViewModel,
+  required DiagnosticsViewModel Function(
+    ConnectedDataDependencies connectedData,
+  ) createDiagnosticsViewModel,
+  required RunDetailViewModel Function(
+    ConnectedDataDependencies connectedData,
+    RunSummary run,
+  ) createRunDetailViewModel,
+  required Future<AppUpdateViewModel> Function({
+    required DaemonClient client,
+    required ConnectedDataDependencies connectedData,
+    required int installedVersionCode,
+    required String installedVersionName,
+  }) createAppUpdateViewModel,
+  required WorkbenchDependencies Function(
+    DaemonClient client,
+    ConnectedDataDependencies connectedData,
+  ) createWorkbenchDependencies,
+}) =>
+    FeatureDependencies(
+      createDaemonConnectionViewModel: createDaemonConnectionViewModel,
+      createHomeViewModel:
+          createHomeViewModel ?? _defaultTestHomeViewModelFactory,
+      createSettingsViewModel:
+          createSettingsViewModel ?? _defaultTestSettingsViewModelFactory,
+      createDiagnosticsViewModel: createDiagnosticsViewModel,
+      createRunDetailViewModel: createRunDetailViewModel,
+      createAppUpdateViewModel: createAppUpdateViewModel,
+      createWorkbenchDependencies: createWorkbenchDependencies,
+    );
+
+HomeViewModel _defaultTestHomeViewModelFactory(
+  ConnectedDataDependencies connectedData, {
+  HomeWorkspaceSignalMetrics? signalMetrics,
+}) =>
+    HomeViewModel(
+      workspaceRepository: connectedData.workspaceRepository,
+      conversationRepository: connectedData.conversationRepository,
+      runRepository: connectedData.runRepository,
+      signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
+    );
+
+SettingsViewModel _defaultTestSettingsViewModelFactory({
+  required ConnectedDataDependencies connectedData,
+  required DaemonConnectionConfig connectionConfig,
+  required DaemonHealth health,
+  CodeDiagnosticsSummary? diagnostics,
+  GitStatusSummary? gitStatus,
+  int extensionsCount = 0,
+}) =>
+    SettingsViewModel(
+      workspaceRepository: connectedData.workspaceRepository,
+      codingPreferencesRepository: CodingPreferencesRepository(),
+      connectionConfig: connectionConfig,
+      health: health,
+      diagnostics: diagnostics,
+      gitStatus: gitStatus,
+      extensionsCount: extensionsCount,
+    );
+
 class _AdapterRefreshClient extends DaemonClient {
   _AdapterRefreshClient({
     this.adapters = const <AdapterStatus>[
@@ -347,6 +455,27 @@ class _AdapterRefreshClient extends DaemonClient {
           userMessageCount: 500,
         ),
       ];
+}
+
+class _WorkspaceSelectionClient extends _AdapterRefreshClient {
+  _WorkspaceSelectionClient({required this.workspaceCatalog});
+
+  final List<WorkspaceSummary> workspaceCatalog;
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async => workspaceCatalog;
+
+  @override
+  Future<List<RunSummary>> listRuns(
+          {String? tool, String? workspaceId, String? status}) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      const <ConversationSummary>[];
 }
 
 class _WorkspaceBootstrapFailureClient extends _AdapterRefreshClient {
@@ -836,6 +965,160 @@ class _NewSessionConversationRepository implements ConversationRepository {
         status: 'idle',
         model: model,
       );
+}
+
+HomeViewModel _homeViewModelForSnapshot(AppSnapshot snapshot) => HomeViewModel(
+      workspaceRepository: _SnapshotWorkspaceRepository(snapshot),
+      conversationRepository:
+          _SnapshotCachedConversationRepository(snapshot.conversations),
+      runRepository: _SnapshotCachedRunRepository(
+        runs: snapshot.runs,
+        queue: snapshot.queue,
+      ),
+      signalMetrics: HomeWorkspaceSignalMetrics(
+        changedFiles: snapshot.gitStatus?.files.length,
+        diagnostics: snapshot.diagnostics.available
+            ? snapshot.diagnostics.diagnostics.length
+            : null,
+        recentFiles: snapshot.diagnostics.available
+            ? snapshot.overview.recentFiles.length
+            : null,
+      ),
+    );
+
+class _SnapshotWorkspaceRepository
+    extends data_repositories.WorkspaceRepository {
+  _SnapshotWorkspaceRepository(this.snapshot)
+      : _selectedWorkspaceId = snapshot.workspace.id;
+
+  final AppSnapshot snapshot;
+  String? _selectedWorkspaceId;
+
+  @override
+  List<WorkspaceSummary> get workspaces => snapshot.workspaces;
+
+  @override
+  WorkspaceSummary? get selectedWorkspace {
+    final selectedWorkspaceId = _selectedWorkspaceId;
+    if (selectedWorkspaceId == null) return null;
+    for (final workspace in snapshot.workspaces) {
+      if (workspace.id == selectedWorkspaceId) return workspace;
+    }
+    return null;
+  }
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({required String path, String? name}) async =>
+      throw UnimplementedError();
+
+  @override
+  bool select(String workspaceId) {
+    if (!snapshot.workspaces.any((workspace) => workspace.id == workspaceId)) {
+      return false;
+    }
+    _selectedWorkspaceId = workspaceId;
+    notifyListeners();
+    return true;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _selectedWorkspaceId = selectedWorkspace.id;
+    notifyListeners();
+  }
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async => snapshot.workspaces;
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _SnapshotCachedConversationRepository
+    extends CachedConversationRepository {
+  _SnapshotCachedConversationRepository(this._conversations)
+      : super(delegate: _UnusedConversationRepository());
+
+  final List<ConversationSummary> _conversations;
+
+  @override
+  List<ConversationSummary> get conversations => _conversations;
+
+  @override
+  Future<void> refresh() async {}
+}
+
+class _SnapshotCachedRunRepository extends CachedRunRepository {
+  _SnapshotCachedRunRepository({
+    required List<RunSummary> runs,
+    required List<QueueItem> queue,
+  })  : _runs = runs,
+        _queue = queue,
+        super(delegate: _UnusedRunRepository());
+
+  final List<RunSummary> _runs;
+  final List<QueueItem> _queue;
+
+  @override
+  List<RunSummary> get runs => _runs;
+
+  @override
+  List<QueueItem> get queue => _queue;
+
+  @override
+  Future<void> refresh() async {}
+}
+
+class _WidgetCodingPreferencesRepository extends CodingPreferencesRepository {
+  _WidgetCodingPreferencesRepository({required String permissionMode})
+      : _permissionMode =
+            CodingPreferencesRepository.normalizePermissionMode(permissionMode);
+
+  String _permissionMode;
+
+  @override
+  String get permissionMode => _permissionMode;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> setPermissionMode(String value) async {
+    _permissionMode =
+        CodingPreferencesRepository.normalizePermissionMode(value);
+    notifyListeners();
+  }
+}
+
+class _UnusedRunRepository implements RunRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedConversationRepository implements ConversationRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
@@ -1597,7 +1880,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -1639,6 +1922,110 @@ void main() {
     expect(find.text('App update'), findsNothing);
     expect(find.textContaining('Unable to connect'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
+  });
+
+  testWidgets(
+      'opening second workspace pins repository-backed home and settings',
+      (WidgetTester tester) async {
+    const workspaces = <WorkspaceSummary>[
+      WorkspaceSummary(id: 'workspace_1', name: 'One', path: r'D:\one'),
+      WorkspaceSummary(id: 'workspace_2', name: 'Two', path: r'D:\two'),
+    ];
+    final client = _WorkspaceSelectionClient(workspaceCatalog: workspaces);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _ImmediateConnectUseCase(
+        ConnectedAppSession<DaemonClient>(
+          client: client,
+          initialData: DaemonInitialData(
+            health: _testSnapshot().health,
+            workspaces: workspaces,
+            workspace: null,
+            adapters: const <AdapterStatus>[],
+            runs: const <RunSummary>[],
+            conversations: const <ConversationSummary>[],
+            queue: const <QueueItem>[],
+          ),
+          connectedConfig: const DaemonConnectionConfig(
+            addressInput: '127.0.0.1:4317',
+            proxyMode: DaemonProxyMode.system,
+            manualProxyInput: '',
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    _setMockPackageInfo();
+    final dependencies = AppDependencies.createDefault();
+    HomeViewModel? openedHomeViewModel;
+    SettingsViewModel? openedSettingsViewModel;
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createHomeViewModel: (connectedData, {signalMetrics}) {
+          final viewModel = _defaultTestHomeViewModelFactory(
+            connectedData,
+            signalMetrics: signalMetrics,
+          );
+          openedHomeViewModel = viewModel;
+          return viewModel;
+        },
+        createSettingsViewModel: ({
+          required ConnectedDataDependencies connectedData,
+          required DaemonConnectionConfig connectionConfig,
+          required DaemonHealth health,
+          CodeDiagnosticsSummary? diagnostics,
+          GitStatusSummary? gitStatus,
+          int extensionsCount = 0,
+        }) {
+          final viewModel = _defaultTestSettingsViewModelFactory(
+            connectedData: connectedData,
+            connectionConfig: connectionConfig,
+            health: health,
+            diagnostics: diagnostics,
+            gitStatus: gitStatus,
+            extensionsCount: extensionsCount,
+          );
+          openedSettingsViewModel = viewModel;
+          return viewModel;
+        },
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            throw StateError('not used'),
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+
+    await tester.pumpWidget(_MobileConnectionHarness(
+      controller: controller,
+      dependencies: testDependencies,
+    ));
+    await controller.load();
+    await controller.connect();
+    await tester.pumpAndSettle();
+    expect(find.text('Two'), findsOneWidget);
+
+    await tester.tap(find.text('Two'));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(openedHomeViewModel?.currentWorkspace?.id, 'workspace_2');
+    expect(openedSettingsViewModel?.selectedWorkspace?.id, 'workspace_2');
   });
 
   testWidgets('workspace bootstrap failure returns to empty workspace list',
@@ -2222,7 +2609,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2299,7 +2686,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2416,7 +2803,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2513,7 +2900,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2618,7 +3005,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2714,7 +3101,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2823,7 +3210,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2912,7 +3299,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3016,7 +3403,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3093,7 +3480,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3183,7 +3570,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3262,7 +3649,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:

@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../data/repositories/cached_adapter_repository.dart';
+import '../data/repositories/cached_conversation_repository.dart';
+import '../data/repositories/cached_run_repository.dart';
+import '../data/repositories/coding_preferences_repository.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_app_update_repository.dart';
@@ -11,6 +15,8 @@ import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../data/repositories/recent_daemon_address_repository.dart';
+import '../data/repositories/workspace_repository.dart';
+import '../domain/models/daemon_connection_config.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
@@ -19,7 +25,6 @@ import '../domain/repositories/daemon_connection_config_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
 import '../domain/repositories/recent_daemon_address_repository.dart';
 import '../domain/repositories/run_repository.dart';
-import '../domain/repositories/workspace_repository.dart';
 import '../models/protocol.dart';
 import '../services/android_package_installer.dart';
 import '../services/app_update_client.dart';
@@ -38,6 +43,7 @@ import '../ui/features/run_detail/run_detail.dart';
 import '../ui/features/settings/settings.dart';
 import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
+import '../ui/pages/home_view_model.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 
@@ -81,6 +87,9 @@ class AppDependencies {
     final connectedData = data.forDaemonClient(client);
     return MainTabsDependencies(
       connectedData: connectedData,
+      codingPreferencesRepository: data.codingPreferencesRepository,
+      normalizeCodingPermissionMode:
+          CodingPreferencesRepository.normalizePermissionMode,
       workbenchDependencies: features.createWorkbenchDependencies(
         client,
         connectedData,
@@ -114,6 +123,8 @@ class AppDependencies {
 class MainTabsDependencies {
   MainTabsDependencies({
     required this.connectedData,
+    required this.codingPreferencesRepository,
+    required this.normalizeCodingPermissionMode,
     required this.workbenchDependencies,
     required this.featureDependencies,
     required this.createAppUpdateViewModel,
@@ -121,6 +132,8 @@ class MainTabsDependencies {
   });
 
   final ConnectedDataDependencies connectedData;
+  final CodingPreferencesRepository codingPreferencesRepository;
+  final String Function(String? value) normalizeCodingPermissionMode;
   final WorkbenchDependencies workbenchDependencies;
   final FeatureDependencies featureDependencies;
   final Future<AppUpdateViewModel> Function({
@@ -152,9 +165,12 @@ class NetworkDependencies {
 class DataDependencies {
   DataDependencies({
     required this.connectionConfigRepository,
+    CodingPreferencesRepository? codingPreferencesRepository,
     RecentDaemonAddressRepository? recentAddressRepository,
     NotificationClientFactory? createNotificationClient,
-  })  : recentAddressRepository = recentAddressRepository ??
+  })  : codingPreferencesRepository =
+            codingPreferencesRepository ?? CodingPreferencesRepository(),
+        recentAddressRepository = recentAddressRepository ??
             StoreRecentDaemonAddressRepository(
               store: RecentDaemonAddressStore(),
             ),
@@ -163,16 +179,19 @@ class DataDependencies {
 
   factory DataDependencies.createDefault() {
     final connectionConfigStore = DaemonConnectionConfigStore();
+    final codingPreferencesRepository = CodingPreferencesRepository();
     final recentAddressStore = RecentDaemonAddressStore();
     return DataDependencies(
       connectionConfigRepository:
           StoreDaemonConnectionConfigRepository(store: connectionConfigStore),
+      codingPreferencesRepository: codingPreferencesRepository,
       recentAddressRepository:
           StoreRecentDaemonAddressRepository(store: recentAddressStore),
     );
   }
 
   final DaemonConnectionConfigRepository connectionConfigRepository;
+  final CodingPreferencesRepository codingPreferencesRepository;
   final RecentDaemonAddressRepository recentAddressRepository;
   final NotificationClientFactory createNotificationClient;
 
@@ -184,16 +203,28 @@ class DataDependencies {
           client.getAuthorizedRaw(path, headers: headers),
       authorizedStreamSend: client.sendAuthorizedStream,
     );
+    final rawAdapterRepository = DaemonAdapterRepository(client: client);
+    final rawConversationRepository = DaemonConversationRepository(
+      client: client,
+      notificationService: notificationClient,
+    );
+    final rawRunRepository = DaemonRunRepository(client: client);
+    final adapterRepository = CachedAdapterRepository(
+      delegate: rawAdapterRepository,
+    );
+    final conversationRepository = CachedConversationRepository(
+      delegate: rawConversationRepository,
+    );
+    final runRepository = CachedRunRepository(
+      delegate: rawRunRepository,
+    );
     return ConnectedDataDependencies(
       authRepository: DaemonAuthRepository(client: client),
-      adapterRepository: DaemonAdapterRepository(client: client),
+      adapterRepository: adapterRepository,
       appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
-      conversationRepository: DaemonConversationRepository(
-        client: client,
-        notificationService: notificationClient,
-      ),
+      conversationRepository: conversationRepository,
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
-      runRepository: DaemonRunRepository(client: client),
+      runRepository: runRepository,
       workspaceRepository: DaemonWorkspaceRepository(client: client),
       dispose: notificationClient.close,
     );
@@ -203,21 +234,31 @@ class DataDependencies {
 class ConnectedDataDependencies {
   ConnectedDataDependencies({
     required this.authRepository,
-    required this.adapterRepository,
+    required AdapterRepository adapterRepository,
     required this.appUpdateRepository,
-    required this.conversationRepository,
+    required ConversationRepository conversationRepository,
     required this.diagnosticsRepository,
-    required this.runRepository,
+    required RunRepository runRepository,
     required this.workspaceRepository,
     Future<void> Function()? dispose,
-  }) : _dispose = dispose;
+  })  : adapterRepository = adapterRepository is CachedAdapterRepository
+            ? adapterRepository
+            : CachedAdapterRepository(delegate: adapterRepository),
+        conversationRepository = conversationRepository
+                is CachedConversationRepository
+            ? conversationRepository
+            : CachedConversationRepository(delegate: conversationRepository),
+        runRepository = runRepository is CachedRunRepository
+            ? runRepository
+            : CachedRunRepository(delegate: runRepository),
+        _dispose = dispose;
 
   final AuthRepository authRepository;
-  final AdapterRepository adapterRepository;
+  final CachedAdapterRepository adapterRepository;
   final AppUpdateRepository appUpdateRepository;
-  final ConversationRepository conversationRepository;
+  final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
-  final RunRepository runRepository;
+  final CachedRunRepository runRepository;
   final WorkspaceRepository workspaceRepository;
   final Future<void> Function()? _dispose;
   bool _disposed = false;
@@ -227,6 +268,26 @@ class ConnectedDataDependencies {
     _disposed = true;
     try {
       await _dispose?.call();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      workspaceRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      adapterRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      conversationRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      runRepository.dispose();
     } catch (_) {
       // Cleanup failures must not surface as unhandled async errors.
     }
@@ -301,6 +362,8 @@ class DomainDependencies {
 class FeatureDependencies {
   FeatureDependencies({
     required this.createDaemonConnectionViewModel,
+    required this.createHomeViewModel,
+    required this.createSettingsViewModel,
     required this.createDiagnosticsViewModel,
     required this.createRunDetailViewModel,
     required this.createAppUpdateViewModel,
@@ -316,6 +379,29 @@ class FeatureDependencies {
           configRepository: data.connectionConfigRepository,
           recentAddressRepository: data.recentAddressRepository,
           connectToDaemon: domain.connectionWorkflow,
+        ),
+        createHomeViewModel: (connectedData, {signalMetrics}) => HomeViewModel(
+          workspaceRepository: connectedData.workspaceRepository,
+          conversationRepository: connectedData.conversationRepository,
+          runRepository: connectedData.runRepository,
+          signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
+        ),
+        createSettingsViewModel: ({
+          required ConnectedDataDependencies connectedData,
+          required DaemonConnectionConfig connectionConfig,
+          required DaemonHealth health,
+          CodeDiagnosticsSummary? diagnostics,
+          GitStatusSummary? gitStatus,
+          int extensionsCount = 0,
+        }) =>
+            SettingsViewModel(
+          workspaceRepository: connectedData.workspaceRepository,
+          codingPreferencesRepository: data.codingPreferencesRepository,
+          connectionConfig: connectionConfig,
+          health: health,
+          diagnostics: diagnostics,
+          gitStatus: gitStatus,
+          extensionsCount: extensionsCount,
         ),
         createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
           repository: connectedData.diagnosticsRepository,
@@ -377,6 +463,18 @@ class FeatureDependencies {
       );
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
+  final HomeViewModel Function(
+    ConnectedDataDependencies connectedData, {
+    HomeWorkspaceSignalMetrics? signalMetrics,
+  }) createHomeViewModel;
+  final SettingsViewModel Function({
+    required ConnectedDataDependencies connectedData,
+    required DaemonConnectionConfig connectionConfig,
+    required DaemonHealth health,
+    CodeDiagnosticsSummary? diagnostics,
+    GitStatusSummary? gitStatus,
+    int extensionsCount,
+  }) createSettingsViewModel;
   final DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)
       createDiagnosticsViewModel;
   final RunDetailViewModel Function(

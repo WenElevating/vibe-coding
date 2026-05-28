@@ -9,7 +9,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart'
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
-import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
@@ -373,13 +373,12 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   }
 }
 
-class _UnusedRepository
+class _UnusedRepository extends WorkspaceRepository
     implements
         AdapterRepository,
         AppUpdateRepository,
         AuthRepository,
-        ConversationRepository,
-        WorkspaceRepository {
+        ConversationRepository {
   @override
   Future<List<AdapterStatus>> listAdapters() => throw UnimplementedError();
 
@@ -490,6 +489,40 @@ class _UnusedRepository
     String? name,
   }) =>
       throw UnimplementedError();
+
+  @override
+  List<WorkspaceSummary> get workspaces => const <WorkspaceSummary>[];
+
+  @override
+  WorkspaceSummary? get selectedWorkspace => null;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({
+    required String path,
+    String? name,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  bool select(String workspaceId) => false;
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {}
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) =>

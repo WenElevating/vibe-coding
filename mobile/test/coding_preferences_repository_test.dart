@@ -1,0 +1,82 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  test('load normalizes persisted permission mode and notifies', () async {
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{
+        CodingPreferencesRepository.permissionModeStorageKey: 'default',
+      },
+    );
+    final repository = CodingPreferencesRepository();
+    var notifications = 0;
+    repository.addListener(() => notifications++);
+
+    await repository.load();
+
+    expect(repository.permissionMode, 'default');
+    expect(repository.loading, isFalse);
+    expect(repository.error, isNull);
+    expect(notifications, greaterThanOrEqualTo(1));
+  });
+
+  test('load treats unknown persisted permission mode as auto', () async {
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{
+        CodingPreferencesRepository.permissionModeStorageKey: 'invalid',
+      },
+    );
+    final repository = CodingPreferencesRepository();
+
+    await repository.load();
+
+    expect(repository.permissionMode, 'auto');
+  });
+
+  test('setPermissionMode persists normalized value and notifies', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = CodingPreferencesRepository();
+    var notifications = 0;
+    repository.addListener(() => notifications++);
+
+    await repository.setPermissionMode('invalid');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(repository.permissionMode, 'auto');
+    expect(
+      prefs.getString(CodingPreferencesRepository.permissionModeStorageKey),
+      'auto',
+    );
+    expect(repository.error, isNull);
+    expect(notifications, greaterThanOrEqualTo(1));
+  });
+
+  test('setPermissionMode preserves default value', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = CodingPreferencesRepository();
+
+    await repository.setPermissionMode('default');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(repository.permissionMode, 'default');
+    expect(
+      prefs.getString(CodingPreferencesRepository.permissionModeStorageKey),
+      'default',
+    );
+  });
+
+  test('load completion after dispose is ignored', () async {
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{
+        CodingPreferencesRepository.permissionModeStorageKey: 'default',
+      },
+    );
+    final repository = CodingPreferencesRepository();
+
+    final load = repository.load();
+    repository.dispose();
+
+    await load;
+  });
+}

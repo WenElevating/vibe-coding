@@ -3,67 +3,72 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
-import '../../shell/app_snapshot.dart';
 import '../core/theme/theme.dart' as theme;
 import '../core/widgets/widgets.dart';
 import '../features/workspace_picker/workspace_display.dart';
 import 'home_command_deck_model.dart';
+import 'home_view_model.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage(
       {super.key,
       required this.open,
       required this.selectTab,
-      required this.data});
+      required this.viewModel,
+      required this.health});
   final ValueChanged<RoutePage> open;
   final ValueChanged<int> selectTab;
-  final AppSnapshot data;
+  final HomeViewModel viewModel;
+  final DaemonHealth health;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final deck = buildHomeCommandDeckData(
-      currentWorkspace: data.workspace,
-      workspaces: data.workspaces,
-      runs: data.runs,
-      conversations: data.conversations,
-      queue: data.queue,
-      changedFiles: data.gitStatus?.files.length,
-      diagnostics: data.diagnostics.available
-          ? data.diagnostics.diagnostics.length
-          : null,
-      recentFiles:
-          data.diagnostics.available ? data.overview.recentFiles.length : null,
-    );
-    final global = _buildGlobalConsoleSummary(deck);
-
-    return PageScroll(
-      children: [
-        _AgentConsolePanel(
-          workspace: data.workspace,
-          summary: global,
-          daemon: data.health,
-          l10n: l10n,
-          onWorkspaceTap: () => selectTab(1),
-          onPrimaryTap: global.needsAttention
-              ? () => open(RoutePage.approval)
-              : () => selectTab(1),
-          onTemplatesTap: () => selectTab(1),
-        ),
-        if (global.attentionItems.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          _HomeInterruptLane(items: global.attentionItems, l10n: l10n),
-        ],
-        const SizedBox(height: 18),
-        _HomeExecutionStream(
-            items: global.activityItems,
-            l10n: l10n,
-            onTap: () => open(RoutePage.detail)),
-        const SizedBox(height: 18),
-        _HomeWorkspaceSignals(data: deck.signals, l10n: l10n),
-        const SizedBox(height: 18),
-        _HomeQuickActions(selectTab: selectTab, l10n: l10n),
-      ],
+    return ListenableBuilder(
+      listenable: viewModel,
+      builder: (context, _) {
+        final l10n = AppLocalizations.of(context);
+        final deck = viewModel.deck;
+        if (deck == null) {
+          return PageScroll(children: [
+            _AgentConsolePanel.empty(
+              daemon: health,
+              l10n: l10n,
+              onWorkspaceTap: () => selectTab(1),
+              onPrimaryTap: () => selectTab(1),
+              onTemplatesTap: () => selectTab(1),
+            ),
+          ]);
+        }
+        final global = _buildGlobalConsoleSummary(deck);
+        return PageScroll(
+          children: [
+            _AgentConsolePanel(
+              workspace: viewModel.currentWorkspace!,
+              summary: global,
+              daemon: health,
+              l10n: l10n,
+              onWorkspaceTap: () => selectTab(1),
+              onPrimaryTap: global.needsAttention
+                  ? () => open(RoutePage.approval)
+                  : () => selectTab(1),
+              onTemplatesTap: () => selectTab(1),
+            ),
+            if (global.attentionItems.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _HomeInterruptLane(items: global.attentionItems, l10n: l10n),
+            ],
+            const SizedBox(height: 18),
+            _HomeExecutionStream(
+                items: global.activityItems,
+                l10n: l10n,
+                onTap: () => open(RoutePage.detail)),
+            const SizedBox(height: 18),
+            _HomeWorkspaceSignals(data: deck.signals, l10n: l10n),
+            const SizedBox(height: 18),
+            _HomeQuickActions(selectTab: selectTab, l10n: l10n),
+          ],
+        );
+      },
     );
   }
 }
@@ -122,7 +127,22 @@ class _AgentConsolePanel extends StatelessWidget {
     required this.onTemplatesTap,
   });
 
-  final WorkspaceSummary workspace;
+  const _AgentConsolePanel.empty({
+    required this.daemon,
+    required this.l10n,
+    required this.onWorkspaceTap,
+    required this.onPrimaryTap,
+    required this.onTemplatesTap,
+  })  : workspace = null,
+        summary = const _GlobalConsoleSummary(
+          attentionCount: 0,
+          runningCount: 0,
+          queueCount: 0,
+          attentionItems: <HomeSignalItem>[],
+          activityItems: <HomeSignalItem>[],
+        );
+
+  final WorkspaceSummary? workspace;
   final _GlobalConsoleSummary summary;
   final DaemonHealth daemon;
   final AppLocalizations l10n;
@@ -132,6 +152,7 @@ class _AgentConsolePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final workspace = this.workspace;
     final accent = summary.needsAttention ? theme.amber : theme.green;
     final primaryLabel = summary.needsAttention
         ? l10n.homeInterruptsTitle
@@ -218,47 +239,49 @@ class _AgentConsolePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          InkWell(
-            onTap: onWorkspaceTap,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 11, 11, 11),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .035),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withValues(alpha: .055)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.folder_open_rounded,
-                      color: theme.faint, size: 17),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(workspaceDisplayName(workspace),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                height: 1.1)),
-                        const SizedBox(height: 4),
-                        Text(compactWorkspacePath(workspace.path),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: theme.muted, fontSize: 11.5)),
-                      ],
+          if (workspace != null)
+            InkWell(
+              onTap: onWorkspaceTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 11, 11, 11),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .035),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .055)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.folder_open_rounded,
+                        color: theme.faint, size: 17),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(workspaceDisplayName(workspace),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.1)),
+                          const SizedBox(height: 4),
+                          Text(compactWorkspacePath(workspace.path),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: theme.muted, fontSize: 11.5)),
+                        ],
+                      ),
                     ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded,
-                      color: theme.faint, size: 20),
-                ],
+                    const Icon(Icons.chevron_right_rounded,
+                        color: theme.faint, size: 20),
+                  ],
+                ),
               ),
             ),
-          ),
           const SizedBox(height: 14),
           Row(
             children: [
