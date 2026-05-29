@@ -443,9 +443,34 @@ AppSnapshot _previewSnapshot(WorkspaceSummary current,
 
 @visibleForTesting
 Widget buildCodingWorkbenchEntryPreview() {
+  const current = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding');
   final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenStore: MemoryTokenStore());
+  final adapterRepository =
+      CliAdapterRepository(delegate: DaemonAdapterRepository(client: client))
+        ..replaceFromBootstrap(const <AdapterStatus>[
+          AdapterStatus(adapter: 'codex', available: true, status: 'available')
+        ]);
+  final conversationRepository = CachedConversationRepository(
+      delegate: DaemonConversationRepository(
+          client: client,
+          notificationService: const _EmptyNotificationService()))
+    ..replaceFromBootstrap(
+        workspaceId: current.id, conversations: const <ConversationSummary>[]);
+  final runRepository =
+      CachedRunRepository(delegate: DaemonRunRepository(client: client))
+        ..replaceFromBootstrap(
+            workspaceId: current.id,
+            runs: const <RunSummary>[],
+            queue: const <QueueItem>[]);
+  final workspaceRepository = DaemonWorkspaceRepository(client: client)
+    ..applyBootstrapCatalog(
+        selectedWorkspace: current,
+        workspaces: const <WorkspaceSummary>[current]);
   return MaterialApp(
       locale: theme.zhHansCnLocale,
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
@@ -465,22 +490,16 @@ Widget buildCodingWorkbenchEntryPreview() {
               expandThinking: false,
               permissionMode: 'default',
               dependencies: WorkbenchDependencies(
-                adapterRepository: CliAdapterRepository(
-                    delegate: DaemonAdapterRepository(client: client)),
+                adapterRepository: adapterRepository,
                 asrModelManager:
                     AsrModelManager(client: client.createAsrModelClient()),
-                conversationRepository: CachedConversationRepository(
-                    delegate: DaemonConversationRepository(
-                        client: client,
-                        notificationService:
-                            const _EmptyNotificationService())),
+                conversationRepository: conversationRepository,
                 diagnosticsRepository:
                     DaemonDiagnosticsRepository(client: client),
-                runRepository: CachedRunRepository(
-                    delegate: DaemonRunRepository(client: client)),
+                runRepository: runRepository,
                 speechInputServiceBuilder: (_) =>
                     const DisabledSpeechInputService(),
-                workspaceRepository: DaemonWorkspaceRepository(client: client),
+                workspaceRepository: workspaceRepository,
               ))));
 }
 

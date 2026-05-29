@@ -8,6 +8,14 @@ import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/pages/home_view_model.dart';
 
+const _conversationCapabilities = ConversationCapabilities(
+  longLivedProcess: false,
+  waitingInput: false,
+  waitingApproval: false,
+  resume: false,
+  partialOutput: false,
+);
+
 void main() {
   test('home deck updates when workspace repository notifies', () async {
     final workspaceRepository = _FakeWorkspaceRepository(
@@ -276,9 +284,6 @@ class _FakeCachedConversationRepository extends CachedConversationRepository {
   int listenerCount = 0;
 
   @override
-  List<ConversationSummary> get conversations => super.conversations;
-
-  @override
   Future<void> refresh() async {
     refreshCalls += 1;
   }
@@ -303,12 +308,6 @@ class _FakeCachedRunRepository extends CachedRunRepository {
 
   int refreshCalls = 0;
   int listenerCount = 0;
-
-  @override
-  List<RunSummary> get runs => super.runs;
-
-  @override
-  List<QueueItem> get queue => super.queue;
 
   @override
   Future<void> refresh() async {

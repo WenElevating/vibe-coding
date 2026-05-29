@@ -15,6 +15,7 @@ abstract class WorkspaceRepository extends ChangeNotifier
   Future<void> refresh();
   Future<WorkspaceSummary> create({required String path, String? name});
   bool select(String workspaceId);
+  @override
   void applyBootstrapCatalog({
     required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,

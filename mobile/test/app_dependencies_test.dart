@@ -234,6 +234,9 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
     String? name,
   }) =>
       create(path: path, name: name);
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedRepository

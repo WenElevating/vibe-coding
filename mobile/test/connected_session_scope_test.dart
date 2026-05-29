@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/app/connected_session_scope.dart';

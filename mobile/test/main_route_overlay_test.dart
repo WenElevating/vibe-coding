@@ -176,6 +176,12 @@ const _completedRun = RunSummary(
   cliSessionId: 'session_1',
 );
 
+const _codexAdapter = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+);
+
 const _githubExtension = ExtensionSummary(
   id: 'github',
   name: 'GitHub',

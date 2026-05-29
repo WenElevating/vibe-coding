@@ -452,6 +452,27 @@ class _AdapterRefreshClient extends DaemonClient {
   }
 
   @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async =>
+      const <WorkspaceSummary>[
+        WorkspaceSummary(
+          id: 'workspace_1',
+          name: 'Current Project',
+          path: r'D:\AiProject\vibe-coding',
+        ),
+      ];
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
   Future<List<ConversationSummary>> listConversations() async =>
       <ConversationSummary>[
         _conversationSummary(
