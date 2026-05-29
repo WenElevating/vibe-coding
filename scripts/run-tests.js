@@ -3437,6 +3437,46 @@ test('Claude conversation adapter ignores empty lifecycle frames', async () => {
   assert.equal(events.some((event) => event.type === 'protocol.warning'), false);
 });
 
+test('Claude conversation adapter surfaces API retry authentication failures', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_api_retry', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'system',
+    subtype: 'api_retry',
+    attempt: 1,
+    max_retries: 10,
+    error_status: 401,
+    error: 'authentication_failed',
+    session_id: 'session_api_retry'
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'system',
+    subtype: 'api_retry',
+    attempt: 2,
+    max_retries: 10,
+    error_status: 401,
+    error: 'authentication_failed',
+    session_id: 'session_api_retry'
+  })}\n`);
+
+  const warnings = events.filter((event) => event.type === 'protocol.warning');
+  const warning = warnings[0];
+  assert.equal(warning.visible, true);
+  assert.match(warning.text, /Claude API 401 authentication_failed/);
+  assert.equal(warning.sessionId, 'session_api_retry');
+  assert.equal(warnings[1].visible, false);
+});
+
 test('Claude conversation adapter marks non-interactive approval failures', async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();

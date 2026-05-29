@@ -119,6 +119,7 @@ class ClaudeConversationAdapter {
       pendingApprovals: new Map(),
       pendingTools: new Map(),
       contentBlocks: new Map(),
+      visibleApiRetryWarnings: new Set(),
       now: () => new Date(),
       initRequestId,
       initialized: false,
@@ -245,13 +246,34 @@ function handleRawClaudeEvent(raw, state) {
     return;
   }
   if (rawType === 'system' && event.subtype === 'api_retry') {
-    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text: `Claude API ${event.error_status || ''} ${event.error || 'error'}`, visible: false, sessionId, raw: event });
+    const text = formatClaudeApiRetryText(event);
+    const warningKey = `${event.error_status || ''}:${event.error || 'error'}`;
+    const visible = isClaudeAuthenticationRetry(event) && !state.visibleApiRetryWarnings.has(warningKey);
+    if (visible) state.visibleApiRetryWarnings.add(warningKey);
+    state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text, visible, sessionId, raw: event });
     return;
   }
   const text = extractText(event);
   if (text.trim()) {
     state.onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text, sessionId, raw: event });
   }
+}
+
+function isClaudeAuthenticationRetry(event) {
+  const status = Number(event.error_status);
+  const error = String(event.error || '').toLowerCase();
+  return status === 401 || error.includes('auth');
+}
+
+function formatClaudeApiRetryText(event) {
+  const status = event.error_status || '';
+  const error = event.error || 'error';
+  const attempt = Number(event.attempt);
+  const maxRetries = Number(event.max_retries);
+  const retryText = Number.isFinite(attempt) && Number.isFinite(maxRetries) && attempt > 0 && maxRetries > 0
+    ? ` (retry ${attempt}/${maxRetries})`
+    : '';
+  return `Claude API ${status} ${error}${retryText}`.replace(/\s+/g, ' ').trim();
 }
 
 function completeInitialize(state, details = {}) {
