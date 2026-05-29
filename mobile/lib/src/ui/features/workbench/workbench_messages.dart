@@ -255,8 +255,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
           runId: 'conversation',
           suggestions: message.suggestions);
     case 'notice':
-      return WorkbenchMessage('notice', 'System notice', message.text,
-          event: event, runId: 'conversation');
+      return WorkbenchMessage('notice', _noticeTitle(message), message.text,
+          event: event, runId: 'conversation', isError: message.isError);
     case 'file_change':
       return WorkbenchMessage('file_change', 'File changes', message.text,
           event: event,
@@ -292,6 +292,17 @@ Duration? _conversationCommandDuration(ConversationMessage message) {
   if (startedAt == null || completedAt == null) return null;
   if (completedAt.isBefore(startedAt)) return null;
   return completedAt.difference(startedAt);
+}
+
+String _noticeTitle(ConversationMessage message) {
+  if (!message.isError) return 'System notice';
+  final text = message.text.toLowerCase();
+  if (text.contains('claude') &&
+      (text.contains('auth') || text.contains('401'))) {
+    return 'Claude authentication failed';
+  }
+  if (text.startsWith('run error:')) return 'Run failed';
+  return 'CLI error';
 }
 
 // ignore: unused_element

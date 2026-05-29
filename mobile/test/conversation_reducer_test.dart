@@ -243,6 +243,33 @@ void main() {
       const <String>['user', 'notice'],
     );
     expect(state.messages.last.text, contains('trusted directory'));
+    expect(state.messages.last.isError, isTrue);
+  });
+
+  test('ConversationViewState marks visible Claude auth retries as errors', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'protocol.warning',
+        'createdAt': '2026-05-29T03:25:53.274Z',
+        'text': 'Claude API 401 authentication_failed (retry 1/10)',
+        'visible': true,
+        'raw': <String, Object?>{
+          'type': 'system',
+          'subtype': 'api_retry',
+          'attempt': 1,
+          'max_retries': 10,
+          'error_status': 401,
+          'error': 'authentication_failed',
+        },
+      }),
+    ]);
+
+    expect(state.messages, hasLength(1));
+    expect(state.messages.single.role, 'notice');
+    expect(state.messages.single.text, contains('401'));
+    expect(state.messages.single.isError, isTrue);
   });
 
   test('ConversationViewState preserves committed user attachments', () {

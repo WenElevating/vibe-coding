@@ -749,14 +749,21 @@ class _SystemNoticeEventCard extends StatelessWidget {
   final WorkbenchMessage message;
 
   @override
-  Widget build(BuildContext context) => _AgentEventCard(
-      icon: Icons.info_outline_rounded,
-      title: message.title,
-      meta: 'non-blocking',
-      trailing: null,
-      child: Text(message.body,
-          style: const TextStyle(
-              color: theme.muted, fontSize: 12.5, height: 1.55)));
+  Widget build(BuildContext context) {
+    return _AgentEventCard(
+        icon: message.isError
+            ? Icons.error_outline_rounded
+            : Icons.info_outline_rounded,
+        title: message.title,
+        meta: _noticeMeta(message),
+        trailing: null,
+        accentColor: message.isError ? theme.red : null,
+        child: Text(message.body,
+            style: TextStyle(
+                color: message.isError ? theme.text : theme.muted,
+                fontSize: 12.5,
+                height: 1.55)));
+  }
 }
 
 class _ThinkingEventCard extends StatelessWidget {
@@ -1101,6 +1108,17 @@ String _commandTitle(WorkbenchMessage message) {
       .map((line) => line.trim())
       .firstWhere((line) => line.isNotEmpty, orElse: () => message.title);
   return firstLine;
+}
+
+String _noticeMeta(WorkbenchMessage message) {
+  if (!message.isError) return 'notice';
+  final text = message.body.toLowerCase();
+  if (text.contains('claude') &&
+      (text.contains('auth') || text.contains('401'))) {
+    return 'provider auth';
+  }
+  if (text.startsWith('run error:')) return 'run failed';
+  return 'error';
 }
 
 class _ToolLogFoldout extends StatefulWidget {
@@ -1919,57 +1937,69 @@ class _AgentEventCard extends StatelessWidget {
       required this.title,
       required this.meta,
       required this.child,
-      this.trailing});
+      this.trailing,
+      this.accentColor});
   final IconData icon;
   final String title;
   final String meta;
   final Widget child;
   final String? trailing;
+  final Color? accentColor;
 
   @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-          color: const Color(0xFF101113),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: .075))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-              width: 28,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                  color: const Color(0xFF191A1D),
-                  borderRadius: BorderRadius.circular(9)),
-              child: Icon(icon, color: theme.amber, size: 15)),
-          const SizedBox(width: 10),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(title,
-                    style: const TextStyle(
-                        color: theme.text,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 3),
-                Text(meta,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: theme.faint,
-                        fontSize: 10.5,
-                        fontFamily: 'Consolas')),
-              ])),
-          if (trailing != null)
-            Text(trailing!,
-                style: const TextStyle(
-                    color: theme.faint, fontSize: 10.5, fontFamily: 'Consolas'))
-        ]),
-        const SizedBox(height: 12),
-        child,
-      ]));
+  Widget build(BuildContext context) {
+    final accent = accentColor ?? theme.amber;
+    return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: const Color(0xFF101113),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: accentColor == null
+                    ? Colors.white.withValues(alpha: .075)
+                    : accent.withValues(alpha: .18))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: accentColor == null
+                        ? const Color(0xFF191A1D)
+                        : accent.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(9)),
+                child: Icon(icon, color: accent, size: 15)),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(title,
+                      style: const TextStyle(
+                          color: theme.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 3),
+                  Text(meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: theme.faint,
+                          fontSize: 10.5,
+                          fontFamily: 'Consolas')),
+                ])),
+            if (trailing != null)
+              Text(trailing!,
+                  style: const TextStyle(
+                      color: theme.faint,
+                      fontSize: 10.5,
+                      fontFamily: 'Consolas'))
+          ]),
+          const SizedBox(height: 12),
+          child,
+        ]));
+  }
 }
 
 class _EventCodeLine extends StatelessWidget {
