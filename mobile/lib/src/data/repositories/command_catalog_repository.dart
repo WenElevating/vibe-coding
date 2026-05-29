@@ -12,6 +12,7 @@ class CommandCatalogRepository extends ChangeNotifier {
   List<CommandTemplate> _templates = const <CommandTemplate>[];
   List<ExtensionSummary> _extensions = const <ExtensionSummary>[];
   bool _loading = false;
+  bool _loaded = false;
   Object? _error;
   Future<void>? _loadFuture;
   int _generation = 0;
@@ -21,9 +22,11 @@ class CommandCatalogRepository extends ChangeNotifier {
   List<CommandTemplate> get templates => List.unmodifiable(_templates);
   List<ExtensionSummary> get extensions => List.unmodifiable(_extensions);
   bool get loading => _loading;
+  bool get loaded => _loaded;
   Object? get error => _error;
 
-  Future<void> load() {
+  Future<void> load({bool force = false}) {
+    if (_loaded && !force) return Future<void>.value();
     final current = _loadFuture;
     if (current != null) return current;
     final generation = ++_generation;
@@ -34,7 +37,10 @@ class CommandCatalogRepository extends ChangeNotifier {
       _loadShortcuts(generation),
       _loadTemplates(generation),
       _loadExtensions(generation),
-    ]).then<void>((_) {}).catchError((Object error) {
+    ]).then<void>((_) {
+      if (_disposed || generation != _generation) return;
+      _loaded = true;
+    }).catchError((Object error) {
       if (!_disposed && generation == _generation) _error = error;
       throw error;
     }).whenComplete(() {

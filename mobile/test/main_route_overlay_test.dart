@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/app/connected_session_scope.dart';
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/command_catalog_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart';
@@ -10,6 +15,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/conversation_reposito
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
@@ -24,6 +30,7 @@ void main() {
         (tester) async {
       final factory = _RunDetailFactory();
       final connectedData = _connectedData();
+      final repositories = _repositories();
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: factory.create,
       );
@@ -31,6 +38,7 @@ void main() {
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
+        repositories: repositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -41,6 +49,7 @@ void main() {
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_completedRun]),
         connectedData: connectedData,
+        repositories: repositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -64,6 +73,7 @@ void main() {
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
+        repositories: _repositories(),
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -71,6 +81,7 @@ void main() {
       await tester.pumpWidget(_OverlayHarness(
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
+        repositories: _repositories(),
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -85,6 +96,7 @@ void main() {
     testWidgets('creates diagnostics view model through feature dependencies',
         (tester) async {
       final connectedData = _connectedData();
+      final repositories = _repositories();
       final diagnosticsFactory = _DiagnosticsFactory();
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: _RunDetailFactory().create,
@@ -95,6 +107,7 @@ void main() {
         route: RoutePage.diagnostics,
         data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
+        repositories: repositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -104,6 +117,33 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
 
       expect(diagnosticsFactory.disposeCount, 1);
+    });
+
+    testWidgets(
+        'adapters overlay reads repository adapters when bootstrap data is empty',
+        (tester) async {
+      final repositories = _repositories();
+      repositories.cliAdapterRepository.replaceFromBootstrap(
+        const <AdapterStatus>[_codexAdapter],
+      );
+
+      await tester.pumpWidget(_OverlayHarness(
+        route: RoutePage.adapters,
+        data: _snapshot(
+          runs: const <RunSummary>[],
+          adapters: const <AdapterStatus>[],
+          extensions: const <ExtensionSummary>[],
+        ),
+        connectedData: _connectedData(),
+        repositories: repositories,
+        featureDependencies: _featureDependencies(
+          createRunDetailViewModel: _RunDetailFactory().create,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('codex'), findsOneWidget);
+      expect(find.text('GitHub'), findsOneWidget);
     });
   });
 }
@@ -130,7 +170,21 @@ const _completedRun = RunSummary(
   cliSessionId: 'session_1',
 );
 
-AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
+const _githubExtension = ExtensionSummary(
+  id: 'github',
+  name: 'GitHub',
+  version: '1.0.0',
+  description: 'Issue sync',
+  installed: true,
+  status: 'installed',
+);
+
+AppSnapshot _snapshot({
+  required List<RunSummary> runs,
+  List<AdapterStatus> adapters = const <AdapterStatus>[],
+  List<ExtensionSummary> extensions = const <ExtensionSummary>[],
+}) =>
+    AppSnapshot(
       health: const DaemonHealth(
         status: 'ok',
         daemonVersion: 'test',
@@ -152,9 +206,7 @@ AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
         analysisScore: 0,
         recentFiles: <RecentFileSummary>[],
       ),
-      adapters: const <AdapterStatus>[
-        AdapterStatus(adapter: 'codex', available: true, status: 'available'),
-      ],
+      adapters: adapters,
       runs: runs,
       conversations: const <ConversationSummary>[],
       queue: const <QueueItem>[],
@@ -172,7 +224,7 @@ AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
         available: false,
         diagnostics: <CodeDiagnostic>[],
       ),
-      extensions: const <ExtensionSummary>[],
+      extensions: extensions,
     );
 
 FeatureDependencies _featureDependencies({
@@ -215,12 +267,14 @@ class _OverlayHarness extends StatelessWidget {
     this.route = RoutePage.detail,
     required this.data,
     required this.connectedData,
+    required this.repositories,
     required this.featureDependencies,
   });
 
   final RoutePage route;
   final AppSnapshot data;
   final ConnectedDataDependencies connectedData;
+  final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;
 
   @override
@@ -235,6 +289,7 @@ class _OverlayHarness extends StatelessWidget {
           route: route,
           data: data.toDaemonInitialData(),
           connectedData: connectedData,
+          repositories: repositories,
           featureDependencies: featureDependencies,
           onBack: () {},
         ),
@@ -254,6 +309,45 @@ ConnectedDataDependencies _connectedData() {
     runRepository: _FakeRunRepository(),
     workspaceRepository: unused,
   );
+}
+
+ConnectedSessionRepositories _repositories() {
+  final adapterDelegate = _FakeAdapterRepository();
+  return ConnectedSessionRepositories(
+    authRepository: _UnusedRepository(),
+    workspaceRepository: _FakeWorkspaceRepository(),
+    conversationRepository: CachedConversationRepository(
+      delegate: _UnusedRepository(),
+    ),
+    runRepository: CachedRunRepository(delegate: _FakeRunRepository()),
+    cliAdapterRepository: CliAdapterRepository(delegate: adapterDelegate),
+    commandCatalogRepository: CommandCatalogRepository(
+      delegate: adapterDelegate,
+    ),
+    diagnosticsRepository: _FakeDiagnosticsRepository(),
+    appUpdateRepository: _UnusedRepository(),
+    codingPreferencesRepository: CodingPreferencesRepository(),
+    recordDiagnosticEvent: (_, __, {severity = 'info', path}) {},
+  );
+}
+
+class _FakeAdapterRepository implements AdapterRepository {
+  @override
+  Future<List<AdapterStatus>> listAdapters() async => const <AdapterStatus>[
+        _codexAdapter,
+      ];
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async =>
+      const <ExtensionSummary>[_githubExtension];
 }
 
 class _DiagnosticsFactory {

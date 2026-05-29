@@ -45,6 +45,24 @@ void main() {
     expect(adapters.loading, isFalse);
     expect(adapters.error, isNull);
   });
+
+  test('catalog load reuses a successful catalog until forced', () async {
+    final delegate = _FakeAdapterRepository();
+    final catalog = CommandCatalogRepository(delegate: delegate);
+
+    await catalog.load();
+    await catalog.load();
+
+    expect(delegate.shortcutCalls, 1);
+    expect(delegate.templateCalls, 1);
+    expect(delegate.extensionCalls, 1);
+
+    await catalog.load(force: true);
+
+    expect(delegate.shortcutCalls, 2);
+    expect(delegate.templateCalls, 2);
+    expect(delegate.extensionCalls, 2);
+  });
 }
 
 class _FakeAdapterRepository implements AdapterRepository {
@@ -52,6 +70,9 @@ class _FakeAdapterRepository implements AdapterRepository {
   Object? shortcutError;
   Object? templateError;
   Object? extensionError;
+  int shortcutCalls = 0;
+  int templateCalls = 0;
+  int extensionCalls = 0;
 
   @override
   Future<List<AdapterStatus>> listAdapters() async {
@@ -64,6 +85,7 @@ class _FakeAdapterRepository implements AdapterRepository {
 
   @override
   Future<List<ShortcutCommand>> listShortcuts() async {
+    shortcutCalls++;
     final error = shortcutError;
     if (error != null) throw error;
     return const <ShortcutCommand>[
@@ -78,6 +100,7 @@ class _FakeAdapterRepository implements AdapterRepository {
 
   @override
   Future<List<CommandTemplate>> listCommandTemplates() async {
+    templateCalls++;
     final error = templateError;
     if (error != null) throw error;
     return const <CommandTemplate>[
@@ -92,6 +115,7 @@ class _FakeAdapterRepository implements AdapterRepository {
 
   @override
   Future<List<ExtensionSummary>> listExtensions() async {
+    extensionCalls++;
     final error = extensionError;
     if (error != null) throw error;
     return const <ExtensionSummary>[

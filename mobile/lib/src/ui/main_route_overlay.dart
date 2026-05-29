@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app/app_dependencies.dart';
+import '../app/connected_session_scope.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
 import '../shell/app_route.dart';
@@ -17,6 +20,7 @@ class MainRouteOverlay extends StatefulWidget {
     required this.route,
     required this.data,
     required this.connectedData,
+    required this.repositories,
     required this.featureDependencies,
     required this.onBack,
   });
@@ -24,6 +28,7 @@ class MainRouteOverlay extends StatefulWidget {
   final RoutePage route;
   final DaemonInitialData data;
   final ConnectedDataDependencies connectedData;
+  final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;
   final VoidCallback onBack;
 
@@ -35,34 +40,48 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
   DiagnosticsViewModel? _diagnosticsViewModel;
   RunDetailViewModel? _runDetailViewModel;
   _RunDetailViewModelKey? _runDetailViewModelKey;
+  AdaptersViewModel? _adaptersViewModel;
+  Object? _adaptersViewModelScope;
 
   @override
   void didUpdateWidget(covariant MainRouteOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.connectedData != widget.connectedData ||
-        oldWidget.featureDependencies != widget.featureDependencies) {
+        oldWidget.featureDependencies != widget.featureDependencies ||
+        oldWidget.repositories != widget.repositories) {
       _diagnosticsViewModel?.dispose();
       _diagnosticsViewModel = null;
       _runDetailViewModel?.dispose();
       _runDetailViewModel = null;
       _runDetailViewModelKey = null;
+      _disposeAdaptersViewModel();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data.toAppSnapshot();
     return switch (widget.route) {
       RoutePage.detail => _buildRunDetailPage(),
       RoutePage.approval => ApprovalPage(onBack: widget.onBack),
-      RoutePage.adapters => AdaptersPage(
-          onBack: widget.onBack,
-          viewModel: AdaptersViewModel(snapshot: data),
-        ),
+      RoutePage.adapters => _buildAdaptersPage(),
       RoutePage.notifications => NotificationsPage(onBack: widget.onBack),
       RoutePage.diagnostics => _buildDiagnosticsPage(),
       RoutePage.tabs => const SizedBox.shrink(),
     };
+  }
+
+  Widget _buildAdaptersPage() {
+    final repositories = widget.repositories;
+    if (_adaptersViewModel == null || _adaptersViewModelScope != repositories) {
+      _disposeAdaptersViewModel();
+      _adaptersViewModel = AdaptersViewModel(
+        adapterRepository: repositories.cliAdapterRepository,
+        commandCatalogRepository: repositories.commandCatalogRepository,
+      );
+      unawaited(_adaptersViewModel!.loadCatalog());
+      _adaptersViewModelScope = repositories;
+    }
+    return AdaptersPage(onBack: widget.onBack, viewModel: _adaptersViewModel!);
   }
 
   Widget _buildDiagnosticsPage() {
@@ -97,7 +116,14 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
   void dispose() {
     _diagnosticsViewModel?.dispose();
     _runDetailViewModel?.dispose();
+    _disposeAdaptersViewModel();
     super.dispose();
+  }
+
+  void _disposeAdaptersViewModel() {
+    _adaptersViewModel?.dispose();
+    _adaptersViewModel = null;
+    _adaptersViewModelScope = null;
   }
 }
 

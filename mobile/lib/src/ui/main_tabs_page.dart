@@ -636,6 +636,7 @@ class _MainTabsPageState extends State<MainTabsPage>
                   route: viewModel.activeRoute,
                   data: initialData,
                   connectedData: _connectedData,
+                  repositories: _repositories,
                   featureDependencies:
                       widget.pageDependencies.featureDependencies,
                   onBack: viewModel.closeOverlay,
