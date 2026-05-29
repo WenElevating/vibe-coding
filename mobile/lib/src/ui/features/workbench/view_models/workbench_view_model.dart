@@ -3,12 +3,15 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../data/repositories/cached_conversation_repository.dart';
+import '../../../../data/repositories/cached_run_repository.dart';
+import '../../../../data/repositories/cli_adapter_repository.dart';
+import '../../../../data/repositories/workspace_repository.dart';
 import '../../../../domain/repositories/conversation_repository.dart';
 import '../../../../domain/repositories/diagnostics_repository.dart';
 import '../../../../domain/repositories/run_repository.dart';
-import '../../../../domain/repositories/workspace_repository.dart';
 import '../../../../models/protocol.dart';
-import '../../../../shell/app_snapshot.dart';
+import '../../../../workflows/connection/open_workspace_use_case.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
 import '../attachments/attachment_preview_cache.dart';
@@ -34,36 +37,44 @@ class WorkbenchViewModel extends ChangeNotifier {
   static const int _totalMultipartBytesLimit = 20 * 1024 * 1024;
 
   WorkbenchViewModel({
-    required AppSnapshot initialData,
-    ConversationRepository? conversationRepository,
+    required WorkspaceRepository workspaceRepository,
+    required CliAdapterRepository adapterRepository,
+    required CachedConversationRepository conversationRepository,
+    required CachedRunRepository runRepository,
     DiagnosticsRepository? diagnosticsRepository,
-    RunRepository? runRepository,
-    WorkspaceRepository? workspaceRepository,
+    WorkspaceOpeningUseCase? workspaceOpeningUseCase,
     AttachmentPreviewCache attachmentPreviewCache =
         const NoopAttachmentPreviewCache(),
     Duration workspaceCreationTimeout = const Duration(seconds: 20),
-  })  : _attachmentPreviewCache = attachmentPreviewCache,
+  })  : _workspaceRepository = workspaceRepository,
+        _adapterRepository = adapterRepository,
         _conversationRepository = conversationRepository,
-        _diagnosticsRepository = diagnosticsRepository,
         _runRepository = runRepository,
-        _workspaceRepository = workspaceRepository,
+        _diagnosticsRepository = diagnosticsRepository,
+        _workspaceOpeningUseCase = workspaceOpeningUseCase,
+        _attachmentPreviewCache = attachmentPreviewCache,
         _workspaceCreationTimeout = workspaceCreationTimeout,
-        _routeState = WorkspaceListRouteState(
-          workspaces: List.unmodifiable(initialData.workspaces),
-        ),
-        _adapters = List<AdapterStatus>.unmodifiable(initialData.adapters),
-        _selectedAdapter = _computePreferredAdapter(initialData.adapters),
-        _draftModel = _initialSelectedModel(initialData.adapters);
+        _routeState = const WorkspaceListRouteState() {
+    _workspaceRepository.addListener(_onRepositoryChanged);
+    _adapterRepository.addListener(_onAdapterRepositoryChanged);
+    _conversationRepository.addListener(_onRepositoryChanged);
+    _runRepository.addListener(_onRepositoryChanged);
+    _applyAdapters(_adapterRepository.adapters);
+    _selectedAdapter = _computePreferredAdapter(_adapterRepository.adapters);
+    _reconcileSelectedModel();
+  }
 
   WorkbenchRouteState _routeState;
   final Map<String, SessionItem> _optimisticSessions = <String, SessionItem>{};
   final AttachmentPreviewCache _attachmentPreviewCache;
-  final ConversationRepository? _conversationRepository;
+  final CachedConversationRepository _conversationRepository;
   final DiagnosticsRepository? _diagnosticsRepository;
-  final RunRepository? _runRepository;
-  final WorkspaceRepository? _workspaceRepository;
+  final CachedRunRepository _runRepository;
+  final WorkspaceRepository _workspaceRepository;
+  final CliAdapterRepository _adapterRepository;
+  final WorkspaceOpeningUseCase? _workspaceOpeningUseCase;
   final Duration _workspaceCreationTimeout;
-  List<AdapterStatus> _adapters;
+  late List<AdapterStatus> _adapters;
   String? _selectedAdapter;
   String? _draftModel;
   String? _confirmedConversationModel;
@@ -87,6 +98,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   int _lastSeq = 0;
   final Set<String> _resolvedApprovalIds = <String>{};
   bool _sending = false;
+  String? _openingWorkspaceId;
   String? _error;
   String? _errorTraceId;
   String? _currentAttachmentClientMessageId;
@@ -102,6 +114,8 @@ class WorkbenchViewModel extends ChangeNotifier {
       );
   List<AdapterModelOption> get availableModels =>
       selectedAdapterStatus?.models ?? const <AdapterModelOption>[];
+  List<AdapterStatus> get availableAdaptersFromCache =>
+      _adapterRepository.adapters;
   String? get draftModel => _draftModel;
   String? get confirmedConversationModel => _confirmedConversationModel;
   String? get selectedModel =>
@@ -128,9 +142,30 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _workspaceRepository.removeListener(_onRepositoryChanged);
+    _adapterRepository.removeListener(_onAdapterRepositoryChanged);
+    _conversationRepository.removeListener(_onRepositoryChanged);
+    _runRepository.removeListener(_onRepositoryChanged);
     _disposed = true;
     _modelUpdateGeneration++;
     super.dispose();
+  }
+
+  void _onRepositoryChanged() => _notifyListeners();
+
+  void _onAdapterRepositoryChanged() {
+    _applyAdapters(_adapterRepository.adapters);
+    final activeConversation = _activeConversation;
+    if (activeConversation != null) {
+      _selectActiveConversationAdapter(activeConversation);
+    } else if (!_selectedAdapterStillAvailable(_adapterRepository.adapters)) {
+      _selectedAdapter = _computePreferredAdapter(_adapterRepository.adapters);
+    }
+    if (_activeConversationId == null) {
+      _reconcileSelectedModel();
+    }
+    _revalidateDraftAttachments();
+    _notifyListeners();
   }
 
   ConversationViewState get conversationState => _conversationState;
@@ -149,70 +184,127 @@ class WorkbenchViewModel extends ChangeNotifier {
   bool get isTerminalConversation =>
       !isActiveConversationStatus(effectiveConversationStatus);
   bool get sending => _sending;
+  String? get openingWorkspaceId => _openingWorkspaceId;
+  bool get openingWorkspace => _openingWorkspaceId != null;
   String? get error => _error;
   String? get errorTraceId => _errorTraceId;
-  List<WorkspaceSummary> get workspaces => _routeState.workspaces;
+  List<WorkspaceSummary> get workspaces => _workspaceRepository.workspaces;
+  WorkspaceSummary? get selectedWorkspace =>
+      _workspaceRepository.selectedWorkspace;
+
   WorkspaceSummary? get routeWorkspace => switch (_routeState) {
-        WorkspaceSessionsRouteState(:final workspace) => workspace,
-        ConversationRouteState(:final workspace) => workspace,
+        WorkspaceSessionsRouteState(:final workspaceId) =>
+          _workspaceById(workspaceId),
+        ConversationRouteState(:final workspaceId) =>
+          _workspaceById(workspaceId),
         _ => null,
       };
 
-  List<SessionItem> sessionItems(
-    List<ConversationSummary> snapshotConversations,
-    List<RunSummary> snapshotRuns,
-  ) =>
-      mergeSessionItems(
-          _optimisticSessions, snapshotConversations, snapshotRuns);
+  WorkspaceSummary? _workspaceById(String id) {
+    for (final workspace in _workspaceRepository.workspaces) {
+      if (workspace.id == id) return workspace;
+    }
+    return null;
+  }
+
+  List<SessionItem> get sessionItems => mergeSessionItems(
+        _optimisticSessions,
+        _conversationRepository.conversations,
+        _runRepository.runs,
+      );
 
   void showWorkspaceList({String? notice}) {
-    _routeState = WorkspaceListRouteState(
-      workspaces: _routeState.workspaces,
-      notice: notice,
-    );
+    _routeState = WorkspaceListRouteState(notice: notice);
     _notifyListeners();
   }
 
-  void showSessions(WorkspaceSummary workspace) {
-    _routeState = WorkspaceSessionsRouteState(
-      workspace: workspace,
-      workspaces: _routeState.workspaces,
-    );
+  void showSessions(String workspaceId) {
+    _routeState = WorkspaceSessionsRouteState(workspaceId: workspaceId);
     _notifyListeners();
   }
 
-  void showConversation(WorkspaceSummary workspace) {
+  void showConversation(String workspaceId) {
+    _routeState = WorkspaceSessionsRouteState(workspaceId: workspaceId);
+    _notifyListeners();
+  }
+
+  void showConversationRoute(String workspaceId, String conversationId) {
     _routeState = ConversationRouteState(
-      workspace: workspace,
-      workspaces: _routeState.workspaces,
+      workspaceId: workspaceId,
+      conversationId: conversationId,
     );
     _notifyListeners();
   }
 
   void showCreatingWorkspace({required String requestLabel}) {
-    _routeState = CreatingWorkspaceRouteState(
-      previousWorkspaces: _routeState.workspaces,
-      requestLabel: requestLabel,
-    );
+    _routeState = CreatingWorkspaceRouteState(requestLabel: requestLabel);
     _notifyListeners();
   }
 
-  void confirmWorkspaceCreated({
-    required WorkspaceSummary workspace,
-    required List<WorkspaceSummary> workspaces,
-  }) {
-    _routeState = WorkspaceSessionsRouteState(
-      workspace: workspace,
-      workspaces: List.unmodifiable(workspaces),
-    );
+  void confirmWorkspaceCreated({required String workspaceId}) {
+    _routeState = WorkspaceSessionsRouteState(workspaceId: workspaceId);
     _notifyListeners();
   }
 
-  void cancelWorkspaceCreation(List<WorkspaceSummary> workspaces) {
-    _routeState = WorkspaceListRouteState(
-      workspaces: List.unmodifiable(workspaces),
-    );
+  void cancelWorkspaceCreation() {
+    _routeState = const WorkspaceListRouteState();
     _notifyListeners();
+  }
+
+  Future<void> createWorkspaceAndOpen({
+    required String path,
+    String? name,
+  }) async {
+    showCreatingWorkspace(requestLabel: name ?? path);
+    try {
+      final created = await _workspaceRepository.create(path: path, name: name);
+      _routeState = WorkspaceSessionsRouteState(workspaceId: created.id);
+      _error = null;
+    } catch (error) {
+      _routeState = WorkspaceListRouteState(notice: error.toString());
+      _error = error.toString();
+    }
+    _notifyListeners();
+  }
+
+  Future<void> openWorkspaceSessions(String workspaceId) async {
+    if (_openingWorkspaceId != null) return;
+    final workspace = _workspaceById(workspaceId);
+    if (workspace == null) {
+      _routeState = const WorkspaceListRouteState(
+        notice: 'Workspace is no longer available.',
+      );
+      _notifyListeners();
+      return;
+    }
+    final useCase = _workspaceOpeningUseCase;
+    if (useCase == null) {
+      final accepted = _workspaceRepository.select(workspaceId);
+      _routeState = accepted
+          ? WorkspaceSessionsRouteState(workspaceId: workspaceId)
+          : const WorkspaceListRouteState(
+              notice: 'Workspace is no longer available.',
+            );
+      _notifyListeners();
+      return;
+    }
+    _openingWorkspaceId = workspaceId;
+    _notifyListeners();
+    try {
+      final initialData = await useCase.open(
+        workspaces: _workspaceRepository.workspaces,
+        workspace: workspace,
+      );
+      final openedWorkspace = initialData.workspace;
+      _routeState = openedWorkspace?.id == workspaceId
+          ? WorkspaceSessionsRouteState(workspaceId: workspaceId)
+          : const WorkspaceListRouteState(
+              notice: 'Workspace is no longer available.',
+            );
+    } finally {
+      _openingWorkspaceId = null;
+      _notifyListeners();
+    }
   }
 
   void openSession(SessionItem item, {bool notify = true}) {
@@ -564,24 +656,6 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (notify) _notifyListeners();
   }
 
-  void updateFromSnapshot(AppSnapshot snapshot) {
-    reconcile(snapshot, notify: false);
-    _applyAdapters(snapshot.adapters);
-    final workspaces = List<WorkspaceSummary>.unmodifiable(snapshot.workspaces);
-    _routeState = _rebuildRouteState(workspaces);
-    final activeConversation = _activeConversation;
-    if (activeConversation != null) {
-      _selectActiveConversationAdapter(activeConversation);
-    } else if (!_selectedAdapterStillAvailable(snapshot.adapters)) {
-      _selectedAdapter = _computePreferredAdapter(snapshot.adapters);
-    }
-    if (_activeConversationId == null) {
-      _reconcileSelectedModel();
-    }
-    _revalidateDraftAttachments();
-    _notifyListeners();
-  }
-
   void updateAdapters(List<AdapterStatus> adapters, {bool notify = true}) {
     _applyAdapters(adapters);
     final activeConversation = _activeConversation;
@@ -689,18 +763,6 @@ class WorkbenchViewModel extends ChangeNotifier {
           a.adapter == _selectedAdapter &&
           a.available &&
           _isSelectableAdapter(a));
-
-  void reconcile(AppSnapshot snapshot, {bool notify = true}) {
-    var changed = false;
-    for (final conversation in snapshot.conversations) {
-      if (!_optimisticSessions.containsKey(conversation.id)) continue;
-      if (!_isPendingSnapshotConversation(conversation)) {
-        _optimisticSessions.remove(conversation.id);
-        changed = true;
-      }
-    }
-    if (changed && notify) _notifyListeners();
-  }
 
   Future<WorkbenchNewConversationSendResult> createAndSend({
     required WorkspaceSummary workspace,
@@ -1282,17 +1344,12 @@ class WorkbenchViewModel extends ChangeNotifier {
     String? name,
   }) =>
       CreateWorkspaceWorkflow(
-        client: _requireWorkspaceRepository(),
+        client: _workspaceRepository,
         timeout: _workspaceCreationTimeout,
       ).create(path: path, name: name);
 
   ConversationRepository _requireConversationRepository() {
-    final repository = _conversationRepository;
-    if (repository == null) {
-      throw StateError(
-          'ConversationRepository is required for workbench sends.');
-    }
-    return repository;
+    return _conversationRepository;
   }
 
   DiagnosticsRepository _requireDiagnosticsRepository() {
@@ -1304,58 +1361,8 @@ class WorkbenchViewModel extends ChangeNotifier {
     return repository;
   }
 
-  WorkspaceRepository _requireWorkspaceRepository() {
-    final repository = _workspaceRepository;
-    if (repository == null) {
-      throw StateError(
-          'WorkspaceRepository is required for workspace creation.');
-    }
-    return repository;
-  }
-
   RunRepository _requireRunRepository() {
-    final repository = _runRepository;
-    if (repository == null) {
-      throw StateError('RunRepository is required for run cancellation.');
-    }
-    return repository;
-  }
-
-  WorkbenchRouteState _rebuildRouteState(List<WorkspaceSummary> workspaces) =>
-      switch (_routeState) {
-        WorkspaceListRouteState(:final notice) =>
-          WorkspaceListRouteState(workspaces: workspaces, notice: notice),
-        WorkspaceSessionsRouteState(:final workspace) =>
-          WorkspaceSessionsRouteState(
-            workspace: _resolveWorkspace(workspaces, workspace),
-            workspaces: workspaces,
-          ),
-        ConversationRouteState(:final workspace) => ConversationRouteState(
-            workspace: _resolveWorkspace(workspaces, workspace),
-            workspaces: workspaces,
-          ),
-        CreatingWorkspaceRouteState(:final requestLabel) =>
-          CreatingWorkspaceRouteState(
-            previousWorkspaces: workspaces,
-            requestLabel: requestLabel,
-          ),
-      };
-
-  static WorkspaceSummary _resolveWorkspace(
-    List<WorkspaceSummary> workspaces,
-    WorkspaceSummary fallback,
-  ) {
-    for (final w in workspaces) {
-      if (w.id == fallback.id) return w;
-    }
-    return fallback;
-  }
-
-  static String? _initialSelectedModel(List<AdapterStatus> adapters) {
-    final selectedAdapter = _computePreferredAdapter(adapters);
-    return _preferredModelFor(
-      _adapterStatusForSelection(adapters, selectedAdapter),
-    );
+    return _runRepository;
   }
 
   static AdapterStatus? _adapterStatusForSelection(

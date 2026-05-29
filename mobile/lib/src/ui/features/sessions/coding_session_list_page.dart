@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../models/protocol.dart';
-import '../../../shell/shell.dart';
+
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../workspace_picker/workspace_picker.dart';
@@ -11,13 +11,11 @@ import 'session_item.dart';
 class CodingSessionListPage extends StatelessWidget {
   const CodingSessionListPage(
       {super.key,
-      required this.data,
       required this.items,
       required this.currentWorkspace,
       required this.onNewSession,
       required this.onSelectItem,
       required this.onBackToWorkspaces});
-  final AppSnapshot data;
   final List<SessionItem> items;
   final WorkspaceSummary currentWorkspace;
   final VoidCallback onNewSession;
@@ -109,6 +107,7 @@ class _SessionNewButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
+      key: const ValueKey('session-new-button'),
       onTap: onTap,
       borderRadius: BorderRadius.circular(13),
       child: Container(

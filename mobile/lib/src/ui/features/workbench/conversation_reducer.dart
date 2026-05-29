@@ -361,6 +361,7 @@ class ConversationViewState {
               role: 'notice',
               text: event.text!,
               eventSeq: event.seq,
+              isError: event.isError || isAuthenticationProtocolWarning(event),
             ));
           }
           break;
@@ -408,6 +409,26 @@ bool isCodexFileChangeNotice(ConversationEvent event) {
   if (event.type != 'system.notice') return false;
   return '${event.raw['noticeKind'] ?? ''}'.toLowerCase() ==
       'codex_file_change';
+}
+
+bool isAuthenticationProtocolWarning(ConversationEvent event) {
+  if (event.type != 'protocol.warning') return false;
+  final subtype = '${_protocolRawField(event, 'subtype') ?? ''}'.toLowerCase();
+  final status = '${_protocolRawField(event, 'error_status') ?? ''}'.trim();
+  final error = '${_protocolRawField(event, 'error') ?? ''}'.toLowerCase();
+  final text = (event.text ?? event.summary ?? '').toLowerCase();
+  if (subtype == 'api_retry' && (status == '401' || error.contains('auth'))) {
+    return true;
+  }
+  return text.contains('claude api 401') ||
+      text.contains('authentication_failed') ||
+      text.contains('authentication failed');
+}
+
+Object? _protocolRawField(ConversationEvent event, String key) {
+  final nested = event.raw['raw'];
+  if (nested is Map && nested.containsKey(key)) return nested[key];
+  return event.raw[key];
 }
 
 List<ConversationFileChange> conversationFileChangesFromEvent(

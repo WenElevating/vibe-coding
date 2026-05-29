@@ -53,6 +53,7 @@ class _ConnectedMainTabsHost extends StatefulWidget {
 
 class _ConnectedMainTabsHostState extends State<_ConnectedMainTabsHost> {
   Object? _clientIdentity;
+  Object? _initialDataIdentity;
   MainTabsDependencies? _pageDependencies;
 
   @override
@@ -60,6 +61,7 @@ class _ConnectedMainTabsHostState extends State<_ConnectedMainTabsHost> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.dependencies != widget.dependencies) {
       _clientIdentity = null;
+      _initialDataIdentity = null;
       _pageDependencies = null;
     }
   }
@@ -67,13 +69,18 @@ class _ConnectedMainTabsHostState extends State<_ConnectedMainTabsHost> {
   @override
   Widget build(BuildContext context) {
     final client = widget.viewModel.client!;
-    if (!identical(_clientIdentity, client)) {
+    final initialData = widget.viewModel.initialData!;
+    if (!identical(_clientIdentity, client) ||
+        !identical(_initialDataIdentity, initialData)) {
       _clientIdentity = client;
-      _pageDependencies =
-          widget.dependencies.createMainTabsDependencies(client);
+      _initialDataIdentity = initialData;
+      _pageDependencies = widget.dependencies.createMainTabsDependencies(
+        client,
+        initialData: initialData,
+      );
     }
     return MainTabsPage.fromInitialData(
-      initialData: widget.viewModel.initialData!,
+      initialData: initialData,
       connectionConfig: widget.viewModel.connectedConfig!,
       pageDependencies: _pageDependencies!,
     );

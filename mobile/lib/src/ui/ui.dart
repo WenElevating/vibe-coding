@@ -1,6 +1,6 @@
 export 'main_tab_items.dart';
 export 'main_tabs_page.dart';
-export 'view_models/main_tabs_view_model.dart';
+export 'view_models/main_tabs_shell_view_model.dart';
 export 'main_route_overlay.dart';
 export 'mobile_connection_page.dart';
 export 'mobile_connection_error_page.dart';

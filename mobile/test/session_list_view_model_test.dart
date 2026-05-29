@@ -43,7 +43,7 @@ void main() {
       var notifications = 0;
       viewModel.addListener(() => notifications++);
 
-      viewModel.updateFromSnapshot(
+      viewModel.replaceRepositoryItems(
         conversations: <ConversationSummary>[_conversation('conversation_1')],
         runs: <RunSummary>[_run('run_1')],
       );
@@ -70,7 +70,7 @@ void main() {
         ),
       ));
 
-      viewModel.updateFromSnapshot(
+      viewModel.replaceRepositoryItems(
         conversations: <ConversationSummary>[
           _conversation(
             'conversation_1',

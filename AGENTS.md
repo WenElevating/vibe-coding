@@ -27,6 +27,8 @@ Run commands from the repository root unless noted.
 - `cd mobile && flutter test`: Runs Flutter unit and widget tests.
 - `cd mobile && flutter build windows --debug`: Builds the Windows debug app.
 - For any Flutter/Dart command that touches package resolution, artifact download, build, analyze, test, or run flows under `mobile/`, use mainland China mirrors by default: set `PUB_HOSTED_URL=https://pub.flutter-io.cn` and `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn` for that command invocation.
+- In this Windows/Codex environment, prefer the direct Dart SDK for Dart-only mobile checks to avoid Flutter wrapper/cache-lock stalls: from `mobile/`, run `& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' analyze`, `& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' run tool\check_architecture_imports.dart`, and `& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' format ...`.
+- For Flutter tests in this environment, keep the top-level command as `flutter test` so command approval matches. When `mobile/.dart_tool/package_config.json` exists, use `flutter test --no-pub ...` and do not prepend inline PowerShell `$env:` assignments to the same command; use mirror environment variables only when package resolution or artifact download is required.
 - If a Flutter/Dart command times out on the first attempt, stop retrying automatically, tell the user the command timed out, and provide the exact mirror-configured command for the user to run manually.
 
 ## Coding Style & Naming Conventions

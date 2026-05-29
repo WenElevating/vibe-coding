@@ -1,52 +1,31 @@
-import '../../../models/protocol.dart';
-
 sealed class WorkbenchRouteState {
   const WorkbenchRouteState();
-
-  List<WorkspaceSummary> get workspaces;
 }
 
 final class WorkspaceListRouteState extends WorkbenchRouteState {
-  const WorkspaceListRouteState({required this.workspaces, this.notice});
+  const WorkspaceListRouteState({this.notice});
 
-  @override
-  final List<WorkspaceSummary> workspaces;
   final String? notice;
 }
 
 final class CreatingWorkspaceRouteState extends WorkbenchRouteState {
-  const CreatingWorkspaceRouteState({
-    required this.previousWorkspaces,
-    required this.requestLabel,
-  });
+  const CreatingWorkspaceRouteState({required this.requestLabel});
 
-  final List<WorkspaceSummary> previousWorkspaces;
   final String requestLabel;
-
-  @override
-  List<WorkspaceSummary> get workspaces => previousWorkspaces;
 }
 
 final class WorkspaceSessionsRouteState extends WorkbenchRouteState {
-  const WorkspaceSessionsRouteState({
-    required this.workspace,
-    required this.workspaces,
-  });
+  const WorkspaceSessionsRouteState({required this.workspaceId});
 
-  final WorkspaceSummary workspace;
-
-  @override
-  final List<WorkspaceSummary> workspaces;
+  final String workspaceId;
 }
 
 final class ConversationRouteState extends WorkbenchRouteState {
   const ConversationRouteState({
-    required this.workspace,
-    required this.workspaces,
+    required this.workspaceId,
+    required this.conversationId,
   });
 
-  final WorkspaceSummary workspace;
-
-  @override
-  final List<WorkspaceSummary> workspaces;
+  final String workspaceId;
+  final String conversationId;
 }

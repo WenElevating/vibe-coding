@@ -190,7 +190,11 @@ flutter test --no-pub test\daemon_notification_client_test.dart test\coding_work
   reducer logic. Claude Code 2.1.119 can emit empty lifecycle frames such as
   `system/hook_started`, `system/status`, `message_delta`, and `message_stop`.
   These should not be persisted as `protocol.warning` rows because they advance
-  the visible event counter without rendering user-facing content.
+  the visible event counter without rendering user-facing content. Do not apply
+  that rule to `system/api_retry` authentication failures: a 401
+  `authentication_failed` retry is meaningful user-facing progress and should
+  emit one visible diagnostic, while repeated retries for the same failure stay
+  persisted but hidden to avoid transcript spam.
 - Related file:
   [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js)
 - Verification:
@@ -200,7 +204,7 @@ node scripts/run-tests.js
 npm run lint
 ```
 
-- Last verified: 2026-05-25
+- Last verified: 2026-05-29
 
 ## Symptom: Claude Permission Request Ends Without Mobile Approval UI
 

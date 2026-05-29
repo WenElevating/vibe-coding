@@ -2,17 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
+import 'package:lan_ai_cli_control/src/app/connected_session_scope.dart';
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/command_catalog_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
-import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
-import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
 import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
@@ -24,13 +29,19 @@ void main() {
         (tester) async {
       final factory = _RunDetailFactory();
       final connectedData = _connectedData();
+      final repositories = _repositories();
+      repositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: factory.create,
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
+        repositories: repositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -38,11 +49,11 @@ void main() {
       expect(find.text('running'), findsOneWidget);
       expect(factory.createdRuns, const <RunSummary>[_runningRun]);
 
-      await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_completedRun]),
-        connectedData: connectedData,
-        featureDependencies: featureDependencies,
-      ));
+      repositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_completedRun],
+        queue: const <QueueItem>[],
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('completed'), findsOneWidget);
@@ -57,20 +68,32 @@ void main() {
     testWidgets('recreates run detail view model when repository scope changes',
         (tester) async {
       final factory = _RunDetailFactory();
+      final firstRepositories = _repositories();
+      firstRepositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
+      final secondRepositories = _repositories();
+      secondRepositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: factory.create,
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
+        repositories: firstRepositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
+        repositories: secondRepositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -85,6 +108,7 @@ void main() {
     testWidgets('creates diagnostics view model through feature dependencies',
         (tester) async {
       final connectedData = _connectedData();
+      final repositories = _repositories();
       final diagnosticsFactory = _DiagnosticsFactory();
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: _RunDetailFactory().create,
@@ -93,8 +117,8 @@ void main() {
 
       await tester.pumpWidget(_OverlayHarness(
         route: RoutePage.diagnostics,
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
+        repositories: repositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -104,6 +128,28 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
 
       expect(diagnosticsFactory.disposeCount, 1);
+    });
+
+    testWidgets(
+        'adapters overlay reads repository adapters when bootstrap data is empty',
+        (tester) async {
+      final repositories = _repositories();
+      repositories.cliAdapterRepository.replaceFromBootstrap(
+        const <AdapterStatus>[_codexAdapter],
+      );
+
+      await tester.pumpWidget(_OverlayHarness(
+        route: RoutePage.adapters,
+        connectedData: _connectedData(),
+        repositories: repositories,
+        featureDependencies: _featureDependencies(
+          createRunDetailViewModel: _RunDetailFactory().create,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('codex'), findsOneWidget);
+      expect(find.text('GitHub'), findsOneWidget);
     });
   });
 }
@@ -130,50 +176,20 @@ const _completedRun = RunSummary(
   cliSessionId: 'session_1',
 );
 
-AppSnapshot _snapshot({required List<RunSummary> runs}) => AppSnapshot(
-      health: const DaemonHealth(
-        status: 'ok',
-        daemonVersion: 'test',
-        mode: 'test',
-        lanMode: false,
-        bindAddress: '127.0.0.1',
-        port: 4317,
-        security: <String, Object?>{},
-      ),
-      workspaces: const <WorkspaceSummary>[_workspace],
-      workspace: _workspace,
-      overview: const ProjectOverview(
-        workspaceId: 'workspace_1',
-        name: 'Workspace',
-        path: r'D:\workspace',
-        fileCount: 0,
-        codeLineCount: 0,
-        symbolCount: 0,
-        analysisScore: 0,
-        recentFiles: <RecentFileSummary>[],
-      ),
-      adapters: const <AdapterStatus>[
-        AdapterStatus(adapter: 'codex', available: true, status: 'available'),
-      ],
-      runs: runs,
-      conversations: const <ConversationSummary>[],
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: null,
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: const FileTreeResponse(
-        workspaceId: 'workspace_1',
-        root: r'D:\workspace',
-        entries: <FileTreeEntry>[],
-      ),
-      diagnostics: const CodeDiagnosticsSummary(
-        workspaceId: 'workspace_1',
-        available: false,
-        diagnostics: <CodeDiagnostic>[],
-      ),
-      extensions: const <ExtensionSummary>[],
-    );
+const _codexAdapter = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+);
+
+const _githubExtension = ExtensionSummary(
+  id: 'github',
+  name: 'GitHub',
+  version: '1.0.0',
+  description: 'Issue sync',
+  installed: true,
+  status: 'installed',
+);
 
 FeatureDependencies _featureDependencies({
   required RunDetailViewModel Function(RunSummary run) createRunDetailViewModel,
@@ -186,6 +202,17 @@ FeatureDependencies _featureDependencies({
           (connectedData) => DiagnosticsViewModel(
                 repository: connectedData.diagnosticsRepository,
               ),
+      createHomeViewModel: (connectedData, {signalMetrics}) =>
+          throw UnimplementedError(),
+      createSettingsViewModel: ({
+        required connectedData,
+        required connectionConfig,
+        required health,
+        diagnostics,
+        gitStatus,
+        extensionsCount = 0,
+      }) =>
+          throw UnimplementedError(),
       createRunDetailViewModel: (connectedData, run) =>
           createRunDetailViewModel(run),
       createAppUpdateViewModel: ({
@@ -202,14 +229,14 @@ FeatureDependencies _featureDependencies({
 class _OverlayHarness extends StatelessWidget {
   const _OverlayHarness({
     this.route = RoutePage.detail,
-    required this.data,
     required this.connectedData,
+    required this.repositories,
     required this.featureDependencies,
   });
 
   final RoutePage route;
-  final AppSnapshot data;
   final ConnectedDataDependencies connectedData;
+  final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;
 
   @override
@@ -222,8 +249,8 @@ class _OverlayHarness extends StatelessWidget {
       home: Scaffold(
         body: MainRouteOverlay(
           route: route,
-          data: data,
           connectedData: connectedData,
+          repositories: repositories,
           featureDependencies: featureDependencies,
           onBack: () {},
         ),
@@ -243,6 +270,98 @@ ConnectedDataDependencies _connectedData() {
     runRepository: _FakeRunRepository(),
     workspaceRepository: unused,
   );
+}
+
+ConnectedSessionRepositories _repositories() {
+  final adapterDelegate = _FakeAdapterRepository();
+  return ConnectedSessionRepositories(
+    authRepository: _UnusedRepository(),
+    workspaceRepository: _FakeWorkspaceRepository(),
+    conversationRepository: CachedConversationRepository(
+      delegate: _UnusedRepository(),
+    ),
+    runRepository: CachedRunRepository(delegate: _FakeRunRepository()),
+    cliAdapterRepository: CliAdapterRepository(delegate: adapterDelegate),
+    commandCatalogRepository: CommandCatalogRepository(
+      delegate: adapterDelegate,
+    ),
+    diagnosticsRepository: _FakeDiagnosticsRepository(),
+    appUpdateRepository: _UnusedRepository(),
+    codingPreferencesRepository: CodingPreferencesRepository(),
+    recordDiagnosticEvent: (_, __, {severity = 'info', path}) {},
+  );
+}
+
+class _FakeAdapterRepository implements AdapterRepository {
+  @override
+  Future<List<AdapterStatus>> listAdapters() async => const <AdapterStatus>[
+        _codexAdapter,
+      ];
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async =>
+      const <ExtensionSummary>[_githubExtension];
+}
+
+class _FakeWorkspaceRepository extends WorkspaceRepository {
+  List<WorkspaceSummary> _workspaces = const <WorkspaceSummary>[_workspace];
+  WorkspaceSummary? _selectedWorkspace = _workspace;
+
+  @override
+  List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
+
+  @override
+  WorkspaceSummary? get selectedWorkspace => _selectedWorkspace;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({required String path, String? name}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  bool select(String workspaceId) {
+    for (final workspace in _workspaces) {
+      if (workspace.id == workspaceId) {
+        _selectedWorkspace = workspace;
+        notifyListeners();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary? selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
+    _selectedWorkspace = selectedWorkspace;
+    notifyListeners();
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DiagnosticsFactory {
@@ -373,13 +492,12 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
   }
 }
 
-class _UnusedRepository
+class _UnusedRepository extends WorkspaceRepository
     implements
         AdapterRepository,
         AppUpdateRepository,
         AuthRepository,
-        ConversationRepository,
-        WorkspaceRepository {
+        ConversationRepository {
   @override
   Future<List<AdapterStatus>> listAdapters() => throw UnimplementedError();
 
@@ -490,6 +608,40 @@ class _UnusedRepository
     String? name,
   }) =>
       throw UnimplementedError();
+
+  @override
+  List<WorkspaceSummary> get workspaces => const <WorkspaceSummary>[];
+
+  @override
+  WorkspaceSummary? get selectedWorkspace => null;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({
+    required String path,
+    String? name,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  bool select(String workspaceId) => false;
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary? selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {}
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) =>

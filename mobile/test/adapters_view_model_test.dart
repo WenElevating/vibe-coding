@@ -1,53 +1,73 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/command_catalog_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/features/adapters/adapters.dart';
 
 void main() {
   group('AdaptersViewModel', () {
-    test('exposes immutable adapter and extension state', () {
+    test('reads adapters and extensions from repositories', () async {
+      final delegate = _FakeAdapterRepository();
+      final adapterRepository = CliAdapterRepository(delegate: delegate);
+      final commandCatalogRepository =
+          CommandCatalogRepository(delegate: delegate);
+      adapterRepository.replaceFromBootstrap(const <AdapterStatus>[
+        _codexAdapter,
+      ]);
+      await commandCatalogRepository.load();
+
       final viewModel = AdaptersViewModel(
-        snapshot: _snapshot(
-          adapters: const <AdapterStatus>[_codexAdapter],
-          extensions: const <ExtensionSummary>[_githubExtension],
-        ),
+        adapterRepository: adapterRepository,
+        commandCatalogRepository: commandCatalogRepository,
       );
 
       expect(viewModel.adapters, hasLength(1));
+      expect(viewModel.adapters.single.adapter, 'codex');
       expect(viewModel.extensions, hasLength(1));
-      expect(
-        () => viewModel.adapters.add(_claudeAdapter),
-        throwsUnsupportedError,
-      );
-      expect(
-        () => viewModel.extensions.clear(),
-        throwsUnsupportedError,
-      );
+      expect(viewModel.extensions.single.id, 'github');
+      expect(viewModel.loading, isFalse);
+      expect(viewModel.error, isNull);
     });
 
-    test('notifies once when snapshot state changes', () {
-      final viewModel = AdaptersViewModel(snapshot: _snapshot());
+    test('notifies when the adapter repository changes', () async {
+      final delegate = _FakeAdapterRepository();
+      final adapterRepository = CliAdapterRepository(delegate: delegate);
+      final commandCatalogRepository =
+          CommandCatalogRepository(delegate: delegate);
+      await commandCatalogRepository.load();
+      final viewModel = AdaptersViewModel(
+        adapterRepository: adapterRepository,
+        commandCatalogRepository: commandCatalogRepository,
+      );
       var notifications = 0;
       viewModel.addListener(() => notifications++);
 
-      viewModel.updateFromSnapshot(
-        _snapshot(adapters: const <AdapterStatus>[_codexAdapter]),
-      );
+      adapterRepository.replaceFromBootstrap(const <AdapterStatus>[
+        _codexAdapter,
+      ]);
 
       expect(notifications, 1);
       expect(viewModel.adapters.single.adapter, 'codex');
     });
 
-    test('copies snapshot lists instead of exposing mutable inputs', () {
-      final adapters = <AdapterStatus>[_codexAdapter];
+    test('loadCatalog populates extensions from an unloaded repository',
+        () async {
+      final delegate = _FakeAdapterRepository();
+      final adapterRepository = CliAdapterRepository(delegate: delegate);
+      final commandCatalogRepository =
+          CommandCatalogRepository(delegate: delegate);
       final viewModel = AdaptersViewModel(
-        snapshot: _snapshot(adapters: adapters),
+        adapterRepository: adapterRepository,
+        commandCatalogRepository: commandCatalogRepository,
       );
+      var notifications = 0;
+      viewModel.addListener(() => notifications++);
 
-      adapters.add(_claudeAdapter);
+      await viewModel.loadCatalog();
 
-      expect(viewModel.adapters, hasLength(1));
-      expect(viewModel.adapters.single.adapter, 'codex');
+      expect(viewModel.extensions.single.id, 'github');
+      expect(notifications, greaterThanOrEqualTo(1));
     });
   });
 }
@@ -56,12 +76,6 @@ const _codexAdapter = AdapterStatus(
   adapter: 'codex',
   available: true,
   status: 'available',
-);
-
-const _claudeAdapter = AdapterStatus(
-  adapter: 'claude',
-  available: false,
-  status: 'missing',
 );
 
 const _githubExtension = ExtensionSummary(
@@ -73,59 +87,21 @@ const _githubExtension = ExtensionSummary(
   status: 'installed',
 );
 
-AppSnapshot _snapshot({
-  List<AdapterStatus> adapters = const <AdapterStatus>[],
-  List<ExtensionSummary> extensions = const <ExtensionSummary>[],
-}) {
-  const workspace = WorkspaceSummary(
-    id: 'workspace_1',
-    name: 'Current Project',
-    path: r'D:\AiProject\vibe-coding',
-  );
-  return AppSnapshot(
-    health: DaemonHealth.fromJson(const <String, Object?>{
-      'status': 'ok',
-      'daemonVersion': 'test',
-      'mode': 'test',
-      'lanMode': false,
-      'bindAddress': '127.0.0.1',
-      'port': 4317,
-      'security': {'tokenRequired': false},
-    }),
-    workspaces: const <WorkspaceSummary>[workspace],
-    workspace: workspace,
-    overview: const ProjectOverview(
-      workspaceId: 'workspace_1',
-      name: 'vibe-coding',
-      path: r'D:\AiProject\vibe-coding',
-      fileCount: 0,
-      codeLineCount: 0,
-      symbolCount: 0,
-      analysisScore: 0,
-      recentFiles: <RecentFileSummary>[],
-    ),
-    adapters: adapters,
-    runs: const <RunSummary>[],
-    conversations: const <ConversationSummary>[],
-    queue: const <QueueItem>[],
-    templates: const <CommandTemplate>[],
-    gitStatus: const GitStatusSummary(
-      workspaceId: 'workspace_1',
-      clean: true,
-      files: <GitStatusFile>[],
-    ),
-    diffs: const <DiffSummary>[],
-    commits: const <GitCommitSummary>[],
-    fileTree: const FileTreeResponse(
-      workspaceId: 'workspace_1',
-      root: '',
-      entries: <FileTreeEntry>[],
-    ),
-    diagnostics: const CodeDiagnosticsSummary(
-      workspaceId: 'workspace_1',
-      available: true,
-      diagnostics: <CodeDiagnostic>[],
-    ),
-    extensions: extensions,
-  );
+class _FakeAdapterRepository implements AdapterRepository {
+  @override
+  Future<List<AdapterStatus>> listAdapters() async => const <AdapterStatus>[
+        _codexAdapter,
+      ];
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async =>
+      const <ExtensionSummary>[_githubExtension];
 }

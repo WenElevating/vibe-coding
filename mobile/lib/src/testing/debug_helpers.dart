@@ -9,6 +9,9 @@ import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
+import '../data/repositories/cached_conversation_repository.dart';
+import '../data/repositories/cached_run_repository.dart';
+import '../data/repositories/cli_adapter_repository.dart';
 import '../data/services/notification_service.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
@@ -363,7 +366,6 @@ Widget buildWorkspaceScopedSessionPreview() {
       home: Scaffold(
           backgroundColor: theme.bg,
           body: CodingSessionListPage(
-              data: data,
               items: mergeSessionItems(
                   const <String, SessionItem>{}, data.conversations, data.runs),
               currentWorkspace: current,
@@ -445,46 +447,30 @@ Widget buildCodingWorkbenchEntryPreview() {
       id: 'workspace_1',
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding');
-  final data = AppSnapshot(
-      health: DaemonHealth.fromJson(const <String, Object?>{
-        'status': 'ok',
-        'daemonVersion': 'test',
-        'mode': 'test',
-        'lanMode': false,
-        'bindAddress': '127.0.0.1',
-        'port': 4317,
-        'security': {'tokenRequired': false}
-      }),
-      workspaces: const <WorkspaceSummary>[current],
-      workspace: current,
-      overview: const ProjectOverview(
-          workspaceId: 'workspace_1',
-          name: 'vibe-coding',
-          path: r'D:\AiProject\vibe-coding',
-          fileCount: 0,
-          codeLineCount: 0,
-          symbolCount: 0,
-          analysisScore: 0,
-          recentFiles: <RecentFileSummary>[]),
-      adapters: const <AdapterStatus>[],
-      runs: const <RunSummary>[],
-      conversations: const <ConversationSummary>[],
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: const GitStatusSummary(
-          workspaceId: 'workspace_1', clean: true, files: <GitStatusFile>[]),
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: const FileTreeResponse(
-          workspaceId: 'workspace_1', root: '', entries: <FileTreeEntry>[]),
-      diagnostics: const CodeDiagnosticsSummary(
-          workspaceId: 'workspace_1',
-          available: true,
-          diagnostics: <CodeDiagnostic>[]),
-      extensions: const <ExtensionSummary>[]);
   final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenStore: MemoryTokenStore());
+  final adapterRepository =
+      CliAdapterRepository(delegate: DaemonAdapterRepository(client: client))
+        ..replaceFromBootstrap(const <AdapterStatus>[
+          AdapterStatus(adapter: 'codex', available: true, status: 'available')
+        ]);
+  final conversationRepository = CachedConversationRepository(
+      delegate: DaemonConversationRepository(
+          client: client,
+          notificationService: const _EmptyNotificationService()))
+    ..replaceFromBootstrap(
+        workspaceId: current.id, conversations: const <ConversationSummary>[]);
+  final runRepository =
+      CachedRunRepository(delegate: DaemonRunRepository(client: client))
+        ..replaceFromBootstrap(
+            workspaceId: current.id,
+            runs: const <RunSummary>[],
+            queue: const <QueueItem>[]);
+  final workspaceRepository = DaemonWorkspaceRepository(client: client)
+    ..applyBootstrapCatalog(
+        selectedWorkspace: current,
+        workspaces: const <WorkspaceSummary>[current]);
   return MaterialApp(
       locale: theme.zhHansCnLocale,
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
@@ -497,27 +483,23 @@ Widget buildCodingWorkbenchEntryPreview() {
       home: Scaffold(
           backgroundColor: theme.bg,
           body: CodingWorkbenchPage(
-              data: data,
               onBack: () {},
               onSessionListChanged: (_) {},
               openSessionListRequest: 0,
               streamOutput: false,
               expandThinking: false,
               permissionMode: 'default',
-              onWorkspaceCatalogChanged: (_) {},
               dependencies: WorkbenchDependencies(
-                adapterRepository: DaemonAdapterRepository(client: client),
+                adapterRepository: adapterRepository,
                 asrModelManager:
                     AsrModelManager(client: client.createAsrModelClient()),
-                conversationRepository: DaemonConversationRepository(
-                    client: client,
-                    notificationService: const _EmptyNotificationService()),
+                conversationRepository: conversationRepository,
                 diagnosticsRepository:
                     DaemonDiagnosticsRepository(client: client),
-                runRepository: DaemonRunRepository(client: client),
+                runRepository: runRepository,
                 speechInputServiceBuilder: (_) =>
                     const DisabledSpeechInputService(),
-                workspaceRepository: DaemonWorkspaceRepository(client: client),
+                workspaceRepository: workspaceRepository,
               ))));
 }
 

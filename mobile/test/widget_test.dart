@@ -13,21 +13,30 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
+    as data_repositories;
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/recent_daemon_address_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_case.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
 import 'package:lan_ai_cli_control/src/services/coding_preferences_store.dart';
+import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
+import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
 import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/settings_view_model.dart';
 import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
@@ -112,15 +121,31 @@ class _LocalizedSettingsPageApp extends StatefulWidget {
 
 class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
   late final LanguageController _languageController;
+  late final SettingsViewModel _settingsViewModel;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
+    final snapshot = _testSnapshot();
+    _settingsViewModel = SettingsViewModel(
+      workspaceRepository: _SnapshotWorkspaceRepository(snapshot),
+      codingPreferencesRepository:
+          _WidgetCodingPreferencesRepository(permissionMode: 'default'),
+      connectionConfig: const DaemonConnectionConfig(
+          addressInput: '192.168.1.20:4317',
+          proxyMode: DaemonProxyMode.manual,
+          manualProxyInput: 'http://proxy.local:8080'),
+      health: snapshot.health,
+      diagnostics: snapshot.diagnostics,
+      gitStatus: snapshot.gitStatus,
+      extensionsCount: snapshot.extensions.length,
+    );
   }
 
   @override
   void dispose() {
+    _settingsViewModel.dispose();
     _languageController.dispose();
     super.dispose();
   }
@@ -139,16 +164,10 @@ class _LocalizedSettingsPageAppState extends State<_LocalizedSettingsPageApp> {
               home: Scaffold(
                   body: settings_feature.SettingsPage(
                       open: (_) {},
-                      data: _testSnapshot(),
-                      connectionConfig: const DaemonConnectionConfig(
-                          addressInput: '192.168.1.20:4317',
-                          proxyMode: DaemonProxyMode.manual,
-                          manualProxyInput: 'http://proxy.local:8080'),
+                      viewModel: _settingsViewModel,
                       streamOutput: false,
                       expandThinking: false,
-                      permissionMode: 'default',
                       appUpdateViewModel: widget.appUpdateViewModel,
-                      onPermissionModeChanged: (_) {},
                       onStreamOutputChanged: (_) {},
                       onExpandThinkingChanged: (_) {})))));
 }
@@ -164,15 +183,30 @@ class _LocalizedHomePageApp extends StatefulWidget {
 
 class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
   late final LanguageController _languageController;
+  late HomeViewModel _homeViewModel;
+  late AppSnapshot _snapshot;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
+    _snapshot = widget.snapshot ?? _testSnapshot();
+    _homeViewModel = _homeViewModelForSnapshot(_snapshot);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalizedHomePageApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.snapshot != widget.snapshot) {
+      _homeViewModel.dispose();
+      _snapshot = widget.snapshot ?? _testSnapshot();
+      _homeViewModel = _homeViewModelForSnapshot(_snapshot);
+    }
   }
 
   @override
   void dispose() {
+    _homeViewModel.dispose();
     _languageController.dispose();
     super.dispose();
   }
@@ -192,7 +226,8 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                   body: HomePage(
                       open: (_) {},
                       selectTab: (_) {},
-                      data: widget.snapshot ?? _testSnapshot())))));
+                      viewModel: _homeViewModel,
+                      health: _snapshot.health)))));
 }
 
 class _MainTabsHarness extends StatefulWidget {
@@ -222,17 +257,23 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
     super.initState();
     _languageController = LanguageController()..load();
     _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-    _pageDependencies = _dependencies.createMainTabsDependencies(widget.client);
+    _pageDependencies = _dependencies.createMainTabsDependencies(
+      widget.client,
+      initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
+    );
   }
 
   @override
   void didUpdateWidget(covariant _MainTabsHarness oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client ||
-        oldWidget.dependencies != widget.dependencies) {
+        oldWidget.dependencies != widget.dependencies ||
+        oldWidget.snapshot != widget.snapshot) {
       _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-      _pageDependencies =
-          _dependencies.createMainTabsDependencies(widget.client);
+      _pageDependencies = _dependencies.createMainTabsDependencies(
+        widget.client,
+        initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
+      );
     }
   }
 
@@ -255,7 +296,8 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                   resolveSupportedLocale(locale, supportedLocales),
               theme: theme.buildAppTheme(),
               home: MainTabsPage(
-                  data: widget.snapshot ?? _testSnapshot(),
+                  initialData: (widget.snapshot ?? _testSnapshot())
+                      .toDaemonInitialData(),
                   connectionConfig: const DaemonConnectionConfig(
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
@@ -308,6 +350,79 @@ class _MobileConnectionHarnessState extends State<_MobileConnectionHarness> {
               ))));
 }
 
+FeatureDependencies _testFeatureDependencies({
+  required DaemonConnectionViewModel Function() createDaemonConnectionViewModel,
+  HomeViewModel Function(
+    ConnectedDataDependencies connectedData, {
+    HomeWorkspaceSignalMetrics? signalMetrics,
+  })? createHomeViewModel,
+  SettingsViewModel Function({
+    required ConnectedDataDependencies connectedData,
+    required DaemonConnectionConfig connectionConfig,
+    required DaemonHealth health,
+    CodeDiagnosticsSummary? diagnostics,
+    GitStatusSummary? gitStatus,
+    int extensionsCount,
+  })? createSettingsViewModel,
+  required DiagnosticsViewModel Function(
+    ConnectedDataDependencies connectedData,
+  ) createDiagnosticsViewModel,
+  required RunDetailViewModel Function(
+    ConnectedDataDependencies connectedData,
+    RunSummary run,
+  ) createRunDetailViewModel,
+  required Future<AppUpdateViewModel> Function({
+    required DaemonClient client,
+    required ConnectedDataDependencies connectedData,
+    required int installedVersionCode,
+    required String installedVersionName,
+  }) createAppUpdateViewModel,
+  required WorkbenchDependencies Function(
+    DaemonClient client,
+    ConnectedDataDependencies connectedData,
+  ) createWorkbenchDependencies,
+}) =>
+    FeatureDependencies(
+      createDaemonConnectionViewModel: createDaemonConnectionViewModel,
+      createHomeViewModel:
+          createHomeViewModel ?? _defaultTestHomeViewModelFactory,
+      createSettingsViewModel:
+          createSettingsViewModel ?? _defaultTestSettingsViewModelFactory,
+      createDiagnosticsViewModel: createDiagnosticsViewModel,
+      createRunDetailViewModel: createRunDetailViewModel,
+      createAppUpdateViewModel: createAppUpdateViewModel,
+      createWorkbenchDependencies: createWorkbenchDependencies,
+    );
+
+HomeViewModel _defaultTestHomeViewModelFactory(
+  ConnectedDataDependencies connectedData, {
+  HomeWorkspaceSignalMetrics? signalMetrics,
+}) =>
+    HomeViewModel(
+      workspaceRepository: connectedData.workspaceRepository,
+      conversationRepository: connectedData.conversationRepository,
+      runRepository: connectedData.runRepository,
+      signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
+    );
+
+SettingsViewModel _defaultTestSettingsViewModelFactory({
+  required ConnectedDataDependencies connectedData,
+  required DaemonConnectionConfig connectionConfig,
+  required DaemonHealth health,
+  CodeDiagnosticsSummary? diagnostics,
+  GitStatusSummary? gitStatus,
+  int extensionsCount = 0,
+}) =>
+    SettingsViewModel(
+      workspaceRepository: connectedData.workspaceRepository,
+      codingPreferencesRepository: CodingPreferencesRepository(),
+      connectionConfig: connectionConfig,
+      health: health,
+      diagnostics: diagnostics,
+      gitStatus: gitStatus,
+      extensionsCount: extensionsCount,
+    );
+
 class _AdapterRefreshClient extends DaemonClient {
   _AdapterRefreshClient({
     this.adapters = const <AdapterStatus>[
@@ -337,6 +452,27 @@ class _AdapterRefreshClient extends DaemonClient {
   }
 
   @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async =>
+      const <WorkspaceSummary>[
+        WorkspaceSummary(
+          id: 'workspace_1',
+          name: 'Current Project',
+          path: r'D:\AiProject\vibe-coding',
+        ),
+      ];
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
   Future<List<ConversationSummary>> listConversations() async =>
       <ConversationSummary>[
         _conversationSummary(
@@ -347,6 +483,89 @@ class _AdapterRefreshClient extends DaemonClient {
           userMessageCount: 500,
         ),
       ];
+}
+
+class _NoBootstrapRefreshClient extends _AdapterRefreshClient {
+  int listWorkspacesCalls = 0;
+  int listConversationsCalls = 0;
+  int listRunsCalls = 0;
+  int listQueueCalls = 0;
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    listWorkspacesCalls++;
+    return const <WorkspaceSummary>[];
+  }
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async {
+    listConversationsCalls++;
+    return const <ConversationSummary>[];
+  }
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async {
+    listRunsCalls++;
+    return const <RunSummary>[];
+  }
+
+  @override
+  Future<List<QueueItem>> listQueue() async {
+    listQueueCalls++;
+    return const <QueueItem>[];
+  }
+}
+
+class _WorkspaceSelectionClient extends _AdapterRefreshClient {
+  _WorkspaceSelectionClient({required this.workspaceCatalog});
+
+  final List<WorkspaceSummary> workspaceCatalog;
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async => workspaceCatalog;
+
+  @override
+  Future<List<RunSummary>> listRuns(
+          {String? tool, String? workspaceId, String? status}) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      const <ConversationSummary>[];
+}
+
+class _WorkspaceCreationClient extends _WorkspaceSelectionClient {
+  _WorkspaceCreationClient({
+    required List<WorkspaceSummary> initialWorkspaces,
+    required this.createdWorkspace,
+  }) : super(workspaceCatalog: List<WorkspaceSummary>.of(initialWorkspaces));
+
+  final WorkspaceSummary createdWorkspace;
+  int createWorkspaceCalls = 0;
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) async {
+    createWorkspaceCalls++;
+    final created = WorkspaceSummary(
+      id: createdWorkspace.id,
+      name: name ?? createdWorkspace.name,
+      path: path,
+    );
+    workspaceCatalog
+      ..removeWhere((workspace) => workspace.id == created.id)
+      ..add(created);
+    return created;
+  }
 }
 
 class _WorkspaceBootstrapFailureClient extends _AdapterRefreshClient {
@@ -383,6 +602,7 @@ class _PendingAdapterClient extends DaemonClient {
             tokenStore: MemoryTokenStore());
 
   int listAdaptersCalls = 0;
+  bool completeCatalogWithError = false;
   Completer<List<AdapterStatus>> adaptersCompleter =
       Completer<List<AdapterStatus>>();
 
@@ -391,6 +611,22 @@ class _PendingAdapterClient extends DaemonClient {
     listAdaptersCalls++;
     return adaptersCompleter.future;
   }
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async {
+    if (completeCatalogWithError) {
+      throw StateError('extensions failed');
+    }
+    return const <ExtensionSummary>[];
+  }
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
 
   void completeWithAdapters() {
     adaptersCompleter.complete(const <AdapterStatus>[
@@ -838,20 +1074,170 @@ class _NewSessionConversationRepository implements ConversationRepository {
       );
 }
 
+HomeViewModel _homeViewModelForSnapshot(AppSnapshot snapshot) => HomeViewModel(
+      workspaceRepository: _SnapshotWorkspaceRepository(snapshot),
+      conversationRepository:
+          _SnapshotCachedConversationRepository(snapshot.conversations),
+      runRepository: _SnapshotCachedRunRepository(
+        runs: snapshot.runs,
+        queue: snapshot.queue,
+      ),
+      signalMetrics: HomeWorkspaceSignalMetrics(
+        changedFiles: snapshot.gitStatus?.files.length,
+        diagnostics: snapshot.diagnostics.available
+            ? snapshot.diagnostics.diagnostics.length
+            : null,
+        recentFiles: snapshot.diagnostics.available
+            ? snapshot.overview.recentFiles.length
+            : null,
+      ),
+    );
+
+class _SnapshotWorkspaceRepository
+    extends data_repositories.WorkspaceRepository {
+  _SnapshotWorkspaceRepository(this.snapshot)
+      : _selectedWorkspaceId = snapshot.workspace.id;
+
+  final AppSnapshot snapshot;
+  String? _selectedWorkspaceId;
+
+  @override
+  List<WorkspaceSummary> get workspaces => snapshot.workspaces;
+
+  @override
+  WorkspaceSummary? get selectedWorkspace {
+    final selectedWorkspaceId = _selectedWorkspaceId;
+    if (selectedWorkspaceId == null) return null;
+    for (final workspace in snapshot.workspaces) {
+      if (workspace.id == selectedWorkspaceId) return workspace;
+    }
+    return null;
+  }
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({required String path, String? name}) async =>
+      throw UnimplementedError();
+
+  @override
+  bool select(String workspaceId) {
+    if (!snapshot.workspaces.any((workspace) => workspace.id == workspaceId)) {
+      return false;
+    }
+    _selectedWorkspaceId = workspaceId;
+    notifyListeners();
+    return true;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary? selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _selectedWorkspaceId = selectedWorkspace?.id;
+    notifyListeners();
+  }
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async => snapshot.workspaces;
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _SnapshotCachedConversationRepository
+    extends CachedConversationRepository {
+  _SnapshotCachedConversationRepository(this._conversations)
+      : super(delegate: _UnusedConversationRepository());
+
+  final List<ConversationSummary> _conversations;
+
+  @override
+  List<ConversationSummary> get conversations => _conversations;
+
+  @override
+  Future<void> refresh() async {}
+}
+
+class _SnapshotCachedRunRepository extends CachedRunRepository {
+  _SnapshotCachedRunRepository({
+    required List<RunSummary> runs,
+    required List<QueueItem> queue,
+  })  : _runs = runs,
+        _queue = queue,
+        super(delegate: _UnusedRunRepository());
+
+  final List<RunSummary> _runs;
+  final List<QueueItem> _queue;
+
+  @override
+  List<RunSummary> get runs => _runs;
+
+  @override
+  List<QueueItem> get queue => _queue;
+
+  @override
+  Future<void> refresh() async {}
+}
+
+class _WidgetCodingPreferencesRepository extends CodingPreferencesRepository {
+  _WidgetCodingPreferencesRepository({required String permissionMode})
+      : _permissionMode =
+            CodingPreferencesRepository.normalizePermissionMode(permissionMode);
+
+  String _permissionMode;
+
+  @override
+  String get permissionMode => _permissionMode;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> setPermissionMode(String value) async {
+    _permissionMode =
+        CodingPreferencesRepository.normalizePermissionMode(value);
+    notifyListeners();
+  }
+}
+
+class _UnusedRunRepository implements RunRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedConversationRepository implements ConversationRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   _WidgetTestWorkspaceRepository({
     List<DirectoryEntrySummary> roots = const <DirectoryEntrySummary>[],
     Map<String, DirectoryListing> directories =
         const <String, DirectoryListing>{},
-    this.createdWorkspace,
-    this.listedWorkspaces = const <WorkspaceSummary>[],
   })  : _roots = roots,
         _directories = directories;
 
   final List<DirectoryEntrySummary> _roots;
   final Map<String, DirectoryListing> _directories;
-  final WorkspaceSummary? createdWorkspace;
-  final List<WorkspaceSummary> listedWorkspaces;
 
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
@@ -861,11 +1247,8 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   Future<WorkspaceSummary> createWorkspace({
     required String path,
     String? name,
-  }) async {
-    final workspace = createdWorkspace;
-    if (workspace == null) throw UnimplementedError();
-    return workspace;
-  }
+  }) async =>
+      throw UnimplementedError();
 
   @override
   Future<FileContent> fileContent(String workspaceId, String path) async =>
@@ -903,7 +1286,8 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
   Future<List<DirectoryEntrySummary>> listFileSystemRoots() async => _roots;
 
   @override
-  Future<List<WorkspaceSummary>> listWorkspaces() async => listedWorkspaces;
+  Future<List<WorkspaceSummary>> listWorkspaces() async =>
+      const <WorkspaceSummary>[];
 
   @override
   Future<ProjectOverview> projectOverview(String workspaceId) async =>
@@ -1054,6 +1438,76 @@ void main() {
     expect(find.text('Connected'), findsNothing);
     expect(find.text('127.0.0.1:4317'), findsNothing);
     expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
+  });
+
+  testWidgets('connected startup renders bootstrap home without refetching',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    _setMockPackageInfo();
+    final client = _NoBootstrapRefreshClient();
+    addTearDown(client.close);
+    HomeViewModel? openedHomeViewModel;
+    final dependencies = AppDependencies.createDefault();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createHomeViewModel: (connectedData, {signalMetrics}) {
+          final viewModel = _defaultTestHomeViewModelFactory(
+            connectedData,
+            signalMetrics: signalMetrics,
+          );
+          openedHomeViewModel = viewModel;
+          return viewModel;
+        },
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+    final snapshot = _testSnapshot(
+      runs: const <RunSummary>[
+        RunSummary(
+          id: 'run_bootstrap',
+          tool: 'codex',
+          workspaceId: 'workspace_1',
+          status: 'completed',
+        ),
+      ],
+      queue: const <QueueItem>[
+        QueueItem(
+          runId: 'run_bootstrap',
+          workspaceId: 'workspace_1',
+          position: 1,
+          status: 'queued',
+          reason: 'waiting',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_MainTabsHarness(
+      client: client,
+      dependencies: testDependencies,
+      snapshot: snapshot,
+    ));
+    await _pumpNavigationFrame(tester);
+
+    final deck = openedHomeViewModel?.deck;
+    expect(deck?.now.id, 'queue:run_bootstrap');
+    expect(deck?.signals.queue, 1);
+    expect(client.listWorkspacesCalls, 0);
+    expect(client.listConversationsCalls, 0);
+    expect(client.listRunsCalls, 0);
+    expect(client.listQueueCalls, 0);
   });
 
   testWidgets('home command deck shows global attention and activity',
@@ -1603,7 +2057,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -1645,6 +2099,110 @@ void main() {
     expect(find.text('App update'), findsNothing);
     expect(find.textContaining('Unable to connect'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
+  });
+
+  testWidgets(
+      'opening second workspace pins repository-backed home and settings',
+      (WidgetTester tester) async {
+    const workspaces = <WorkspaceSummary>[
+      WorkspaceSummary(id: 'workspace_1', name: 'One', path: r'D:\one'),
+      WorkspaceSummary(id: 'workspace_2', name: 'Two', path: r'D:\two'),
+    ];
+    final client = _WorkspaceSelectionClient(workspaceCatalog: workspaces);
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _ImmediateConnectUseCase(
+        ConnectedAppSession<DaemonClient>(
+          client: client,
+          initialData: DaemonInitialData(
+            health: _testSnapshot().health,
+            workspaces: workspaces,
+            workspace: null,
+            adapters: const <AdapterStatus>[],
+            runs: const <RunSummary>[],
+            conversations: const <ConversationSummary>[],
+            queue: const <QueueItem>[],
+          ),
+          connectedConfig: const DaemonConnectionConfig(
+            addressInput: '127.0.0.1:4317',
+            proxyMode: DaemonProxyMode.system,
+            manualProxyInput: '',
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    _setMockPackageInfo();
+    final dependencies = AppDependencies.createDefault();
+    HomeViewModel? openedHomeViewModel;
+    SettingsViewModel? openedSettingsViewModel;
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createHomeViewModel: (connectedData, {signalMetrics}) {
+          final viewModel = _defaultTestHomeViewModelFactory(
+            connectedData,
+            signalMetrics: signalMetrics,
+          );
+          openedHomeViewModel = viewModel;
+          return viewModel;
+        },
+        createSettingsViewModel: ({
+          required ConnectedDataDependencies connectedData,
+          required DaemonConnectionConfig connectionConfig,
+          required DaemonHealth health,
+          CodeDiagnosticsSummary? diagnostics,
+          GitStatusSummary? gitStatus,
+          int extensionsCount = 0,
+        }) {
+          final viewModel = _defaultTestSettingsViewModelFactory(
+            connectedData: connectedData,
+            connectionConfig: connectionConfig,
+            health: health,
+            diagnostics: diagnostics,
+            gitStatus: gitStatus,
+            extensionsCount: extensionsCount,
+          );
+          openedSettingsViewModel = viewModel;
+          return viewModel;
+        },
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            throw StateError('not used'),
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+
+    await tester.pumpWidget(_MobileConnectionHarness(
+      controller: controller,
+      dependencies: testDependencies,
+    ));
+    await controller.load();
+    await controller.connect();
+    await tester.pumpAndSettle();
+    expect(find.text('Two'), findsOneWidget);
+
+    await tester.tap(find.text('Two'));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(openedHomeViewModel?.currentWorkspace?.id, 'workspace_2');
+    expect(openedSettingsViewModel?.selectedWorkspace?.id, 'workspace_2');
   });
 
   testWidgets('workspace bootstrap failure returns to empty workspace list',
@@ -2228,7 +2786,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2239,9 +2797,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2305,7 +2864,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2316,9 +2875,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2422,7 +2982,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2433,9 +2993,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2519,7 +3080,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2530,9 +3091,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2624,7 +3186,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2635,9 +3197,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2720,7 +3283,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2829,7 +3392,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2918,7 +3481,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -2929,9 +3492,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3022,7 +3586,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3033,9 +3597,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3099,7 +3664,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3110,9 +3675,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3134,7 +3700,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     const prompt = 'Who are you?';
@@ -3189,7 +3755,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3200,9 +3766,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3224,7 +3791,7 @@ void main() {
     await _pumpNavigationFrame(tester);
     await tester.tap(find.text('Current Project'));
     await _pumpNavigationFrame(tester);
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await _pumpNavigationFrame(tester);
 
     await tester.enterText(
@@ -3268,7 +3835,7 @@ void main() {
       network: dependencies.network,
       data: dependencies.data,
       domain: dependencies.domain,
-      features: FeatureDependencies(
+      features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createDiagnosticsViewModel:
@@ -3279,9 +3846,10 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3303,7 +3871,7 @@ void main() {
     await _pumpNavigationFrame(tester);
     await tester.tap(find.text('Current Project'));
     await _pumpNavigationFrame(tester);
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await _pumpNavigationFrame(tester);
 
     await tester.enterText(find.byType(TextField).last, 'Check permissions');
@@ -3346,7 +3914,7 @@ void main() {
 
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('codex'), findsWidgets);
@@ -3416,6 +3984,33 @@ void main() {
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.text('Unable to load CLI adapters'), findsNothing);
+  });
+
+  testWidgets('coding gate ignores command catalog failure after adapters load',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final client = _PendingAdapterClient()..completeCatalogWithError = true;
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pump();
+
+    final harnessState =
+        tester.state<_MainTabsHarnessState>(find.byType(_MainTabsHarness));
+    final commandCatalogRepository = harnessState
+        ._pageDependencies.sessionScope.repositories.commandCatalogRepository;
+    await expectLater(
+      commandCatalogRepository.load(),
+      throwsA(isA<StateError>()),
+    );
+    expect(commandCatalogRepository.error, isA<StateError>());
+
+    client.completeWithAdapters();
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unable to load CLI adapters'), findsNothing);
+    expect(find.byType(CodingPage), findsOneWidget);
   });
 
   testWidgets('adapter picker scrolls on compact screens',
@@ -3670,82 +4265,56 @@ void main() {
     expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
   });
 
-  testWidgets('created workspace remains listed after settings tab round trip',
+  testWidgets('created workspace remains visible after tab switch',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
-    const current = WorkspaceSummary(
+    const initialWorkspace = WorkspaceSummary(
       id: 'workspace_1',
       name: 'Current Project',
       path: r'D:\AiProject\vibe-coding',
     );
-    const created = WorkspaceSummary(
-      id: 'workspace_new',
-      name: 'New Workspace',
-      path: r'D:\AiProject\new-workspace',
+    const createdWorkspace = WorkspaceSummary(
+      id: 'workspace_created',
+      name: 'Created Project',
+      path: r'D:\created',
     );
-    final dependencies = AppDependencies.createDefault();
-    final client = _AdapterRefreshClient();
-    final connectedData = dependencies.data.forDaemonClient(client);
-    final workbenchDependencies = dependencies.features
-        .createWorkbenchDependencies(client, connectedData);
-    final workspaceRepository = _WidgetTestWorkspaceRepository(
-      createdWorkspace: created,
-      listedWorkspaces: const <WorkspaceSummary>[current, created],
-    );
-    final testDependencies = AppDependencies(
-      network: dependencies.network,
-      data: dependencies.data,
-      domain: dependencies.domain,
-      features: FeatureDependencies(
-        createDaemonConnectionViewModel:
-            dependencies.features.createDaemonConnectionViewModel,
-        createDiagnosticsViewModel:
-            dependencies.features.createDiagnosticsViewModel,
-        createRunDetailViewModel:
-            dependencies.features.createRunDetailViewModel,
-        createAppUpdateViewModel:
-            dependencies.features.createAppUpdateViewModel,
-        createWorkbenchDependencies: (_, connectedData) =>
-            WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
-          asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: connectedData.conversationRepository,
-          diagnosticsRepository: connectedData.diagnosticsRepository,
-          runRepository: connectedData.runRepository,
-          speechInputServiceBuilder:
-              workbenchDependencies.speechInputServiceBuilder,
-          workspaceRepository: workspaceRepository,
-        ),
-      ),
+    final client = _WorkspaceCreationClient(
+      initialWorkspaces: const <WorkspaceSummary>[initialWorkspace],
+      createdWorkspace: createdWorkspace,
     );
 
-    await tester.pumpWidget(_MainTabsHarness(
-      client: client,
-      dependencies: testDependencies,
-      snapshot: _testSnapshot(workspaces: const <WorkspaceSummary>[current]),
-    ));
+    await tester.pumpWidget(_MainTabsHarness(client: client));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add workspace'));
+    final addWorkspace = find.descendant(
+      of: find.byKey(const ValueKey('workspace-list')),
+      matching: find.byIcon(Icons.add_rounded),
+    );
+    await tester.tap(addWorkspace);
     await tester.pumpAndSettle();
-    await tester.enterText(
-        find.byType(TextField).at(0), r'D:\AiProject\new-workspace');
-    await tester.enterText(find.byType(TextField).at(1), 'New Workspace');
+
+    final inputs = find.byType(TextField);
+    await tester.enterText(inputs.at(0), r'D:\created');
+    await tester.enterText(inputs.at(1), 'Created Project');
     await tester.tap(find.text('Create and use'));
     await tester.pumpAndSettle();
 
+    expect(client.createWorkspaceCalls, 1);
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.text('Created Project'), findsOneWidget);
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
+    expect(find.text('Created Project'), findsOneWidget);
+
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-    expect(find.text('New Workspace'), findsOneWidget);
+    expect(find.text('Created Project'), findsOneWidget);
   });
 
   testWidgets('system back walks coding nested navigator before home',
@@ -3759,7 +4328,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -3795,7 +4364,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -3847,10 +4416,6 @@ void main() {
       userMessageCount: 1,
       title: 'Fix mobile title rendering',
     );
-    final data = _testSnapshot(conversations: <ConversationSummary>[
-      conversation,
-    ]);
-
     await tester.pumpWidget(MaterialApp(
       locale: theme.zhHansCnLocale,
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
@@ -3863,7 +4428,6 @@ void main() {
       home: Scaffold(
         backgroundColor: theme.bg,
         body: CodingSessionListPage(
-          data: data,
           items: <SessionItem>[
             SessionItem(
               run: const RunSummary(
@@ -4453,6 +5017,41 @@ void main() {
     expect(find.text('-  old expectation'), findsOneWidget);
     expect(find.text('+  new expectation'), findsOneWidget);
     expect(find.text('System notice'), findsNothing);
+  });
+
+  testWidgets('Claude auth warning renders as an error notice',
+      (WidgetTester tester) async {
+    final message = workbenchMessageFromConversation(const ConversationMessage(
+      role: 'notice',
+      text: 'Claude API 401 authentication_failed (retry 1/10)',
+      isError: true,
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopString,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Claude authentication failed'), findsOneWidget);
+    expect(find.text('provider auth'), findsOneWidget);
+    expect(find.text('Claude API 401 authentication_failed (retry 1/10)'),
+        findsOneWidget);
+    expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
+    expect(find.text('System notice'), findsNothing);
+    expect(find.text('non-blocking'), findsNothing);
   });
 
   testWidgets('thinking card title uses active locale',

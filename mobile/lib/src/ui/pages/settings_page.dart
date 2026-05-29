@@ -1,33 +1,25 @@
 import 'package:flutter/material.dart';
 
-import '../../domain/models/daemon_connection_config.dart';
 import '../../shell/app_route.dart';
-import '../../shell/app_snapshot.dart';
 import '../features/settings/settings.dart' as settings_feature;
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
     required this.open,
-    required this.data,
-    required this.connectionConfig,
+    required this.viewModel,
     required this.streamOutput,
     required this.expandThinking,
-    required this.permissionMode,
     this.appUpdateViewModel,
-    required this.onPermissionModeChanged,
     required this.onStreamOutputChanged,
     required this.onExpandThinkingChanged,
   });
 
   final ValueChanged<RoutePage> open;
-  final AppSnapshot data;
-  final DaemonConnectionConfig connectionConfig;
+  final settings_feature.SettingsViewModel viewModel;
   final bool streamOutput;
   final bool expandThinking;
-  final String permissionMode;
   final settings_feature.AppUpdateViewModel? appUpdateViewModel;
-  final ValueChanged<String> onPermissionModeChanged;
   final ValueChanged<bool> onStreamOutputChanged;
   final ValueChanged<bool> onExpandThinkingChanged;
 
@@ -35,13 +27,10 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return settings_feature.SettingsPage(
       open: open,
-      data: data,
-      connectionConfig: connectionConfig,
+      viewModel: viewModel,
       streamOutput: streamOutput,
       expandThinking: expandThinking,
-      permissionMode: permissionMode,
       appUpdateViewModel: appUpdateViewModel,
-      onPermissionModeChanged: onPermissionModeChanged,
       onStreamOutputChanged: onStreamOutputChanged,
       onExpandThinkingChanged: onExpandThinkingChanged,
     );
