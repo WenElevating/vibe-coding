@@ -491,11 +491,14 @@ class _MainTabsPageState extends State<MainTabsPage>
     _viewModel?.setPermissionMode(permissionMode);
   }
 
-  void _createRepositoryBackedViewModels(DaemonInitialData data) {
+  void _createRepositoryBackedViewModels(
+    DaemonInitialData data, {
+    bool hydrate = true,
+  }) {
     final selectedWorkspace = data.workspace;
     if (selectedWorkspace == null) return;
     _disposeRepositoryBackedViewModels();
-    _hydrateSessionScope(data);
+    if (hydrate) _hydrateSessionScope(data);
     final homeViewModel =
         widget.pageDependencies.featureDependencies.createHomeViewModel(
       _connectedData,
@@ -793,24 +796,42 @@ class _MainTabsPageState extends State<MainTabsPage>
     WorkspaceSummary workspace,
     List<WorkspaceSummary> workspaces,
   ) async {
-    final health = widget.initialData.health;
     setState(() {
       _loadingWorkspace = true;
       _emptyError = null;
     });
     try {
-      final initialData = await widget.pageDependencies.loadWorkspaceBootstrap(
-        health: health,
+      final initialData = await widget
+          .pageDependencies.sessionScope.useCases.openWorkspace
+          .open(
         workspaces: workspaces,
         workspace: workspace,
       );
       if (!mounted) return;
+      final openedWorkspace = initialData.workspace;
+      if (openedWorkspace?.id != workspace.id) {
+        setState(() {
+          _creatingWorkspace = false;
+          _loadingWorkspace = false;
+          _emptyWorkspaces =
+              List<WorkspaceSummary>.unmodifiable(initialData.workspaces);
+          _emptyError = _workspaceOpenConfirmationError(
+            requested: workspace,
+            opened: openedWorkspace,
+          );
+          _connectedInitialData = null;
+          _viewModel?.dispose();
+          _viewModel = null;
+          _disposeRepositoryBackedViewModels();
+        });
+        return;
+      }
       setState(() {
         _creatingWorkspace = false;
         _loadingWorkspace = false;
         _connectedInitialData = initialData;
         _viewModel = MainTabsShellViewModel();
-        _createRepositoryBackedViewModels(initialData);
+        _createRepositoryBackedViewModels(initialData, hydrate: false);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
       _loadCodingAdapters();
@@ -822,6 +843,20 @@ class _MainTabsPageState extends State<MainTabsPage>
         _emptyError = error;
       });
     }
+  }
+
+  StateError _workspaceOpenConfirmationError({
+    required WorkspaceSummary requested,
+    required WorkspaceSummary? opened,
+  }) {
+    final openedId = opened?.id;
+    if (openedId == null) {
+      return StateError(
+          'Workspace ${requested.name} was not confirmed by the daemon.');
+    }
+    return StateError(
+      'Workspace ${requested.name} was not opened; daemon selected $openedId.',
+    );
   }
 
   Widget _buildCodingTab() {

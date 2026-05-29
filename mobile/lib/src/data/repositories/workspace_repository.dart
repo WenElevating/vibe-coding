@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/repositories/workspace_repository.dart' as domain;
 import '../../models/protocol.dart';
+import 'bootstrap_hydration.dart';
 
 abstract class WorkspaceRepository extends ChangeNotifier
-    implements domain.WorkspaceRepository {
+    implements domain.WorkspaceRepository, WorkspaceBootstrapTarget {
   List<WorkspaceSummary> get workspaces;
   WorkspaceSummary? get selectedWorkspace;
   bool get loading;

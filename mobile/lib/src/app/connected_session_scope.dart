@@ -8,6 +8,7 @@ import '../domain/models/daemon_initial_data.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
+import '../workflows/connection/open_workspace_use_case.dart';
 
 class ConnectedSessionScope {
   ConnectedSessionScope({
@@ -102,5 +103,9 @@ class ConnectedSessionRepositories {
 }
 
 class ConnectedSessionUseCases {
-  const ConnectedSessionUseCases();
+  const ConnectedSessionUseCases({
+    required this.openWorkspace,
+  });
+
+  final WorkspaceOpeningUseCase openWorkspace;
 }

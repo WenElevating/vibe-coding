@@ -5,6 +5,7 @@ import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../services/asr_model_manager.dart';
 import '../../../services/speech_input_contract.dart';
+import '../../../workflows/connection/open_workspace_use_case.dart';
 import 'attachments/attachment_preview_cache.dart';
 
 class WorkbenchDependencies {
@@ -16,6 +17,7 @@ class WorkbenchDependencies {
     required this.runRepository,
     required this.speechInputServiceBuilder,
     required this.workspaceRepository,
+    this.workspaceOpeningUseCase,
     this.attachmentPreviewCache = const NoopAttachmentPreviewCache(),
   });
 
@@ -27,4 +29,22 @@ class WorkbenchDependencies {
   final CachedRunRepository runRepository;
   final SpeechInputServiceBuilder speechInputServiceBuilder;
   final WorkspaceRepository workspaceRepository;
+  final WorkspaceOpeningUseCase? workspaceOpeningUseCase;
+
+  WorkbenchDependencies copyWith({
+    WorkspaceOpeningUseCase? workspaceOpeningUseCase,
+  }) {
+    return WorkbenchDependencies(
+      adapterRepository: adapterRepository,
+      asrModelManager: asrModelManager,
+      conversationRepository: conversationRepository,
+      diagnosticsRepository: diagnosticsRepository,
+      runRepository: runRepository,
+      speechInputServiceBuilder: speechInputServiceBuilder,
+      workspaceRepository: workspaceRepository,
+      workspaceOpeningUseCase:
+          workspaceOpeningUseCase ?? this.workspaceOpeningUseCase,
+      attachmentPreviewCache: attachmentPreviewCache,
+    );
+  }
 }

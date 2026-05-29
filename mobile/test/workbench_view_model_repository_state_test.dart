@@ -1,15 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench_route_state.dart';
+import 'package:lan_ai_cli_control/src/workflows/connection/open_workspace_use_case.dart';
 
 void main() {
   group('WorkbenchViewModel repository-owned state', () {
@@ -49,19 +53,19 @@ void main() {
 
     test(
         'openWorkspaceSessions falls back to workspace list when repository select returns false',
-        () {
+        () async {
       final viewModel = _workbenchViewModel(
         _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
       );
 
-      viewModel.openWorkspaceSessions('missing');
+      await viewModel.openWorkspaceSessions('missing');
 
       expect(viewModel.routeState, isA<WorkspaceListRouteState>());
     });
 
     test(
         'openWorkspaceSessions routes to sessions when repository select returns true',
-        () {
+        () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[
           WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
@@ -69,7 +73,7 @@ void main() {
       );
       final viewModel = _workbenchViewModel(workspaceRepository);
 
-      viewModel.openWorkspaceSessions('w1');
+      await viewModel.openWorkspaceSessions('w1');
 
       final route = viewModel.routeState as WorkspaceSessionsRouteState;
       expect(route.workspaceId, 'w1');
@@ -137,7 +141,7 @@ void main() {
       expect(viewModel.selectedWorkspace?.id, 'w2');
     });
 
-    test('routeWorkspace resolves workspace id from repository', () {
+    test('routeWorkspace resolves workspace id from repository', () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[
           WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
@@ -145,10 +149,82 @@ void main() {
       );
       final viewModel = _workbenchViewModel(workspaceRepository);
 
-      viewModel.openWorkspaceSessions('w1');
+      await viewModel.openWorkspaceSessions('w1');
 
       expect(viewModel.routeWorkspace, isNotNull);
       expect(viewModel.routeWorkspace?.id, 'w1');
+    });
+
+    test(
+        'openWorkspaceSessions exposes loading until workspace bootstrap completes',
+        () async {
+      final completer = Completer<DaemonInitialData>();
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        openWorkspace: _FakeWorkspaceOpeningUseCase(completer.future),
+      );
+
+      final future = viewModel.openWorkspaceSessions('w2');
+
+      expect(viewModel.openingWorkspaceId, 'w2');
+      expect(viewModel.openingWorkspace, isTrue);
+
+      completer.complete(_initialDataForWorkspace('w2'));
+      await future;
+
+      expect(viewModel.openingWorkspaceId, isNull);
+      expect(viewModel.openingWorkspace, isFalse);
+      expect(viewModel.routeState, isA<WorkspaceSessionsRouteState>());
+    });
+
+    test(
+        'openWorkspaceSessions returns to list when bootstrap has no workspace',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        openWorkspace: _FakeWorkspaceOpeningUseCase(
+          Future<DaemonInitialData>.value(_initialDataWithoutWorkspace()),
+        ),
+      );
+
+      await viewModel.openWorkspaceSessions('w2');
+
+      expect(viewModel.openingWorkspace, isFalse);
+      expect(viewModel.routeState, isA<WorkspaceListRouteState>());
+    });
+
+    test(
+        'openWorkspaceSessions returns to list when bootstrap selects a different workspace',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+          WorkspaceSummary(id: 'w2', name: 'Two', path: r'D:\two'),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        openWorkspace: _FakeWorkspaceOpeningUseCase(
+          Future<DaemonInitialData>.value(_initialDataForWorkspace('w1')),
+        ),
+      );
+
+      await viewModel.openWorkspaceSessions('w2');
+
+      expect(viewModel.openingWorkspace, isFalse);
+      expect(viewModel.routeState, isA<WorkspaceListRouteState>());
     });
   });
 }
@@ -160,12 +236,14 @@ void main() {
 WorkbenchViewModel _workbenchViewModel(
   _FakeWorkspaceRepository workspaceRepository, {
   _FakeCliAdapterRepository? adapterRepository,
+  WorkspaceOpeningUseCase? openWorkspace,
 }) {
   return WorkbenchViewModel(
     workspaceRepository: workspaceRepository,
     adapterRepository: adapterRepository ?? _FakeCliAdapterRepository(),
     conversationRepository: _FakeCachedConversationRepository(),
     runRepository: _FakeCachedRunRepository(),
+    workspaceOpeningUseCase: openWorkspace,
   );
 }
 
@@ -337,4 +415,56 @@ class _FakeCachedRunRepository extends CachedRunRepository {
 class _NoOpRunRepository implements RunRepository {
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeWorkspaceOpeningUseCase implements WorkspaceOpeningUseCase {
+  _FakeWorkspaceOpeningUseCase(this.result);
+
+  final Future<DaemonInitialData> result;
+
+  @override
+  Future<DaemonInitialData> open({
+    required List<WorkspaceSummary> workspaces,
+    required WorkspaceSummary workspace,
+  }) =>
+      result;
+}
+
+const _health = DaemonHealth(
+  status: 'ok',
+  daemonVersion: 'test',
+  mode: 'test',
+  lanMode: false,
+  bindAddress: '127.0.0.1',
+  port: 4317,
+  security: <String, Object?>{},
+);
+
+DaemonInitialData _initialDataForWorkspace(String workspaceId) {
+  final workspace = WorkspaceSummary(
+    id: workspaceId,
+    name: workspaceId,
+    path: r'D:\workspace',
+  );
+  return DaemonInitialData(
+    health: _health,
+    workspaces: <WorkspaceSummary>[workspace],
+    workspace: workspace,
+    adapters: const <AdapterStatus>[],
+    conversations: const <ConversationSummary>[],
+    runs: const <RunSummary>[],
+    queue: const <QueueItem>[],
+  );
+}
+
+DaemonInitialData _initialDataWithoutWorkspace() {
+  return const DaemonInitialData(
+    health: _health,
+    workspaces: <WorkspaceSummary>[],
+    workspace: null,
+    adapters: <AdapterStatus>[],
+    conversations: <ConversationSummary>[],
+    runs: <RunSummary>[],
+    queue: <QueueItem>[],
+  );
 }

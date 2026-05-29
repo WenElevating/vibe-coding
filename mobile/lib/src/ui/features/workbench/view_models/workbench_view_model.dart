@@ -11,6 +11,7 @@ import '../../../../domain/repositories/conversation_repository.dart';
 import '../../../../domain/repositories/diagnostics_repository.dart';
 import '../../../../domain/repositories/run_repository.dart';
 import '../../../../models/protocol.dart';
+import '../../../../workflows/connection/open_workspace_use_case.dart';
 import '../../../../workflows/workspace/create_workspace_workflow.dart';
 import '../../sessions/session_item.dart';
 import '../attachments/attachment_preview_cache.dart';
@@ -41,6 +42,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     required CachedConversationRepository conversationRepository,
     required CachedRunRepository runRepository,
     DiagnosticsRepository? diagnosticsRepository,
+    WorkspaceOpeningUseCase? workspaceOpeningUseCase,
     AttachmentPreviewCache attachmentPreviewCache =
         const NoopAttachmentPreviewCache(),
     Duration workspaceCreationTimeout = const Duration(seconds: 20),
@@ -49,6 +51,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         _conversationRepository = conversationRepository,
         _runRepository = runRepository,
         _diagnosticsRepository = diagnosticsRepository,
+        _workspaceOpeningUseCase = workspaceOpeningUseCase,
         _attachmentPreviewCache = attachmentPreviewCache,
         _workspaceCreationTimeout = workspaceCreationTimeout,
         _routeState = const WorkspaceListRouteState() {
@@ -69,6 +72,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   final CachedRunRepository _runRepository;
   final WorkspaceRepository _workspaceRepository;
   final CliAdapterRepository _adapterRepository;
+  final WorkspaceOpeningUseCase? _workspaceOpeningUseCase;
   final Duration _workspaceCreationTimeout;
   late List<AdapterStatus> _adapters;
   String? _selectedAdapter;
@@ -94,6 +98,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   int _lastSeq = 0;
   final Set<String> _resolvedApprovalIds = <String>{};
   bool _sending = false;
+  String? _openingWorkspaceId;
   String? _error;
   String? _errorTraceId;
   String? _currentAttachmentClientMessageId;
@@ -179,6 +184,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   bool get isTerminalConversation =>
       !isActiveConversationStatus(effectiveConversationStatus);
   bool get sending => _sending;
+  String? get openingWorkspaceId => _openingWorkspaceId;
+  bool get openingWorkspace => _openingWorkspaceId != null;
   String? get error => _error;
   String? get errorTraceId => _errorTraceId;
   List<WorkspaceSummary> get workspaces => _workspaceRepository.workspaces;
@@ -260,17 +267,44 @@ class WorkbenchViewModel extends ChangeNotifier {
     _notifyListeners();
   }
 
-  void openWorkspaceSessions(String workspaceId) {
-    final accepted = _workspaceRepository.select(workspaceId);
-    if (!accepted) {
+  Future<void> openWorkspaceSessions(String workspaceId) async {
+    if (_openingWorkspaceId != null) return;
+    final workspace = _workspaceById(workspaceId);
+    if (workspace == null) {
       _routeState = const WorkspaceListRouteState(
         notice: 'Workspace is no longer available.',
       );
       _notifyListeners();
       return;
     }
-    _routeState = WorkspaceSessionsRouteState(workspaceId: workspaceId);
+    final useCase = _workspaceOpeningUseCase;
+    if (useCase == null) {
+      final accepted = _workspaceRepository.select(workspaceId);
+      _routeState = accepted
+          ? WorkspaceSessionsRouteState(workspaceId: workspaceId)
+          : const WorkspaceListRouteState(
+              notice: 'Workspace is no longer available.',
+            );
+      _notifyListeners();
+      return;
+    }
+    _openingWorkspaceId = workspaceId;
     _notifyListeners();
+    try {
+      final initialData = await useCase.open(
+        workspaces: _workspaceRepository.workspaces,
+        workspace: workspace,
+      );
+      final openedWorkspace = initialData.workspace;
+      _routeState = openedWorkspace?.id == workspaceId
+          ? WorkspaceSessionsRouteState(workspaceId: workspaceId)
+          : const WorkspaceListRouteState(
+              notice: 'Workspace is no longer available.',
+            );
+    } finally {
+      _openingWorkspaceId = null;
+      _notifyListeners();
+    }
   }
 
   void openSession(SessionItem item, {bool notify = true}) {

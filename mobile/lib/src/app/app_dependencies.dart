@@ -49,6 +49,7 @@ import '../ui/features/workbench/workbench_dependencies.dart';
 import '../ui/pages/home_view_model.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
+import '../workflows/connection/open_workspace_use_case.dart';
 import 'connected_session_scope.dart';
 
 typedef NotificationClientFactory = DaemonNotificationClient Function(
@@ -95,6 +96,17 @@ class AppDependencies {
     final sessionScope = _createConnectedSessionScope(
       connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
+      loadWorkspaceBootstrap: ({
+        required workspaces,
+        required workspace,
+      }) async =>
+          (await loadWorkspaceBootstrap(
+        client,
+        health: initialData.health,
+        workspaces: workspaces,
+        workspace: workspace,
+      ))
+              .toDaemonInitialData(),
     );
     sessionScope.hydrateFromBootstrap(initialData);
     return MainTabsDependencies(
@@ -103,10 +115,10 @@ class AppDependencies {
       codingPreferencesRepository: data.codingPreferencesRepository,
       normalizeCodingPermissionMode:
           CodingPreferencesRepository.normalizePermissionMode,
-      workbenchDependencies: features.createWorkbenchDependencies(
-        client,
-        connectedData,
-      ),
+      workbenchDependencies:
+          features.createWorkbenchDependencies(client, connectedData).copyWith(
+                workspaceOpeningUseCase: sessionScope.useCases.openWorkspace,
+              ),
       featureDependencies: features,
       createAppUpdateViewModel: ({
         required installedVersionCode,
@@ -166,6 +178,7 @@ class MainTabsDependencies {
 ConnectedSessionScope _createConnectedSessionScope(
   ConnectedDataDependencies connectedData, {
   required CodingPreferencesRepository codingPreferencesRepository,
+  required LoadWorkspaceBootstrap loadWorkspaceBootstrap,
 }) {
   final repositories = ConnectedSessionRepositories(
     authRepository: connectedData.authRepository,
@@ -181,7 +194,14 @@ ConnectedSessionScope _createConnectedSessionScope(
   );
   return ConnectedSessionScope(
     repositories: repositories,
-    useCases: const ConnectedSessionUseCases(),
+    useCases: ConnectedSessionUseCases(
+      openWorkspace: OpenWorkspaceUseCase(
+        loadWorkspaceBootstrap: loadWorkspaceBootstrap,
+        workspaceRepository: repositories.workspaceRepository,
+        conversationRepository: repositories.conversationRepository,
+        runRepository: repositories.runRepository,
+      ),
+    ),
     closeSession: connectedData.dispose,
   );
 }

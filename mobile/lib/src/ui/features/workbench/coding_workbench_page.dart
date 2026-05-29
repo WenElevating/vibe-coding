@@ -80,8 +80,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _bottomAnchorTranscript = false;
   bool _bottomAnchorTranscriptUnderflow = false;
 
-  List<SessionItem> get _sessionItems =>
-      _workbenchViewModel.sessionItems;
+  List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems;
 
   List<WorkspaceSummary> get _workspaces => _workbenchViewModel.workspaces;
 
@@ -145,14 +144,32 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _openWorkspaceSessions(WorkspaceSummary workspace) {
-    _goToSessions(workspace);
+    if (_workbenchViewModel.openingWorkspace) return;
+    unawaited(_goToSessions(workspace));
   }
 
-  void _goToSessions(WorkspaceSummary workspace) {
-    unawaited(_cancelConversationEventSubscription());
-    _workbenchViewModel.showSessions(workspace.id);
+  Future<bool> _goToSessions(WorkspaceSummary workspace) async {
+    if (_workbenchViewModel.openingWorkspace) return false;
+    await _cancelConversationEventSubscription();
+    try {
+      await _workbenchViewModel.openWorkspaceSessions(workspace.id);
+    } catch (error) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Workspace failed to open: $error'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return false;
+    }
+    if (!mounted ||
+        _workbenchViewModel.routeState is! WorkspaceSessionsRouteState) {
+      return false;
+    }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+    return true;
   }
 
   void _goToConversation() {
@@ -233,7 +250,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     for (final workspace in _workspaces) {
       if (workspace.id == workspaceId) return workspace;
     }
-    return _routeWorkspace ?? _workbenchViewModel.selectedWorkspace ?? _workspaces.first;
+    return _routeWorkspace ??
+        _workbenchViewModel.selectedWorkspace ??
+        _workspaces.first;
   }
 
   Future<void> _cancelActiveRun() async {
@@ -272,6 +291,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       conversationRepository: widget.dependencies.conversationRepository,
       runRepository: widget.dependencies.runRepository,
       diagnosticsRepository: widget.dependencies.diagnosticsRepository,
+      workspaceOpeningUseCase: widget.dependencies.workspaceOpeningUseCase,
       attachmentPreviewCache: widget.dependencies.attachmentPreviewCache,
     )..addListener(_syncWorkbenchViewModel);
     _attachmentPicker = const WorkbenchAttachmentPicker();
@@ -592,7 +612,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _resetConversationState();
           _workbenchViewModel.clearOperationError(notify: false);
         });
-        _goToSessions(workspace);
+        final opened = await _goToSessions(workspace);
+        if (!opened && mounted) {
+          _workbenchViewModel.cancelWorkspaceCreation();
+          await _showWorkspaceCreationDialog(
+            title: 'Workspace not opened',
+            message:
+                'The workspace was created, but the daemon did not confirm it as the active workspace.',
+          );
+        }
       case CreateWorkspaceNotConfirmed():
         _workbenchViewModel.cancelWorkspaceCreation();
         setState(() {

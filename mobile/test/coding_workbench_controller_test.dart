@@ -21,7 +21,7 @@ import 'package:lan_ai_cli_control/src/workflows/workspace/create_workspace_work
 
 void main() {
   test('workbench route state stores ids and resolves workspace via repository',
-      () {
+      () async {
     const other = WorkspaceSummary(
       id: 'workspace_2',
       name: 'Other Workspace',
@@ -33,7 +33,7 @@ void main() {
 
     expect(viewModel.routeWorkspace, isNull);
 
-    viewModel.openWorkspaceSessions(other.id);
+    await viewModel.openWorkspaceSessions(other.id);
     expect(viewModel.selectedWorkspace, other);
     expect(viewModel.routeWorkspace, other);
     expect(
