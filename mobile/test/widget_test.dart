@@ -257,17 +257,23 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
     super.initState();
     _languageController = LanguageController()..load();
     _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-    _pageDependencies = _dependencies.createMainTabsDependencies(widget.client);
+    _pageDependencies = _dependencies.createMainTabsDependencies(
+      widget.client,
+      initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
+    );
   }
 
   @override
   void didUpdateWidget(covariant _MainTabsHarness oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client ||
-        oldWidget.dependencies != widget.dependencies) {
+        oldWidget.dependencies != widget.dependencies ||
+        oldWidget.snapshot != widget.snapshot) {
       _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-      _pageDependencies =
-          _dependencies.createMainTabsDependencies(widget.client);
+      _pageDependencies = _dependencies.createMainTabsDependencies(
+        widget.client,
+        initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
+      );
     }
   }
 

@@ -302,7 +302,6 @@ class _MainTabsPageState extends State<MainTabsPage>
         );
       }
       final oldWorkbenchDependencies = _workbenchDependencies;
-      final oldConnectedData = _connectedData;
       _connectedData = widget.pageDependencies.connectedData;
       _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
       _disposeAppUpdateViewModel();
@@ -321,7 +320,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         _loadCodingAdapters();
       }
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
-      unawaited(oldConnectedData.dispose());
+      unawaited(oldWidget.pageDependencies.sessionScope.dispose());
       return;
     }
     if (oldWidget.initialData != widget.initialData) {
@@ -334,7 +333,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         if (_homeViewModel == null || _settingsViewModel == null) {
           _createRepositoryBackedViewModels(widget.initialData);
         } else {
-          _seedWorkspaceRepository(widget.initialData);
+          _hydrateSessionScope(widget.initialData);
           _updateHomeViewModelInputs(widget.initialData);
           _updateSettingsViewModelInputs(widget.initialData);
         }
@@ -360,7 +359,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     _disposeWorkbenchDependencies(_workbenchDependencies);
     _disposeRepositoryBackedViewModels();
     _disposeAppUpdateViewModel();
-    unawaited(_connectedData.dispose());
+    unawaited(widget.pageDependencies.sessionScope.dispose());
     _viewModel?.dispose();
     super.dispose();
   }
@@ -492,7 +491,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     final selectedWorkspace = data.workspace;
     if (selectedWorkspace == null) return;
     _disposeRepositoryBackedViewModels();
-    _seedWorkspaceRepository(data);
+    _hydrateSessionScope(data);
     final homeViewModel =
         widget.pageDependencies.featureDependencies.createHomeViewModel(
       _connectedData,
@@ -508,13 +507,8 @@ class _MainTabsPageState extends State<MainTabsPage>
     unawaited(_refreshHomeViewModel(homeViewModel));
   }
 
-  void _seedWorkspaceRepository(DaemonInitialData data) {
-    final selectedWorkspace = data.workspace;
-    if (selectedWorkspace == null) return;
-    _connectedData.workspaceRepository.applyBootstrapCatalog(
-      selectedWorkspace: selectedWorkspace,
-      workspaces: data.workspaces,
-    );
+  void _hydrateSessionScope(DaemonInitialData data) {
+    widget.pageDependencies.sessionScope.hydrateFromBootstrap(data);
   }
 
   void _updateHomeViewModelInputs(DaemonInitialData data) {

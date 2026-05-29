@@ -49,6 +49,7 @@ import '../ui/features/workbench/workbench_dependencies.dart';
 import '../ui/pages/home_view_model.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
+import 'connected_session_scope.dart';
 
 typedef NotificationClientFactory = DaemonNotificationClient Function(
   DaemonClient client,
@@ -86,9 +87,18 @@ class AppDependencies {
   final DomainDependencies domain;
   final FeatureDependencies features;
 
-  MainTabsDependencies createMainTabsDependencies(DaemonClient client) {
+  MainTabsDependencies createMainTabsDependencies(
+    DaemonClient client, {
+    required DaemonInitialData initialData,
+  }) {
     final connectedData = data.forDaemonClient(client);
+    final sessionScope = _createConnectedSessionScope(
+      connectedData,
+      codingPreferencesRepository: data.codingPreferencesRepository,
+    );
+    sessionScope.hydrateFromBootstrap(initialData);
     return MainTabsDependencies(
+      sessionScope: sessionScope,
       connectedData: connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
       normalizeCodingPermissionMode:
@@ -126,6 +136,7 @@ class AppDependencies {
 
 class MainTabsDependencies {
   MainTabsDependencies({
+    required this.sessionScope,
     required this.connectedData,
     required this.codingPreferencesRepository,
     required this.normalizeCodingPermissionMode,
@@ -135,6 +146,7 @@ class MainTabsDependencies {
     required this.loadWorkspaceBootstrap,
   });
 
+  final ConnectedSessionScope sessionScope;
   final ConnectedDataDependencies connectedData;
   final CodingPreferencesRepository codingPreferencesRepository;
   final String Function(String? value) normalizeCodingPermissionMode;
@@ -149,6 +161,29 @@ class MainTabsDependencies {
     required List<WorkspaceSummary> workspaces,
     required WorkspaceSummary workspace,
   }) loadWorkspaceBootstrap;
+}
+
+ConnectedSessionScope _createConnectedSessionScope(
+  ConnectedDataDependencies connectedData, {
+  required CodingPreferencesRepository codingPreferencesRepository,
+}) {
+  final repositories = ConnectedSessionRepositories(
+    authRepository: connectedData.authRepository,
+    workspaceRepository: connectedData.workspaceRepository,
+    conversationRepository: connectedData.conversationRepository,
+    runRepository: connectedData.runRepository,
+    cliAdapterRepository: connectedData.cliAdapterRepository,
+    commandCatalogRepository: connectedData.commandCatalogRepository,
+    diagnosticsRepository: connectedData.diagnosticsRepository,
+    appUpdateRepository: connectedData.appUpdateRepository,
+    codingPreferencesRepository: codingPreferencesRepository,
+    recordDiagnosticEvent: connectedData.recordDiagnosticEvent,
+  );
+  return ConnectedSessionScope(
+    repositories: repositories,
+    useCases: const ConnectedSessionUseCases(),
+    closeSession: connectedData.dispose,
+  );
 }
 
 class NetworkDependencies {
