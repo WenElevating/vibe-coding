@@ -581,6 +581,7 @@ class _PendingAdapterClient extends DaemonClient {
             tokenStore: MemoryTokenStore());
 
   int listAdaptersCalls = 0;
+  bool completeCatalogWithError = false;
   Completer<List<AdapterStatus>> adaptersCompleter =
       Completer<List<AdapterStatus>>();
 
@@ -589,6 +590,22 @@ class _PendingAdapterClient extends DaemonClient {
     listAdaptersCalls++;
     return adaptersCompleter.future;
   }
+
+  @override
+  Future<List<ExtensionSummary>> listExtensions() async {
+    if (completeCatalogWithError) {
+      throw StateError('extensions failed');
+    }
+    return const <ExtensionSummary>[];
+  }
+
+  @override
+  Future<List<ShortcutCommand>> listShortcuts() async =>
+      const <ShortcutCommand>[];
+
+  @override
+  Future<List<CommandTemplate>> listCommandTemplates() async =>
+      const <CommandTemplate>[];
 
   void completeWithAdapters() {
     adaptersCompleter.complete(const <AdapterStatus>[
@@ -3946,6 +3963,33 @@ void main() {
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.text('Unable to load CLI adapters'), findsNothing);
+  });
+
+  testWidgets('coding gate ignores command catalog failure after adapters load',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final client = _PendingAdapterClient()..completeCatalogWithError = true;
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pump();
+
+    final harnessState =
+        tester.state<_MainTabsHarnessState>(find.byType(_MainTabsHarness));
+    final commandCatalogRepository = harnessState
+        ._pageDependencies.sessionScope.repositories.commandCatalogRepository;
+    await expectLater(
+      commandCatalogRepository.load(),
+      throwsA(isA<StateError>()),
+    );
+    expect(commandCatalogRepository.error, isA<StateError>());
+
+    client.completeWithAdapters();
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unable to load CLI adapters'), findsNothing);
+    expect(find.byType(CodingPage), findsOneWidget);
   });
 
   testWidgets('adapter picker scrolls on compact screens',

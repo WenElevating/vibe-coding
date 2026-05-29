@@ -827,6 +827,8 @@ class _MainTabsPageState extends State<MainTabsPage>
   Widget _buildCodingTab() {
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
+    // TODO(arch): Remove direct repository access when CodingGateViewModel
+    // owns coding gate state. Tracked by migration Slice 4.
     return ListenableBuilder(
       listenable: _repositories.cliAdapterRepository,
       builder: (context, _) => _buildCodingTabContent(viewModel),
