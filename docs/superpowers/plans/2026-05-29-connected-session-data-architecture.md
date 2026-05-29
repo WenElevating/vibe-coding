@@ -14,8 +14,11 @@
 
 - Create `mobile/lib/src/data/repositories/cli_adapter_repository.dart`: adapter probe source of truth.
 - Create `mobile/lib/src/data/repositories/command_catalog_repository.dart`: shortcuts, command templates, and extensions source of truth.
+- Create `mobile/lib/src/data/repositories/bootstrap_hydration.dart`: narrow bootstrap hydration interfaces used by workspace workflows.
 - Modify `mobile/lib/src/data/repositories/cached_conversation_repository.dart`: add bootstrap replacement plus `loadedWorkspaceId`.
 - Modify `mobile/lib/src/data/repositories/cached_run_repository.dart`: add bootstrap replacement plus `loadedWorkspaceId`; queue stays coupled here for this migration slice.
+- Modify `mobile/lib/src/data/repositories/workspace_repository.dart`: allow bootstrap workspace catalog hydration with no selected workspace.
+- Modify `mobile/lib/src/data/repositories/daemon_workspace_repository.dart`: retain workspace list when bootstrap has `workspace: null`.
 - Create `mobile/lib/src/app/connected_session_scope.dart`: repositories plus use cases only.
 - Modify `mobile/lib/src/app/app_dependencies.dart`: build `ConnectedSessionScope`, hydrate repositories from connection bootstrap, and create feature ViewModels from scope repositories.
 - Modify `mobile/lib/src/ui/features/connection/views/mobile_connection_gate.dart`: pass connection bootstrap data into `AppDependencies.createMainTabsDependencies`.
@@ -44,8 +47,11 @@ When a Flutter/Dart command times out on the first attempt, stop automatic retri
 ## Task 1: Add Bootstrap State To Workspace-Scoped Repositories
 
 **Files:**
+- Create: `mobile/lib/src/data/repositories/bootstrap_hydration.dart`
 - Modify: `mobile/lib/src/data/repositories/cached_conversation_repository.dart`
 - Modify: `mobile/lib/src/data/repositories/cached_run_repository.dart`
+- Modify: `mobile/lib/src/data/repositories/workspace_repository.dart`
+- Modify: `mobile/lib/src/data/repositories/daemon_workspace_repository.dart`
 - Test: `mobile/test/connected_repository_bootstrap_test.dart`
 
 - [ ] **Step 1: Write failing repository bootstrap tests**
@@ -151,7 +157,71 @@ flutter test --no-pub test\connected_repository_bootstrap_test.dart -r expanded
 
 Expected: FAIL with missing `replaceFromBootstrap` and `loadedWorkspaceId` members.
 
-- [ ] **Step 3: Add conversation bootstrap replacement**
+- [ ] **Step 3: Add narrow bootstrap hydration interfaces**
+
+Create `mobile/lib/src/data/repositories/bootstrap_hydration.dart`:
+
+```dart
+import '../../models/protocol.dart';
+
+abstract interface class ConversationBootstrapTarget {
+  String? get loadedWorkspaceId;
+
+  void replaceFromBootstrap({
+    required String workspaceId,
+    required List<ConversationSummary> conversations,
+  });
+}
+
+abstract interface class RunBootstrapTarget {
+  String? get loadedWorkspaceId;
+
+  void replaceFromBootstrap({
+    required String workspaceId,
+    required List<RunSummary> runs,
+    required List<QueueItem> queue,
+  });
+}
+```
+
+- [ ] **Step 4: Allow workspace catalog bootstrap without selected workspace**
+
+In `mobile/lib/src/data/repositories/workspace_repository.dart`, change the method signature:
+
+```dart
+void applyBootstrapCatalog({
+  required WorkspaceSummary? selectedWorkspace,
+  required List<WorkspaceSummary> workspaces,
+});
+```
+
+In `mobile/lib/src/data/repositories/daemon_workspace_repository.dart`, update the implementation so `workspaces` is always applied:
+
+```dart
+@override
+void applyBootstrapCatalog({
+  required WorkspaceSummary? selectedWorkspace,
+  required List<WorkspaceSummary> workspaces,
+}) {
+  if (_disposed) return;
+  final nextWorkspaces = <WorkspaceSummary>[
+    ...workspaces,
+    if (selectedWorkspace != null &&
+        !workspaces.any((workspace) => workspace.id == selectedWorkspace.id))
+      selectedWorkspace,
+  ];
+  final nextSelectedWorkspaceId = selectedWorkspace?.id;
+  final changed = !_sameWorkspaceCatalog(_workspaces, nextWorkspaces) ||
+      _selectedWorkspaceId != nextSelectedWorkspaceId;
+  _workspaces = List<WorkspaceSummary>.unmodifiable(nextWorkspaces);
+  _selectedWorkspaceId = nextSelectedWorkspaceId;
+  if (changed) {
+    _notifyListeners();
+  }
+}
+```
+
+- [ ] **Step 5: Add conversation bootstrap replacement**
 
 In `mobile/lib/src/data/repositories/cached_conversation_repository.dart`, add fields near `_loaded`:
 
@@ -163,6 +233,13 @@ Add the getter near `error`:
 
 ```dart
 String? get loadedWorkspaceId => _loadedWorkspaceId;
+```
+
+Update the class declaration:
+
+```dart
+class CachedConversationRepository extends ChangeNotifier
+    implements ConversationRepository, ConversationBootstrapTarget {
 ```
 
 Add this method before `listConversations`:
@@ -187,7 +264,7 @@ void replaceFromBootstrap({
 }
 ```
 
-- [ ] **Step 4: Add run bootstrap replacement**
+- [ ] **Step 6: Add run bootstrap replacement**
 
 In `mobile/lib/src/data/repositories/cached_run_repository.dart`, add fields near `_loaded`:
 
@@ -199,6 +276,13 @@ Add the getter near `error`:
 
 ```dart
 String? get loadedWorkspaceId => _loadedWorkspaceId;
+```
+
+Update the class declaration:
+
+```dart
+class CachedRunRepository extends ChangeNotifier
+    implements RunRepository, RunBootstrapTarget {
 ```
 
 Add this method before `listRuns`:
@@ -223,7 +307,7 @@ void replaceFromBootstrap({
 }
 ```
 
-- [ ] **Step 5: Run repository bootstrap tests**
+- [ ] **Step 7: Run repository bootstrap tests**
 
 Run:
 
@@ -236,10 +320,10 @@ flutter test --no-pub test\connected_repository_bootstrap_test.dart -r expanded
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
-git add mobile/lib/src/data/repositories/cached_conversation_repository.dart mobile/lib/src/data/repositories/cached_run_repository.dart mobile/test/connected_repository_bootstrap_test.dart
+git add mobile/lib/src/data/repositories/bootstrap_hydration.dart mobile/lib/src/data/repositories/cached_conversation_repository.dart mobile/lib/src/data/repositories/cached_run_repository.dart mobile/lib/src/data/repositories/workspace_repository.dart mobile/lib/src/data/repositories/daemon_workspace_repository.dart mobile/test/connected_repository_bootstrap_test.dart
 git commit -m "Hydrate workspace repositories from bootstrap"
 ```
 
@@ -499,21 +583,18 @@ class CommandCatalogRepository extends ChangeNotifier {
     _loading = true;
     _error = null;
     _notifyIfActive();
-    final future = Future.wait<Object>([
-      _delegate.listShortcuts(),
-      _delegate.listCommandTemplates(),
-      _delegate.listExtensions(),
-    ]).then((results) {
+    late List<ShortcutCommand> shortcuts;
+    late List<CommandTemplate> templates;
+    late List<ExtensionSummary> extensions;
+    final future = Future.wait<void>([
+      _delegate.listShortcuts().then((value) => shortcuts = value),
+      _delegate.listCommandTemplates().then((value) => templates = value),
+      _delegate.listExtensions().then((value) => extensions = value),
+    ]).then((_) {
       if (_disposed || generation != _generation) return;
-      _shortcuts = List<ShortcutCommand>.unmodifiable(
-        results[0] as List<ShortcutCommand>,
-      );
-      _templates = List<CommandTemplate>.unmodifiable(
-        results[1] as List<CommandTemplate>,
-      );
-      _extensions = List<ExtensionSummary>.unmodifiable(
-        results[2] as List<ExtensionSummary>,
-      );
+      _shortcuts = List<ShortcutCommand>.unmodifiable(shortcuts);
+      _templates = List<CommandTemplate>.unmodifiable(templates);
+      _extensions = List<ExtensionSummary>.unmodifiable(extensions);
     }).catchError((Object error) {
       if (!_disposed && generation == _generation) _error = error;
       throw error;
@@ -642,6 +723,23 @@ void main() {
     expect(scope.repositories.cliAdapterRepository.adapters.single.adapter,
         'codex');
   });
+
+  test('scope hydrates workspace list when no workspace is selected', () {
+    final appDependencies = AppDependencies.createDefault();
+    final dependencies = appDependencies.createMainTabsDependencies(
+      _FakeDaemonClient(),
+      initialData: _initialDataWithoutSelectedWorkspace(),
+    );
+
+    final workspaces = dependencies.sessionScope.repositories
+        .workspaceRepository.workspaces;
+    expect(workspaces.map((workspace) => workspace.id), const <String>['w1']);
+    expect(
+      dependencies.sessionScope.repositories
+          .workspaceRepository.selectedWorkspace,
+      isNull,
+    );
+  });
 }
 
 DaemonInitialData _initialData() {
@@ -674,6 +772,33 @@ DaemonInitialData _initialData() {
 class _FakeDaemonClient implements DaemonClient {
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+DaemonInitialData _initialDataWithoutSelectedWorkspace() {
+  const workspace = WorkspaceSummary(
+    id: 'w1',
+    name: 'Workspace',
+    path: r'D:\workspace',
+  );
+  return const DaemonInitialData(
+    health: DaemonHealth(
+      status: 'ok',
+      daemonVersion: 'test',
+      mode: 'test',
+      lanMode: false,
+      bindAddress: '127.0.0.1',
+      port: 4317,
+      security: <String, Object?>{},
+    ),
+    workspaces: <WorkspaceSummary>[workspace],
+    workspace: null,
+    adapters: <AdapterStatus>[
+      AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+    ],
+    runs: <RunSummary>[],
+    conversations: <ConversationSummary>[],
+    queue: <QueueItem>[],
+  );
 }
 ```
 
@@ -710,10 +835,12 @@ class ConnectedSessionScope {
   const ConnectedSessionScope({
     required this.repositories,
     required this.useCases,
-  });
+    Future<void> Function()? closeSession,
+  }) : _closeSession = closeSession;
 
   final ConnectedSessionRepositories repositories;
   final ConnectedSessionUseCases useCases;
+  final Future<void> Function()? _closeSession;
 
   void recordDiagnosticEvent(
     String event,
@@ -729,7 +856,14 @@ class ConnectedSessionScope {
     );
   }
 
-  Future<void> dispose() => repositories.dispose();
+  Future<void> dispose() async {
+    await _closeSession?.call();
+    repositories.workspaceRepository.dispose();
+    repositories.cliAdapterRepository.dispose();
+    repositories.commandCatalogRepository.dispose();
+    repositories.conversationRepository.dispose();
+    repositories.runRepository.dispose();
+  }
 }
 
 class ConnectedSessionRepositories {
@@ -744,7 +878,6 @@ class ConnectedSessionRepositories {
     required this.appUpdateRepository,
     required this.codingPreferencesRepository,
     required this.recordDiagnosticEvent,
-    required this.dispose,
   });
 
   final AuthRepository authRepository;
@@ -762,7 +895,6 @@ class ConnectedSessionRepositories {
     String severity,
     String? path,
   }) recordDiagnosticEvent;
-  final Future<void> Function() dispose;
 }
 
 class ConnectedSessionUseCases {
@@ -820,6 +952,7 @@ ConnectedSessionScope _createConnectedSessionScope({
   required DaemonClient client,
   required ConnectedSessionRepositories repositories,
   required DaemonInitialData initialData,
+  Future<void> Function()? closeSession,
 }) {
   _hydrateConnectedSessionRepositories(
     repositories,
@@ -845,6 +978,7 @@ ConnectedSessionScope _createConnectedSessionScope({
         runRepository: repositories.runRepository,
       ),
     ),
+    closeSession: closeSession,
   );
 }
 
@@ -853,11 +987,12 @@ void _hydrateConnectedSessionRepositories(
   required DaemonInitialData initialData,
 }) {
   final workspace = initialData.workspace;
-  if (workspace == null) return;
   repositories.workspaceRepository.applyBootstrapCatalog(
     selectedWorkspace: workspace,
     workspaces: initialData.workspaces,
   );
+  repositories.cliAdapterRepository.replaceFromBootstrap(initialData.adapters);
+  if (workspace == null) return;
   repositories.conversationRepository.replaceFromBootstrap(
     workspaceId: workspace.id,
     conversations: initialData.conversations,
@@ -867,7 +1002,6 @@ void _hydrateConnectedSessionRepositories(
     runs: initialData.runs,
     queue: initialData.queue,
   );
-  repositories.cliAdapterRepository.replaceFromBootstrap(initialData.adapters);
 }
 ```
 
@@ -1336,6 +1470,8 @@ void _loadCodingAdapters() {
 Change `_buildCodingTab` to listen to adapter probe state:
 
 ```dart
+// TODO(arch): Remove direct repository access when CodingGateViewModel
+// owns coding gate state. Tracked by migration Slice 4.
 return ListenableBuilder(
   listenable: _repositories.cliAdapterRepository,
   builder: (context, _) => _buildCodingTabContent(viewModel),
@@ -1548,7 +1684,7 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 
   @override
   void applyBootstrapCatalog({
-    required WorkspaceSummary selectedWorkspace,
+    required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,
   }) {
     _workspaces = List<WorkspaceSummary>.of(workspaces);
@@ -1589,8 +1725,7 @@ Expected: FAIL because `OpenWorkspaceUseCase` does not exist.
 Create `mobile/lib/src/workflows/connection/open_workspace_use_case.dart`:
 
 ```dart
-import '../../data/repositories/cached_conversation_repository.dart';
-import '../../data/repositories/cached_run_repository.dart';
+import '../../data/repositories/bootstrap_hydration.dart';
 import '../../data/repositories/workspace_repository.dart';
 import '../../domain/models/daemon_initial_data.dart';
 import '../../models/protocol.dart';
@@ -1604,8 +1739,8 @@ class OpenWorkspaceUseCase {
   OpenWorkspaceUseCase({
     required LoadWorkspaceBootstrap loadWorkspaceBootstrap,
     required WorkspaceRepository workspaceRepository,
-    required CachedConversationRepository conversationRepository,
-    required CachedRunRepository runRepository,
+    required ConversationBootstrapTarget conversationRepository,
+    required RunBootstrapTarget runRepository,
   })  : _loadWorkspaceBootstrap = loadWorkspaceBootstrap,
         _workspaceRepository = workspaceRepository,
         _conversationRepository = conversationRepository,
@@ -1613,8 +1748,8 @@ class OpenWorkspaceUseCase {
 
   final LoadWorkspaceBootstrap _loadWorkspaceBootstrap;
   final WorkspaceRepository _workspaceRepository;
-  final CachedConversationRepository _conversationRepository;
-  final CachedRunRepository _runRepository;
+  final ConversationBootstrapTarget _conversationRepository;
+  final RunBootstrapTarget _runRepository;
 
   Future<DaemonInitialData> open({
     required List<WorkspaceSummary> workspaces,
@@ -1625,11 +1760,11 @@ class OpenWorkspaceUseCase {
       workspace: workspace,
     );
     final selectedWorkspace = initialData.workspace;
-    if (selectedWorkspace == null) return initialData;
     _workspaceRepository.applyBootstrapCatalog(
       selectedWorkspace: selectedWorkspace,
       workspaces: initialData.workspaces,
     );
+    if (selectedWorkspace == null) return initialData;
     _conversationRepository.replaceFromBootstrap(
       workspaceId: selectedWorkspace.id,
       conversations: initialData.conversations,
