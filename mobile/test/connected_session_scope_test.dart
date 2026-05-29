@@ -36,7 +36,7 @@ void main() {
   });
 
   test(
-    'hydrateFromBootstrap updates repositories when no workspace is selected',
+    'composition root hydrates workspace catalog when no workspace is selected',
     () async {
       final appDependencies = AppDependencies.createDefault();
       final client = _daemonClient();
@@ -55,11 +55,6 @@ void main() {
       expect(repositories.workspaceRepository.selectedWorkspace, isNull);
       expect(repositories.conversationRepository.loadedWorkspaceId, isNull);
       expect(repositories.runRepository.loadedWorkspaceId, isNull);
-
-      dependencies.sessionScope.hydrateFromBootstrap(_initialData());
-      expect(repositories.workspaceRepository.selectedWorkspace?.id, 'w1');
-      expect(repositories.conversationRepository.loadedWorkspaceId, 'w1');
-      expect(repositories.runRepository.loadedWorkspaceId, 'w1');
       expect(
         repositories.cliAdapterRepository.adapters.single.adapter,
         'codex',

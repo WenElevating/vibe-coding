@@ -108,7 +108,10 @@ class AppDependencies {
       ))
               .toDaemonInitialData(),
     );
-    sessionScope.hydrateFromBootstrap(initialData);
+    _hydrateConnectedSessionRepositories(
+      repositories: sessionScope.repositories,
+      initialData: initialData,
+    );
     return MainTabsDependencies(
       sessionScope: sessionScope,
       connectedData: connectedData,
@@ -130,18 +133,6 @@ class AppDependencies {
         installedVersionCode: installedVersionCode,
         installedVersionName: installedVersionName,
       ),
-      loadWorkspaceBootstrap: ({
-        required health,
-        required workspaces,
-        required workspace,
-      }) async =>
-          (await loadWorkspaceBootstrap(
-        client,
-        health: health,
-        workspaces: workspaces,
-        workspace: workspace,
-      ))
-              .toDaemonInitialData(),
     );
   }
 }
@@ -155,7 +146,6 @@ class MainTabsDependencies {
     required this.workbenchDependencies,
     required this.featureDependencies,
     required this.createAppUpdateViewModel,
-    required this.loadWorkspaceBootstrap,
   });
 
   final ConnectedSessionScope sessionScope;
@@ -168,11 +158,6 @@ class MainTabsDependencies {
     required int installedVersionCode,
     required String installedVersionName,
   }) createAppUpdateViewModel;
-  final Future<DaemonInitialData> Function({
-    required DaemonHealth health,
-    required List<WorkspaceSummary> workspaces,
-    required WorkspaceSummary workspace,
-  }) loadWorkspaceBootstrap;
 }
 
 ConnectedSessionScope _createConnectedSessionScope(
@@ -203,6 +188,28 @@ ConnectedSessionScope _createConnectedSessionScope(
       ),
     ),
     closeSession: connectedData.dispose,
+  );
+}
+
+void _hydrateConnectedSessionRepositories({
+  required ConnectedSessionRepositories repositories,
+  required DaemonInitialData initialData,
+}) {
+  final workspace = initialData.workspace;
+  repositories.workspaceRepository.applyBootstrapCatalog(
+    selectedWorkspace: workspace,
+    workspaces: initialData.workspaces,
+  );
+  repositories.cliAdapterRepository.replaceFromBootstrap(initialData.adapters);
+  if (workspace == null) return;
+  repositories.conversationRepository.replaceFromBootstrap(
+    workspaceId: workspace.id,
+    conversations: initialData.conversations,
+  );
+  repositories.runRepository.replaceFromBootstrap(
+    workspaceId: workspace.id,
+    runs: initialData.runs,
+    queue: initialData.queue,
   );
 }
 

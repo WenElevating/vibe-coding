@@ -18,7 +18,6 @@ import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.da
 import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
-import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
 import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
@@ -31,12 +30,16 @@ void main() {
       final factory = _RunDetailFactory();
       final connectedData = _connectedData();
       final repositories = _repositories();
+      repositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: factory.create,
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
         repositories: repositories,
         featureDependencies: featureDependencies,
@@ -46,12 +49,11 @@ void main() {
       expect(find.text('running'), findsOneWidget);
       expect(factory.createdRuns, const <RunSummary>[_runningRun]);
 
-      await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_completedRun]),
-        connectedData: connectedData,
-        repositories: repositories,
-        featureDependencies: featureDependencies,
-      ));
+      repositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_completedRun],
+        queue: const <QueueItem>[],
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('completed'), findsOneWidget);
@@ -66,22 +68,32 @@ void main() {
     testWidgets('recreates run detail view model when repository scope changes',
         (tester) async {
       final factory = _RunDetailFactory();
+      final firstRepositories = _repositories();
+      firstRepositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
+      final secondRepositories = _repositories();
+      secondRepositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun],
+        queue: const <QueueItem>[],
+      );
       final featureDependencies = _featureDependencies(
         createRunDetailViewModel: factory.create,
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
-        repositories: _repositories(),
+        repositories: firstRepositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
 
       await tester.pumpWidget(_OverlayHarness(
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: _connectedData(),
-        repositories: _repositories(),
+        repositories: secondRepositories,
         featureDependencies: featureDependencies,
       ));
       await tester.pumpAndSettle();
@@ -105,7 +117,6 @@ void main() {
 
       await tester.pumpWidget(_OverlayHarness(
         route: RoutePage.diagnostics,
-        data: _snapshot(runs: const <RunSummary>[_runningRun]),
         connectedData: connectedData,
         repositories: repositories,
         featureDependencies: featureDependencies,
@@ -129,11 +140,6 @@ void main() {
 
       await tester.pumpWidget(_OverlayHarness(
         route: RoutePage.adapters,
-        data: _snapshot(
-          runs: const <RunSummary>[],
-          adapters: const <AdapterStatus>[],
-          extensions: const <ExtensionSummary>[],
-        ),
         connectedData: _connectedData(),
         repositories: repositories,
         featureDependencies: _featureDependencies(
@@ -179,54 +185,6 @@ const _githubExtension = ExtensionSummary(
   status: 'installed',
 );
 
-AppSnapshot _snapshot({
-  required List<RunSummary> runs,
-  List<AdapterStatus> adapters = const <AdapterStatus>[],
-  List<ExtensionSummary> extensions = const <ExtensionSummary>[],
-}) =>
-    AppSnapshot(
-      health: const DaemonHealth(
-        status: 'ok',
-        daemonVersion: 'test',
-        mode: 'test',
-        lanMode: false,
-        bindAddress: '127.0.0.1',
-        port: 4317,
-        security: <String, Object?>{},
-      ),
-      workspaces: const <WorkspaceSummary>[_workspace],
-      workspace: _workspace,
-      overview: const ProjectOverview(
-        workspaceId: 'workspace_1',
-        name: 'Workspace',
-        path: r'D:\workspace',
-        fileCount: 0,
-        codeLineCount: 0,
-        symbolCount: 0,
-        analysisScore: 0,
-        recentFiles: <RecentFileSummary>[],
-      ),
-      adapters: adapters,
-      runs: runs,
-      conversations: const <ConversationSummary>[],
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: null,
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: const FileTreeResponse(
-        workspaceId: 'workspace_1',
-        root: r'D:\workspace',
-        entries: <FileTreeEntry>[],
-      ),
-      diagnostics: const CodeDiagnosticsSummary(
-        workspaceId: 'workspace_1',
-        available: false,
-        diagnostics: <CodeDiagnostic>[],
-      ),
-      extensions: extensions,
-    );
-
 FeatureDependencies _featureDependencies({
   required RunDetailViewModel Function(RunSummary run) createRunDetailViewModel,
   DiagnosticsViewModel Function(ConnectedDataDependencies connectedData)?
@@ -265,14 +223,12 @@ FeatureDependencies _featureDependencies({
 class _OverlayHarness extends StatelessWidget {
   const _OverlayHarness({
     this.route = RoutePage.detail,
-    required this.data,
     required this.connectedData,
     required this.repositories,
     required this.featureDependencies,
   });
 
   final RoutePage route;
-  final AppSnapshot data;
   final ConnectedDataDependencies connectedData;
   final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;
@@ -287,7 +243,6 @@ class _OverlayHarness extends StatelessWidget {
       home: Scaffold(
         body: MainRouteOverlay(
           route: route,
-          data: data.toDaemonInitialData(),
           connectedData: connectedData,
           repositories: repositories,
           featureDependencies: featureDependencies,
@@ -348,6 +303,59 @@ class _FakeAdapterRepository implements AdapterRepository {
   @override
   Future<List<ExtensionSummary>> listExtensions() async =>
       const <ExtensionSummary>[_githubExtension];
+}
+
+class _FakeWorkspaceRepository extends WorkspaceRepository {
+  List<WorkspaceSummary> _workspaces = const <WorkspaceSummary>[_workspace];
+  WorkspaceSummary? _selectedWorkspace = _workspace;
+
+  @override
+  List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
+
+  @override
+  WorkspaceSummary? get selectedWorkspace => _selectedWorkspace;
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({required String path, String? name}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  bool select(String workspaceId) {
+    for (final workspace in _workspaces) {
+      if (workspace.id == workspaceId) {
+        _selectedWorkspace = workspace;
+        notifyListeners();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary? selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _workspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
+    _selectedWorkspace = selectedWorkspace;
+    notifyListeners();
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DiagnosticsFactory {

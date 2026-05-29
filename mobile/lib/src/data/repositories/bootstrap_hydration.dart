@@ -1,7 +1,7 @@
-import '../../models/protocol.dart';
-
 // These interfaces live in data/ for this migration because they use protocol
 // models. Move them to domain/ when protocol/domain model separation lands.
+import '../../models/protocol.dart';
+
 abstract interface class WorkspaceBootstrapTarget {
   void applyBootstrapCatalog({
     required WorkspaceSummary? selectedWorkspace,

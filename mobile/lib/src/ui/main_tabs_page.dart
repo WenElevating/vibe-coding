@@ -313,6 +313,11 @@ class _MainTabsPageState extends State<MainTabsPage>
       unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       final initialData = widget.initialData;
+      _emptyWorkspaces =
+          List<WorkspaceSummary>.unmodifiable(initialData.workspaces);
+      _emptyError = null;
+      _creatingWorkspace = false;
+      _loadingWorkspace = false;
       _connectedInitialData =
           initialData.workspace == null ? null : initialData;
       _viewModel?.dispose();
@@ -337,7 +342,6 @@ class _MainTabsPageState extends State<MainTabsPage>
         if (_homeViewModel == null || _settingsViewModel == null) {
           _createRepositoryBackedViewModels(widget.initialData);
         } else {
-          _hydrateSessionScope(widget.initialData);
           _updateHomeViewModelInputs(widget.initialData);
           _updateSettingsViewModelInputs(widget.initialData);
         }
@@ -491,14 +495,10 @@ class _MainTabsPageState extends State<MainTabsPage>
     _viewModel?.setPermissionMode(permissionMode);
   }
 
-  void _createRepositoryBackedViewModels(
-    DaemonInitialData data, {
-    bool hydrate = true,
-  }) {
+  void _createRepositoryBackedViewModels(DaemonInitialData data) {
     final selectedWorkspace = data.workspace;
     if (selectedWorkspace == null) return;
     _disposeRepositoryBackedViewModels();
-    if (hydrate) _hydrateSessionScope(data);
     final homeViewModel =
         widget.pageDependencies.featureDependencies.createHomeViewModel(
       _connectedData,
@@ -511,10 +511,6 @@ class _MainTabsPageState extends State<MainTabsPage>
       connectionConfig: widget.connectionConfig,
       health: data.health,
     );
-  }
-
-  void _hydrateSessionScope(DaemonInitialData data) {
-    widget.pageDependencies.sessionScope.hydrateFromBootstrap(data);
   }
 
   void _updateHomeViewModelInputs(DaemonInitialData data) {
@@ -637,7 +633,6 @@ class _MainTabsPageState extends State<MainTabsPage>
               ? IndexedStack(index: viewModel.activeTab, children: pages)
               : MainRouteOverlay(
                   route: viewModel.activeRoute,
-                  data: initialData,
                   connectedData: _connectedData,
                   repositories: _repositories,
                   featureDependencies:
@@ -831,7 +826,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         _loadingWorkspace = false;
         _connectedInitialData = initialData;
         _viewModel = MainTabsShellViewModel();
-        _createRepositoryBackedViewModels(initialData, hydrate: false);
+        _createRepositoryBackedViewModels(initialData);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
       _loadCodingAdapters();

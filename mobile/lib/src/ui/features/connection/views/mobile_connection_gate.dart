@@ -70,16 +70,14 @@ class _ConnectedMainTabsHostState extends State<_ConnectedMainTabsHost> {
   Widget build(BuildContext context) {
     final client = widget.viewModel.client!;
     final initialData = widget.viewModel.initialData!;
-    if (!identical(_clientIdentity, client)) {
+    if (!identical(_clientIdentity, client) ||
+        !identical(_initialDataIdentity, initialData)) {
       _clientIdentity = client;
       _initialDataIdentity = initialData;
       _pageDependencies = widget.dependencies.createMainTabsDependencies(
         client,
         initialData: initialData,
       );
-    } else if (!identical(_initialDataIdentity, initialData)) {
-      _initialDataIdentity = initialData;
-      _pageDependencies!.sessionScope.hydrateFromBootstrap(initialData);
     }
     return MainTabsPage.fromInitialData(
       initialData: initialData,
