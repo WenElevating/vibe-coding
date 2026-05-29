@@ -464,6 +464,41 @@ class _AdapterRefreshClient extends DaemonClient {
       ];
 }
 
+class _NoBootstrapRefreshClient extends _AdapterRefreshClient {
+  int listWorkspacesCalls = 0;
+  int listConversationsCalls = 0;
+  int listRunsCalls = 0;
+  int listQueueCalls = 0;
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    listWorkspacesCalls++;
+    return const <WorkspaceSummary>[];
+  }
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async {
+    listConversationsCalls++;
+    return const <ConversationSummary>[];
+  }
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async {
+    listRunsCalls++;
+    return const <RunSummary>[];
+  }
+
+  @override
+  Future<List<QueueItem>> listQueue() async {
+    listQueueCalls++;
+    return const <QueueItem>[];
+  }
+}
+
 class _WorkspaceSelectionClient extends _AdapterRefreshClient {
   _WorkspaceSelectionClient({required this.workspaceCatalog});
 
@@ -1365,6 +1400,76 @@ void main() {
     expect(find.text('Connected'), findsNothing);
     expect(find.text('127.0.0.1:4317'), findsNothing);
     expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
+  });
+
+  testWidgets('connected startup renders bootstrap home without refetching',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    _setMockPackageInfo();
+    final client = _NoBootstrapRefreshClient();
+    addTearDown(client.close);
+    HomeViewModel? openedHomeViewModel;
+    final dependencies = AppDependencies.createDefault();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createHomeViewModel: (connectedData, {signalMetrics}) {
+          final viewModel = _defaultTestHomeViewModelFactory(
+            connectedData,
+            signalMetrics: signalMetrics,
+          );
+          openedHomeViewModel = viewModel;
+          return viewModel;
+        },
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+    final snapshot = _testSnapshot(
+      runs: const <RunSummary>[
+        RunSummary(
+          id: 'run_bootstrap',
+          tool: 'codex',
+          workspaceId: 'workspace_1',
+          status: 'completed',
+        ),
+      ],
+      queue: const <QueueItem>[
+        QueueItem(
+          runId: 'run_bootstrap',
+          workspaceId: 'workspace_1',
+          position: 1,
+          status: 'queued',
+          reason: 'waiting',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_MainTabsHarness(
+      client: client,
+      dependencies: testDependencies,
+      snapshot: snapshot,
+    ));
+    await _pumpNavigationFrame(tester);
+
+    final deck = openedHomeViewModel?.deck;
+    expect(deck?.now.id, 'queue:run_bootstrap');
+    expect(deck?.signals.queue, 1);
+    expect(client.listWorkspacesCalls, 0);
+    expect(client.listConversationsCalls, 0);
+    expect(client.listRunsCalls, 0);
+    expect(client.listQueueCalls, 0);
   });
 
   testWidgets('home command deck shows global attention and activity',

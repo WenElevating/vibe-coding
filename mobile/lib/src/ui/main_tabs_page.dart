@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
+import '../app/connected_session_scope.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
@@ -266,6 +267,9 @@ class _MainTabsPageState extends State<MainTabsPage>
   bool _loadingWorkspace = false;
   int _appUpdateGeneration = 0;
 
+  ConnectedSessionRepositories get _repositories =>
+      widget.pageDependencies.sessionScope.repositories;
+
   @override
   void initState() {
     super.initState();
@@ -428,7 +432,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     AppUpdateCheckTrigger trigger,
     String reason,
   ) {
-    _connectedData.recordDiagnosticEvent(
+    _repositories.recordDiagnosticEvent(
       'update.silent_check.skipped',
       {
         'trigger': trigger.diagnosticName,
@@ -448,7 +452,7 @@ class _MainTabsPageState extends State<MainTabsPage>
       viewModel.setPermissionMode(repository.permissionMode);
     } catch (error) {
       if (!mounted) return;
-      _connectedData.recordDiagnosticEvent(
+      _repositories.recordDiagnosticEvent(
         'settings.permission_mode.load_failed',
         {'error': '$error'},
         path: 'settings',
@@ -462,10 +466,10 @@ class _MainTabsPageState extends State<MainTabsPage>
 
   Future<void> _probeCodingAdapters() async {
     try {
-      await _connectedData.cliAdapterRepository.probe();
+      await _repositories.cliAdapterRepository.probe();
     } catch (error) {
       if (!mounted) return;
-      _connectedData.recordDiagnosticEvent(
+      _repositories.recordDiagnosticEvent(
         'coding.adapters.load_failed',
         {'error': '$error'},
         path: 'coding',
@@ -504,7 +508,6 @@ class _MainTabsPageState extends State<MainTabsPage>
       connectionConfig: widget.connectionConfig,
       health: data.health,
     );
-    unawaited(_refreshHomeViewModel(homeViewModel));
   }
 
   void _hydrateSessionScope(DaemonInitialData data) {
@@ -520,19 +523,6 @@ class _MainTabsPageState extends State<MainTabsPage>
       connectionConfig: widget.connectionConfig,
       health: data.health,
     );
-  }
-
-  Future<void> _refreshHomeViewModel(HomeViewModel viewModel) async {
-    try {
-      await viewModel.refresh();
-    } catch (error) {
-      if (!mounted) return;
-      _connectedData.recordDiagnosticEvent(
-        'home.repository_refresh_failed',
-        {'error': '$error'},
-        path: 'home',
-      );
-    }
   }
 
   void _disposeRepositoryBackedViewModels() {
@@ -763,7 +753,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (context) => AddWorkspaceSheet(
-              workspaceRepository: _connectedData.workspaceRepository,
+              workspaceRepository: _repositories.workspaceRepository,
             ));
     if (request == null || !mounted) return;
     setState(() {
@@ -771,7 +761,7 @@ class _MainTabsPageState extends State<MainTabsPage>
       _emptyError = null;
     });
     final outcome = await CreateWorkspaceWorkflow(
-      client: _connectedData.workspaceRepository,
+      client: _repositories.workspaceRepository,
       timeout: const Duration(seconds: 15),
     ).create(path: request.path, name: request.name);
     if (!mounted) return;
@@ -837,13 +827,13 @@ class _MainTabsPageState extends State<MainTabsPage>
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
     return ListenableBuilder(
-      listenable: _connectedData.cliAdapterRepository,
+      listenable: _repositories.cliAdapterRepository,
       builder: (context, _) => _buildCodingTabContent(viewModel),
     );
   }
 
   Widget _buildCodingTabContent(MainTabsShellViewModel viewModel) {
-    final adapterRepo = _connectedData.cliAdapterRepository;
+    final adapterRepo = _repositories.cliAdapterRepository;
     if (adapterRepo.loading || adapterRepo.error != null) {
       return _CodingAdapterGate(
         failed: adapterRepo.error != null,

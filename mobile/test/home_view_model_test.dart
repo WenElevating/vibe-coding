@@ -63,6 +63,66 @@ void main() {
     expect(viewModel.deck?.signals.recentFiles, 5);
   });
 
+  test('home renders repository bootstrap data without refresh', () async {
+    final conversationRepository = _FakeCachedConversationRepository()
+      ..replaceFromBootstrap(
+        workspaceId: 'w1',
+        conversations: const <ConversationSummary>[
+          ConversationSummary(
+            id: 'c1',
+            workspaceId: 'w1',
+            adapter: 'codex',
+            status: 'idle',
+            capabilities: _conversationCapabilities,
+            createdAt: '2026-05-29T00:00:00.000Z',
+            updatedAt: '2026-05-29T00:00:00.000Z',
+          ),
+        ],
+      );
+    final runRepository = _FakeCachedRunRepository()
+      ..replaceFromBootstrap(
+        workspaceId: 'w1',
+        runs: const <RunSummary>[
+          RunSummary(
+            id: 'r1',
+            tool: 'codex',
+            workspaceId: 'w1',
+            status: 'completed',
+          ),
+        ],
+        queue: const <QueueItem>[
+          QueueItem(
+            runId: 'r1',
+            workspaceId: 'w1',
+            position: 1,
+            status: 'queued',
+            reason: 'waiting',
+          ),
+        ],
+      );
+    final viewModel = HomeViewModel(
+      workspaceRepository: _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      ),
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
+    );
+
+    final deck = viewModel.deck;
+    expect(deck, isNotNull);
+    expect(deck!.now.id, 'queue:r1');
+    expect(deck.signals.queue, 1);
+    expect(
+      deck.allSignals.map((signal) => signal.id),
+      containsAll(const <String>['queue:r1', 'run:r1']),
+    );
+    expect(deck.workspaceRunSummaries.single.latestRunId, 'r1');
+    expect(conversationRepository.refreshCalls, 0);
+    expect(runRepository.refreshCalls, 0);
+  });
+
   test('home deck updates when bootstrap workspace signal metrics change',
       () async {
     final viewModel = HomeViewModel(
@@ -216,7 +276,7 @@ class _FakeCachedConversationRepository extends CachedConversationRepository {
   int listenerCount = 0;
 
   @override
-  List<ConversationSummary> get conversations => const <ConversationSummary>[];
+  List<ConversationSummary> get conversations => super.conversations;
 
   @override
   Future<void> refresh() async {
@@ -245,10 +305,10 @@ class _FakeCachedRunRepository extends CachedRunRepository {
   int listenerCount = 0;
 
   @override
-  List<RunSummary> get runs => const <RunSummary>[];
+  List<RunSummary> get runs => super.runs;
 
   @override
-  List<QueueItem> get queue => const <QueueItem>[];
+  List<QueueItem> get queue => super.queue;
 
   @override
   Future<void> refresh() async {
