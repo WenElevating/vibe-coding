@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/repositories/conversation_repository.dart';
 import '../../models/protocol.dart';
+import 'bootstrap_hydration.dart';
 
 class CachedConversationRepository extends ChangeNotifier
-    implements ConversationRepository {
+    implements ConversationRepository, ConversationBootstrapTarget {
   CachedConversationRepository({required ConversationRepository delegate})
       : _delegate = delegate;
 
@@ -14,6 +15,7 @@ class CachedConversationRepository extends ChangeNotifier
   bool _loading = false;
   Object? _error;
   bool _loaded = false;
+  String? _loadedWorkspaceId;
   int _refreshGeneration = 0;
   int _mutationEpoch = 0;
   final _locallyMutatedConversationIds = <String>{};
@@ -24,6 +26,27 @@ class CachedConversationRepository extends ChangeNotifier
       List.unmodifiable(_conversations);
   bool get loading => _loading;
   Object? get error => _error;
+  @override
+  String? get loadedWorkspaceId => _loadedWorkspaceId;
+
+  @override
+  void replaceFromBootstrap({
+    required String workspaceId,
+    required List<ConversationSummary> conversations,
+  }) {
+    if (_disposed) return;
+    _refreshGeneration++;
+    _refreshFuture = null;
+    _loading = false;
+    _error = null;
+    _loadedWorkspaceId = workspaceId;
+    final sorted = conversations.toList(growable: false)
+      ..sort(_compareByUpdatedAtDescending);
+    _conversations = List<ConversationSummary>.unmodifiable(sorted);
+    _loaded = true;
+    _locallyMutatedConversationIds.clear();
+    _notifyIfActive();
+  }
 
   Future<void> refresh() {
     final generation = _startRefresh();
@@ -235,6 +258,11 @@ class CachedConversationRepository extends ChangeNotifier
 
   void _upsert(ConversationSummary conversation) {
     if (_disposed) return;
+    final loadedWorkspaceId = _loadedWorkspaceId;
+    if (loadedWorkspaceId != null &&
+        conversation.workspaceId != loadedWorkspaceId) {
+      return;
+    }
     _mutationEpoch++;
     _locallyMutatedConversationIds.add(conversation.id);
     final index = _conversations.indexWhere(
@@ -276,8 +304,8 @@ class CachedConversationRepository extends ChangeNotifier
     List<ConversationSummary> refreshed, {
     required Set<String> mutatedIdsAtStart,
   }) {
-    final mutatedDuringRefresh = _locallyMutatedConversationIds
-        .difference(mutatedIdsAtStart);
+    final mutatedDuringRefresh =
+        _locallyMutatedConversationIds.difference(mutatedIdsAtStart);
     final byId = <String, ConversationSummary>{
       for (final conversation in refreshed) conversation.id: conversation,
       for (final conversation in _conversations)

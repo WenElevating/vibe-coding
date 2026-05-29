@@ -75,7 +75,8 @@ void main() {
       expect(route.workspaceId, 'w1');
     });
 
-    test('createWorkspaceAndOpen routes to created workspace without AppSnapshot',
+    test(
+        'createWorkspaceAndOpen routes to created workspace without AppSnapshot',
         () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[],
@@ -93,7 +94,8 @@ void main() {
       expect(route.workspaceId, 'new');
     });
 
-    test('createWorkspaceAndOpen returns to list on creation failure', () async {
+    test('createWorkspaceAndOpen returns to list on creation failure',
+        () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[],
       )..createError = StateError('create failed');
@@ -257,7 +259,7 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 
   @override
   void applyBootstrapCatalog({
-    required WorkspaceSummary selectedWorkspace,
+    required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,
   }) {
     _workspaces = List<WorkspaceSummary>.of(workspaces);
@@ -317,8 +319,7 @@ class _FakeCachedConversationRepository extends CachedConversationRepository {
       : super(delegate: _NoOpConversationRepository());
 
   @override
-  List<ConversationSummary> get conversations =>
-      const <ConversationSummary>[];
+  List<ConversationSummary> get conversations => const <ConversationSummary>[];
 }
 
 class _NoOpConversationRepository implements ConversationRepository {

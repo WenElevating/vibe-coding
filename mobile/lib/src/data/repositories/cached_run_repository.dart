@@ -2,8 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/repositories/run_repository.dart';
 import '../../models/protocol.dart';
+import 'bootstrap_hydration.dart';
 
-class CachedRunRepository extends ChangeNotifier implements RunRepository {
+class CachedRunRepository extends ChangeNotifier
+    implements RunRepository, RunBootstrapTarget {
   CachedRunRepository({required RunRepository delegate}) : _delegate = delegate;
 
   final RunRepository _delegate;
@@ -13,6 +15,7 @@ class CachedRunRepository extends ChangeNotifier implements RunRepository {
   bool _loading = false;
   Object? _error;
   bool _loaded = false;
+  String? _loadedWorkspaceId;
   int _refreshGeneration = 0;
   int _mutationEpoch = 0;
   final _locallyMutatedRunIds = <String>{};
@@ -23,6 +26,27 @@ class CachedRunRepository extends ChangeNotifier implements RunRepository {
   List<QueueItem> get queue => List.unmodifiable(_queue);
   bool get loading => _loading;
   Object? get error => _error;
+  @override
+  String? get loadedWorkspaceId => _loadedWorkspaceId;
+
+  @override
+  void replaceFromBootstrap({
+    required String workspaceId,
+    required List<RunSummary> runs,
+    required List<QueueItem> queue,
+  }) {
+    if (_disposed) return;
+    _refreshGeneration++;
+    _refreshFuture = null;
+    _loading = false;
+    _error = null;
+    _loadedWorkspaceId = workspaceId;
+    _runs = List<RunSummary>.unmodifiable(runs);
+    _queue = List<QueueItem>.unmodifiable(queue);
+    _loaded = true;
+    _locallyMutatedRunIds.clear();
+    _notifyIfActive();
+  }
 
   Future<void> refresh() {
     final generation = _startRefresh();
@@ -159,7 +183,9 @@ class CachedRunRepository extends ChangeNotifier implements RunRepository {
 
   @override
   Future<void> respondApproval(String approvalId, String decision) async {
+    final loadedWorkspaceId = _loadedWorkspaceId;
     await _delegate.respondApproval(approvalId, decision);
+    if (_loadedWorkspaceId != loadedWorkspaceId) return;
     await refresh();
   }
 
@@ -224,6 +250,10 @@ class CachedRunRepository extends ChangeNotifier implements RunRepository {
 
   void _upsert(RunSummary run) {
     if (_disposed) return;
+    final loadedWorkspaceId = _loadedWorkspaceId;
+    if (loadedWorkspaceId != null && run.workspaceId != loadedWorkspaceId) {
+      return;
+    }
     _mutationEpoch++;
     _locallyMutatedRunIds.add(run.id);
     final index = _runs.indexWhere((item) => item.id == run.id);

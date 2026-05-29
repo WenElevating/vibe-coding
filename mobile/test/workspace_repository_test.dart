@@ -570,7 +570,7 @@ class _UnusedRepository extends WorkspaceRepository
 
   @override
   void applyBootstrapCatalog({
-    required WorkspaceSummary selectedWorkspace,
+    required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,
   }) {}
 

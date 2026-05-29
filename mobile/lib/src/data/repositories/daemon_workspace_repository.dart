@@ -8,6 +8,7 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   final DaemonClient _client;
   List<WorkspaceSummary> _workspaces = const <WorkspaceSummary>[];
   String? _selectedWorkspaceId;
+  bool _hasExplicitSelectionState = false;
   bool _loading = false;
   Object? _error;
   int _operationGeneration = 0;
@@ -19,6 +20,9 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
   @override
   WorkspaceSummary? get selectedWorkspace {
     final selectedWorkspaceId = _selectedWorkspaceId;
+    if (_hasExplicitSelectionState && selectedWorkspaceId == null) {
+      return null;
+    }
     if (selectedWorkspaceId == null) {
       return _workspaces.isEmpty ? null : _workspaces.first;
     }
@@ -55,28 +59,43 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
     }
     if (selectedWorkspace?.id == workspaceId) {
       _selectedWorkspaceId = workspaceId;
+      _hasExplicitSelectionState = true;
       return true;
     }
     _selectedWorkspaceId = workspaceId;
+    _hasExplicitSelectionState = true;
     notifyListeners();
     return true;
   }
 
   @override
   void applyBootstrapCatalog({
-    required WorkspaceSummary selectedWorkspace,
+    required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,
   }) {
     if (_disposed) return;
+    _operationGeneration++;
+    final wasLoading = _loading;
+    final hadError = _error != null;
+    final nextSelectedWorkspaceId = selectedWorkspace?.id;
     final nextWorkspaces = <WorkspaceSummary>[
       ...workspaces,
-      if (!workspaces.any((workspace) => workspace.id == selectedWorkspace.id))
+      if (selectedWorkspace != null &&
+          !workspaces.any(
+            (workspace) => workspace.id == nextSelectedWorkspaceId,
+          ))
         selectedWorkspace,
     ];
     final changed = !_sameWorkspaceCatalog(_workspaces, nextWorkspaces) ||
-        _selectedWorkspaceId != selectedWorkspace.id;
+        _selectedWorkspaceId != nextSelectedWorkspaceId ||
+        !_hasExplicitSelectionState ||
+        wasLoading ||
+        hadError;
     _workspaces = List<WorkspaceSummary>.unmodifiable(nextWorkspaces);
-    _selectedWorkspaceId = selectedWorkspace.id;
+    _selectedWorkspaceId = nextSelectedWorkspaceId;
+    _hasExplicitSelectionState = true;
+    _loading = false;
+    _error = null;
     if (changed) {
       _notifyListeners();
     }
@@ -168,6 +187,9 @@ class DaemonWorkspaceRepository extends WorkspaceRepository {
       preferredWorkspaceId ?? _selectedWorkspaceId,
       _workspaces,
     );
+    if (preferredWorkspaceId != null) {
+      _hasExplicitSelectionState = true;
+    }
   }
 
   Future<List<WorkspaceSummary>> _listWorkspacesFromClient() =>

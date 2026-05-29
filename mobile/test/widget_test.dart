@@ -1063,10 +1063,10 @@ class _SnapshotWorkspaceRepository
 
   @override
   void applyBootstrapCatalog({
-    required WorkspaceSummary selectedWorkspace,
+    required WorkspaceSummary? selectedWorkspace,
     required List<WorkspaceSummary> workspaces,
   }) {
-    _selectedWorkspaceId = selectedWorkspace.id;
+    _selectedWorkspaceId = selectedWorkspace?.id;
     notifyListeners();
   }
 
