@@ -1,7 +1,7 @@
 # Build And Test
 
 - Status: active seed
-- Last verified: 2026-05-22
+- Last verified: 2026-05-29
 
 ## Daemon Checks
 
@@ -85,6 +85,30 @@ match the approved command prefix, causing Flutter to run in the sandbox and
 fail or hang while opening the SDK cache lockfile outside the workspace. If a
 one-off command truly needs inline environment setup, run it with explicit
 escalation instead of relying on the approved prefix.
+
+If `flutter test` is allowed outside the sandbox but still appears to hang with
+no test output, inspect child Dart processes. Flutter may be stuck before test
+execution in its implicit package resolution step:
+
+```text
+dart pub --suppress-analytics --directory . get --example
+```
+
+When `mobile/.dart_tool/package_config.json` already exists and dependencies are
+not being changed, run targeted agent tests with `--no-pub` and the same mirror
+environment:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded
+```
+
+Run package resolution explicitly only when dependencies, generated package
+metadata, or Flutter artifacts actually need to change.
 
 ## Knowledge Check
 
