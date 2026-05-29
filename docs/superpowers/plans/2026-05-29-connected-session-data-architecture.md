@@ -162,6 +162,8 @@ Expected: FAIL with missing `replaceFromBootstrap` and `loadedWorkspaceId` membe
 Create `mobile/lib/src/data/repositories/bootstrap_hydration.dart`:
 
 ```dart
+// These interfaces live in data/ for this migration because they use protocol
+// models. Move them to domain/ when protocol/domain model separation lands.
 import '../../models/protocol.dart';
 
 abstract interface class ConversationBootstrapTarget {
@@ -858,6 +860,10 @@ class ConnectedSessionScope {
 
   Future<void> dispose() async {
     await _closeSession?.call();
+    // Dispose session-owned ChangeNotifier repositories here. The coding
+    // preferences repository is app-wide. Auth, diagnostics, and app-update
+    // repositories are stateless daemon facades today; add disposal here if
+    // they gain session-scoped resources or dispose hooks.
     repositories.workspaceRepository.dispose();
     repositories.cliAdapterRepository.dispose();
     repositories.commandCatalogRepository.dispose();
