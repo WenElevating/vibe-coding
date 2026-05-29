@@ -458,19 +458,25 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   void _loadCodingAdapters() {
+    unawaited(_probeCodingAdapters());
+  }
+
+  Future<void> _probeCodingAdapters() async {
+    try {
+      await _connectedData.cliAdapterRepository.probe();
+    } catch (error) {
+      if (!mounted) return;
+      _connectedData.recordDiagnosticEvent(
+        'coding.adapters.load_failed',
+        {'error': '$error'},
+        path: 'coding',
+      );
+    }
+  }
+
+  void _retryCodingAdapters() {
     unawaited(
-      _connectedData.adapterRepository.listAdapters().catchError(
-        (Object error, StackTrace stackTrace) {
-          if (mounted) {
-            _connectedData.recordDiagnosticEvent(
-              'coding.adapters.load_failed',
-              {'error': '$error'},
-              path: 'coding',
-            );
-          }
-          return <AdapterStatus>[];
-        },
-      ),
+      _probeCodingAdapters(),
     );
   }
 
@@ -837,18 +843,18 @@ class _MainTabsPageState extends State<MainTabsPage>
     final viewModel = _viewModel;
     if (viewModel == null) return _buildEmptyWorkspaceListPage();
     return ListenableBuilder(
-      listenable: _connectedData.adapterRepository,
+      listenable: _connectedData.cliAdapterRepository,
       builder: (context, _) => _buildCodingTabContent(viewModel),
     );
   }
 
   Widget _buildCodingTabContent(MainTabsShellViewModel viewModel) {
-    final adapterRepo = _connectedData.adapterRepository;
+    final adapterRepo = _connectedData.cliAdapterRepository;
     if (adapterRepo.loading || adapterRepo.error != null) {
       return _CodingAdapterGate(
         failed: adapterRepo.error != null,
         error: adapterRepo.error,
-        onRetry: () => unawaited(adapterRepo.load()),
+        onRetry: _retryCodingAdapters,
       );
     }
     return CodingPage(

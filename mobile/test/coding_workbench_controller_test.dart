@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/l10n/app_localizations_zh.dart';
-import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
@@ -56,7 +56,7 @@ void main() {
   });
 
   test('active conversation owns adapter selection across cache refreshes', () {
-    final adapterRepository = _FakeCachedAdapterRepository(
+    final adapterRepository = _FakeCliAdapterRepository(
       adapters: const <AdapterStatus>[_codexAdapter, _claudeAdapter],
     );
     final viewModel = _workbenchViewModel(
@@ -348,7 +348,7 @@ WorkbenchViewModel _workbenchViewModel({
   List<AdapterStatus> adapters = const <AdapterStatus>[],
   List<WorkspaceSummary> workspaces = const <WorkspaceSummary>[_workspace],
   _FakeWorkspaceRepository? workspaceRepository,
-  _FakeCachedAdapterRepository? adapterRepository,
+  _FakeCliAdapterRepository? adapterRepository,
   _FakeConversationRepository? conversationRepository,
   _FakeRunRepository? runRepository,
   DiagnosticsRepository? diagnosticsRepository,
@@ -360,7 +360,7 @@ WorkbenchViewModel _workbenchViewModel({
     workspaceRepository:
         workspaceRepository ?? _FakeWorkspaceRepository(workspaces: workspaces),
     adapterRepository:
-        adapterRepository ?? _FakeCachedAdapterRepository(adapters: adapters),
+        adapterRepository ?? _FakeCliAdapterRepository(adapters: adapters),
     conversationRepository: CachedConversationRepository(
       delegate: conversationRepository ?? _FakeConversationRepository(),
     ),
@@ -460,8 +460,8 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _FakeCachedAdapterRepository extends CachedAdapterRepository {
-  _FakeCachedAdapterRepository({
+class _FakeCliAdapterRepository extends CliAdapterRepository {
+  _FakeCliAdapterRepository({
     List<AdapterStatus> adapters = const <AdapterStatus>[],
   })  : _adapters = List<AdapterStatus>.of(adapters),
         super(delegate: _NoOpAdapterRepository());

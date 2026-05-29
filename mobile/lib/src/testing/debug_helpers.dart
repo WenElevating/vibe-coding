@@ -9,9 +9,9 @@ import '../data/repositories/daemon_conversation_repository.dart';
 import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
-import '../data/repositories/cached_adapter_repository.dart';
 import '../data/repositories/cached_conversation_repository.dart';
 import '../data/repositories/cached_run_repository.dart';
+import '../data/repositories/cli_adapter_repository.dart';
 import '../data/services/notification_service.dart';
 import '../services/asr_model_manager.dart';
 import '../services/daemon_client.dart';
@@ -465,15 +465,19 @@ Widget buildCodingWorkbenchEntryPreview() {
               expandThinking: false,
               permissionMode: 'default',
               dependencies: WorkbenchDependencies(
-                adapterRepository: CachedAdapterRepository(delegate: DaemonAdapterRepository(client: client)),
+                adapterRepository: CliAdapterRepository(
+                    delegate: DaemonAdapterRepository(client: client)),
                 asrModelManager:
                     AsrModelManager(client: client.createAsrModelClient()),
-                conversationRepository: CachedConversationRepository(delegate: DaemonConversationRepository(
-                    client: client,
-                    notificationService: const _EmptyNotificationService())),
+                conversationRepository: CachedConversationRepository(
+                    delegate: DaemonConversationRepository(
+                        client: client,
+                        notificationService:
+                            const _EmptyNotificationService())),
                 diagnosticsRepository:
                     DaemonDiagnosticsRepository(client: client),
-                runRepository: CachedRunRepository(delegate: DaemonRunRepository(client: client)),
+                runRepository: CachedRunRepository(
+                    delegate: DaemonRunRepository(client: client)),
                 speechInputServiceBuilder: (_) =>
                     const DisabledSpeechInputService(),
                 workspaceRepository: DaemonWorkspaceRepository(client: client),

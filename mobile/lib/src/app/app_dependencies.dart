@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import '../data/repositories/cached_adapter_repository.dart';
 import '../data/repositories/cached_conversation_repository.dart';
 import '../data/repositories/cached_run_repository.dart';
+import '../data/repositories/cli_adapter_repository.dart';
+import '../data/repositories/command_catalog_repository.dart';
 import '../data/repositories/coding_preferences_repository.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
@@ -211,9 +213,6 @@ class DataDependencies {
       notificationService: notificationClient,
     );
     final rawRunRepository = DaemonRunRepository(client: client);
-    final adapterRepository = CachedAdapterRepository(
-      delegate: rawAdapterRepository,
-    );
     final conversationRepository = CachedConversationRepository(
       delegate: rawConversationRepository,
     );
@@ -222,7 +221,13 @@ class DataDependencies {
     );
     return ConnectedDataDependencies(
       authRepository: DaemonAuthRepository(client: client),
-      adapterRepository: adapterRepository,
+      adapterRepository: rawAdapterRepository,
+      cliAdapterRepository: CliAdapterRepository(
+        delegate: rawAdapterRepository,
+      ),
+      commandCatalogRepository: CommandCatalogRepository(
+        delegate: rawAdapterRepository,
+      ),
       appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
       conversationRepository: conversationRepository,
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
@@ -237,6 +242,8 @@ class ConnectedDataDependencies {
   ConnectedDataDependencies({
     required this.authRepository,
     required AdapterRepository adapterRepository,
+    CliAdapterRepository? cliAdapterRepository,
+    CommandCatalogRepository? commandCatalogRepository,
     required this.appUpdateRepository,
     required ConversationRepository conversationRepository,
     required this.diagnosticsRepository,
@@ -246,6 +253,10 @@ class ConnectedDataDependencies {
   })  : adapterRepository = adapterRepository is CachedAdapterRepository
             ? adapterRepository
             : CachedAdapterRepository(delegate: adapterRepository),
+        cliAdapterRepository = cliAdapterRepository ??
+            CliAdapterRepository(delegate: adapterRepository),
+        commandCatalogRepository = commandCatalogRepository ??
+            CommandCatalogRepository(delegate: adapterRepository),
         conversationRepository = conversationRepository
                 is CachedConversationRepository
             ? conversationRepository
@@ -257,6 +268,8 @@ class ConnectedDataDependencies {
 
   final AuthRepository authRepository;
   final CachedAdapterRepository adapterRepository;
+  final CliAdapterRepository cliAdapterRepository;
+  final CommandCatalogRepository commandCatalogRepository;
   final AppUpdateRepository appUpdateRepository;
   final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
@@ -275,6 +288,16 @@ class ConnectedDataDependencies {
     }
     try {
       workspaceRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      cliAdapterRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      commandCatalogRepository.dispose();
     } catch (_) {
       // Cleanup failures must not surface as unhandled async errors.
     }
@@ -450,7 +473,7 @@ class FeatureDependencies {
         },
         createWorkbenchDependencies: (client, connectedData) {
           return WorkbenchDependencies(
-            adapterRepository: connectedData.adapterRepository,
+            adapterRepository: connectedData.cliAdapterRepository,
             asrModelManager:
                 AsrModelManager(client: client.createAsrModelClient()),
             conversationRepository: connectedData.conversationRepository,

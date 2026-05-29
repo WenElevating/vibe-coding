@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
@@ -109,7 +109,7 @@ void main() {
     test('dispose removes workspace and adapter repository listeners', () {
       final workspaceRepository =
           _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]);
-      final adapterRepository = _FakeCachedAdapterRepository();
+      final adapterRepository = _FakeCliAdapterRepository();
       final viewModel = _workbenchViewModel(
         workspaceRepository,
         adapterRepository: adapterRepository,
@@ -159,11 +159,11 @@ void main() {
 
 WorkbenchViewModel _workbenchViewModel(
   _FakeWorkspaceRepository workspaceRepository, {
-  _FakeCachedAdapterRepository? adapterRepository,
+  _FakeCliAdapterRepository? adapterRepository,
 }) {
   return WorkbenchViewModel(
     workspaceRepository: workspaceRepository,
-    adapterRepository: adapterRepository ?? _FakeCachedAdapterRepository(),
+    adapterRepository: adapterRepository ?? _FakeCliAdapterRepository(),
     conversationRepository: _FakeCachedConversationRepository(),
     runRepository: _FakeCachedRunRepository(),
   );
@@ -284,11 +284,11 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Fake cached adapter repository
+// Fake CLI adapter repository
 // ---------------------------------------------------------------------------
 
-class _FakeCachedAdapterRepository extends CachedAdapterRepository {
-  _FakeCachedAdapterRepository() : super(delegate: _NoOpAdapterRepository());
+class _FakeCliAdapterRepository extends CliAdapterRepository {
+  _FakeCliAdapterRepository() : super(delegate: _NoOpAdapterRepository());
 
   int get listenerCount => _listenerCount;
   int _listenerCount = 0;

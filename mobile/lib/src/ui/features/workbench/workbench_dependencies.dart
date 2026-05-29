@@ -1,6 +1,6 @@
-import '../../../data/repositories/cached_adapter_repository.dart';
 import '../../../data/repositories/cached_conversation_repository.dart';
 import '../../../data/repositories/cached_run_repository.dart';
+import '../../../data/repositories/cli_adapter_repository.dart';
 import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../services/asr_model_manager.dart';
@@ -20,7 +20,7 @@ class WorkbenchDependencies {
   });
 
   final AttachmentPreviewCache attachmentPreviewCache;
-  final CachedAdapterRepository adapterRepository;
+  final CliAdapterRepository adapterRepository;
   final AsrModelManager asrModelManager;
   final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;

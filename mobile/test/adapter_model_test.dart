@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
@@ -98,7 +98,7 @@ void main() {
     });
 
     test('snapshot refresh selects a model when one becomes available', () {
-      final adapterRepository = _FakeCachedAdapterRepository();
+      final adapterRepository = _FakeCliAdapterRepository();
       final viewModel = _workbenchViewModel(
         adapterRepository: adapterRepository,
       );
@@ -111,7 +111,7 @@ void main() {
     });
 
     test('snapshot refresh falls back when the selected model disappears', () {
-      final adapterRepository = _FakeCachedAdapterRepository(
+      final adapterRepository = _FakeCliAdapterRepository(
         adapters: const <AdapterStatus>[_codexModels],
       );
       final viewModel = _workbenchViewModel(
@@ -746,7 +746,7 @@ const _claudeAvailable = AdapterStatus(
 WorkbenchViewModel _workbenchViewModel({
   List<AdapterStatus> adapters = const <AdapterStatus>[],
   List<WorkspaceSummary> workspaces = const <WorkspaceSummary>[_workspace],
-  _FakeCachedAdapterRepository? adapterRepository,
+  _FakeCliAdapterRepository? adapterRepository,
   _FakeConversationRepository? conversationRepository,
   AttachmentPreviewCache attachmentPreviewCache =
       const NoopAttachmentPreviewCache(),
@@ -754,7 +754,7 @@ WorkbenchViewModel _workbenchViewModel({
   return WorkbenchViewModel(
     workspaceRepository: _FakeWorkspaceRepository(workspaces: workspaces),
     adapterRepository:
-        adapterRepository ?? _FakeCachedAdapterRepository(adapters: adapters),
+        adapterRepository ?? _FakeCliAdapterRepository(adapters: adapters),
     conversationRepository: CachedConversationRepository(
       delegate: conversationRepository ?? _FakeConversationRepository(),
     ),
@@ -842,8 +842,8 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _FakeCachedAdapterRepository extends CachedAdapterRepository {
-  _FakeCachedAdapterRepository({
+class _FakeCliAdapterRepository extends CliAdapterRepository {
+  _FakeCliAdapterRepository({
     List<AdapterStatus> adapters = const <AdapterStatus>[],
   })  : _adapters = List<AdapterStatus>.of(adapters),
         super(delegate: _NoOpAdapterRepository());

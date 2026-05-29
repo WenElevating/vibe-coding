@@ -3,9 +3,9 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../../data/repositories/cached_adapter_repository.dart';
 import '../../../../data/repositories/cached_conversation_repository.dart';
 import '../../../../data/repositories/cached_run_repository.dart';
+import '../../../../data/repositories/cli_adapter_repository.dart';
 import '../../../../data/repositories/workspace_repository.dart';
 import '../../../../domain/repositories/conversation_repository.dart';
 import '../../../../domain/repositories/diagnostics_repository.dart';
@@ -37,7 +37,7 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   WorkbenchViewModel({
     required WorkspaceRepository workspaceRepository,
-    required CachedAdapterRepository adapterRepository,
+    required CliAdapterRepository adapterRepository,
     required CachedConversationRepository conversationRepository,
     required CachedRunRepository runRepository,
     DiagnosticsRepository? diagnosticsRepository,
@@ -68,7 +68,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   final DiagnosticsRepository? _diagnosticsRepository;
   final CachedRunRepository _runRepository;
   final WorkspaceRepository _workspaceRepository;
-  final CachedAdapterRepository _adapterRepository;
+  final CliAdapterRepository _adapterRepository;
   final Duration _workspaceCreationTimeout;
   late List<AdapterStatus> _adapters;
   String? _selectedAdapter;

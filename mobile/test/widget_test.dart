@@ -2648,7 +2648,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -2726,7 +2726,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -2844,7 +2844,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -2942,7 +2942,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3048,7 +3048,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3343,7 +3343,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3448,7 +3448,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3526,7 +3526,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3617,7 +3617,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
@@ -3697,7 +3697,7 @@ void main() {
             dependencies.features.createAppUpdateViewModel,
         createWorkbenchDependencies: (_, connectedData) =>
             WorkbenchDependencies(
-          adapterRepository: connectedData.adapterRepository,
+          adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
           conversationRepository:
               CachedConversationRepository(delegate: conversationRepository),
