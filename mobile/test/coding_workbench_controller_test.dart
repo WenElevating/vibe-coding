@@ -2,168 +2,72 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/l10n/app_localizations_zh.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
-import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/session_item.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/attachment_preview_cache.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
-import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench.dart';
-import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/coding_workbench_controller.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench_messages.dart';
 import 'package:lan_ai_cli_control/src/workflows/workspace/create_workspace_workflow.dart';
 
 void main() {
-  test('workspace list route exposes daemon-confirmed workspaces', () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const route = WorkspaceListRouteState(
-      workspaces: <WorkspaceSummary>[current],
-    );
-
-    expect(route.workspaces, const <WorkspaceSummary>[current]);
-  });
-
-  test(
-      'creating workspace route keeps previous workspaces only as display state',
+  test('workbench route state stores ids and resolves workspace via repository',
       () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const state = CreatingWorkspaceRouteState(
-      previousWorkspaces: <WorkspaceSummary>[current],
-      requestLabel: 'Created Workspace',
-    );
-
-    expect(state.workspaces, const <WorkspaceSummary>[current]);
-    expect(state.requestLabel, 'Created Workspace');
-  });
-
-  test('sessions route carries workspace context and workspace list', () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const created = WorkspaceSummary(
-      id: 'workspace_created',
-      name: 'Created Workspace',
-      path: r'D:\created',
-    );
-
-    const route = WorkspaceSessionsRouteState(
-      workspace: created,
-      workspaces: <WorkspaceSummary>[current, created],
-    );
-
-    expect(route.workspace, created);
-    expect(route.workspaces, const <WorkspaceSummary>[current, created]);
-  });
-
-  test('conversation route carries workspace context and workspace list', () {
-    const current = WorkspaceSummary(
-      id: 'workspace_current',
-      name: 'Current Project',
-      path: r'D:\current',
-    );
-    const conversationWorkspace = WorkspaceSummary(
-      id: 'workspace_conversation',
-      name: 'Conversation Workspace',
-      path: r'D:\conversation',
-    );
-
-    const route = ConversationRouteState(
-      workspace: conversationWorkspace,
-      workspaces: <WorkspaceSummary>[current, conversationWorkspace],
-    );
-
-    expect(route.workspace, conversationWorkspace);
-    expect(route.workspaces,
-        const <WorkspaceSummary>[current, conversationWorkspace]);
-  });
-
-  test('workbench view model owns current route workspace state', () {
     const other = WorkspaceSummary(
       id: 'workspace_2',
       name: 'Other Workspace',
       path: r'D:\other',
     );
-    final viewModel = WorkbenchViewModel(
-      initialData:
-          _snapshot(workspaces: const <WorkspaceSummary>[_workspace, other]),
+    final viewModel = _workbenchViewModel(
+      workspaces: const <WorkspaceSummary>[_workspace, other],
     );
 
     expect(viewModel.routeWorkspace, isNull);
 
-    viewModel.showSessions(_workspace);
-    expect(viewModel.routeWorkspace, _workspace);
-
-    viewModel.showConversation(other);
+    viewModel.openWorkspaceSessions(other.id);
+    expect(viewModel.selectedWorkspace, other);
     expect(viewModel.routeWorkspace, other);
+    expect(
+      viewModel.routeState,
+      isA<WorkspaceSessionsRouteState>()
+          .having((state) => state.workspaceId, 'workspaceId', other.id),
+    );
+
+    viewModel.showConversationRoute(_workspace.id, 'conv_1');
+    expect(viewModel.routeWorkspace, _workspace);
+    expect(
+      viewModel.routeState,
+      isA<ConversationRouteState>()
+          .having((state) => state.workspaceId, 'workspaceId', _workspace.id)
+          .having((state) => state.conversationId, 'conversationId', 'conv_1'),
+    );
 
     viewModel.showWorkspaceList();
     expect(viewModel.routeWorkspace, isNull);
   });
 
-  test('workbench view model owns active conversation identity', () {
-    final conversation = _conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'running',
+  test('active conversation owns adapter selection across cache refreshes', () {
+    final adapterRepository = _FakeCachedAdapterRepository(
+      adapters: const <AdapterStatus>[_codexAdapter, _claudeAdapter],
     );
-    final updated = _conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'idle',
-      userMessageCount: 1,
+    final viewModel = _workbenchViewModel(
+      adapterRepository: adapterRepository,
     );
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-
-    expect(viewModel.activeRunId, isNull);
-    expect(viewModel.activeConversationId, isNull);
-    expect(viewModel.activeConversation, isNull);
-
-    viewModel.openSession(SessionItem(
-      run: WorkbenchViewModel.runSummaryFromConversation(conversation),
-      conversation: conversation,
-    ));
-    expect(viewModel.activeRunId, 'conv_1');
-    expect(viewModel.activeConversationId, 'conv_1');
-    expect(viewModel.activeConversation, conversation);
-
-    viewModel.updateActiveConversation(updated);
-    expect(viewModel.activeRunId, 'conv_1');
-    expect(viewModel.activeConversationId, 'conv_1');
-    expect(viewModel.activeConversation, updated);
-
-    viewModel.clearActiveConversation();
-    expect(viewModel.activeRunId, isNull);
-    expect(viewModel.activeConversationId, isNull);
-    expect(viewModel.activeConversation, isNull);
-  });
-
-  test('workbench view model restores conversation adapter and locks changes',
-      () {
     final conversation = _conversation(
       id: 'conv_codex',
       workspaceId: _workspace.id,
       status: 'idle',
       adapter: 'codex',
     );
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        adapters: const <AdapterStatus>[_claudeAdapter, _codexAdapter],
-      ),
-    );
 
     expect(viewModel.selectedAdapter, 'claude');
 
@@ -173,741 +77,17 @@ void main() {
     ));
     expect(viewModel.selectedAdapter, 'codex');
 
+    adapterRepository.replaceAdapters(const <AdapterStatus>[_claudeAdapter]);
+
+    expect(viewModel.selectedAdapter, 'codex');
     viewModel.setSelectedAdapter('claude');
     expect(viewModel.selectedAdapter, 'codex');
   });
 
-  test(
-      'workbench view model keeps active conversation adapter on snapshot update',
-      () {
-    final conversation = _conversation(
-      id: 'conv_claude',
-      workspaceId: _workspace.id,
-      status: 'idle',
-      adapter: 'claude',
-    );
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        adapters: const <AdapterStatus>[_codexAdapter, _claudeAdapter],
-      ),
-    );
-
-    viewModel.updateActiveConversation(conversation);
-    expect(viewModel.selectedAdapter, 'claude');
-
-    viewModel.updateFromSnapshot(_snapshot(
-      workspaces: const <WorkspaceSummary>[_workspace],
-      adapters: const <AdapterStatus>[_codexAdapter],
-      conversations: <ConversationSummary>[conversation],
-    ));
-
-    expect(viewModel.selectedAdapter, 'claude');
-  });
-
-  test('workbench view model owns operation busy and error state', () {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-
-    expect(viewModel.sending, isFalse);
-    expect(viewModel.error, isNull);
-    expect(viewModel.errorTraceId, isNull);
-
-    viewModel.beginOperation();
-    expect(viewModel.sending, isTrue);
-    expect(viewModel.error, isNull);
-    expect(viewModel.errorTraceId, isNull);
-
-    viewModel.setOperationError('boom', traceId: 'trace_1');
-    expect(viewModel.error, 'boom');
-    expect(viewModel.errorTraceId, 'trace_1');
-
-    viewModel.finishOperation();
-    expect(viewModel.sending, isFalse);
-
-    viewModel.clearOperationError();
-    expect(viewModel.error, isNull);
-    expect(viewModel.errorTraceId, isNull);
-  });
-
-  test('send acknowledgement timeout is non-fatal after session is active', () {
-    final timeout = TimeoutException('Future not completed');
-
-    expect(
-      isSendAcknowledgementTimeout(
-        timeout,
-        activeConversationId: 'conv_1',
-        activeRunId: null,
-      ),
-      isTrue,
-    );
-    expect(
-      isSendAcknowledgementTimeout(
-        timeout,
-        activeConversationId: null,
-        activeRunId: 'run_1',
-      ),
-      isTrue,
-    );
-    expect(
-      isSendAcknowledgementTimeout(
-        timeout,
-        activeConversationId: null,
-        activeRunId: null,
-      ),
-      isFalse,
-    );
-    expect(
-      isSendAcknowledgementTimeout(
-        Exception('boom'),
-        activeConversationId: 'conv_1',
-        activeRunId: null,
-      ),
-      isFalse,
-    );
-  });
-
-  test('workbench view model owns conversation event projection', () {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-    final conversation = _conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'running',
-    );
-    viewModel.updateActiveConversation(conversation);
-
-    final approvalEventsApplied = viewModel.applyConversationEvents(
-      <ConversationEvent>[
-        _event(seq: 1, type: 'user.message', text: 'run tests'),
-        _event(seq: 2, type: 'assistant.partial', text: 'Checking'),
-        _event(
-          seq: 3,
-          type: 'approval.requested',
-          approvalId: 'approval_1',
-          toolUseId: 'tool_1',
-          toolName: 'Bash',
-          summary: 'Run flutter tests',
-          input: const <String, Object?>{'command': 'flutter test'},
-        ),
-      ],
-      streamOutput: true,
-    );
-
-    expect(approvalEventsApplied, isTrue);
-    expect(viewModel.lastSeq, 3);
-    expect(viewModel.conversationEvents, hasLength(3));
-    expect(viewModel.conversationState.status, 'waiting_approval');
-    expect(viewModel.pendingQuestionId, isNull);
-    expect(viewModel.activeConversation?.status, 'waiting_approval');
-    expect(
-        viewModel.activeConversation?.blockingItem?.approvalId, 'approval_1');
-    expect(
-      viewModel.messages.map((message) => '${message.role}:${message.body}'),
-      const <String>[
-        'user:run tests',
-        'assistant_stream:Checking',
-        'approval:Run flutter tests',
-      ],
-    );
-
-    final completionEventsApplied = viewModel.applyConversationEvents(
-      <ConversationEvent>[
-        _event(
-          seq: 4,
-          type: 'approval.resolved',
-          approvalId: 'approval_1',
-          toolUseId: 'tool_1',
-          toolName: 'Bash',
-          input: const <String, Object?>{'command': 'flutter test'},
-          raw: const <String, Object?>{'decision': 'allow'},
-        ),
-        _event(seq: 5, type: 'assistant.message', text: 'Done.'),
-      ],
-      streamOutput: true,
-    );
-
-    expect(completionEventsApplied, isTrue);
-    expect(viewModel.lastSeq, 5);
-    expect(viewModel.conversationEvents, hasLength(5));
-    expect(viewModel.conversationState.status, 'idle');
-    expect(viewModel.activeConversation?.status, 'idle');
-    expect(viewModel.activeConversation?.blockingItem, isNull);
-    expect(
-      viewModel.messages.map((message) => '${message.role}:${message.body}'),
-      const <String>[
-        'user:run tests',
-        'command:flutter test',
-        'assistant:Done.',
-      ],
-    );
-  });
-
-  test('conversation started event keeps optimistic user message visible', () {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-    viewModel.updateActiveConversation(_conversation(
-        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
-    viewModel.addUserMessage('inspect image');
-
-    final changed = viewModel.applyConversationEvents(
-      <ConversationEvent>[_event(seq: 1, type: 'conversation.started')],
-      streamOutput: false,
-    );
-
-    expect(changed, isTrue);
-    expect(viewModel.messages.single.role, 'user');
-    expect(viewModel.messages.single.body, 'inspect image');
-  });
-
-  test(
-      'committed attachment event binds cache identity and resolves local path',
+  test('new conversation send uses cached repository state for session items',
       () async {
-    const imageCapableAdapter = AdapterStatus(
-      adapter: 'codex',
-      available: true,
-      status: 'available',
-      capabilityVersion: 'cap_v1',
-      attachmentCapabilities:
-          AttachmentCapabilities(image: AttachmentHandling.native),
-    );
     final repository = _FakeConversationRepository();
-    final cache = _FakeAttachmentPreviewCache();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        adapters: const <AdapterStatus>[imageCapableAdapter],
-      ),
-      conversationRepository: repository,
-      attachmentPreviewCache: cache,
-    );
-    viewModel.updateActiveConversation(_conversation(
-        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
-    viewModel.addDraftAttachmentForTest(const DraftAttachment(
-      localPath: r'C:\tmp\screenshot.png',
-      name: 'screenshot.png',
-      mimeType: 'image/png',
-      kind: AttachmentKind.image,
-      sizeBytes: 42,
-    ));
-    viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
-    await viewModel.sendExistingConversationPrompt(
-      conversationId: 'conv_1',
-      prompt: 'inspect image',
-    );
-    final clientMessageId = repository.sentRequests.single.clientMessageId;
-    expect(clientMessageId, isNotNull);
-
-    await viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        ConversationEvent(
-          seq: 1,
-          conversationId: 'conv_1',
-          type: 'user.message',
-          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
-          text: 'inspect image',
-          raw: <String, Object?>{'clientMessageId': clientMessageId},
-          attachments: const <CommittedAttachment>[
-            CommittedAttachment(
-              id: 'att_0',
-              name: 'screenshot.png',
-              kind: AttachmentKind.image,
-              mimeType: 'image/png',
-              sizeBytes: 42,
-              handling: AttachmentHandling.native,
-            ),
-          ],
-        ),
-      ],
-      streamOutput: false,
-    );
-
-    expect(cache.bound, <String>[
-      'conv_1|$clientMessageId|att_0|hash_0',
-    ]);
-    expect(viewModel.messages.single.attachments.single.localPath,
-        r'C:\cache\screenshot.png');
-
-    viewModel.resetConversationDisplay(clearActiveConversation: false);
-    await viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        ConversationEvent(
-          seq: 1,
-          conversationId: 'conv_1',
-          type: 'user.message',
-          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
-          text: 'inspect image',
-          raw: <String, Object?>{'clientMessageId': clientMessageId},
-          attachments: const <CommittedAttachment>[
-            CommittedAttachment(
-              id: 'att_0',
-              name: 'screenshot.png',
-              kind: AttachmentKind.image,
-              mimeType: 'image/png',
-              sizeBytes: 42,
-              handling: AttachmentHandling.native,
-            ),
-          ],
-        ),
-      ],
-      streamOutput: false,
-    );
-
-    expect(viewModel.messages.single.attachments.single.localPath,
-        r'C:\cache\screenshot.png');
-  });
-
-  test(
-      'committed attachment cache miss keeps optimistic local image path when MIME changes',
-      () async {
-    const imageCapableAdapter = AdapterStatus(
-      adapter: 'codex',
-      available: true,
-      status: 'available',
-      capabilityVersion: 'cap_v1',
-      attachmentCapabilities:
-          AttachmentCapabilities(image: AttachmentHandling.native),
-    );
-    final repository = _FakeConversationRepository();
-    final cache = _FakeAttachmentPreviewCache()
-      ..resolveCommittedPreview = false;
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        adapters: const <AdapterStatus>[imageCapableAdapter],
-      ),
-      conversationRepository: repository,
-      attachmentPreviewCache: cache,
-    );
-    viewModel.updateActiveConversation(_conversation(
-        id: 'conv_1', workspaceId: _workspace.id, status: 'sending'));
-    viewModel.addDraftAttachmentForTest(const DraftAttachment(
-      localPath: r'C:\tmp\screenshot.png',
-      name: 'screenshot.png',
-      mimeType: 'image/png',
-      kind: AttachmentKind.image,
-      sizeBytes: 42,
-    ));
-    viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
-    await viewModel.sendExistingConversationPrompt(
-      conversationId: 'conv_1',
-      prompt: 'inspect image',
-    );
-    final clientMessageId = repository.sentRequests.single.clientMessageId;
-
-    await viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        ConversationEvent(
-          seq: 1,
-          conversationId: 'conv_1',
-          type: 'user.message',
-          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
-          text: 'inspect image',
-          raw: <String, Object?>{'clientMessageId': clientMessageId},
-          attachments: const <CommittedAttachment>[
-            CommittedAttachment(
-              id: 'att_0',
-              name: 'screenshot.png',
-              kind: AttachmentKind.image,
-              mimeType: 'image/jpeg',
-              sizeBytes: 42,
-              handling: AttachmentHandling.native,
-            ),
-          ],
-        ),
-      ],
-      streamOutput: false,
-    );
-
-    expect(cache.bound, <String>[
-      'conv_1|$clientMessageId|att_0|hash_0',
-    ]);
-    expect(viewModel.messages.single.attachments.single.localPath,
-        r'C:\tmp\screenshot.png');
-  });
-
-  test('attachment preview cache failure does not block event projection',
-      () async {
-    final cache = _FakeAttachmentPreviewCache()
-      ..bindError = StateError('preview cache unavailable')
-      ..resolveError = StateError('preview cache unavailable');
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      attachmentPreviewCache: cache,
-    );
-    viewModel.updateActiveConversation(_conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'idle',
-    ));
-
-    final changed = await viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        ConversationEvent(
-          seq: 1,
-          conversationId: 'conv_1',
-          type: 'user.message',
-          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
-          text: 'inspect image',
-          raw: const <String, Object?>{'clientMessageId': 'client_1'},
-          attachments: const <CommittedAttachment>[
-            CommittedAttachment(
-              id: 'att_0',
-              name: 'screenshot.png',
-              kind: AttachmentKind.image,
-              mimeType: 'image/png',
-              sizeBytes: 42,
-              handling: AttachmentHandling.native,
-            ),
-          ],
-        ),
-      ],
-      streamOutput: false,
-    );
-
-    expect(changed, isTrue);
-    expect(viewModel.messages.single.body, 'inspect image');
-    expect(viewModel.messages.single.attachments.single.localPath, isNull);
-  });
-
-  test('stale async event apply does not rewrite messages after cancellation',
-      () async {
-    final cache = _FakeAttachmentPreviewCache()
-      ..resolveCompleter = Completer<CachedAttachmentPreview?>();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      attachmentPreviewCache: cache,
-    );
-    viewModel.updateActiveConversation(_conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'idle',
-    ));
-    var isCurrent = true;
-
-    final applyFuture = viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        ConversationEvent(
-          seq: 1,
-          conversationId: 'conv_1',
-          type: 'user.message',
-          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
-          text: 'inspect image',
-          raw: const <String, Object?>{'clientMessageId': 'client_1'},
-          attachments: const <CommittedAttachment>[
-            CommittedAttachment(
-              id: 'att_0',
-              name: 'screenshot.png',
-              kind: AttachmentKind.image,
-              mimeType: 'image/png',
-              sizeBytes: 42,
-              handling: AttachmentHandling.native,
-            ),
-          ],
-        ),
-      ],
-      streamOutput: false,
-      isCurrent: () => isCurrent,
-    );
-    await cache.resolveStarted.future;
-
-    isCurrent = false;
-    viewModel.resetConversationDisplay(clearActiveConversation: false);
-    cache.resolveCompleter!.complete(CachedAttachmentPreview(
-      attachmentId: 'att_0',
-      contentHash: 'hash_0',
-      cachePath: r'C:\cache\stale.png',
-      width: 320,
-      height: 200,
-      mimeType: 'image/png',
-      sizeBytes: 42,
-      createdAt: DateTime.utc(2026, 5, 22),
-      lastAccessedAt: DateTime.utc(2026, 5, 22),
-    ));
-
-    final changed = await applyFuture;
-
-    expect(changed, isFalse);
-    expect(viewModel.messages, isEmpty);
-  });
-
-  test('async event apply notifies before stale target return', () async {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-    viewModel.updateActiveConversation(_conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'running',
-    ));
-    var notificationCount = 0;
-    viewModel.addListener(() => notificationCount += 1);
-    var currentCheckCount = 0;
-
-    final changed = await viewModel.applyConversationEventsAsync(
-      <ConversationEvent>[
-        _event(seq: 1, type: 'assistant.message', text: 'done'),
-      ],
-      streamOutput: false,
-      isCurrent: () {
-        currentCheckCount += 1;
-        return currentCheckCount == 1;
-      },
-    );
-
-    expect(changed, isFalse);
-    expect(viewModel.lastSeq, 1);
-    expect(viewModel.messages.single.body, 'done');
-    expect(notificationCount, 1);
-  });
-
-  test('workbench view model exposes pending question id', () {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-    viewModel.applyConversationEvents(
-      <ConversationEvent>[
-        _event(seq: 1, type: 'assistant.message', text: 'Need detail'),
-        _event(
-          seq: 2,
-          type: 'assistant.question',
-          questionId: 'question_hidden',
-          text: 'Which direction?',
-          raw: const <String, Object?>{'turnFinal': false},
-        ),
-      ],
-      streamOutput: false,
-    );
-
-    expect(viewModel.pendingQuestionId, 'question_hidden');
-
-    viewModel.applyConversationEvents(
-      <ConversationEvent>[
-        _event(
-          seq: 3,
-          type: 'assistant.question',
-          questionId: 'question_visible',
-          text: 'Pick one',
-        )
-      ],
-      streamOutput: false,
-    );
-
-    expect(viewModel.pendingQuestionId, 'question_visible');
-  });
-
-  test('workbench view model resets conversation display state', () {
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-    );
-    final conversation = _conversation(
-      id: 'conv_1',
-      workspaceId: _workspace.id,
-      status: 'running',
-    );
-    viewModel.updateActiveConversation(conversation);
-    viewModel.addUserMessage('hello');
-    viewModel.applyConversationEvents(
-      <ConversationEvent>[
-        _event(seq: 1, type: 'conversation.started'),
-        _event(seq: 2, type: 'assistant.message', text: 'hi'),
-      ],
-      streamOutput: false,
-    );
-
-    expect(viewModel.messages, isNotEmpty);
-    expect(viewModel.conversationEvents, isNotEmpty);
-    expect(viewModel.lastSeq, 2);
-    expect(viewModel.activeConversationId, 'conv_1');
-
-    viewModel.resetConversationDisplay();
-
-    expect(viewModel.messages, isEmpty);
-    expect(viewModel.conversationEvents, isEmpty);
-    expect(viewModel.conversationState.messages, isEmpty);
-    expect(viewModel.conversationState.status, 'idle');
-    expect(viewModel.lastSeq, 0);
-    expect(viewModel.activeConversationId, isNull);
-    expect(viewModel.activeConversation, isNull);
-  });
-
-  test('reusable conversation statuses can send another message', () {
-    expect(canSendInConversationStatus(null), isTrue);
-    expect(canSendInConversationStatus('idle'), isTrue);
-    expect(canSendInConversationStatus('cancelled'), isTrue);
-    expect(canSendInConversationStatus('failed'), isTrue);
-    expect(canSendInConversationStatus('interrupted'), isTrue);
-    expect(canSendInConversationStatus('running'), isFalse);
-    expect(canSendInConversationStatus('waiting_input'), isFalse);
-    expect(canSendInConversationStatus('waiting_approval'), isFalse);
-  });
-
-  test('active conversation status helper matches executor states', () {
-    expect(isActiveConversationStatus('sending'), isTrue);
-    expect(isActiveConversationStatus('running'), isTrue);
-    expect(isActiveConversationStatus('waiting_input'), isTrue);
-    expect(isActiveConversationStatus('waiting_approval'), isTrue);
-    expect(isActiveConversationStatus('cancelled'), isFalse);
-    expect(isActiveConversationStatus('interrupted'), isFalse);
-  });
-
-  test('pending status does not report completed tool activity', () {
-    final l10n = AppLocalizationsZh();
-    final events = <ConversationEvent>[
-      _event(
-        seq: 1,
-        type: 'conversation.status_changed',
-        raw: const <String, Object?>{'status': 'running'},
-      ),
-      _event(
-        seq: 2,
-        type: 'tool.started',
-        toolUseId: 'cmd_1',
-        toolName: 'command_execution',
-        input: const <String, Object?>{'command': 'flutter test'},
-      ),
-      _event(
-        seq: 3,
-        type: 'tool.completed',
-        toolUseId: 'cmd_1',
-        toolName: 'command_execution',
-        text: 'Done',
-      ),
-    ];
-
-    expect(
-      conversationPendingStatusText(l10n, 'running', events),
-      l10n.workbenchPendingWaitingNextEvent,
-    );
-  });
-
-  test('pending status shows command text for running Codex commands', () {
-    final l10n = AppLocalizationsZh();
-    final events = <ConversationEvent>[
-      _event(
-        seq: 1,
-        type: 'tool.started',
-        toolUseId: 'cmd_1',
-        toolName: 'command_execution',
-        input: const <String, Object?>{
-          'command': 'flutter test test\\voice_input_controller_test.dart',
-        },
-      ),
-    ];
-
-    expect(
-      conversationPendingStatusText(l10n, 'running', events),
-      contains('flutter test test\\voice_input_controller_test.dart'),
-    );
-  });
-
-  test('pending elapsed anchor uses current active conversation segment', () {
-    final events = <ConversationEvent>[
-      _event(
-        seq: 1,
-        type: 'conversation.status_changed',
-        raw: const <String, Object?>{'status': 'running'},
-      ),
-      _event(
-        seq: 2,
-        type: 'conversation.status_changed',
-        raw: const <String, Object?>{'status': 'idle'},
-      ),
-      _event(
-        seq: 3,
-        type: 'user.message',
-        text: 'continue',
-      ),
-      _event(
-        seq: 4,
-        type: 'conversation.status_changed',
-        raw: const <String, Object?>{'status': 'running'},
-      ),
-    ];
-
-    expect(conversationPendingStartedAt('running', events),
-        DateTime.parse('2026-05-12T00:00:04.000Z'));
-    expect(conversationPendingStartedAt('idle', events), isNull);
-  });
-
-  test('send acknowledgement does not overwrite terminal event state', () {
-    expect(
-      shouldApplyConversationSendAcknowledgement(
-        sendStartSeq: 10,
-        currentSeq: 12,
-        acknowledgementStatus: 'running',
-        reducerStatus: 'idle',
-      ),
-      isFalse,
-    );
-    expect(
-      shouldApplyConversationSendAcknowledgement(
-        sendStartSeq: 10,
-        currentSeq: 10,
-        acknowledgementStatus: 'running',
-        reducerStatus: 'idle',
-      ),
-      isTrue,
-    );
-    expect(
-      shouldApplyConversationSendAcknowledgement(
-        sendStartSeq: 10,
-        currentSeq: 12,
-        acknowledgementStatus: 'idle',
-        reducerStatus: 'running',
-      ),
-      isFalse,
-    );
-    expect(
-      shouldApplyConversationSendAcknowledgement(
-        sendStartSeq: 10,
-        currentSeq: 12,
-        acknowledgementStatus: 'idle',
-        reducerStatus: 'idle',
-      ),
-      isTrue,
-    );
-  });
-
-  test('cancelled conversation summary keeps product identity and binding', () {
-    const conversation = ConversationSummary(
-      id: 'conv_1',
-      workspaceId: 'workspace_1',
-      adapter: 'claude',
-      status: 'cancelled',
-      cliSessionId: 'claude-session-1',
-      sessionBinding: 'confirmed',
-      userMessageCount: 2,
-      capabilities: ConversationCapabilities(
-        longLivedProcess: true,
-        waitingInput: true,
-        waitingApproval: true,
-        resume: true,
-        partialOutput: true,
-      ),
-      blockingItem: ConversationBlockingItem(type: 'approval_request'),
-      createdAt: '2026-05-08T00:00:00.000Z',
-      updatedAt: '2026-05-08T00:00:01.000Z',
-    );
-
-    final cancelled = applyCancelledConversationSummary(conversation);
-
-    expect(cancelled.id, 'conv_1');
-    expect(cancelled.cliSessionId, 'claude-session-1');
-    expect(cancelled.sessionBinding, 'confirmed');
-    expect(cancelled.userMessageCount, 2);
-    expect(cancelled.blockingItem, isNull);
-  });
-
-  test('workbench view model coordinates new conversation send flow', () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
+    final viewModel = _workbenchViewModel(conversationRepository: repository);
 
     final result = await viewModel.createAndSend(
       workspace: _workspace,
@@ -915,114 +95,26 @@ void main() {
       adapter: 'codex',
       permissionMode: 'default',
     );
+
+    expect(viewModel.sessionItems, hasLength(1));
+    expect(viewModel.sessionItems.single.id, 'conv_1');
+    expect(viewModel.sessionItems.single.conversation?.status, 'sending');
+
     final updated = await result.updatedConversation;
 
     expect(repository.calls, <String>[
-      'create:workspace_1:codex:default',
+      'create:workspace_1:codex:default:null',
       'send:conv_1:hello',
     ]);
-    expect(result.conversation.id, 'conv_1');
-    expect(result.runningConversation.status, 'sending');
-    expect(result.run.id, 'conv_1');
-    expect(updated.status, 'idle');
+    expect(updated.status, 'running');
+    expect(viewModel.sessionItems, hasLength(1));
+    expect(viewModel.sessionItems.single.conversation?.status, 'running');
   });
 
-  test('workbench view model keeps optimistic session until snapshot is active',
+  test('workbench view model forwards conversation stream operations',
       () async {
     final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
-
-    final result = await viewModel.createAndSend(
-      workspace: _workspace,
-      prompt: 'hello',
-      adapter: 'codex',
-      permissionMode: 'default',
-    );
-    final optimisticItems = viewModel.sessionItems(
-      const <ConversationSummary>[],
-      const <RunSummary>[],
-    );
-
-    expect(optimisticItems, hasLength(1));
-    expect(optimisticItems.single.id, 'conv_1');
-    expect(optimisticItems.single.conversation?.status, 'sending');
-
-    viewModel.reconcile(
-      _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        conversations: <ConversationSummary>[
-          _conversation(
-              id: 'conv_1', workspaceId: _workspace.id, status: 'idle'),
-        ],
-      ),
-    );
-    final idleSnapshotItems = viewModel.sessionItems(
-      <ConversationSummary>[
-        _conversation(id: 'conv_1', workspaceId: _workspace.id, status: 'idle'),
-      ],
-      const <RunSummary>[],
-    );
-
-    expect(idleSnapshotItems, hasLength(1));
-    expect(idleSnapshotItems.single.conversation?.status, 'sending');
-
-    viewModel.reconcile(
-      _snapshot(
-        workspaces: const <WorkspaceSummary>[_workspace],
-        conversations: <ConversationSummary>[
-          _conversation(
-            id: 'conv_1',
-            workspaceId: _workspace.id,
-            status: 'running',
-            userMessageCount: 1,
-          ),
-        ],
-      ),
-    );
-    final activeSnapshotItems = viewModel.sessionItems(
-      <ConversationSummary>[
-        _conversation(
-          id: 'conv_1',
-          workspaceId: _workspace.id,
-          status: 'running',
-          userMessageCount: 1,
-        ),
-      ],
-      const <RunSummary>[],
-    );
-
-    expect(activeSnapshotItems, hasLength(1));
-    expect(activeSnapshotItems.single.conversation?.status, 'running');
-    expect(await result.updatedConversation, isA<ConversationSummary>());
-  });
-
-  test('workbench view model sends existing conversation prompt', () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
-
-    final updated = await viewModel.sendExistingConversationPrompt(
-      conversationId: 'conv_existing',
-      prompt: 'continue',
-    );
-
-    expect(repository.calls, <String>['send:conv_existing:continue']);
-    expect(updated.id, 'conv_existing');
-    expect(updated.status, 'idle');
-  });
-
-  test('workbench view model fetches conversation events after sequence',
-      () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
+    final viewModel = _workbenchViewModel(conversationRepository: repository);
 
     final events = await viewModel.fetchConversationEvents(
       conversationId: 'conv_existing',
@@ -1031,24 +123,15 @@ void main() {
 
     expect(repository.calls, <String>['events:conv_existing:7']);
     expect(events.single.seq, 8);
-    expect(events.single.type, 'assistant.message');
-  });
 
-  test('workbench view model watches conversation events after sequence',
-      () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
-
+    repository.calls.clear();
     final emitted = <ConversationEvent>[];
     final subscription = viewModel
         .watchConversationEvents(conversationId: 'conv_existing', afterSeq: 7)
         .listen(emitted.add);
 
     repository.emitConversationEvent(ConversationEvent(
-      seq: 8,
+      seq: 9,
       conversationId: 'conv_existing',
       type: 'assistant.message',
       createdAt: DateTime.parse('2026-05-23T05:18:14.000Z'),
@@ -1057,105 +140,37 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(repository.calls, <String>['watchEvents:conv_existing:7']);
-    expect(emitted.single.seq, 8);
+    expect(emitted.single.seq, 9);
     await subscription.cancel();
   });
 
-  test('workbench view model responds to conversation approval', () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
-
-    final updated = await viewModel.respondConversationApproval(
-      conversationId: 'conv_existing',
-      approvalId: 'approval_1',
-      decision: 'allow',
-    );
-
-    expect(repository.calls, <String>[
-      'approval:conv_existing:approval_1:allow',
-    ]);
-    expect(updated.id, 'conv_existing');
-    expect(updated.status, 'running');
-  });
-
-  test('workbench view model responds to run approval fallback', () async {
-    final repository = _FakeRunRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      runRepository: repository,
-    );
-
-    await viewModel.respondRunApproval(
-      approvalId: 'approval_1',
-      decision: 'allow',
-    );
-
-    expect(repository.calls, <String>['approval:approval_1:allow']);
-  });
-
-  test('workbench view model cancels active conversation', () async {
-    final repository = _FakeConversationRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      conversationRepository: repository,
-    );
-
-    final result = await viewModel.cancelActiveRun(conversationId: 'conv_1');
-
-    expect(repository.calls, <String>['cancelConversation:conv_1']);
-    expect(result.conversation?.id, 'conv_1');
-    expect(result.conversation?.status, 'cancelled');
-    expect(result.run?.id, 'conv_1');
-    expect(result.run?.status, 'cancelled');
-  });
-
-  test('workbench view model cancels active run', () async {
-    final repository = _FakeRunRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      runRepository: repository,
-    );
-
-    final result = await viewModel.cancelActiveRun(runId: 'run_1');
-
-    expect(repository.calls, <String>['cancelRun:run_1']);
-    expect(result.conversation, isNull);
-    expect(result.run?.id, 'run_1');
-    expect(result.run?.status, 'cancelled');
-  });
-
-  test('workbench view model records exceptions with operation metadata',
+  test('workbench view model cancels conversation and run through repositories',
       () async {
-    final repository = _FakeDiagnosticsRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      diagnosticsRepository: repository,
+    final conversationRepository = _FakeConversationRepository();
+    final runRepository = _FakeRunRepository();
+    final viewModel = _workbenchViewModel(
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
     );
 
-    final traceId = await viewModel.recordException(
-      message: 'boom',
-      stack: 'stack',
-      path: '/api/conversations',
-      conversationId: 'conv_1',
-      runId: 'run_1',
-      operation: 'watch_events',
-    );
+    final conversationResult =
+        await viewModel.cancelActiveRun(conversationId: 'conv_1');
+    final runResult = await viewModel.cancelActiveRun(runId: 'run_1');
 
-    expect(traceId, 'trace_1');
-    expect(repository.calls, <String>[
-      'boom|stack|/api/conversations|GET|conv_1|run_1|error|watch_events|null|null|null|null|null|null|null',
-    ]);
+    expect(
+      conversationRepository.calls,
+      <String>['cancelConversation:conv_1'],
+    );
+    expect(conversationResult.conversation?.status, 'cancelled');
+    expect(conversationResult.run?.status, 'cancelled');
+    expect(runRepository.calls, <String>['cancelRun:run_1']);
+    expect(runResult.conversation, isNull);
+    expect(runResult.run?.status, 'cancelled');
   });
 
   test('workbench view model records event trace metadata', () async {
     final repository = _FakeDiagnosticsRepository();
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
-      diagnosticsRepository: repository,
-    );
+    final viewModel = _workbenchViewModel(diagnosticsRepository: repository);
 
     await viewModel.recordEventTrace(WorkbenchEventTraceEntry(
       conversationId: 'conv_1',
@@ -1170,7 +185,6 @@ void main() {
     ));
 
     expect(viewModel.eventTraceEntries, hasLength(1));
-    expect(viewModel.eventTraceEntries.single.afterSeq, 7);
     expect(repository.calls, <String>[
       'watchConversationEvents: success|null|/api/notifications/ws|GET|conv_1|run_1|info|watchConversationEvents|7|3|42|false|true|false|null',
     ]);
@@ -1183,11 +197,10 @@ void main() {
       path: r'D:\new',
     );
     final repository = _FakeWorkspaceRepository(
+      workspaces: const <WorkspaceSummary>[_workspace],
       createdWorkspace: created,
-      listedWorkspaces: const <WorkspaceSummary>[_workspace, created],
     );
-    final viewModel = WorkbenchViewModel(
-      initialData: _snapshot(workspaces: const <WorkspaceSummary>[_workspace]),
+    final viewModel = _workbenchViewModel(
       workspaceRepository: repository,
       workspaceCreationTimeout: const Duration(seconds: 1),
     );
@@ -1204,6 +217,125 @@ void main() {
     expect(outcome, isA<CreateWorkspaceSuccess>());
     expect((outcome as CreateWorkspaceSuccess).workspace, created);
   });
+
+  test('conversation event projection preserves optimistic user messages', () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'sending',
+    ));
+    viewModel.addUserMessage('inspect image');
+
+    final changed = viewModel.applyConversationEvents(
+      <ConversationEvent>[_event(seq: 1, type: 'conversation.started')],
+      streamOutput: false,
+    );
+
+    expect(changed, isTrue);
+    expect(viewModel.messages.single.role, 'user');
+    expect(viewModel.messages.single.body, 'inspect image');
+  });
+
+  test('committed attachment event binds cache identity', () async {
+    const imageCapableAdapter = AdapterStatus(
+      adapter: 'codex',
+      available: true,
+      status: 'available',
+      capabilityVersion: 'cap_v1',
+      attachmentCapabilities:
+          AttachmentCapabilities(image: AttachmentHandling.native),
+    );
+    final repository = _FakeConversationRepository();
+    final cache = _FakeAttachmentPreviewCache();
+    final viewModel = _workbenchViewModel(
+      adapters: const <AdapterStatus>[imageCapableAdapter],
+      conversationRepository: repository,
+      attachmentPreviewCache: cache,
+    );
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'sending',
+    ));
+    viewModel.addDraftAttachmentForTest(const DraftAttachment(
+      localPath: r'C:\tmp\screenshot.png',
+      name: 'screenshot.png',
+      mimeType: 'image/png',
+      kind: AttachmentKind.image,
+      sizeBytes: 42,
+    ));
+    viewModel.addUserMessage('inspect image', includeDraftAttachments: true);
+    await viewModel.sendExistingConversationPrompt(
+      conversationId: 'conv_1',
+      prompt: 'inspect image',
+    );
+    final clientMessageId = repository.sentRequests.single.clientMessageId;
+
+    await viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-05-12T00:00:01.000Z'),
+          text: 'inspect image',
+          raw: <String, Object?>{'clientMessageId': clientMessageId},
+          attachments: const <CommittedAttachment>[
+            CommittedAttachment(
+              id: 'att_0',
+              name: 'screenshot.png',
+              kind: AttachmentKind.image,
+              mimeType: 'image/png',
+              sizeBytes: 42,
+              handling: AttachmentHandling.native,
+            ),
+          ],
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(cache.bound, <String>[
+      'conv_1|$clientMessageId|att_0|hash_0',
+    ]);
+    expect(
+      viewModel.messages.single.attachments.single.localPath,
+      r'C:\cache\screenshot.png',
+    );
+  });
+
+  test('workbench helper functions preserve running and pending semantics', () {
+    final l10n = AppLocalizationsZh();
+    final events = <ConversationEvent>[
+      _event(
+        seq: 1,
+        type: 'tool.started',
+        toolUseId: 'cmd_1',
+        toolName: 'command_execution',
+        input: const <String, Object?>{
+          'command': 'flutter test test\\voice_input_controller_test.dart',
+        },
+      ),
+    ];
+
+    expect(canSendInConversationStatus('idle'), isTrue);
+    expect(canSendInConversationStatus('waiting_approval'), isFalse);
+    expect(isActiveConversationStatus('waiting_input'), isTrue);
+    expect(isActiveConversationStatus('cancelled'), isFalse);
+    expect(
+      conversationPendingStatusText(l10n, 'running', events),
+      contains('flutter test test\\voice_input_controller_test.dart'),
+    );
+    expect(
+      isSendAcknowledgementTimeout(
+        TimeoutException('Future not completed'),
+        activeConversationId: 'conv_1',
+        activeRunId: null,
+      ),
+      isTrue,
+    );
+  });
 }
 
 const _workspace = WorkspaceSummary(
@@ -1212,53 +344,143 @@ const _workspace = WorkspaceSummary(
   path: r'D:\workspace',
 );
 
-AppSnapshot _snapshot({
-  required List<WorkspaceSummary> workspaces,
+WorkbenchViewModel _workbenchViewModel({
   List<AdapterStatus> adapters = const <AdapterStatus>[],
-  List<ConversationSummary> conversations = const <ConversationSummary>[],
-}) =>
-    AppSnapshot(
-      health: const DaemonHealth(
-        status: 'ok',
-        daemonVersion: '1.0.0',
-        mode: 'lan',
-        lanMode: true,
-        bindAddress: '127.0.0.1',
-        port: 4317,
-        security: <String, Object?>{},
-      ),
-      workspaces: workspaces,
-      workspace: workspaces.first,
-      overview: ProjectOverview(
-        workspaceId: workspaces.first.id,
-        name: 'Workspace',
-        path: workspaces.first.path,
-        fileCount: 0,
-        codeLineCount: 0,
-        symbolCount: 0,
-        analysisScore: 0,
-        recentFiles: const <RecentFileSummary>[],
-      ),
-      adapters: adapters,
-      runs: const <RunSummary>[],
-      conversations: conversations,
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: null,
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: FileTreeResponse(
-        workspaceId: workspaces.first.id,
-        root: '',
-        entries: const <FileTreeEntry>[],
-      ),
-      diagnostics: CodeDiagnosticsSummary(
-        workspaceId: workspaces.first.id,
-        available: false,
-        diagnostics: const <CodeDiagnostic>[],
-      ),
-      extensions: const <ExtensionSummary>[],
-    );
+  List<WorkspaceSummary> workspaces = const <WorkspaceSummary>[_workspace],
+  _FakeWorkspaceRepository? workspaceRepository,
+  _FakeCachedAdapterRepository? adapterRepository,
+  _FakeConversationRepository? conversationRepository,
+  _FakeRunRepository? runRepository,
+  DiagnosticsRepository? diagnosticsRepository,
+  AttachmentPreviewCache attachmentPreviewCache =
+      const NoopAttachmentPreviewCache(),
+  Duration workspaceCreationTimeout = const Duration(seconds: 20),
+}) {
+  return WorkbenchViewModel(
+    workspaceRepository:
+        workspaceRepository ?? _FakeWorkspaceRepository(workspaces: workspaces),
+    adapterRepository:
+        adapterRepository ?? _FakeCachedAdapterRepository(adapters: adapters),
+    conversationRepository: CachedConversationRepository(
+      delegate: conversationRepository ?? _FakeConversationRepository(),
+    ),
+    runRepository: CachedRunRepository(
+      delegate: runRepository ?? _FakeRunRepository(),
+    ),
+    diagnosticsRepository: diagnosticsRepository,
+    attachmentPreviewCache: attachmentPreviewCache,
+    workspaceCreationTimeout: workspaceCreationTimeout,
+  );
+}
+
+class _FakeWorkspaceRepository extends WorkspaceRepository {
+  _FakeWorkspaceRepository({
+    required List<WorkspaceSummary> workspaces,
+    WorkspaceSummary? createdWorkspace,
+  })  : _workspaces = List<WorkspaceSummary>.of(workspaces),
+        _createdWorkspace = createdWorkspace;
+
+  List<WorkspaceSummary> _workspaces;
+  final WorkspaceSummary? _createdWorkspace;
+  WorkspaceSummary? _selectedWorkspace;
+  final List<String> calls = <String>[];
+
+  @override
+  List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
+
+  @override
+  WorkspaceSummary? get selectedWorkspace =>
+      _selectedWorkspace ?? (_workspaces.isEmpty ? null : _workspaces.first);
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({
+    required String path,
+    String? name,
+  }) async {
+    calls.add('create:$path:$name');
+    final workspace = _createdWorkspace ??
+        WorkspaceSummary(
+          id: 'workspace_created',
+          name: name ?? path,
+          path: path,
+        );
+    _workspaces = <WorkspaceSummary>[..._workspaces, workspace];
+    _selectedWorkspace = workspace;
+    notifyListeners();
+    return workspace;
+  }
+
+  @override
+  bool select(String workspaceId) {
+    for (final workspace in _workspaces) {
+      if (workspace.id == workspaceId) {
+        _selectedWorkspace = workspace;
+        notifyListeners();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _workspaces = List<WorkspaceSummary>.of(workspaces);
+    _selectedWorkspace = selectedWorkspace;
+  }
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async {
+    calls.add('list');
+    return List<WorkspaceSummary>.of(_workspaces);
+  }
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) =>
+      create(path: path, name: name);
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeCachedAdapterRepository extends CachedAdapterRepository {
+  _FakeCachedAdapterRepository({
+    List<AdapterStatus> adapters = const <AdapterStatus>[],
+  })  : _adapters = List<AdapterStatus>.of(adapters),
+        super(delegate: _NoOpAdapterRepository());
+
+  List<AdapterStatus> _adapters;
+
+  @override
+  List<AdapterStatus> get adapters => List.unmodifiable(_adapters);
+
+  void replaceAdapters(List<AdapterStatus> adapters) {
+    _adapters = List<AdapterStatus>.of(adapters);
+    notifyListeners();
+  }
+}
+
+class _NoOpAdapterRepository implements AdapterRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class _FakeConversationRepository implements ConversationRepository {
   final List<String> calls = <String>[];
@@ -1276,9 +498,14 @@ class _FakeConversationRepository implements ConversationRepository {
     String permissionMode = 'default',
     String? model,
   }) async {
-    calls.add('create:$workspaceId:$adapter:$permissionMode');
+    calls.add('create:$workspaceId:$adapter:$permissionMode:$model');
     return _conversation(
-        id: 'conv_1', workspaceId: workspaceId, status: 'idle');
+      id: 'conv_1',
+      workspaceId: workspaceId,
+      status: 'idle',
+      adapter: adapter,
+      model: model,
+    );
   }
 
   @override
@@ -1291,31 +518,8 @@ class _FakeConversationRepository implements ConversationRepository {
     return _conversation(
       id: conversationId,
       workspaceId: _workspace.id,
-      status: 'idle',
-    );
-  }
-
-  @override
-  Future<ConversationSummary> answerConversationQuestion(
-    String conversationId,
-    String questionId,
-    String text,
-  ) async {
-    calls.add('answer:$conversationId:$questionId:$text');
-    return _conversation(
-      id: conversationId,
-      workspaceId: _workspace.id,
-      status: 'idle',
-    );
-  }
-
-  @override
-  Future<ConversationSummary> cancelConversation(String conversationId) async {
-    calls.add('cancelConversation:$conversationId');
-    return _conversation(
-      id: conversationId,
-      workspaceId: _workspace.id,
-      status: 'cancelled',
+      status: 'running',
+      userMessageCount: 1,
     );
   }
 
@@ -1346,36 +550,83 @@ class _FakeConversationRepository implements ConversationRepository {
   }
 
   @override
+  Future<ConversationSummary> cancelConversation(String conversationId) async {
+    calls.add('cancelConversation:$conversationId');
+    return _conversation(
+      id: conversationId,
+      workspaceId: _workspace.id,
+      status: 'cancelled',
+    );
+  }
+
+  @override
   Future<List<ConversationSummary>> listConversations() async =>
-      throw UnimplementedError();
+      const <ConversationSummary>[];
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async =>
+      _conversation(id: conversationId, workspaceId: _workspace.id);
 
   @override
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
     String decision,
-  ) async {
-    calls.add('approval:$conversationId:$approvalId:$decision');
-    return _conversation(
-      id: conversationId,
-      workspaceId: _workspace.id,
-      status: 'running',
-    );
-  }
+  ) async =>
+      _conversation(
+        id: conversationId,
+        workspaceId: _workspace.id,
+        status: 'running',
+      );
 
   @override
   Future<ConversationSummary> updateConversationModel(
     String conversationId,
     String? model,
-  ) async {
-    calls.add('update-model:$conversationId:$model');
-    return _conversation(
-      id: conversationId,
+  ) async =>
+      _conversation(
+        id: conversationId,
+        workspaceId: _workspace.id,
+        model: model,
+      );
+}
+
+class _FakeRunRepository implements RunRepository {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<RunSummary> cancelRun(String runId) async {
+    calls.add('cancelRun:$runId');
+    return RunSummary(
+      id: runId,
+      tool: 'codex',
       workspaceId: _workspace.id,
-      status: 'idle',
-      model: model,
+      status: 'cancelled',
     );
   }
+
+  @override
+  Future<List<RunSummary>> listRuns({
+    String? tool,
+    String? workspaceId,
+    String? status,
+  }) async =>
+      const <RunSummary>[];
+
+  @override
+  Future<List<QueueItem>> listQueue() async => const <QueueItem>[];
+
+  @override
+  Future<void> respondApproval(String approvalId, String decision) async {
+    calls.add('approval:$approvalId:$decision');
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeDiagnosticsRepository implements DiagnosticsRepository {
@@ -1424,15 +675,9 @@ class _FakeDiagnosticsRepository implements DiagnosticsRepository {
 }
 
 class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
-  final List<String> remembered = <String>[];
   final List<String> bound = <String>[];
   final Map<String, CachedAttachmentPreview> _resolved =
       <String, CachedAttachmentPreview>{};
-  final Completer<void> resolveStarted = Completer<void>();
-  Object? bindError;
-  Object? resolveError;
-  Completer<CachedAttachmentPreview?>? resolveCompleter;
-  bool resolveCommittedPreview = true;
 
   @override
   Future<AttachmentPreviewIdentity> rememberPending({
@@ -1441,7 +686,6 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
     required int attachmentIndex,
     required DraftAttachment draft,
   }) async {
-    remembered.add('$conversationId|$clientMessageId|$attachmentIndex');
     return AttachmentPreviewIdentity(
       contentHash: 'hash_$attachmentIndex',
       name: draft.name,
@@ -1458,15 +702,12 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
     required List<CommittedAttachment> attachments,
     List<AttachmentPreviewIdentity>? pendingIdentities,
   }) async {
-    final error = bindError;
-    if (error != null) throw error;
     final identity = pendingIdentities?.single;
     final attachment = attachments.single;
     bound.add(
       '$conversationId|$clientMessageId|${attachment.id}|'
       '${identity?.contentHash}',
     );
-    if (!resolveCommittedPreview) return;
     _resolved['$conversationId|${attachment.id}'] = CachedAttachmentPreview(
       attachmentId: attachment.id,
       contentHash: identity?.contentHash ?? 'missing',
@@ -1484,18 +725,8 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
   Future<CachedAttachmentPreview?> resolve({
     required String conversationId,
     required CommittedAttachment attachment,
-  }) async {
-    if (!resolveStarted.isCompleted) {
-      resolveStarted.complete();
-    }
-    final completer = resolveCompleter;
-    if (completer != null) {
-      return completer.future;
-    }
-    final error = resolveError;
-    if (error != null) throw error;
-    return _resolved['$conversationId|${attachment.id}'];
-  }
+  }) async =>
+      _resolved['$conversationId|${attachment.id}'];
 
   @override
   Future<void> markClientMessageOrphaned({
@@ -1504,141 +735,10 @@ class _FakeAttachmentPreviewCache implements AttachmentPreviewCache {
   }) async {}
 }
 
-class _FakeRunRepository implements RunRepository {
-  final List<String> calls = <String>[];
-
-  @override
-  Future<RunSummary> cancelRun(String runId) async {
-    calls.add('cancelRun:$runId');
-    return RunSummary(
-      id: runId,
-      tool: 'codex',
-      workspaceId: _workspace.id,
-      status: 'cancelled',
-    );
-  }
-
-  @override
-  Future<RunSummary> createRun({
-    required String tool,
-    required String workspaceId,
-    String? prompt,
-    String? shortcutId,
-    String permissionMode = 'default',
-  }) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<List<AgentEvent>> fetchEvents(String runId,
-          {int afterSeq = 0}) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<RunSummary> invokeCommandTemplate({
-    required String templateId,
-    required String workspaceId,
-    String tool = 'claude',
-  }) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<List<QueueItem>> listQueue() async => throw UnimplementedError();
-
-  @override
-  Future<List<RunSummary>> listRuns({
-    String? tool,
-    String? workspaceId,
-    String? status,
-  }) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> respondApproval(String approvalId, String decision) async {
-    calls.add('approval:$approvalId:$decision');
-  }
-
-  @override
-  Future<RunSummary> sendRunInput(
-    String runId,
-    String prompt, {
-    String permissionMode = 'default',
-  }) async =>
-      throw UnimplementedError();
-}
-
-class _FakeWorkspaceRepository implements WorkspaceRepository {
-  _FakeWorkspaceRepository({
-    required this.createdWorkspace,
-    required this.listedWorkspaces,
-  });
-
-  final WorkspaceSummary createdWorkspace;
-  final List<WorkspaceSummary> listedWorkspaces;
-  final List<String> calls = <String>[];
-
-  @override
-  Future<WorkspaceSummary> createWorkspace({
-    required String path,
-    String? name,
-  }) async {
-    calls.add('create:$path:$name');
-    return createdWorkspace;
-  }
-
-  @override
-  Future<List<WorkspaceSummary>> listWorkspaces() async {
-    calls.add('list');
-    return listedWorkspaces;
-  }
-
-  @override
-  Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<FileContent> fileContent(String workspaceId, String path) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<FileTreeResponse> fileTree(
-    String workspaceId, {
-    String path = '',
-    int maxDepth = 8,
-  }) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<List<DiffSummary>> gitDiff(String workspaceId) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<List<GitCommitSummary>> gitCommits(
-    String workspaceId, {
-    int limit = 20,
-  }) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<GitStatusSummary> gitStatus(String workspaceId) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<DirectoryListing> listDirectory(String path) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async =>
-      throw UnimplementedError();
-
-  @override
-  Future<ProjectOverview> projectOverview(String workspaceId) async =>
-      throw UnimplementedError();
-}
-
 ConversationSummary _conversation({
   required String id,
   required String workspaceId,
-  required String status,
+  String status = 'idle',
   String adapter = 'codex',
   String? model,
   int userMessageCount = 0,

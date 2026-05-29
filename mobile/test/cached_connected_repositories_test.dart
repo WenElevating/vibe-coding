@@ -146,7 +146,8 @@ void main() {
       );
     });
 
-    test('dispose during in-flight load does not notify after dispose', () async {
+    test('dispose during in-flight load does not notify after dispose',
+        () async {
       final adapters = Completer<List<AdapterStatus>>();
       final delegate = _FakeAdapterRepository()
         ..queuedAdapters.add(adapters.future);
@@ -382,7 +383,8 @@ void main() {
       );
     });
 
-    test('dispose during in-flight refresh does not notify or mutate', () async {
+    test('dispose during in-flight refresh does not notify or mutate',
+        () async {
       final conversations = Completer<List<ConversationSummary>>();
       final delegate = _FakeConversationRepository(
         conversations: const <ConversationSummary>[],
@@ -497,7 +499,8 @@ void main() {
       ]);
       await pendingRefresh;
 
-      expect((await pendingList).map((run) => run.id), const <String>['loaded']);
+      expect(
+          (await pendingList).map((run) => run.id), const <String>['loaded']);
     });
 
     test('stale refresh does not overwrite newer mutation result', () async {
@@ -798,7 +801,8 @@ void main() {
       expect(delegate.filteredListRunsCalls, 1);
     });
 
-    test('dispose during in-flight refresh does not notify after dispose', () async {
+    test('dispose during in-flight refresh does not notify after dispose',
+        () async {
       final runs = Completer<List<RunSummary>>();
       final delegate = _FakeRunRepository(
         runs: const <RunSummary>[],
@@ -902,7 +906,8 @@ class _FakeAdapterRepository implements AdapterRepository {
 }
 
 class _FakeConversationRepository implements ConversationRepository {
-  _FakeConversationRepository({required List<ConversationSummary> conversations})
+  _FakeConversationRepository(
+      {required List<ConversationSummary> conversations})
       : _conversations = conversations;
 
   List<ConversationSummary> _conversations;
@@ -1000,7 +1005,7 @@ class _FakeRunRepository implements RunRepository {
         _queue = queue;
 
   List<RunSummary> _runs;
-  List<QueueItem> _queue;
+  final List<QueueItem> _queue;
   Object? refreshError;
   var filteredListRunsCalls = 0;
   var unfilteredListRunsCalls = 0;
@@ -1094,7 +1099,8 @@ class _FakeRunRepository implements RunRepository {
       createRun(tool: tool, workspaceId: workspaceId);
 
   @override
-  Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async =>
+  Future<List<AgentEvent>> fetchEvents(String runId,
+          {int afterSeq = 0}) async =>
       const <AgentEvent>[];
 
   @override

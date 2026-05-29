@@ -290,7 +290,8 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
                   resolveSupportedLocale(locale, supportedLocales),
               theme: theme.buildAppTheme(),
               home: MainTabsPage(
-                  data: widget.snapshot ?? _testSnapshot(),
+                  initialData: (widget.snapshot ?? _testSnapshot())
+                      .toDaemonInitialData(),
                   connectionConfig: const DaemonConnectionConfig(
                       addressInput: '127.0.0.1:4317',
                       proxyMode: DaemonProxyMode.system,
@@ -476,6 +477,33 @@ class _WorkspaceSelectionClient extends _AdapterRefreshClient {
   @override
   Future<List<ConversationSummary>> listConversations() async =>
       const <ConversationSummary>[];
+}
+
+class _WorkspaceCreationClient extends _WorkspaceSelectionClient {
+  _WorkspaceCreationClient({
+    required List<WorkspaceSummary> initialWorkspaces,
+    required this.createdWorkspace,
+  }) : super(workspaceCatalog: List<WorkspaceSummary>.of(initialWorkspaces));
+
+  final WorkspaceSummary createdWorkspace;
+  int createWorkspaceCalls = 0;
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) async {
+    createWorkspaceCalls++;
+    final created = WorkspaceSummary(
+      id: createdWorkspace.id,
+      name: name ?? createdWorkspace.name,
+      path: path,
+    );
+    workspaceCatalog
+      ..removeWhere((workspace) => workspace.id == created.id)
+      ..add(created);
+    return created;
+  }
 }
 
 class _WorkspaceBootstrapFailureClient extends _AdapterRefreshClient {
@@ -2622,7 +2650,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2699,7 +2728,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2816,7 +2846,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2913,7 +2944,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3018,7 +3050,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3312,7 +3345,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3416,7 +3450,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3493,7 +3528,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3515,7 +3551,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     const prompt = 'Who are you?';
@@ -3583,7 +3619,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3605,7 +3642,7 @@ void main() {
     await _pumpNavigationFrame(tester);
     await tester.tap(find.text('Current Project'));
     await _pumpNavigationFrame(tester);
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await _pumpNavigationFrame(tester);
 
     await tester.enterText(
@@ -3662,7 +3699,8 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.adapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository: conversationRepository,
+          conversationRepository:
+              CachedConversationRepository(delegate: conversationRepository),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3684,7 +3722,7 @@ void main() {
     await _pumpNavigationFrame(tester);
     await tester.tap(find.text('Current Project'));
     await _pumpNavigationFrame(tester);
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await _pumpNavigationFrame(tester);
 
     await tester.enterText(find.byType(TextField).last, 'Check permissions');
@@ -3727,7 +3765,7 @@ void main() {
 
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('codex'), findsWidgets);
@@ -4051,6 +4089,58 @@ void main() {
     expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
   });
 
+  testWidgets('created workspace remains visible after tab switch',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const initialWorkspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding',
+    );
+    const createdWorkspace = WorkspaceSummary(
+      id: 'workspace_created',
+      name: 'Created Project',
+      path: r'D:\created',
+    );
+    final client = _WorkspaceCreationClient(
+      initialWorkspaces: const <WorkspaceSummary>[initialWorkspace],
+      createdWorkspace: createdWorkspace,
+    );
+
+    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    final addWorkspace = find.descendant(
+      of: find.byKey(const ValueKey('workspace-list')),
+      matching: find.byIcon(Icons.add_rounded),
+    );
+    await tester.tap(addWorkspace);
+    await tester.pumpAndSettle();
+
+    final inputs = find.byType(TextField);
+    await tester.enterText(inputs.at(0), r'D:\created');
+    await tester.enterText(inputs.at(1), 'Created Project');
+    await tester.tap(find.text('Create and use'));
+    await tester.pumpAndSettle();
+
+    expect(client.createWorkspaceCalls, 1);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.text('Created Project'), findsOneWidget);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Created Project'), findsOneWidget);
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Created Project'), findsOneWidget);
+  });
+
   testWidgets('system back walks coding nested navigator before home',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -4062,7 +4152,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -4098,7 +4188,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Session'));
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -4150,10 +4240,6 @@ void main() {
       userMessageCount: 1,
       title: 'Fix mobile title rendering',
     );
-    final data = _testSnapshot(conversations: <ConversationSummary>[
-      conversation,
-    ]);
-
     await tester.pumpWidget(MaterialApp(
       locale: theme.zhHansCnLocale,
       supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
@@ -4166,7 +4252,6 @@ void main() {
       home: Scaffold(
         backgroundColor: theme.bg,
         body: CodingSessionListPage(
-          data: data,
           items: <SessionItem>[
             SessionItem(
               run: const RunSummary(

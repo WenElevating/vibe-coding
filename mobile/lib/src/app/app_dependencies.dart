@@ -17,6 +17,7 @@ import '../data/repositories/daemon_workspace_repository.dart';
 import '../data/repositories/recent_daemon_address_repository.dart';
 import '../data/repositories/workspace_repository.dart';
 import '../domain/models/daemon_connection_config.dart';
+import '../domain/models/daemon_initial_data.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
@@ -109,13 +110,14 @@ class AppDependencies {
         required health,
         required workspaces,
         required workspace,
-      }) =>
-          loadWorkspaceBootstrap(
+      }) async =>
+          (await loadWorkspaceBootstrap(
         client,
         health: health,
         workspaces: workspaces,
         workspace: workspace,
-      ),
+      ))
+              .toDaemonInitialData(),
     );
   }
 }
@@ -140,7 +142,7 @@ class MainTabsDependencies {
     required int installedVersionCode,
     required String installedVersionName,
   }) createAppUpdateViewModel;
-  final Future<AppSnapshot> Function({
+  final Future<DaemonInitialData> Function({
     required DaemonHealth health,
     required List<WorkspaceSummary> workspaces,
     required WorkspaceSummary workspace,

@@ -14,7 +14,7 @@ class AdaptersViewModel extends ChangeNotifier {
   List<AdapterStatus> get adapters => _adapters;
   List<ExtensionSummary> get extensions => _extensions;
 
-  void updateFromSnapshot(AppSnapshot snapshot) {
+  void replaceBootstrapSnapshot(AppSnapshot snapshot) {
     _adapters = List.unmodifiable(snapshot.adapters);
     _extensions = List.unmodifiable(snapshot.extensions);
     notifyListeners();

@@ -30,7 +30,7 @@ void main() {
       var notifications = 0;
       viewModel.addListener(() => notifications++);
 
-      viewModel.updateFromSnapshot(
+      viewModel.replaceBootstrapSnapshot(
         _snapshot(adapters: const <AdapterStatus>[_codexAdapter]),
       );
 

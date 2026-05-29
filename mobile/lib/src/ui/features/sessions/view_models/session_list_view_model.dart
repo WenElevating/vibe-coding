@@ -24,7 +24,7 @@ class SessionListViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateFromSnapshot({
+  void replaceRepositoryItems({
     required List<ConversationSummary> conversations,
     required List<RunSummary> runs,
   }) {

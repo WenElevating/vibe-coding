@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_dependencies.dart';
+import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
 import '../shell/app_route.dart';
 import '../shell/app_snapshot.dart';
@@ -21,7 +22,7 @@ class MainRouteOverlay extends StatefulWidget {
   });
 
   final RoutePage route;
-  final AppSnapshot data;
+  final DaemonInitialData data;
   final ConnectedDataDependencies connectedData;
   final FeatureDependencies featureDependencies;
   final VoidCallback onBack;
@@ -50,12 +51,13 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final data = widget.data.toAppSnapshot();
     return switch (widget.route) {
       RoutePage.detail => _buildRunDetailPage(),
       RoutePage.approval => ApprovalPage(onBack: widget.onBack),
       RoutePage.adapters => AdaptersPage(
           onBack: widget.onBack,
-          viewModel: AdaptersViewModel(snapshot: widget.data),
+          viewModel: AdaptersViewModel(snapshot: data),
         ),
       RoutePage.notifications => NotificationsPage(onBack: widget.onBack),
       RoutePage.diagnostics => _buildDiagnosticsPage(),
@@ -73,7 +75,7 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
   }
 
   Widget _buildRunDetailPage() {
-    final selectedRun = _selectedRun(widget.data);
+    final selectedRun = _selectedRun(widget.data.toAppSnapshot());
     final viewModelKey = _RunDetailViewModelKey(
       run: selectedRun,
       scope: widget.connectedData,

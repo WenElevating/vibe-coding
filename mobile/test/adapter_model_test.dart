@@ -1,9 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/attachment_preview_cache.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
@@ -55,8 +60,8 @@ void main() {
 
   group('WorkbenchViewModel model state', () {
     test('initial selected model comes from the selected adapter', () {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
       );
 
       expect(viewModel.selectedAdapter, 'codex');
@@ -69,8 +74,8 @@ void main() {
     });
 
     test('selectModel updates draft model state', () async {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
       );
 
       final selected = await viewModel.selectModel('gpt-5-mini');
@@ -82,8 +87,8 @@ void main() {
     });
 
     test('selectModel ignores unsupported model ids', () async {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
       );
 
       final selected = await viewModel.selectModel('not-configured');
@@ -93,11 +98,12 @@ void main() {
     });
 
     test('snapshot refresh selects a model when one becomes available', () {
-      final viewModel = WorkbenchViewModel(initialData: _snapshot());
-
-      viewModel.updateFromSnapshot(
-        _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final adapterRepository = _FakeCachedAdapterRepository();
+      final viewModel = _workbenchViewModel(
+        adapterRepository: adapterRepository,
       );
+
+      adapterRepository.replaceAdapters(const <AdapterStatus>[_codexModels]);
 
       expect(viewModel.selectedAdapter, 'codex');
       expect(viewModel.selectedModel, 'gpt-5-codex');
@@ -105,13 +111,14 @@ void main() {
     });
 
     test('snapshot refresh falls back when the selected model disappears', () {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final adapterRepository = _FakeCachedAdapterRepository(
+        adapters: const <AdapterStatus>[_codexModels],
+      );
+      final viewModel = _workbenchViewModel(
+        adapterRepository: adapterRepository,
       );
 
-      viewModel.updateFromSnapshot(
-        _snapshot(adapters: const <AdapterStatus>[_codexMiniOnly]),
-      );
+      adapterRepository.replaceAdapters(const <AdapterStatus>[_codexMiniOnly]);
 
       expect(viewModel.selectedModel, 'gpt-5-mini');
       expect(
@@ -128,8 +135,8 @@ void main() {
       final repository = _FakeConversationRepository();
       final updateCompleter = Completer<ConversationSummary>();
       repository.updateCompleter = updateCompleter;
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -158,8 +165,8 @@ void main() {
       final repository = _FakeConversationRepository();
       final updateCompleter = Completer<ConversationSummary>();
       repository.updateCompleter = updateCompleter;
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -183,8 +190,8 @@ void main() {
           code: 'SERVER_ERROR',
           message: 'update failed',
         );
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -205,8 +212,8 @@ void main() {
         () async {
       final repository = _FakeConversationRepository()
         ..updateError = const ConversationRepositoryException(statusCode: 405);
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -237,8 +244,8 @@ void main() {
           code: 'NOT_FOUND',
           message: 'conversation not found',
         );
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -254,8 +261,8 @@ void main() {
     });
 
     test('status transitions preserve confirmed conversation model', () {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
       );
       viewModel.updateActiveConversation(
         _conversation(adapter: 'codex', model: 'gpt-5-codex'),
@@ -287,8 +294,8 @@ void main() {
       final repository = _FakeConversationRepository();
       final updateCompleter = Completer<ConversationSummary>();
       repository.updateCompleter = updateCompleter;
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -320,8 +327,8 @@ void main() {
       final repository = _FakeConversationRepository();
       final updateCompleter = Completer<ConversationSummary>();
       repository.updateCompleter = updateCompleter;
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(adapters: const <AdapterStatus>[_codexModels]),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
         conversationRepository: repository,
       );
       viewModel.updateActiveConversation(
@@ -347,10 +354,8 @@ void main() {
     });
 
     test('sending operation state refuses adapter and model changes', () async {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexModels, _claudeAvailable],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels, _claudeAvailable],
       );
 
       viewModel.setSelectedAdapter('codex');
@@ -365,11 +370,9 @@ void main() {
 
     test('createAndSend forwards the ViewModel selected model', () async {
       final repository = _FakeConversationRepository();
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexModels],
-          workspaces: const <WorkspaceSummary>[_workspace],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexModels],
+        workspaces: const <WorkspaceSummary>[_workspace],
         conversationRepository: repository,
       );
 
@@ -401,11 +404,9 @@ void main() {
     test('createAndSend omits model when adapter cannot select models',
         () async {
       final repository = _FakeConversationRepository();
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexWithoutModelSelection],
-          workspaces: const <WorkspaceSummary>[_workspace],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexWithoutModelSelection],
+        workspaces: const <WorkspaceSummary>[_workspace],
         conversationRepository: repository,
       );
 
@@ -425,10 +426,8 @@ void main() {
     });
 
     test('keeps draft attachments local until send', () {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageModel],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageModel],
       );
 
       viewModel.addDraftAttachmentForTest(const DraftAttachment(
@@ -445,10 +444,8 @@ void main() {
 
     test('marks image draft unsupported after switching to text-only model',
         () async {
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageAndTextOnlyModels],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageAndTextOnlyModels],
       );
       viewModel.addDraftAttachmentForTest(const DraftAttachment(
         localPath: r'D:\tmp\screenshot.png',
@@ -472,10 +469,8 @@ void main() {
         () async {
       final repository = _FakeConversationRepository();
       final cache = _FakeAttachmentPreviewCache();
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageModel],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageModel],
         conversationRepository: repository,
         attachmentPreviewCache: cache,
       );
@@ -508,10 +503,8 @@ void main() {
       final repository = _FakeConversationRepository();
       final cache = _FakeAttachmentPreviewCache()
         ..rememberError = StateError('preview cache unavailable');
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageModel],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageModel],
         conversationRepository: repository,
         attachmentPreviewCache: cache,
       );
@@ -542,10 +535,8 @@ void main() {
           statusCode: 422,
           code: 'attachment_context_too_large',
         );
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageModel],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageModel],
         conversationRepository: repository,
       );
       viewModel.addDraftAttachmentForTest(const DraftAttachment(
@@ -584,10 +575,8 @@ void main() {
           code: 'attachment_context_too_large',
         );
       final cache = _FakeAttachmentPreviewCache();
-      final viewModel = WorkbenchViewModel(
-        initialData: _snapshot(
-          adapters: const <AdapterStatus>[_codexImageModel],
-        ),
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_codexImageModel],
         conversationRepository: repository,
         attachmentPreviewCache: cache,
       );
@@ -754,53 +743,131 @@ const _claudeAvailable = AdapterStatus(
   status: 'available',
 );
 
-AppSnapshot _snapshot({
+WorkbenchViewModel _workbenchViewModel({
   List<AdapterStatus> adapters = const <AdapterStatus>[],
   List<WorkspaceSummary> workspaces = const <WorkspaceSummary>[_workspace],
-  List<ConversationSummary> conversations = const <ConversationSummary>[],
-}) =>
-    AppSnapshot(
-      health: const DaemonHealth(
-        status: 'ok',
-        daemonVersion: 'test',
-        mode: 'test',
-        lanMode: true,
-        bindAddress: '127.0.0.1',
-        port: 0,
-        security: <String, Object?>{},
-      ),
-      workspaces: workspaces,
-      workspace: workspaces.first,
-      overview: ProjectOverview(
-        workspaceId: workspaces.first.id,
-        name: workspaces.first.name,
-        path: workspaces.first.path,
-        fileCount: 0,
-        codeLineCount: 0,
-        symbolCount: 0,
-        analysisScore: 0,
-        recentFiles: const <RecentFileSummary>[],
-      ),
-      adapters: adapters,
-      runs: const <RunSummary>[],
-      conversations: conversations,
-      queue: const <QueueItem>[],
-      templates: const <CommandTemplate>[],
-      gitStatus: null,
-      diffs: const <DiffSummary>[],
-      commits: const <GitCommitSummary>[],
-      fileTree: FileTreeResponse(
-        workspaceId: workspaces.first.id,
-        root: workspaces.first.path,
-        entries: const <FileTreeEntry>[],
-      ),
-      diagnostics: CodeDiagnosticsSummary(
-        workspaceId: workspaces.first.id,
-        available: false,
-        diagnostics: const <CodeDiagnostic>[],
-      ),
-      extensions: const <ExtensionSummary>[],
+  _FakeCachedAdapterRepository? adapterRepository,
+  _FakeConversationRepository? conversationRepository,
+  AttachmentPreviewCache attachmentPreviewCache =
+      const NoopAttachmentPreviewCache(),
+}) {
+  return WorkbenchViewModel(
+    workspaceRepository: _FakeWorkspaceRepository(workspaces: workspaces),
+    adapterRepository:
+        adapterRepository ?? _FakeCachedAdapterRepository(adapters: adapters),
+    conversationRepository: CachedConversationRepository(
+      delegate: conversationRepository ?? _FakeConversationRepository(),
+    ),
+    runRepository: CachedRunRepository(delegate: _NoOpRunRepository()),
+    attachmentPreviewCache: attachmentPreviewCache,
+  );
+}
+
+class _FakeWorkspaceRepository extends WorkspaceRepository {
+  _FakeWorkspaceRepository({
+    required List<WorkspaceSummary> workspaces,
+  }) : _workspaces = List<WorkspaceSummary>.of(workspaces);
+
+  List<WorkspaceSummary> _workspaces;
+  WorkspaceSummary? _selectedWorkspace;
+
+  @override
+  List<WorkspaceSummary> get workspaces => List.unmodifiable(_workspaces);
+
+  @override
+  WorkspaceSummary? get selectedWorkspace =>
+      _selectedWorkspace ?? (_workspaces.isEmpty ? null : _workspaces.first);
+
+  @override
+  bool get loading => false;
+
+  @override
+  Object? get error => null;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<WorkspaceSummary> create({
+    required String path,
+    String? name,
+  }) async {
+    final workspace = WorkspaceSummary(
+      id: 'workspace_created',
+      name: name ?? path,
+      path: path,
     );
+    _workspaces = <WorkspaceSummary>[..._workspaces, workspace];
+    _selectedWorkspace = workspace;
+    notifyListeners();
+    return workspace;
+  }
+
+  @override
+  bool select(String workspaceId) {
+    for (final workspace in _workspaces) {
+      if (workspace.id == workspaceId) {
+        _selectedWorkspace = workspace;
+        notifyListeners();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void applyBootstrapCatalog({
+    required WorkspaceSummary selectedWorkspace,
+    required List<WorkspaceSummary> workspaces,
+  }) {
+    _workspaces = List<WorkspaceSummary>.of(workspaces);
+    _selectedWorkspace = selectedWorkspace;
+  }
+
+  @override
+  Future<List<WorkspaceSummary>> listWorkspaces() async =>
+      List<WorkspaceSummary>.of(_workspaces);
+
+  @override
+  Future<WorkspaceSummary> createWorkspace({
+    required String path,
+    String? name,
+  }) =>
+      create(path: path, name: name);
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeCachedAdapterRepository extends CachedAdapterRepository {
+  _FakeCachedAdapterRepository({
+    List<AdapterStatus> adapters = const <AdapterStatus>[],
+  })  : _adapters = List<AdapterStatus>.of(adapters),
+        super(delegate: _NoOpAdapterRepository());
+
+  List<AdapterStatus> _adapters;
+
+  @override
+  List<AdapterStatus> get adapters => List.unmodifiable(_adapters);
+
+  void replaceAdapters(List<AdapterStatus> adapters) {
+    _adapters = List<AdapterStatus>.of(adapters);
+    notifyListeners();
+  }
+}
+
+class _NoOpAdapterRepository implements AdapterRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoOpRunRepository implements RunRepository {
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 ConversationSummary _conversation({
   String id = 'conv_1',

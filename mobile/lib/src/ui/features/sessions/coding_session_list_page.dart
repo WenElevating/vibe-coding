@@ -107,6 +107,7 @@ class _SessionNewButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
+      key: const ValueKey('session-new-button'),
       onTap: onTap,
       borderRadius: BorderRadius.circular(13),
       child: Container(

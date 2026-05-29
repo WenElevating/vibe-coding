@@ -3,6 +3,8 @@ import '../domain/models/daemon_initial_data.dart';
 import '../services/daemon_client.dart';
 import '../services/device_identity_store.dart';
 
+// AppSnapshot is a bootstrap/compatibility DTO. Connected runtime business
+// state is owned by repositories and projected through feature ViewModels.
 class AppSnapshot {
   const AppSnapshot(
       {required this.health,

@@ -186,6 +186,17 @@ FeatureDependencies _featureDependencies({
           (connectedData) => DiagnosticsViewModel(
                 repository: connectedData.diagnosticsRepository,
               ),
+      createHomeViewModel: (connectedData, {signalMetrics}) =>
+          throw UnimplementedError(),
+      createSettingsViewModel: ({
+        required connectedData,
+        required connectionConfig,
+        required health,
+        diagnostics,
+        gitStatus,
+        extensionsCount = 0,
+      }) =>
+          throw UnimplementedError(),
       createRunDetailViewModel: (connectedData, run) =>
           createRunDetailViewModel(run),
       createAppUpdateViewModel: ({
@@ -222,7 +233,7 @@ class _OverlayHarness extends StatelessWidget {
       home: Scaffold(
         body: MainRouteOverlay(
           route: route,
-          data: data,
+          data: data.toDaemonInitialData(),
           connectedData: connectedData,
           featureDependencies: featureDependencies,
           onBack: () {},

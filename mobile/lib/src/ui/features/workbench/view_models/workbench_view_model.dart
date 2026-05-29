@@ -57,6 +57,8 @@ class WorkbenchViewModel extends ChangeNotifier {
     _conversationRepository.addListener(_onRepositoryChanged);
     _runRepository.addListener(_onRepositoryChanged);
     _applyAdapters(_adapterRepository.adapters);
+    _selectedAdapter = _computePreferredAdapter(_adapterRepository.adapters);
+    _reconcileSelectedModel();
   }
 
   WorkbenchRouteState _routeState;
@@ -186,7 +188,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   WorkspaceSummary? get routeWorkspace => switch (_routeState) {
         WorkspaceSessionsRouteState(:final workspaceId) =>
           _workspaceById(workspaceId),
-        ConversationRouteState(:final workspaceId) => _workspaceById(workspaceId),
+        ConversationRouteState(:final workspaceId) =>
+          _workspaceById(workspaceId),
         _ => null,
       };
 
