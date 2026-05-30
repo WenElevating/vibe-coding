@@ -528,6 +528,51 @@ void main() {
       expect(cache.remembered, isEmpty);
     });
 
+    test('pending question follows current blocking input request only', () {
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_claudeAvailable],
+      );
+      viewModel.updateActiveConversation(
+        _conversation(
+          adapter: 'claude',
+          status: 'running',
+        ),
+      );
+
+      viewModel.applyConversationEvents(
+        <ConversationEvent>[
+          ConversationEvent.fromJson(const <String, Object?>{
+            'seq': 1,
+            'conversationId': 'conv_1',
+            'type': 'assistant.question',
+            'createdAt': '2026-05-18T00:00:02.000Z',
+            'questionId': 'question_1',
+            'text': 'Pick one',
+            'suggestions': <String>['A'],
+          }),
+        ],
+        streamOutput: false,
+      );
+
+      expect(viewModel.pendingQuestionId, 'question_1');
+
+      viewModel.applyConversationEvents(
+        <ConversationEvent>[
+          ConversationEvent.fromJson(const <String, Object?>{
+            'seq': 2,
+            'conversationId': 'conv_1',
+            'type': 'run.error',
+            'createdAt': '2026-05-18T00:00:03.000Z',
+            'message': 'AskUserQuestion failed',
+          }),
+        ],
+        streamOutput: false,
+      );
+
+      expect(viewModel.effectiveConversationStatus, 'failed');
+      expect(viewModel.pendingQuestionId, isNull);
+    });
+
     test('pre-commit attachment failure keeps draft and client message id',
         () async {
       final repository = _FakeConversationRepository()
@@ -872,18 +917,21 @@ class _NoOpRunRepository implements RunRepository {
 ConversationSummary _conversation({
   String id = 'conv_1',
   String adapter = 'codex',
+  String status = 'idle',
   String? model,
+  ConversationBlockingItem? blockingItem,
 }) =>
     ConversationSummary(
       id: id,
       workspaceId: _workspace.id,
       adapter: adapter,
       model: model,
-      status: 'idle',
+      status: status,
       capabilities:
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-18T00:00:00.000Z',
       updatedAt: '2026-05-18T00:00:01.000Z',
+      blockingItem: blockingItem,
     );
 
 ConversationEvent _event({

@@ -7,6 +7,7 @@ export 'workbench_route_state.dart';
 bool canSendInConversationStatus(String? status) {
   return status == null ||
       status == 'idle' ||
+      status == 'waiting_input' ||
       status == 'cancelled' ||
       status == 'failed' ||
       status == 'interrupted';

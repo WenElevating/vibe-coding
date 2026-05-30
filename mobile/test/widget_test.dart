@@ -895,21 +895,36 @@ class _StoredHistoryConversationRepository extends _LazyConversationRepository {
 }
 
 class _LifecycleConversationRepository implements ConversationRepository {
-  _LifecycleConversationRepository({this.cancelError});
+  _LifecycleConversationRepository({
+    this.cancelError,
+    this.events = const <ConversationEvent>[],
+  });
 
   final Object? cancelError;
+  final List<ConversationEvent> events;
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
   int watchCalls = 0;
   String? sentText;
+  String? answeredQuestionId;
+  String? answeredText;
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,
     String questionId,
     String text,
-  ) async =>
-      throw UnimplementedError();
+  ) async {
+    answeredQuestionId = questionId;
+    answeredText = text;
+    return _conversationSummary(
+      id: conversationId,
+      workspaceId: 'workspace_1',
+      status: 'running',
+      sessionBinding: 'confirmed',
+      userMessageCount: 2,
+    );
+  }
 
   @override
   Future<ConversationSummary> cancelConversation(String conversationId) async =>
@@ -929,7 +944,7 @@ class _LifecycleConversationRepository implements ConversationRepository {
     String conversationId, {
     int afterSeq = 0,
   }) async =>
-      const <ConversationEvent>[];
+      events.where((event) => event.seq > afterSeq).toList(growable: false);
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -940,6 +955,11 @@ class _LifecycleConversationRepository implements ConversationRepository {
     afterSeqs.add(afterSeq);
     late final StreamController<ConversationEvent> controller;
     controller = StreamController<ConversationEvent>(
+      onListen: () {
+        for (final event in events.where((event) => event.seq > afterSeq)) {
+          controller.add(event);
+        }
+      },
       onCancel: () {
         cancelCalls += 1;
         final error = cancelError;
@@ -3548,6 +3568,126 @@ void main() {
     expect(composer.controller?.text, isEmpty);
     expect(conversationRepository.watchCalls, 1);
     expect(conversationRepository.cancelCalls, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('question suggestion enables and sends an input response',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository(
+      events: <ConversationEvent>[
+        ConversationEvent.fromJson(const <String, Object?>{
+          'seq': 1,
+          'conversationId': 'conv_waiting_input',
+          'type': 'assistant.question',
+          'createdAt': '2026-05-16T00:00:00.000Z',
+          'questionId': 'question_api_key',
+          'text': 'API Key storage',
+          'suggestions': <String>[
+            'DPAPI encryption',
+            'Keep current behavior',
+          ],
+        }),
+      ],
+    );
+    final client = _AdapterRefreshClient();
+    final pageDependencies = dependencies.createMainTabsDependencies(
+      client,
+      initialData: _testSnapshot(
+        conversations: <ConversationSummary>[
+          _conversationSummary(
+            id: 'conv_waiting_input',
+            workspaceId: 'workspace_1',
+            status: 'idle',
+            sessionBinding: 'confirmed',
+            userMessageCount: 1,
+            title: 'API key review',
+          ),
+        ],
+      ).toDaemonInitialData(),
+    );
+    final cachedConversationRepository =
+        CachedConversationRepository(delegate: conversationRepository)
+          ..replaceFromBootstrap(
+            workspaceId: 'workspace_1',
+            conversations: <ConversationSummary>[
+              _conversationSummary(
+                id: 'conv_waiting_input',
+                workspaceId: 'workspace_1',
+                status: 'idle',
+                sessionBinding: 'confirmed',
+                userMessageCount: 1,
+                title: 'API key review',
+              ),
+            ],
+          );
+    final directDependencies = WorkbenchDependencies(
+      adapterRepository: pageDependencies.connectedData.cliAdapterRepository,
+      asrModelManager: pageDependencies.workbenchDependencies.asrModelManager,
+      conversationRepository: cachedConversationRepository,
+      diagnosticsRepository:
+          pageDependencies.connectedData.diagnosticsRepository,
+      runRepository: pageDependencies.connectedData.runRepository,
+      speechInputServiceBuilder:
+          pageDependencies.workbenchDependencies.speechInputServiceBuilder,
+      workspaceRepository: pageDependencies.connectedData.workspaceRepository,
+      workspaceOpeningUseCase:
+          pageDependencies.workbenchDependencies.workspaceOpeningUseCase,
+      attachmentPreviewCache:
+          pageDependencies.workbenchDependencies.attachmentPreviewCache,
+    );
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilAnswered() async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.answeredText == null;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: directDependencies))));
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('API key review'));
+    await pumpNavigationFrame();
+
+    expect(find.text('DPAPI encryption'), findsOneWidget);
+
+    await tester.tap(find.text('DPAPI encryption'));
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      'DPAPI encryption',
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await pumpUntilAnswered();
+
+    expect(conversationRepository.answeredQuestionId, 'question_api_key');
+    expect(conversationRepository.answeredText, 'DPAPI encryption');
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

@@ -171,10 +171,11 @@ class WorkbenchViewModel extends ChangeNotifier {
   ConversationViewState get conversationState => _conversationState;
   int get lastSeq => _lastSeq;
   String? get pendingQuestionId {
-    for (final message in _conversationState.messages.reversed) {
-      if (message.role == 'question' || message.role == 'question_hidden') {
-        return message.questionId;
-      }
+    final conversation = _activeConversation;
+    final blockingItem = conversation?.blockingItem;
+    if (conversation?.status == 'waiting_input' &&
+        blockingItem?.type == 'input_request') {
+      return blockingItem?.questionId;
     }
     return null;
   }

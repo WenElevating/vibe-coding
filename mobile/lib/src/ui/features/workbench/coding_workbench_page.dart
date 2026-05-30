@@ -1100,8 +1100,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _useQuestionSuggestion(String text) {
-    _prompt.text = text;
-    _prompt.selection = TextSelection.collapsed(offset: text.length);
+    setState(() {
+      _prompt.text = text;
+      _prompt.selection = TextSelection.collapsed(offset: text.length);
+    });
   }
 
   @override

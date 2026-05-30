@@ -320,6 +320,7 @@ void main() {
     ];
 
     expect(canSendInConversationStatus('idle'), isTrue);
+    expect(canSendInConversationStatus('waiting_input'), isTrue);
     expect(canSendInConversationStatus('waiting_approval'), isFalse);
     expect(isActiveConversationStatus('waiting_input'), isTrue);
     expect(isActiveConversationStatus('cancelled'), isFalse);

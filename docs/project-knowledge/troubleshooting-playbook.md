@@ -227,6 +227,36 @@ npm run lint
 
 - Last verified: 2026-05-25
 
+## Symptom: Claude AskUserQuestion Suggestion Leaves Send Disabled Or Returns 409
+
+- Symptom: a mobile Claude conversation shows an `AskUserQuestion`/question card
+  with suggestion chips, but tapping a suggestion fills the composer while the
+  send button stays disabled. A later send can fail with
+  `ConversationRepositoryException(409, conversation is not waiting for input response)`.
+- Action: inspect both composer state and pending-question state before changing
+  daemon response handling. `waiting_input` is an active conversation status but
+  it must still allow the composer to send an input response. Suggestion chips
+  must trigger a widget rebuild after writing the `TextEditingController`, and
+  the pending question id should come from the current conversation
+  `blockingItem` only, not from stale historical question messages.
+- Related files:
+  [coding_workbench_controller.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_controller.dart),
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+$env:NO_PROXY='localhost,127.0.0.1,::1'
+$env:no_proxy='localhost,127.0.0.1,::1'
+$env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
+$env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
+flutter test --no-pub test\coding_workbench_controller_test.dart test\adapter_model_test.dart --plain-name "pending"
+flutter test --no-pub test\widget_test.dart --plain-name "question suggestion enables and sends an input response"
+```
+
+- Last verified: 2026-05-30
+
 ## Symptom: Workbench Running Timer Resets After Reopening Conversation
 
 - Symptom: the pending/running transition card timer starts from `00:00` after
