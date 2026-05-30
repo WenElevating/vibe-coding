@@ -97,7 +97,10 @@ returning them ascending by `seq`.
 - If incompatible mode parameters are combined, return `400` with a stable
   error code such as `invalid_event_page_query`.
 - Clamp `tail` and `limit` to a daemon-owned range, recommended `1..200`.
-- Default historical page size is 80 when mobile does not pass a value.
+- Default historical page size is 80. Mobile should normally pass the explicit
+  page size for both `tail` and `beforeSeq` requests so behavior is visible in
+  tests. The daemon default exists for manual callers and defensive API
+  compatibility.
 - Treat invalid sequence values as `400`, not as silent `0`.
 
 ### Response Shape
@@ -151,18 +154,24 @@ ORDER BY seq DESC
 LIMIT ?
 ```
 
-The store reverses these result sets before deserializing or before returning so
-callers always receive ascending events.
+`hasMoreBefore` must not assume contiguous sequence numbers. Event deletion,
+cleanup, migration, or test fixtures can create sequence gaps, so the store
+must compute the value with an existence check:
 
-`hasMoreBefore` can be computed cheaply from the returned page:
-
-```text
-hasMoreBefore = oldestSeq > 1
+```sql
+SELECT EXISTS (
+  SELECT 1
+  FROM conversation_events
+  WHERE conversation_id = ? AND seq < ?
+)
 ```
 
-This is valid because event sequence numbers are contiguous per conversation.
-If future migrations ever allow gaps, the store can replace this with an
-`EXISTS` query without changing the API.
+The additional lookup is cheap on the `(conversation_id, seq)` primary key and
+keeps pagination semantics correct even when the event stream has gaps.
+
+The store must reverse descending query results before deserializing them. This
+keeps deserialization and caller-facing tests on one invariant: event rows are
+processed in ascending `seq` order.
 
 ## Mobile Data Contract
 
@@ -199,7 +208,10 @@ hasMoreBefore
 The daemon client parses the new `page` object. For compatibility with older
 daemons, if `page` is missing it derives `oldestSeq` and `newestSeq` from the
 events and uses `events.length == limit` as a conservative `hasMoreBefore`
-fallback.
+fallback. That fallback can cause one extra older-page request when the older
+daemon returns exactly `limit` events but has no more history. The UI should
+treat an empty older-page result as end-of-history and clear the loading state
+without surfacing a noisy error.
 
 ## Workbench State Design
 
@@ -220,19 +232,36 @@ Opening a historical conversation:
 4. Apply the page events.
 5. Set `oldestLoadedConversationSeq`, `hasMoreHistoricalConversationEvents`,
    and `_lastSeq` from the loaded page.
-6. Start WebSocket watch with `afterSeq = _lastSeq`.
+6. If the tail page is empty, keep `_lastSeq = 0`.
+7. Start WebSocket watch with `afterSeq = _lastSeq`.
 
 Loading older events:
 
 1. Ignore the request if there is no active conversation, no older history, or
    an older-page request is already active.
 2. Fetch `beforeSeq = oldestLoadedConversationSeq`.
-3. Prepend the returned events to the ordered event list.
+3. Merge the returned events into the ViewModel's ordered event window by
+   `seq`.
 4. Rebuild the visible conversation state from the combined loaded window.
 5. Update `oldestLoadedConversationSeq` and `hasMoreHistoricalConversationEvents`.
 
 This design still rebuilds the visible state from the loaded window. It does
 not require the reducer to understand partial historical insertion internally.
+
+The ViewModel is the single owner of event-window merging and de-duplication.
+Repositories and services return events as received from the daemon; they do
+not silently drop duplicates. The ViewModel merge rule is:
+
+```text
+combined = existingEvents + incomingEvents
+dedupe by seq, preferring the existing event when seq already exists
+sort by seq ASC
+```
+
+This handles WebSocket races while an older page is in flight. For example, if
+the stream delivers `seq=425` and the older-page response later returns
+`seq=421..425`, the final window contains one copy of `425` and remains
+ascending.
 
 ## Scroll Behavior
 
@@ -247,9 +276,12 @@ Implementation guidance:
 
 - Use the existing `ScrollController`.
 - Trigger older-page loading near the older edge, not only at the exact edge.
-- Preserve scroll position after prepending old events by measuring scroll
-  extent before and after the page is applied, then adjusting offset by the
-  extent delta.
+- Preserve scroll position after prepending old events with an explicit
+  post-frame correction. Capture the current offset and `maxScrollExtent`
+  before applying the page, wait for the rebuild with
+  `WidgetsBinding.instance.addPostFrameCallback`, then jump to
+  `oldOffset + (newMaxScrollExtent - oldMaxScrollExtent)` if the controller is
+  still attached and the route is still current.
 - Do not auto-scroll to bottom after older-page loads.
 - Continue auto-following live events only when the user is already near the
   newest edge.
@@ -262,8 +294,9 @@ Implementation guidance:
   expose a retry affordance or inline status near the older edge.
 - WebSocket failures keep using the current diagnostics path and reconnect
   strategy.
-- If a new event arrives while an older page is loading, keep it. Event merging
-  is sequence-based, so the combined loaded window remains ordered and unique.
+- If a new event arrives while an older page is loading, keep it. The ViewModel
+  sequence merge is responsible for de-duplicating races between stream events
+  and older-page responses.
 - If the user navigates away during any page load, discard the result using the
   existing generation/current-target checks.
 
@@ -273,6 +306,8 @@ Daemon tests:
 
 - `tail` returns the newest N events in ascending sequence order.
 - `beforeSeq + limit` returns the previous page in ascending sequence order.
+- `hasMoreBefore` uses an `EXISTS` lookup and remains correct when sequence
+  numbers have gaps.
 - `afterSeq` behavior remains unchanged.
 - Invalid mixed query modes return `400`.
 
@@ -286,10 +321,20 @@ Workbench tests:
 
 - Opening a large historical conversation requests a tail page, not
   `afterSeq=0`, and renders the latest sentinel.
+- Opening a conversation whose tail page is empty starts WebSocket watch with
+  `afterSeq=0`.
 - WebSocket watch starts from the newest loaded event sequence.
 - Scrolling to the older edge requests `beforeSeq=oldestLoadedSeq`.
+- Rapid repeated older-edge scrolls while a page is already loading trigger only
+  one older-page request.
+- A WebSocket event that arrives while an older page is in flight is retained
+  and not duplicated when the older response overlaps its sequence.
 - Older-page events become visible without losing newer loaded messages.
+- Older-page prepends preserve visible content after the required post-frame
+  scroll correction.
 - Older-page load failure keeps the loaded transcript visible.
+- Navigating away while the initial tail load is in flight discards the result
+  and does not mutate the next route's transcript.
 
 Verification commands:
 
@@ -308,8 +353,10 @@ dart run tool\check_architecture_imports.dart
   contain status transitions that are no longer represented. The active status
   should continue to come from the current `ConversationSummary` plus loaded
   recent events.
-- Scroll offset preservation can be sensitive with variable-height cards. Tests
-  should assert content continuity rather than exact pixel offsets.
+- Scroll offset preservation can be sensitive with variable-height cards.
+  Implementation must use a post-frame correction after the prepended page is
+  laid out. Tests should assert content continuity and stable route state rather
+  than exact pixel offsets.
 - Older daemon compatibility is only useful if mobile can still parse the old
   `events` response. True pagination requires a daemon with the new API.
 
