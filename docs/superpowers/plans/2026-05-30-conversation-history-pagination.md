@@ -136,6 +136,8 @@ test('conversation event store before page uses existence check for sequence gap
       text: 'new',
     });
     const store = new ConversationEventStore({ persistentStore: sqlite });
+    const all = store.listAfter('conv_gap', 0);
+    assert.deepEqual(all.map((event) => event.seq), [10, 20, 30]);
 
     const page = store.listBefore('conv_gap', 30, 1);
 
@@ -1081,6 +1083,10 @@ Add methods near `fetchConversationEvents`:
         _mergeConversationEventWindow(page.events),
         streamOutput: streamOutput,
       );
+      // Release the visible loading state as soon as content is present.
+      // Attachment preview binding can continue afterward; a very fast second
+      // older-page request during that preview await is acceptable because the
+      // ViewModel merge path is sequence-deduped.
       _loadingOlderConversationEvents = false;
       _notifyListeners();
       final previewChanged = await _bindAndResolveAttachmentPreviews(
@@ -1795,4 +1801,8 @@ Remaining risks:
 - note if live WebSocket events arriving during older-page loads cause a small
   scroll correction offset; the implementation deliberately favors preserving
   the older-page anchor over perfect isolation from concurrent live appends.
+- note if rapid repeated older-edge scrolling during attachment preview binding
+  starts the next older-page request before the previous preview pass finishes;
+  this is acceptable only while event-window merging and preview binding remain
+  idempotent for overlapping events.
 ```
