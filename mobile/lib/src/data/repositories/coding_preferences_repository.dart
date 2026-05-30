@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CodingPreferencesRepository extends ChangeNotifier {
   static const permissionModeStorageKey = 'coding.permissionMode';
 
-  String _permissionMode = 'auto';
+  String _permissionMode = 'default';
   bool _loading = false;
   Object? _error;
   bool _disposed = false;
@@ -54,7 +54,7 @@ class CodingPreferencesRepository extends ChangeNotifier {
   }
 
   static String normalizePermissionMode(String? value) =>
-      value == 'default' ? 'default' : 'auto';
+      value == 'auto' ? 'auto' : 'default';
 
   void _notifyListenersIfActive() {
     if (!_disposed) notifyListeners();

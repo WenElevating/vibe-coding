@@ -6,7 +6,7 @@ class MainTabsShellViewModel extends ChangeNotifier {
   int _activeTab = 0;
   bool _streamOutput = false;
   bool _expandThinking = false;
-  String _permissionMode = 'auto';
+  String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _openSessionListRequest = 0;
   RoutePage _activeRoute = RoutePage.tabs;

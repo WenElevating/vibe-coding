@@ -15,6 +15,6 @@ class CodingPreferencesStore {
   }
 
   static String normalizePermissionMode(String? value) {
-    return value == 'default' ? 'default' : 'auto';
+    return value == 'auto' ? 'auto' : 'default';
   }
 }

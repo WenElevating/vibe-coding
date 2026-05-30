@@ -23,11 +23,11 @@ void main() {
     expect(viewModel.isOverlayActive, isFalse);
   });
 
-  test('defaults new coding sessions to auto permission mode', () {
+  test('defaults new coding sessions to default permission mode', () {
     final viewModel = MainTabsShellViewModel();
     addTearDown(viewModel.dispose);
 
-    expect(viewModel.permissionMode, 'auto');
+    expect(viewModel.permissionMode, 'default');
   });
 
   test('stream output and expand thinking toggle', () {

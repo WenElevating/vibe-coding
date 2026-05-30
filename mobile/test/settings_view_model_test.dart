@@ -46,7 +46,7 @@ void main() {
     await viewModel.setPermissionMode('default');
 
     expect(viewModel.error, isA<StateError>());
-    expect(viewModel.permissionMode, 'auto');
+    expect(viewModel.permissionMode, 'default');
   });
 
   test('settings exposes shell connection and health inputs', () async {
@@ -188,7 +188,7 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 }
 
 class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
-  String _permissionMode = 'auto';
+  String _permissionMode = 'default';
   int listenerCount = 0;
   Object? setPermissionModeError;
 

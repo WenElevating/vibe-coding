@@ -21,7 +21,17 @@ void main() {
     expect(notifications, greaterThanOrEqualTo(1));
   });
 
-  test('load treats unknown persisted permission mode as auto', () async {
+  test('load uses default permission mode when no preference is persisted',
+      () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = CodingPreferencesRepository();
+
+    await repository.load();
+
+    expect(repository.permissionMode, 'default');
+  });
+
+  test('load treats unknown persisted permission mode as default', () async {
     SharedPreferences.setMockInitialValues(
       <String, Object>{
         CodingPreferencesRepository.permissionModeStorageKey: 'invalid',
@@ -31,7 +41,7 @@ void main() {
 
     await repository.load();
 
-    expect(repository.permissionMode, 'auto');
+    expect(repository.permissionMode, 'default');
   });
 
   test('setPermissionMode persists normalized value and notifies', () async {
@@ -43,10 +53,10 @@ void main() {
     await repository.setPermissionMode('invalid');
 
     final prefs = await SharedPreferences.getInstance();
-    expect(repository.permissionMode, 'auto');
+    expect(repository.permissionMode, 'default');
     expect(
       prefs.getString(CodingPreferencesRepository.permissionModeStorageKey),
-      'auto',
+      'default',
     );
     expect(repository.error, isNull);
     expect(notifications, greaterThanOrEqualTo(1));
