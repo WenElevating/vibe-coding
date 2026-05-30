@@ -3037,6 +3037,132 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
   }
 });
 
+test('conversation events API supports tail and beforeSeq pages', async () => {
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath('conversation-event-pages-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'phone' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'claude',
+      permissionMode: 'default'
+    }, token);
+    assert.equal(created.status, 201);
+    const conversationId = created.body.conversation.id;
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'one' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'two' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'three' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'four' });
+
+    const tail = await request(port, 'GET', `/api/conversations/${conversationId}/events?tail=2`, null, token);
+    assert.equal(tail.status, 200);
+    assert.deepEqual(tail.body.events.map((event) => event.seq), [4, 5]);
+    assert.deepEqual(tail.body.page, {
+      mode: 'tail',
+      oldestSeq: 4,
+      newestSeq: 5,
+      hasMoreBefore: true
+    });
+
+    const before = await request(port, 'GET', `/api/conversations/${conversationId}/events?beforeSeq=3&limit=2`, null, token);
+    assert.equal(before.status, 200);
+    assert.deepEqual(before.body.events.map((event) => event.seq), [1, 2]);
+    assert.deepEqual(before.body.page, {
+      mode: 'before',
+      oldestSeq: 1,
+      newestSeq: 2,
+      hasMoreBefore: false
+    });
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.conversationSqliteStore.close();
+  }
+});
+
+test('conversation events API rejects mixed pagination modes', async () => {
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath('conversation-event-page-invalid-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'phone' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'claude',
+      permissionMode: 'default'
+    }, token);
+    for (const query of [
+      'afterSeq=0&tail=2',
+      'afterSeq=0&beforeSeq=3',
+      'tail=2&beforeSeq=3'
+    ]) {
+      const response = await request(port, 'GET', `/api/conversations/${created.body.conversation.id}/events?${query}`, null, token);
+
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error.code, 'invalid_event_page_query');
+    }
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.conversationSqliteStore.close();
+  }
+});
+
+test('conversation events API validates sequence cursors and clamps page limits', async () => {
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath('conversation-event-page-validation-') });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'phone' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'claude',
+      permissionMode: 'default'
+    }, token);
+    const conversationId = created.body.conversation.id;
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'one' });
+    app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'two' });
+
+    for (const query of ['afterSeq=bad', 'afterSeq=', 'afterSeq=-1', 'beforeSeq=bad', 'beforeSeq=0']) {
+      const response = await request(port, 'GET', `/api/conversations/${conversationId}/events?${query}`, null, token);
+
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error.code, 'invalid_event_page_query');
+    }
+
+    const tail = await request(port, 'GET', `/api/conversations/${conversationId}/events?tail=0`, null, token);
+    assert.equal(tail.status, 200);
+    assert.deepEqual(tail.body.events.map((event) => event.seq), [3]);
+
+    const before = await request(port, 'GET', `/api/conversations/${conversationId}/events?beforeSeq=3`, null, token);
+    assert.equal(before.status, 200);
+    assert.deepEqual(before.body.events.map((event) => event.seq), [1, 2]);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.conversationSqliteStore.close();
+  }
+});
+
 test('notification protocol parses conversation subscribe frames', () => {
   const frame = parseClientFrame(JSON.stringify({
     type: 'subscribe',

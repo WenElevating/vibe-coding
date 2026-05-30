@@ -518,8 +518,24 @@ class ConversationManager {
   listEvents(conversationId, afterSeq, device) {
     const conversation = this.requireConversation(conversationId, device);
     return this.eventStore
-      .list(conversation.id, afterSeq)
+      .listAfter(conversation.id, afterSeq)
       .map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
+  }
+
+  listEventPage(conversationId, pageRequest, device) {
+    const conversation = this.requireConversation(conversationId, device);
+    const page = pageRequest.mode === 'tail'
+      ? this.eventStore.listTail(conversation.id, pageRequest.limit)
+      : this.eventStore.listBefore(conversation.id, pageRequest.beforeSeq, pageRequest.limit);
+    return {
+      events: page.events.map((event) => normalizeLegacyConversationEventForReplay(event, conversation)),
+      page: {
+        mode: pageRequest.mode,
+        oldestSeq: page.oldestSeq,
+        newestSeq: page.newestSeq,
+        hasMoreBefore: page.hasMoreBefore
+      }
+    };
   }
 
   recordAdapterEvent(conversation, event) {

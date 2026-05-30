@@ -115,8 +115,11 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       }
       const conversationEvents = url.pathname.match(/^\/api\/conversations\/([^/]+)\/events$/);
       if (method === 'GET' && conversationEvents) {
-        const afterSeq = Number(url.searchParams.get('afterSeq') || 0);
-        return json(res, 200, { events: conversations.listEvents(conversationEvents[1], afterSeq, device) });
+        const pageRequest = parseConversationEventPageRequest(url.searchParams);
+        if (pageRequest.mode === 'after') {
+          return json(res, 200, { events: conversations.listEvents(conversationEvents[1], pageRequest.afterSeq, device) });
+        }
+        return json(res, 200, conversations.listEventPage(conversationEvents[1], pageRequest, device));
       }
       const conversationMessages = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (method === 'POST' && conversationMessages) {
@@ -191,6 +194,66 @@ function recordClientException(body, { device, diagnosticBundle, req }) {
 
 function safeDeviceId(error) {
   return error && error.deviceId ? error.deviceId : null;
+}
+
+function parseConversationEventPageRequest(searchParams) {
+  const hasAfter = searchParams.has('afterSeq');
+  const hasTail = searchParams.has('tail');
+  const hasBefore = searchParams.has('beforeSeq');
+  const modeCount = [hasAfter, hasTail, hasBefore].filter(Boolean).length;
+  if (modeCount > 1) throw httpError(400, 'invalid_event_page_query', 'Use only one conversation event page mode.');
+  if (hasTail) {
+    return { mode: 'tail', limit: parseEventPageLimit(searchParams.get('tail'), 'tail') };
+  }
+  if (hasBefore) {
+    return {
+      mode: 'before',
+      beforeSeq: parsePositiveInteger(searchParams.get('beforeSeq'), 'beforeSeq'),
+      limit: parseEventPageLimit(searchParams.has('limit') ? searchParams.get('limit') : '80', 'limit')
+    };
+  }
+  return {
+    mode: 'after',
+    afterSeq: parseNonNegativeInteger(searchParams.has('afterSeq') ? searchParams.get('afterSeq') : '0', 'afterSeq')
+  };
+}
+
+function parseEventPageLimit(value, field) {
+  return Math.max(1, Math.min(parseInteger(value, field), 200));
+}
+
+function parsePositiveInteger(value, field) {
+  const parsed = parseInteger(value, field);
+  if (parsed < 1) {
+    throw httpError(400, 'invalid_event_page_query', `${field} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeInteger(value, field) {
+  const parsed = parseInteger(value, field);
+  if (parsed < 0) {
+    throw httpError(400, 'invalid_event_page_query', `${field} must be a non-negative integer.`);
+  }
+  return parsed;
+}
+
+function parseInteger(value, field) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw httpError(400, 'invalid_event_page_query', `${field} must be an integer.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw httpError(400, 'invalid_event_page_query', `${field} must be an integer.`);
+  }
+  return parsed;
+}
+
+function httpError(status, code, message) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
 }
 
 async function runSmoke({ config, adapterRegistry, eventStore }) {
