@@ -2142,8 +2142,7 @@ class _PatchTranscriptLine extends StatelessWidget {
         color: line.background,
         padding: const EdgeInsets.symmetric(vertical: 1),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _PatchGutterText(line.oldLine?.toString() ?? ''),
-          _PatchGutterText(line.newLine?.toString() ?? ''),
+          _PatchGutterText(line.displayLineNumber),
           SizedBox(
               width: 18,
               child: Text(line.marker,
@@ -2307,6 +2306,14 @@ class _PatchLine {
   final int? newLine;
   final String text;
   final String marker;
+
+  String get displayLineNumber {
+    final line = switch (kind) {
+      _PatchLineKind.removed => oldLine,
+      _ => newLine ?? oldLine,
+    };
+    return line?.toString() ?? '';
+  }
 
   Color get background {
     return switch (kind) {

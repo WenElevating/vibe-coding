@@ -80,6 +80,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late int _handledOpenSessionListRequest;
   bool _bottomAnchorTranscript = false;
   bool _bottomAnchorTranscriptUnderflow = false;
+  bool _loadingInitialConversationEvents = false;
 
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems;
 
@@ -189,6 +190,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     unawaited(_cancelConversationEventSubscription());
     _bottomAnchorTranscript = bottomAnchorTranscript;
     _bottomAnchorTranscriptUnderflow = false;
+    _loadingInitialConversationEvents = false;
     _workbenchViewModel.resetConversationDisplay(notify: false);
   }
 
@@ -200,6 +202,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           bottomAnchorTranscript: item.conversation != null);
       _workbenchViewModel.openSession(item, notify: false);
       _workbenchViewModel.clearOperationError(notify: false);
+      _loadingInitialConversationEvents = item.conversation != null;
     });
     _workbenchViewModel.showConversationRoute(
         _workspaceForId(item.run.workspaceId).id, item.conversation?.id ?? '');
@@ -247,6 +250,15 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             notify: false,
           );
         });
+      } finally {
+        if (mounted &&
+            _isCurrentConversationEventTarget(
+              conversationId: conversation.id,
+              runId: item.run.id,
+              generation: generation,
+            )) {
+          setState(() => _loadingInitialConversationEvents = false);
+        }
       }
     }
   }
@@ -1447,7 +1459,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Widget _buildMessageList(String? adapter, AppLocalizations l10n) {
     final hasStatus = _activeRunId != null;
     final hasError = _error != null;
-    final hasPending = _isBusyCli;
+    final hasPending = _isBusyCli && !_loadingInitialConversationEvents;
     final useReverseTranscript = _useReverseTranscript;
     final itemCount = (hasStatus ? 1 : 0) +
         _messages.length +

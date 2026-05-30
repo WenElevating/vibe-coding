@@ -3683,6 +3683,127 @@ void main() {
   });
 
   testWidgets(
+      'opening stale active conversation waits for history before pending animation',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding',
+    );
+    final conversationRepository = _HangingFetchConversationRepository();
+    final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore());
+    final adapterRepository = CliAdapterRepository(
+        delegate: DaemonAdapterRepository(client: client))
+      ..replaceFromBootstrap(const <AdapterStatus>[
+        AdapterStatus(adapter: 'codex', available: true, status: 'available')
+      ]);
+    final cachedConversationRepository =
+        CachedConversationRepository(delegate: conversationRepository)
+          ..replaceFromBootstrap(
+            workspaceId: workspace.id,
+            conversations: <ConversationSummary>[
+              _conversationSummary(
+                id: 'conv_slow_history',
+                workspaceId: workspace.id,
+                status: 'running',
+                sessionBinding: 'confirmed',
+                userMessageCount: 1,
+                title: 'Slow history conversation',
+              ),
+            ],
+          );
+    final runRepository =
+        CachedRunRepository(delegate: DaemonRunRepository(client: client))
+          ..replaceFromBootstrap(
+              workspaceId: workspace.id,
+              runs: const <RunSummary>[],
+              queue: const <QueueItem>[]);
+    final workspaceRepository = DaemonWorkspaceRepository(client: client)
+      ..applyBootstrapCatalog(
+          selectedWorkspace: workspace,
+          workspaces: const <WorkspaceSummary>[workspace]);
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: WorkbenchDependencies(
+                  adapterRepository: adapterRepository,
+                  asrModelManager:
+                      AsrModelManager(client: client.createAsrModelClient()),
+                  conversationRepository: cachedConversationRepository,
+                  diagnosticsRepository:
+                      DaemonDiagnosticsRepository(client: client),
+                  runRepository: runRepository,
+                  speechInputServiceBuilder: (_) =>
+                      const DisabledSpeechInputService(),
+                  workspaceRepository: workspaceRepository,
+                )))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Slow history conversation'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(conversationRepository.fetchStarted, isTrue);
+    expect(
+        find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+    expect(find.text('Running'), findsNothing);
+    expect(find.text('Generating reply...'), findsNothing);
+    expect(find.text('00:00'), findsNothing);
+
+    conversationRepository.fetchCompleter.complete(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_slow_history',
+        'type': 'user.message',
+        'createdAt': '2026-05-30T00:00:00.000Z',
+        'text': 'review code'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_slow_history',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-30T00:00:01.000Z',
+        'text': 'review complete'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_slow_history',
+        'type': 'conversation.completed',
+        'createdAt': '2026-05-30T00:00:02.000Z'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_slow_history',
+        'type': 'conversation.status_changed',
+        'createdAt': '2026-05-30T00:00:02.000Z',
+        'status': 'idle'
+      }),
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('review complete'), findsOneWidget);
+    expect(find.text('Running'), findsNothing);
+    expect(find.text('Generating reply...'), findsNothing);
+    expect(find.text('00:00'), findsNothing);
+  });
+
+  testWidgets(
       'workbench lifecycle restarts event subscription after background',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -5838,8 +5959,9 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.text('Edited main.dart'), findsOneWidget);
     expect(find.text('+1 -1'), findsOneWidget);
     expect(find.text('@@ -7,3 +7,3 @@ void main() {'), findsOneWidget);
-    expect(find.text('7'), findsWidgets);
-    expect(find.text('8'), findsWidgets);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('8'), findsNWidgets(2));
+    expect(find.text('9'), findsOneWidget);
     expect(find.text('  runApp(app);'), findsOneWidget);
     expect(find.text('  runApp(const App());'), findsOneWidget);
   });

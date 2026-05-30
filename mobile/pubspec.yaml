@@ -1,5 +1,5 @@
 name: lan_ai_cli_control
-version: 1.4.11+13
+version: 1.4.12+14
 publish_to: "none"
 description: Private LAN AI CLI control app shell.
 
