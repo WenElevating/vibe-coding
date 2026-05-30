@@ -614,6 +614,7 @@ function claudeFileChangeNoticeForTool(state, { toolName, input, isError, permis
   const change = normalizeClaudeFileChange({
     filePath,
     toolName: normalizedToolName,
+    input,
     workspacePath: state.workspacePath,
     spawnSyncFn: state.spawnSyncFn
   });
@@ -641,14 +642,18 @@ function claudeFileChangeInputPath(input) {
   return '';
 }
 
-function normalizeClaudeFileChange({ filePath, toolName, workspacePath, spawnSyncFn }) {
+function normalizeClaudeFileChange({ filePath, toolName, input, workspacePath, spawnSyncFn }) {
   const resolved = resolveWorkspaceFilePath(filePath, workspacePath);
   if (!resolved) return null;
   const relativePath = relativeWorkspacePath(resolved, workspacePath);
   if (!relativePath) return null;
   const maxBytes = DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES;
   const gitDiff = workspaceGitDiffForFile(relativePath, workspacePath, spawnSyncFn, maxBytes);
-  const preview = gitDiff || (toolName === 'write' ? addedFilePreview(resolved, maxBytes) : '');
+  const inputPreview = gitDiff ? '' : claudeFileChangeInputPreview(toolName, input, maxBytes);
+  const filePreview = gitDiff || inputPreview
+    ? ''
+    : (toolName === 'write' ? addedFilePreview(resolved, maxBytes) : currentFilePreview(resolved, maxBytes));
+  const preview = gitDiff || inputPreview || filePreview;
   const kind = claudeFileChangeKind(toolName, preview);
   const change = { path: relativePath.replace(/\\/g, '/'), kind };
   if (preview) change.diff = preview;
@@ -682,6 +687,75 @@ function addedFilePreview(resolvedPath, maxBytes) {
   } catch (_) {
     return '';
   }
+}
+
+function currentFilePreview(resolvedPath, maxBytes) {
+  try {
+    const stat = fs.statSync(resolvedPath);
+    if (!stat.isFile() || stat.size > maxBytes) return '';
+    const content = fs.readFileSync(resolvedPath, 'utf8');
+    const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const preview = lines
+      .slice(0, 80)
+      .map((line) => ` ${line}`)
+      .join('\n');
+    return preview ? `@@ file preview @@\n${preview}` : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function claudeFileChangeInputPreview(toolName, input, maxBytes) {
+  if (!input || typeof input !== 'object') return '';
+  if (toolName === 'edit') {
+    return claudeEditPreview([
+      {
+        oldText: stringValue(input.old_string) ?? stringValue(input.oldString),
+        newText: stringValue(input.new_string) ?? stringValue(input.newString)
+      }
+    ], maxBytes);
+  }
+  if (toolName === 'multiedit') {
+    const edits = Array.isArray(input.edits) ? input.edits : [];
+    return claudeEditPreview(edits.map((edit) => ({
+      oldText: stringValue(edit?.old_string) ?? stringValue(edit?.oldString),
+      newText: stringValue(edit?.new_string) ?? stringValue(edit?.newString)
+    })), maxBytes);
+  }
+  if (toolName === 'write') {
+    const content = stringValue(input.content) ?? stringValue(input.file_content) ?? stringValue(input.fileContent);
+    if (content == null) return '';
+    return truncateText(`@@ new file preview @@\n${prefixedPreviewLines(content, '+')}`, maxBytes).text.trim();
+  }
+  return '';
+}
+
+function claudeEditPreview(edits, maxBytes) {
+  const hunks = [];
+  for (const edit of edits) {
+    if (edit.oldText == null || edit.newText == null) continue;
+    hunks.push([
+      '@@ edit preview @@',
+      prefixedPreviewLines(edit.oldText, '-'),
+      prefixedPreviewLines(edit.newText, '+')
+    ].filter(Boolean).join('\n'));
+  }
+  if (hunks.length === 0) return '';
+  return truncateText(hunks.join('\n'), maxBytes).text.trim();
+}
+
+function prefixedPreviewLines(text, prefix) {
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .slice(0, 80)
+    .map((line) => `${prefix}${line}`)
+    .join('\n');
+}
+
+function stringValue(value) {
+  return typeof value === 'string' ? value : null;
 }
 
 function resolveWorkspaceFilePath(rawPath, workspacePath) {

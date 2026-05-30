@@ -3000,6 +3000,51 @@ test('Claude conversation adapter emits file change notice after successful Edit
   assert.match(notice.changes[0].diff, /\+new line/);
 });
 
+test('Claude conversation adapter previews Edit input when git diff is empty', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-file-change-edit-preview-'));
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'note.md'), '# New title\nbody\n', 'utf8');
+
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: (command) => {
+      if (command === 'git') return { status: 0, stdout: '', stderr: '' };
+      return { status: 0, stdout: '2.1.119', stderr: '' };
+    },
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_claude_edit_preview', workspacePath: root, onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_edit_preview',
+    name: 'Edit',
+    input: {
+      file_path: path.join(root, 'docs', 'note.md'),
+      old_string: '# Old title\nbody\n',
+      new_string: '# New title\nbody\n'
+    }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_edit_preview',
+    content: 'Updated docs/note.md',
+    is_error: false
+  })}\n`);
+
+  const notice = events.find((event) => event.noticeKind === 'codex_file_change');
+  assert.equal(notice.type, 'system.notice');
+  assert.deepEqual(notice.changes.map((change) => change.path), ['docs/note.md']);
+  assert.match(notice.changes[0].diff, /@@ edit preview @@/);
+  assert.match(notice.changes[0].diff, /-# Old title/);
+  assert.match(notice.changes[0].diff, /\+# New title/);
+});
+
 test('Claude conversation adapter suppresses file change notice for failed Edit tool', async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
