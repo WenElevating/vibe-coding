@@ -705,6 +705,8 @@ function deserializeEvent(row) {
 }
 
 function clampConversationEventPageLimit(limit) {
+  if (limit == null) return 80;
+  if (typeof limit === 'string' && limit.trim() === '') return 80;
   const parsed = Number(limit);
   if (!Number.isFinite(parsed)) return 80;
   return Math.max(1, Math.min(Math.trunc(parsed), 200));
