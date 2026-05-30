@@ -303,8 +303,12 @@ class ConversationViewState {
         case 'tool.started':
           final toolUseId = event.toolUseId;
           if (toolUseId == null || toolUseId.isEmpty) break;
-          if (_isExitPlanModeEvent(event)) {
+          if (_isHiddenClaudeToolEvent(event)) {
             _removeCommandMessage(nextMessages, event);
+            break;
+          }
+          if (_isClaudeTaskToolEvent(event)) {
+            _upsertClaudeTaskProgressFromTool(nextMessages, event);
             break;
           }
           _upsertCommandMessage(
@@ -322,6 +326,14 @@ class ConversationViewState {
           break;
         case 'tool.delta':
         case 'tool.output':
+          if (_isAskUserQuestionEvent(event)) {
+            _removeCommandMessage(nextMessages, event);
+            break;
+          }
+          if (_isClaudeTaskToolEvent(event)) {
+            _upsertClaudeTaskProgressFromTool(nextMessages, event);
+            break;
+          }
           if (_isExitPlanModePromptEvent(event)) {
             _removeCommandMessage(nextMessages, event);
             _upsertQuestionMessage(
@@ -338,6 +350,10 @@ class ConversationViewState {
                 ));
             break;
           }
+          if (_isExitPlanModeEvent(event)) {
+            _removeCommandMessage(nextMessages, event);
+            break;
+          }
           if (_toolOutputCompletesCommand(event)) {
             _completeCommandMessage(nextMessages, event);
           } else {
@@ -345,7 +361,8 @@ class ConversationViewState {
           }
           break;
         case 'tool.completed':
-          if (_isExitPlanModeEvent(event)) {
+          if (_isHiddenClaudeToolEvent(event) ||
+              _isClaudeTaskToolEvent(event)) {
             _removeCommandMessage(nextMessages, event);
             break;
           }
@@ -529,10 +546,148 @@ void _removeCommandMessage(
 bool _isExitPlanModeEvent(ConversationEvent event) =>
     (event.toolName ?? '').toLowerCase() == 'exitplanmode';
 
+bool _isAskUserQuestionEvent(ConversationEvent event) =>
+    (event.toolName ?? '').toLowerCase() == 'askuserquestion';
+
+bool _isHiddenClaudeToolEvent(ConversationEvent event) =>
+    _isExitPlanModeEvent(event) || _isAskUserQuestionEvent(event);
+
 bool _isExitPlanModePromptEvent(ConversationEvent event) {
   if (!_isExitPlanModeEvent(event)) return false;
   final text = (event.text ?? event.summary ?? '').trim().toLowerCase();
   return text == 'exit plan mode?';
+}
+
+bool _isClaudeTaskToolEvent(ConversationEvent event) {
+  final toolName = (event.toolName ?? '').toLowerCase();
+  return toolName == 'taskcreate' || toolName == 'taskupdate';
+}
+
+void _upsertClaudeTaskProgressFromTool(
+    List<ConversationMessage> messages, ConversationEvent event) {
+  final toolName = (event.toolName ?? '').toLowerCase();
+  final input = event.input;
+  final taskId = _claudeTaskIdForToolEvent(event);
+  if (taskId == null || taskId.isEmpty) return;
+  final existing = _existingClaudeTaskProgress(messages);
+  final existingItems = existing?.taskItems ?? const <TaskProgressItem>[];
+  final items = List<TaskProgressItem>.from(existingItems);
+  final index = items.indexWhere((item) => item.id == taskId);
+  if (toolName == 'taskcreate') {
+    final created = _claudeTaskCreateResult(event);
+    final title = created.title ?? _claudeTaskTitleForCreate(event);
+    if (title.isEmpty) return;
+    final existingByToolUseId = event.toolUseId == null
+        ? -1
+        : items.indexWhere((item) => item.id == event.toolUseId);
+    final effectiveTaskId = created.id ?? taskId;
+    if (created.id != null &&
+        existingByToolUseId >= 0 &&
+        items[existingByToolUseId].id != effectiveTaskId) {
+      items.removeAt(existingByToolUseId);
+    }
+    final effectiveIndex =
+        items.indexWhere((item) => item.id == effectiveTaskId);
+    final incoming = TaskProgressItem(
+        id: effectiveTaskId,
+        title: title,
+        status: _normalizeClaudeTaskStatus(input['status']));
+    if (effectiveIndex >= 0) {
+      items[effectiveIndex] = incoming;
+    } else {
+      items.add(incoming);
+    }
+  } else if (toolName == 'taskupdate') {
+    final previous = index >= 0 ? items[index] : null;
+    final title = previous?.title ?? _claudeTaskTitleForUpdate(event, taskId);
+    final incoming = TaskProgressItem(
+        id: taskId,
+        title: title,
+        status: _normalizeClaudeTaskStatus(input['status']));
+    if (index >= 0) {
+      items[index] = incoming;
+    } else {
+      items.add(incoming);
+    }
+  }
+  final completed = items.where((item) => item.status == 'completed').length;
+  _upsertTaskProgressMessage(
+      messages,
+      ConversationMessage(
+        role: 'task_progress',
+        text: 'Task Progress',
+        eventSeq: event.seq,
+        taskId: 'claude_tasks',
+        source: 'claude',
+        taskItems: items,
+        completedCount: completed,
+        totalCount: items.length,
+      ));
+}
+
+ConversationMessage? _existingClaudeTaskProgress(
+    List<ConversationMessage> messages) {
+  final index = messages.indexWhere((message) =>
+      message.role == 'task_progress' && message.taskId == 'claude_tasks');
+  return index < 0 ? null : messages[index];
+}
+
+String? _claudeTaskIdForToolEvent(ConversationEvent event) {
+  final input = event.input;
+  final id = input['taskId'] ?? input['id'] ?? event.toolUseId;
+  if (id == null) return null;
+  final text = id.toString().trim();
+  return text.isEmpty ? null : text;
+}
+
+String _claudeTaskTitleForCreate(ConversationEvent event) {
+  final input = event.input;
+  for (final key in const <String>['subject', 'title', 'description']) {
+    final value = input[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return (event.summary ?? event.toolUseId ?? '').trim();
+}
+
+String _claudeTaskTitleForUpdate(ConversationEvent event, String taskId) {
+  final input = event.input;
+  for (final key in const <String>['subject', 'title']) {
+    final value = input[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return 'Task #$taskId';
+}
+
+({String? id, String? title}) _claudeTaskCreateResult(ConversationEvent event) {
+  final text = (event.text ?? event.summary ?? '').trim();
+  if (text.isEmpty) return (id: null, title: null);
+  final match = RegExp(r'task\s*#?\s*([A-Za-z0-9_-]+)', caseSensitive: false)
+      .firstMatch(text);
+  final id = match?.group(1);
+  String? title;
+  final colonIndex = text.indexOf(':');
+  if (colonIndex >= 0 && colonIndex < text.length - 1) {
+    final parsed = text.substring(colonIndex + 1).trim();
+    if (parsed.isNotEmpty) title = parsed;
+  }
+  return (id: id, title: title);
+}
+
+String _normalizeClaudeTaskStatus(Object? status) {
+  final value = status?.toString().trim().toLowerCase() ?? '';
+  if (value == 'completed' ||
+      value == 'complete' ||
+      value == 'done' ||
+      value == 'success') {
+    return 'completed';
+  }
+  if (value == 'in_progress' ||
+      value == 'in-progress' ||
+      value == 'running' ||
+      value == 'active') {
+    return 'in_progress';
+  }
+  return 'pending';
 }
 
 void _upsertAssistantStreamMessage(

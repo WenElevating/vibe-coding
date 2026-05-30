@@ -289,14 +289,19 @@ flutter test --no-pub test\widget_test.dart --plain-name "opening existing conve
 
 - Symptom: Claude Code `TaskCreate` / `TaskUpdate` rows appear as generic
   tool cards instead of a task progress table, or tapping a question suggestion
-  only fills the composer and still requires a separate send tap.
+  only fills the composer and still requires a separate send tap. A visible
+  question card can also be followed by a failed `AskUserQuestion` tool card
+  with output such as `Answer questions?`, and legacy persisted `TaskCreate`
+  rows can remain as repeated `running` tool cards.
 - Action: keep Claude task tools out of the generic `tool.started` /
   `tool.output` card path. The daemon should aggregate `TaskCreate` and
-  `TaskUpdate` into `task.progress.updated` with `source=claude`, while mobile
-  consumes the existing task progress reducer/card. For question suggestions,
-  if the active conversation has a `pendingQuestionId`, the chip should call
-  `answerConversationQuestion` immediately; only fall back to composer fill when
-  there is no pending question context.
+  `TaskUpdate` into `task.progress.updated` with `source=claude` as soon as the
+  tool starts, while mobile consumes the existing task progress reducer/card.
+  Mobile replay should also suppress legacy `AskUserQuestion`, `TaskCreate`,
+  and `TaskUpdate` tool cards because older persisted events cannot be rewritten.
+  For question suggestions, if the active conversation has a `pendingQuestionId`,
+  the chip should call `answerConversationQuestion` immediately; only fall back
+  to composer fill when there is no pending question context.
 - Related files:
   [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js),
   [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
@@ -307,6 +312,7 @@ flutter test --no-pub test\widget_test.dart --plain-name "opening existing conve
 node scripts/run-tests.js
 cd mobile
 flutter test --no-pub test\widget_test.dart --plain-name "question suggestion immediately sends an input response"
+flutter test --no-pub test\conversation_reducer_test.dart
 dart analyze lib test
 ```
 

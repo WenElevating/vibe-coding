@@ -119,6 +119,8 @@ class ClaudeConversationAdapter {
       pendingApprovals: new Map(),
       pendingTools: new Map(),
       claudeTasks: new Map(),
+      claudeTaskToolIds: new Map(),
+      claudeTaskProgressSnapshot: '',
       contentBlocks: new Map(),
       visibleApiRetryWarnings: new Set(),
       reportedPlanApprovalToolUseIds: new Set(),
@@ -316,14 +318,32 @@ function handleToolUse(raw, state, originalRaw = raw) {
   if (!toolUseId) return;
   const previous = state.pendingTools.get(toolUseId) || {};
   const input = raw.input && typeof raw.input === 'object' ? raw.input : previous.input || {};
+  const toolName = raw.name || raw.tool_name || previous.name || 'tool';
+  if (isAskUserQuestionToolName(toolName)) {
+    emitAskUserQuestion(state, {
+      questionId: toolUseId,
+      input,
+      toolUseId,
+      raw: originalRaw
+    });
+    return;
+  }
   const tool = {
     toolUseId,
-    name: raw.name || raw.tool_name || previous.name || 'tool',
+    name: toolName,
     input,
     startedAt: previous.startedAt || state.now().toISOString()
   };
   state.pendingTools.set(toolUseId, tool);
-  if (isClaudeTaskToolName(tool.name)) return;
+  if (isClaudeTaskToolName(tool.name)) {
+    handleClaudeTaskToolUse(state, {
+      toolName: tool.name,
+      toolUseId,
+      input: tool.input,
+      raw: originalRaw
+    });
+    return;
+  }
   state.onEvent({
     type: conversationEventTypes.TOOL_STARTED,
     toolUseId,
@@ -444,11 +464,16 @@ function handleToolResult(raw, state, originalRaw = raw) {
   const permissionError = isPermissionErrorText(text);
   const toolName = pending?.name || raw.name || raw.tool_name || null;
   const input = pending?.input || {};
+  if (isAskUserQuestionToolName(toolName) || state.pendingQuestions.has(toolUseId)) {
+    state.pendingTools.delete(toolUseId);
+    return;
+  }
   if (isClaudeTaskToolName(toolName)) {
     handleClaudeTaskToolResult(state, {
       toolName,
       toolUseId,
       input,
+      text,
       raw,
       originalRaw
     });
@@ -503,34 +528,57 @@ function isClaudeTaskToolName(toolName) {
   return name === 'taskcreate' || name === 'taskupdate';
 }
 
-function handleClaudeTaskToolResult(state, { toolName, toolUseId, input, raw, originalRaw }) {
+function isAskUserQuestionToolName(toolName) {
+  return String(toolName || '').toLowerCase() === 'askuserquestion';
+}
+
+function handleClaudeTaskToolUse(state, { toolName, toolUseId, input, raw }) {
+  const name = String(toolName || '').toLowerCase();
+  if (name === 'taskcreate') {
+    upsertClaudeCreatedTask(state, { input, result: {}, toolUseId });
+  } else if (name === 'taskupdate') {
+    upsertClaudeUpdatedTask(state, { input, result: {}, toolUseId });
+  }
+  emitClaudeTaskProgress(state, raw);
+}
+
+function handleClaudeTaskToolResult(state, { toolName, toolUseId, input, text, raw, originalRaw }) {
   const name = String(toolName || '').toLowerCase();
   const result = extractClaudeToolUseResult(raw) || extractClaudeToolUseResult(originalRaw) || {};
   if (name === 'taskcreate') {
-    upsertClaudeCreatedTask(state, { input, result, toolUseId });
+    upsertClaudeCreatedTask(state, { input, result, resultText: text, toolUseId });
   } else if (name === 'taskupdate') {
     upsertClaudeUpdatedTask(state, { input, result, toolUseId });
   }
   emitClaudeTaskProgress(state, originalRaw || raw);
 }
 
-function upsertClaudeCreatedTask(state, { input, result, toolUseId }) {
+function upsertClaudeCreatedTask(state, { input, result, resultText, toolUseId }) {
   const task = objectValue(result.task);
+  const parsedResult = parseClaudeCreatedTaskText(resultText);
+  const previousTaskId = state.claudeTaskToolIds.get(toolUseId);
   const taskId =
     stringValue(task.id) ||
     stringValue(result.taskId) ||
     stringValue(input.taskId) ||
+    parsedResult.id ||
     parseClaudeTaskId(result) ||
     toolUseId;
+  if (previousTaskId && previousTaskId !== taskId) {
+    state.claudeTasks.delete(previousTaskId);
+  }
   const title =
     stringValue(task.subject) ||
     stringValue(task.title) ||
     stringValue(input.subject) ||
     stringValue(input.title) ||
     stringValue(input.description) ||
+    parsedResult.title ||
+    stringValue(state.claudeTasks.get(previousTaskId || taskId)?.title) ||
     `Task #${taskId}`;
   if (!taskId || !title) return;
   const previous = state.claudeTasks.get(taskId) || {};
+  state.claudeTaskToolIds.set(toolUseId, taskId);
   state.claudeTasks.set(taskId, {
     id: taskId,
     title,
@@ -545,6 +593,7 @@ function upsertClaudeUpdatedTask(state, { input, result, toolUseId }) {
     stringValue(input.id) ||
     stringValue(result.taskId) ||
     stringValue(result.id) ||
+    state.claudeTaskToolIds.get(toolUseId) ||
     parseClaudeTaskId(result) ||
     toolUseId;
   if (!taskId) return;
@@ -573,6 +622,12 @@ function emitClaudeTaskProgress(state, raw) {
       status: normalizeClaudeTaskStatus(item.status)
     }));
   if (items.length === 0) return;
+  const snapshot = JSON.stringify(items.map((item) => ({
+    title: item.title,
+    status: item.status
+  })));
+  if (snapshot === state.claudeTaskProgressSnapshot) return;
+  state.claudeTaskProgressSnapshot = snapshot;
   const completedCount = items.filter((item) => item.status === 'completed').length;
   state.onEvent({
     type: conversationEventTypes.TASK_PROGRESS_UPDATED,
@@ -625,6 +680,20 @@ function parseClaudeTaskId(result) {
   return match ? match[1] : null;
 }
 
+function parseClaudeCreatedTaskText(text) {
+  const value = stringValue(text);
+  if (!value) return {};
+  const match = value.match(/task\s*#?\s*([A-Za-z0-9_-]+)/i);
+  const colonIndex = value.indexOf(':');
+  const title = colonIndex >= 0 && colonIndex < value.length - 1
+    ? value.slice(colonIndex + 1).trim()
+    : '';
+  return {
+    id: match ? match[1] : '',
+    title
+  };
+}
+
 function objectValue(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -653,6 +722,24 @@ function emitExitPlanModeQuestion(state, { toolUseId, input, raw }) {
     text: 'Exit plan mode?',
     suggestions: ['批准计划并继续', '调整计划'],
     toolName: 'ExitPlanMode',
+    input: input || {},
+    toolUseId,
+    raw
+  });
+}
+
+function emitAskUserQuestion(state, { questionId, input, toolUseId, raw }) {
+  if (!questionId || state.pendingQuestions.has(questionId)) return;
+  state.pendingQuestions.set(questionId, {
+    input: input || {},
+    toolUseId
+  });
+  state.onEvent({
+    type: conversationEventTypes.ASSISTANT_QUESTION,
+    questionId,
+    text: askUserQuestionText(input) || '需要你补充更多信息。',
+    suggestions: askUserQuestionSuggestions(input),
+    toolName: 'AskUserQuestion',
     input: input || {},
     toolUseId,
     raw

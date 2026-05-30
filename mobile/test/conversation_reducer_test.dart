@@ -577,6 +577,159 @@ void main() {
     expect(state.messages.single.taskItems.single.status, 'completed');
   });
 
+  test('ConversationViewState hides AskUserQuestion tool echoes', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'assistant.question',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'questionId': 'ask_1',
+        'toolUseId': 'ask_1',
+        'toolName': 'AskUserQuestion',
+        'text': 'No worktree directory found. Where should I create one?',
+        'suggestions': <String>['.worktrees/', 'Global directory'],
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:01.000Z',
+        'toolUseId': 'ask_1',
+        'toolName': 'AskUserQuestion',
+        'input': {'question': 'No worktree directory found.'},
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-10T00:00:02.000Z',
+        'toolUseId': 'ask_1',
+        'toolName': 'AskUserQuestion',
+        'text': 'Answer questions?',
+        'isError': true,
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-10T00:00:03.000Z',
+        'toolUseId': 'ask_1',
+        'toolName': 'AskUserQuestion',
+        'isError': true,
+      }),
+    ]);
+
+    expect(state.status, 'waiting_input');
+    expect(state.messages.map((message) => message.role),
+        const <String>['question']);
+    expect(state.messages.single.text, contains('No worktree'));
+  });
+
+  test('ConversationViewState projects legacy Claude task tool starts', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'toolUseId': 'task_create_1',
+        'toolName': 'TaskCreate',
+        'input': {
+          'subject': 'Inspect worktree setup',
+          'description': 'Check current git worktree state',
+        },
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:01.000Z',
+        'toolUseId': 'task_update_1',
+        'toolName': 'TaskUpdate',
+        'input': {'taskId': 'task_create_1', 'status': 'in_progress'},
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-10T00:00:02.000Z',
+        'toolUseId': 'task_create_1',
+        'toolName': 'TaskCreate',
+      }),
+    ]);
+
+    expect(state.messages, hasLength(1));
+    final message = state.messages.single;
+    expect(message.role, 'task_progress');
+    expect(message.taskId, 'claude_tasks');
+    expect(message.taskItems.single.title, 'Inspect worktree setup');
+    expect(message.taskItems.single.status, 'in_progress');
+    expect(message.completedCount, 0);
+    expect(message.totalCount, 1);
+  });
+
+  test('ConversationViewState maps Claude task output ids to later updates',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'toolUseId': 'call_task_1',
+        'toolName': 'TaskCreate',
+        'input': {'subject': 'Review Core parsing module'},
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:01.000Z',
+        'toolUseId': 'call_task_2',
+        'toolName': 'TaskCreate',
+        'input': {'subject': 'Review WPF rendering pipeline'},
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-10T00:00:02.000Z',
+        'toolUseId': 'call_task_1',
+        'toolName': 'TaskCreate',
+        'text': 'Task #1 created successfully: Review Core parsing module',
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'tool.output',
+        'createdAt': '2026-05-10T00:00:03.000Z',
+        'toolUseId': 'call_task_2',
+        'toolName': 'TaskCreate',
+        'text': 'Task #2 created successfully: Review WPF rendering pipeline',
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 5,
+        'conversationId': 'conv_1',
+        'type': 'tool.started',
+        'createdAt': '2026-05-10T00:00:04.000Z',
+        'toolUseId': 'call_update_2',
+        'toolName': 'TaskUpdate',
+        'input': {'taskId': '2', 'status': 'in_progress'},
+      }),
+    ]);
+
+    final message = state.messages.single;
+    expect(message.role, 'task_progress');
+    expect(message.taskItems.map((item) => item.id), const <String>['1', '2']);
+    expect(message.taskItems.map((item) => item.title), const <String>[
+      'Review Core parsing module',
+      'Review WPF rendering pipeline'
+    ]);
+    expect(message.taskItems.map((item) => item.status),
+        const <String>['pending', 'in_progress']);
+  });
+
   test('ConversationViewState correlates tool output by toolUseId', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

@@ -3376,6 +3376,40 @@ test('Claude conversation adapter maps AskUserQuestion tool_use to question even
   assert.equal(toolResult.is_error, false);
 });
 
+test('Claude conversation adapter suppresses AskUserQuestion tool echoes', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_ask_echo', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'call_ask',
+    name: 'AskUserQuestion',
+    input: { question: 'Where should I create worktrees?', options: ['.worktrees/', 'Global directory'] }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'call_ask',
+    name: 'AskUserQuestion',
+    content: 'Answer questions?',
+    is_error: true
+  })}\n`);
+
+  assert.equal(events.some((event) => event.type === 'assistant.question'), true);
+  assert.equal(events.some((event) => event.type === 'tool.started'), false);
+  assert.equal(events.some((event) => event.type === 'tool.output'), false);
+  assert.equal(events.some((event) => event.type === 'tool.completed'), false);
+});
+
 test('Claude conversation adapter emits approval requests for tools', async () => {
   const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
   const stdinLines = [];
@@ -3499,16 +3533,15 @@ test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progres
       activeForm: 'Fixing Converters project dependency'
     }
   })}\n`);
+  const startedProgress = events.filter((event) => event.type === 'task.progress.updated');
+  assert.equal(startedProgress.length, 1);
+  assert.equal(startedProgress[0].items[0].title, 'Fix Converters project external path dependency');
+  assert.equal(startedProgress[0].items[0].status, 'pending');
+
   child.stdout.emit('data', `${JSON.stringify({
     type: 'tool_result',
     tool_use_id: 'toolu_task_create',
-    content: 'Task #1 created',
-    tool_use_result: {
-      task: {
-        id: '1',
-        subject: 'Fix Converters project external path dependency'
-      }
-    }
+    content: 'Task #1 created successfully: Fix Converters project external path dependency'
   })}\n`);
   child.stdout.emit('data', `${JSON.stringify({
     type: 'tool_use',
@@ -3532,7 +3565,6 @@ test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progres
   assert.equal(progressEvents.length, 2);
   assert.equal(progressEvents[0].source, 'claude');
   assert.equal(progressEvents[0].taskId, 'claude_tasks');
-  assert.equal(progressEvents[0].items[0].id, '1');
   assert.equal(progressEvents[0].items[0].title, 'Fix Converters project external path dependency');
   assert.equal(progressEvents[0].items[0].status, 'pending');
   assert.equal(progressEvents[1].items[0].status, 'in_progress');
