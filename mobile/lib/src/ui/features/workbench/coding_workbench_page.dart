@@ -201,27 +201,51 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _workbenchViewModel.showConversationRoute(
         _workspaceForId(item.run.workspaceId).id, item.conversation?.id ?? '');
     final conversation = item.conversation;
-    if (conversation != null) {
-      final generation = _conversationEventSubscriptionGeneration;
-      await _loadStoredConversationEvents(
-        conversationId: conversation.id,
-        runId: item.run.id,
-        generation: generation,
-        streamOutput: widget.streamOutput &&
-            isActiveConversationStatus(conversation.status),
-      );
-      if (!_isCurrentConversationEventTarget(
-        conversationId: conversation.id,
-        runId: item.run.id,
-        generation: generation,
-      )) {
-        return;
-      }
-      await _restartConversationEventSubscription();
-    }
-    if (!mounted) return;
     _goToConversation();
     _scrollToBottom(jump: true);
+    if (conversation != null) {
+      final generation = _conversationEventSubscriptionGeneration;
+      try {
+        await _loadStoredConversationEvents(
+          conversationId: conversation.id,
+          runId: item.run.id,
+          generation: generation,
+          streamOutput: widget.streamOutput &&
+              isActiveConversationStatus(conversation.status),
+        );
+        if (!_isCurrentConversationEventTarget(
+          conversationId: conversation.id,
+          runId: item.run.id,
+          generation: generation,
+        )) {
+          return;
+        }
+        await _restartConversationEventSubscription();
+      } catch (error, stack) {
+        if (!mounted ||
+            !_isCurrentConversationEventTarget(
+              conversationId: conversation.id,
+              runId: item.run.id,
+              generation: generation,
+            )) {
+          return;
+        }
+        final traced = await _recordWorkbenchException(
+          error,
+          stack,
+          operation: 'openConversation',
+          path: '/api/conversations/${conversation.id}/events',
+        );
+        if (!mounted) return;
+        setState(() {
+          _workbenchViewModel.setOperationError(
+            traced.message,
+            traceId: traced.traceId,
+            notify: false,
+          );
+        });
+      }
+    }
   }
 
   Future<void> _loadStoredConversationEvents({
@@ -1099,11 +1123,57 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  void _useQuestionSuggestion(String text) {
+  Future<void> _useQuestionSuggestion(String text) async {
+    final conversationId = _activeConversationId;
+    final pendingQuestionId = _workbenchViewModel.pendingQuestionId;
+    final answer = text.trim();
+    if (conversationId == null ||
+        pendingQuestionId == null ||
+        pendingQuestionId.isEmpty ||
+        answer.isEmpty ||
+        _sending) {
+      setState(() {
+        _prompt.text = text;
+        _prompt.selection = TextSelection.collapsed(offset: text.length);
+      });
+      return;
+    }
     setState(() {
-      _prompt.text = text;
-      _prompt.selection = TextSelection.collapsed(offset: text.length);
+      _workbenchViewModel.beginOperation(notify: false);
+      _workbenchViewModel.addUserMessage(answer, notify: false);
+      _prompt.clear();
     });
+    _scrollToBottom();
+    try {
+      final conversation = await _workbenchViewModel.answerConversationQuestion(
+        conversationId: conversationId,
+        questionId: pendingQuestionId,
+        text: answer,
+      );
+      if (!mounted) return;
+      setState(() {
+        _workbenchViewModel.updateActiveConversation(conversation,
+            notify: false);
+        _workbenchViewModel.removeQuestionMessages(notify: false);
+      });
+      _scrollToBottom();
+    } catch (err, stack) {
+      final traced = await _recordWorkbenchException(
+        err,
+        stack,
+        operation: 'sendQuestionSuggestion',
+      );
+      if (!mounted) return;
+      setState(() {
+        _prompt.value = TextEditingValue(
+            text: answer,
+            selection: TextSelection.collapsed(offset: answer.length));
+        _workbenchViewModel.setOperationError(traced.message,
+            traceId: traced.traceId, notify: false);
+      });
+    } finally {
+      if (mounted) _workbenchViewModel.finishOperation();
+    }
   }
 
   @override
@@ -1345,7 +1415,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             child: WorkbenchMessageCard(
               message: message,
               expandThinking: widget.expandThinking,
-              onSuggestion: (text) => _useQuestionSuggestion(text),
+              onSuggestion: (text) => unawaited(_useQuestionSuggestion(text)),
               onApproval: (decision) =>
                   _respondApproval(message.event!, decision),
             ),

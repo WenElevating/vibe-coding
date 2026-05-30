@@ -3412,6 +3412,135 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
 });
 
+test('Claude conversation adapter surfaces ExitPlanMode denial as question', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_exit_plan', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_exit_plan',
+    name: 'ExitPlanMode',
+    input: { allowedPrompts: [{ tool: 'Bash', prompt: 'npm test' }] }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_exit_plan',
+    content: 'Exit plan mode?',
+    is_error: true
+  })}\n`);
+
+  const question = events.find((event) => event.type === 'assistant.question');
+  assert.equal(question.questionId, 'toolu_exit_plan');
+  assert.equal(question.toolName, 'ExitPlanMode');
+  assert.deepEqual(question.suggestions, ['批准计划并继续', '调整计划']);
+});
+
+test('Claude conversation adapter surfaces result permission denials', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_permission_denial', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'result',
+    result: 'done',
+    permission_denials: [{
+      tool_name: 'Write',
+      tool_use_id: 'toolu_write',
+      tool_input: { file_path: 'D:\\\\tmp\\\\a.txt' }
+    }]
+  })}\n`);
+
+  const notice = events.find((event) => event.type === 'system.notice');
+  assert.equal(notice.noticeKind, 'permission_unavailable');
+  assert.equal(notice.toolUseId, 'toolu_write');
+  assert.equal(notice.toolName, 'Write');
+});
+
+test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progress', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_claude_tasks', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_task_create',
+    name: 'TaskCreate',
+    input: {
+      subject: 'Fix Converters project external path dependency',
+      description: 'Replace hardcoded project reference',
+      activeForm: 'Fixing Converters project dependency'
+    }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_task_create',
+    content: 'Task #1 created',
+    tool_use_result: {
+      task: {
+        id: '1',
+        subject: 'Fix Converters project external path dependency'
+      }
+    }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_task_update',
+    name: 'TaskUpdate',
+    input: { taskId: '1', status: 'in_progress' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_task_update',
+    content: 'Updated task #1 status',
+    tool_use_result: {
+      success: true,
+      taskId: '1',
+      updatedFields: ['status'],
+      statusChange: { from: 'pending', to: 'in_progress' }
+    }
+  })}\n`);
+
+  const progressEvents = events.filter((event) => event.type === 'task.progress.updated');
+  assert.equal(progressEvents.length, 2);
+  assert.equal(progressEvents[0].source, 'claude');
+  assert.equal(progressEvents[0].taskId, 'claude_tasks');
+  assert.equal(progressEvents[0].items[0].id, '1');
+  assert.equal(progressEvents[0].items[0].title, 'Fix Converters project external path dependency');
+  assert.equal(progressEvents[0].items[0].status, 'pending');
+  assert.equal(progressEvents[1].items[0].status, 'in_progress');
+  assert.equal(progressEvents[1].completedCount, 0);
+  assert.equal(progressEvents[1].totalCount, 1);
+  assert.equal(events.some((event) => event.type === 'tool.started' && event.toolName === 'TaskUpdate'), false);
+});
+
 test('Claude conversation adapter ignores empty lifecycle frames', async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();

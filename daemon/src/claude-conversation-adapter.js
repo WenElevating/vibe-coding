@@ -118,8 +118,11 @@ class ClaudeConversationAdapter {
       pendingQuestions: new Map(),
       pendingApprovals: new Map(),
       pendingTools: new Map(),
+      claudeTasks: new Map(),
       contentBlocks: new Map(),
       visibleApiRetryWarnings: new Set(),
+      reportedPlanApprovalToolUseIds: new Set(),
+      reportedPermissionDenialToolUseIds: new Set(),
       now: () => new Date(),
       initRequestId,
       initialized: false,
@@ -223,6 +226,7 @@ function handleRawClaudeEvent(raw, state) {
   if (rawType === 'content_block_stop') return handleContentBlockStop(event, state, raw);
   const sessionId = event.session_id || event.sessionId;
   if (rawType === 'result') {
+    handlePermissionDenials(event, state);
     const text = extractText(event);
     if (text) state.onEvent({ type: conversationEventTypes.ASSISTANT_MESSAGE, text, sessionId, raw: event });
     else state.onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED, sessionId, raw: event });
@@ -319,6 +323,7 @@ function handleToolUse(raw, state, originalRaw = raw) {
     startedAt: previous.startedAt || state.now().toISOString()
   };
   state.pendingTools.set(toolUseId, tool);
+  if (isClaudeTaskToolName(tool.name)) return;
   state.onEvent({
     type: conversationEventTypes.TOOL_STARTED,
     toolUseId,
@@ -439,6 +444,24 @@ function handleToolResult(raw, state, originalRaw = raw) {
   const permissionError = isPermissionErrorText(text);
   const toolName = pending?.name || raw.name || raw.tool_name || null;
   const input = pending?.input || {};
+  if (isClaudeTaskToolName(toolName)) {
+    handleClaudeTaskToolResult(state, {
+      toolName,
+      toolUseId,
+      input,
+      raw,
+      originalRaw
+    });
+    state.pendingTools.delete(toolUseId);
+    return;
+  }
+  if (isExitPlanModePrompt(toolName, text)) {
+    emitExitPlanModeQuestion(state, {
+      toolUseId,
+      input,
+      raw: originalRaw
+    });
+  }
   if (permissionError) {
     state.onEvent({
       type: conversationEventTypes.SYSTEM_NOTICE,
@@ -473,6 +496,197 @@ function handleToolResult(raw, state, originalRaw = raw) {
     raw: originalRaw
   });
   state.pendingTools.delete(toolUseId);
+}
+
+function isClaudeTaskToolName(toolName) {
+  const name = String(toolName || '').toLowerCase();
+  return name === 'taskcreate' || name === 'taskupdate';
+}
+
+function handleClaudeTaskToolResult(state, { toolName, toolUseId, input, raw, originalRaw }) {
+  const name = String(toolName || '').toLowerCase();
+  const result = extractClaudeToolUseResult(raw) || extractClaudeToolUseResult(originalRaw) || {};
+  if (name === 'taskcreate') {
+    upsertClaudeCreatedTask(state, { input, result, toolUseId });
+  } else if (name === 'taskupdate') {
+    upsertClaudeUpdatedTask(state, { input, result, toolUseId });
+  }
+  emitClaudeTaskProgress(state, originalRaw || raw);
+}
+
+function upsertClaudeCreatedTask(state, { input, result, toolUseId }) {
+  const task = objectValue(result.task);
+  const taskId =
+    stringValue(task.id) ||
+    stringValue(result.taskId) ||
+    stringValue(input.taskId) ||
+    parseClaudeTaskId(result) ||
+    toolUseId;
+  const title =
+    stringValue(task.subject) ||
+    stringValue(task.title) ||
+    stringValue(input.subject) ||
+    stringValue(input.title) ||
+    stringValue(input.description) ||
+    `Task #${taskId}`;
+  if (!taskId || !title) return;
+  const previous = state.claudeTasks.get(taskId) || {};
+  state.claudeTasks.set(taskId, {
+    id: taskId,
+    title,
+    status: normalizeClaudeTaskStatus(previous.status || result.status || input.status || 'pending')
+  });
+}
+
+function upsertClaudeUpdatedTask(state, { input, result, toolUseId }) {
+  const statusChange = objectValue(result.statusChange);
+  const taskId =
+    stringValue(input.taskId) ||
+    stringValue(input.id) ||
+    stringValue(result.taskId) ||
+    stringValue(result.id) ||
+    parseClaudeTaskId(result) ||
+    toolUseId;
+  if (!taskId) return;
+  const previous = state.claudeTasks.get(taskId) || {};
+  const title =
+    stringValue(previous.title) ||
+    stringValue(input.subject) ||
+    stringValue(input.title) ||
+    `Task #${taskId}`;
+  const status = normalizeClaudeTaskStatus(
+    stringValue(input.status) ||
+    stringValue(statusChange.to) ||
+    stringValue(result.status) ||
+    previous.status ||
+    'pending'
+  );
+  state.claudeTasks.set(taskId, { id: taskId, title, status });
+}
+
+function emitClaudeTaskProgress(state, raw) {
+  const items = Array.from(state.claudeTasks.values())
+    .filter((item) => item && item.id && item.title)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      status: normalizeClaudeTaskStatus(item.status)
+    }));
+  if (items.length === 0) return;
+  const completedCount = items.filter((item) => item.status === 'completed').length;
+  state.onEvent({
+    type: conversationEventTypes.TASK_PROGRESS_UPDATED,
+    taskId: 'claude_tasks',
+    source: 'claude',
+    updatedAt: state.now().toISOString(),
+    items,
+    completedCount,
+    totalCount: items.length,
+    raw
+  });
+}
+
+function normalizeClaudeTaskStatus(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (value === 'completed' || value === 'complete' || value === 'done' || value === 'success') return 'completed';
+  if (value === 'in_progress' || value === 'in-progress' || value === 'running' || value === 'active') return 'in_progress';
+  return 'pending';
+}
+
+function extractClaudeToolUseResult(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.tool_use_result && typeof raw.tool_use_result === 'object') return raw.tool_use_result;
+  if (raw.result && typeof raw.result === 'object') return raw.result;
+  const nestedRaw = raw.raw && typeof raw.raw === 'object' ? extractClaudeToolUseResult(raw.raw) : null;
+  if (nestedRaw) return nestedRaw;
+  const content = raw.content;
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    const fromContent = extractClaudeToolUseResult(content);
+    if (fromContent) return fromContent;
+  }
+  if (typeof content === 'string') return parseClaudeToolResultJson(content);
+  return null;
+}
+
+function parseClaudeToolResultJson(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function parseClaudeTaskId(result) {
+  const text = JSON.stringify(result || {});
+  const match = text.match(/task\s*#?\s*([A-Za-z0-9_-]+)/i);
+  return match ? match[1] : null;
+}
+
+function objectValue(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function stringValue(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  return String(value).trim();
+}
+
+function isExitPlanModePrompt(toolName, text) {
+  return String(toolName || '').toLowerCase() === 'exitplanmode'
+    && typeof text === 'string'
+    && /exit\s+plan\s+mode\?/i.test(text.trim());
+}
+
+function emitExitPlanModeQuestion(state, { toolUseId, input, raw }) {
+  if (!toolUseId || state.reportedPlanApprovalToolUseIds.has(toolUseId)) return;
+  state.reportedPlanApprovalToolUseIds.add(toolUseId);
+  state.pendingQuestions.set(toolUseId, {
+    input: input || {},
+    toolUseId
+  });
+  state.onEvent({
+    type: conversationEventTypes.ASSISTANT_QUESTION,
+    questionId: toolUseId,
+    text: 'Exit plan mode?',
+    suggestions: ['批准计划并继续', '调整计划'],
+    toolName: 'ExitPlanMode',
+    input: input || {},
+    toolUseId,
+    raw
+  });
+}
+
+function handlePermissionDenials(event, state) {
+  const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
+  for (const denial of denials) {
+    if (!denial || typeof denial !== 'object') continue;
+    const toolName = denial.tool_name || denial.toolName || null;
+    const toolUseId = denial.tool_use_id || denial.toolUseId || null;
+    const input = denial.tool_input && typeof denial.tool_input === 'object'
+      ? denial.tool_input
+      : denial.input && typeof denial.input === 'object'
+        ? denial.input
+        : {};
+    if (String(toolName || '').toLowerCase() === 'exitplanmode') {
+      emitExitPlanModeQuestion(state, { toolUseId, input, raw: event });
+      continue;
+    }
+    const key = toolUseId || `${toolName || 'tool'}:${JSON.stringify(input)}`;
+    if (state.reportedPermissionDenialToolUseIds.has(key)) continue;
+    state.reportedPermissionDenialToolUseIds.add(key);
+    state.onEvent({
+      type: conversationEventTypes.SYSTEM_NOTICE,
+      text: permissionNoticeText(toolName, input),
+      noticeKind: 'permission_unavailable',
+      toolUseId,
+      toolName,
+      input,
+      raw: event
+    });
+  }
 }
 
 function isPermissionErrorText(text) {

@@ -303,6 +303,10 @@ class ConversationViewState {
         case 'tool.started':
           final toolUseId = event.toolUseId;
           if (toolUseId == null || toolUseId.isEmpty) break;
+          if (_isExitPlanModeEvent(event)) {
+            _removeCommandMessage(nextMessages, event);
+            break;
+          }
           _upsertCommandMessage(
               nextMessages,
               ConversationMessage(
@@ -318,6 +322,22 @@ class ConversationViewState {
           break;
         case 'tool.delta':
         case 'tool.output':
+          if (_isExitPlanModePromptEvent(event)) {
+            _removeCommandMessage(nextMessages, event);
+            _upsertQuestionMessage(
+                nextMessages,
+                ConversationMessage(
+                  role: 'question',
+                  text: event.text ?? 'Exit plan mode?',
+                  eventSeq: event.seq,
+                  questionId: event.toolUseId,
+                  toolUseId: event.toolUseId,
+                  toolName: event.toolName,
+                  input: event.input,
+                  suggestions: const ['批准计划并继续', '调整计划'],
+                ));
+            break;
+          }
           if (_toolOutputCompletesCommand(event)) {
             _completeCommandMessage(nextMessages, event);
           } else {
@@ -325,6 +345,10 @@ class ConversationViewState {
           }
           break;
         case 'tool.completed':
+          if (_isExitPlanModeEvent(event)) {
+            _removeCommandMessage(nextMessages, event);
+            break;
+          }
           _completeCommandMessage(nextMessages, event);
           break;
         case 'conversation.completed':
@@ -480,6 +504,35 @@ void _upsertCommandMessage(
   } else {
     messages.add(command);
   }
+}
+
+void _upsertQuestionMessage(
+    List<ConversationMessage> messages, ConversationMessage question) {
+  final questionId = question.questionId;
+  final existingIndex = questionId == null || questionId.isEmpty
+      ? -1
+      : messages.indexWhere((message) =>
+          message.role == 'question' && message.questionId == questionId);
+  if (existingIndex >= 0) {
+    messages[existingIndex] = question;
+  } else {
+    messages.add(question);
+  }
+}
+
+void _removeCommandMessage(
+    List<ConversationMessage> messages, ConversationEvent event) {
+  final index = _commandIndexForToolUseId(messages, event.toolUseId);
+  if (index >= 0) messages.removeAt(index);
+}
+
+bool _isExitPlanModeEvent(ConversationEvent event) =>
+    (event.toolName ?? '').toLowerCase() == 'exitplanmode';
+
+bool _isExitPlanModePromptEvent(ConversationEvent event) {
+  if (!_isExitPlanModeEvent(event)) return false;
+  final text = (event.text ?? event.summary ?? '').trim().toLowerCase();
+  return text == 'exit plan mode?';
 }
 
 void _upsertAssistantStreamMessage(

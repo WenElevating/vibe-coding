@@ -13,9 +13,14 @@ import 'package:lan_ai_cli_control/src/app/language_mode.dart';
 import 'package:lan_ai_cli_control/src/app/language_scope.dart';
 import 'package:lan_ai_cli_control/src/app/app_dependencies.dart';
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_adapter_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_diagnostics_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/daemon_workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
     as data_repositories;
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
@@ -28,6 +33,7 @@ import 'package:lan_ai_cli_control/src/domain/use_cases/connect_to_daemon_use_ca
 import 'package:lan_ai_cli_control/src/domain/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/services/android_package_installer.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
+import 'package:lan_ai_cli_control/src/services/asr_model_manager.dart';
 import 'package:lan_ai_cli_control/src/services/coding_preferences_store.dart';
 import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart';
 import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
@@ -897,6 +903,42 @@ class _StoredHistoryConversationRepository extends _LazyConversationRepository {
     watchAfterSeqs.add(afterSeq);
     return const Stream<ConversationEvent>.empty();
   }
+}
+
+class _HangingFetchConversationRepository extends _LazyConversationRepository {
+  _HangingFetchConversationRepository() : super(const <ConversationEvent>[]);
+
+  final fetchCompleter = Completer<List<ConversationEvent>>();
+  bool fetchStarted = false;
+
+  @override
+  Future<List<ConversationEvent>> fetchConversationEvents(
+    String conversationId, {
+    int afterSeq = 0,
+  }) {
+    fetchStarted = true;
+    return fetchCompleter.future;
+  }
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      const Stream<ConversationEvent>.empty();
+
+  @override
+  Future<List<ConversationSummary>> listConversations() async =>
+      <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_slow_history',
+          workspaceId: 'workspace_1',
+          status: 'completed',
+          sessionBinding: 'confirmed',
+          userMessageCount: 1,
+          title: 'Slow history conversation',
+        ),
+      ];
 }
 
 class _LifecycleConversationRepository implements ConversationRepository {
@@ -3102,6 +3144,88 @@ void main() {
     expect(find.text('00:00'), findsNothing);
   });
 
+  testWidgets('opening existing conversation navigates before history returns',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding',
+    );
+    final conversationRepository = _HangingFetchConversationRepository();
+    final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore());
+    final adapterRepository = CliAdapterRepository(
+        delegate: DaemonAdapterRepository(client: client))
+      ..replaceFromBootstrap(const <AdapterStatus>[
+        AdapterStatus(adapter: 'codex', available: true, status: 'available')
+      ]);
+    final cachedConversationRepository =
+        CachedConversationRepository(delegate: conversationRepository)
+          ..replaceFromBootstrap(
+            workspaceId: workspace.id,
+            conversations: <ConversationSummary>[
+              _conversationSummary(
+                id: 'conv_slow_history',
+                workspaceId: workspace.id,
+                status: 'completed',
+                sessionBinding: 'confirmed',
+                userMessageCount: 1,
+                title: 'Slow history conversation',
+              ),
+            ],
+          );
+    final runRepository =
+        CachedRunRepository(delegate: DaemonRunRepository(client: client))
+          ..replaceFromBootstrap(
+              workspaceId: workspace.id,
+              runs: const <RunSummary>[],
+              queue: const <QueueItem>[]);
+    final workspaceRepository = DaemonWorkspaceRepository(client: client)
+      ..applyBootstrapCatalog(
+          selectedWorkspace: workspace,
+          workspaces: const <WorkspaceSummary>[workspace]);
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: WorkbenchDependencies(
+                  adapterRepository: adapterRepository,
+                  asrModelManager:
+                      AsrModelManager(client: client.createAsrModelClient()),
+                  conversationRepository: cachedConversationRepository,
+                  diagnosticsRepository:
+                      DaemonDiagnosticsRepository(client: client),
+                  runRepository: runRepository,
+                  speechInputServiceBuilder: (_) =>
+                      const DisabledSpeechInputService(),
+                  workspaceRepository: workspaceRepository,
+                )))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Slow history conversation'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(conversationRepository.fetchStarted, isTrue);
+    expect(
+        find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
+  });
+
   testWidgets(
       'workbench lifecycle restarts event subscription after background',
       (WidgetTester tester) async {
@@ -3614,7 +3738,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('question suggestion enables and sends an input response',
+  testWidgets('question suggestion immediately sends an input response',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -3718,18 +3842,14 @@ void main() {
     expect(find.text('DPAPI encryption'), findsOneWidget);
 
     await tester.tap(find.text('DPAPI encryption'));
-    await tester.pump();
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller?.text,
-      'DPAPI encryption',
-    );
-
-    await tester
-        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
     await pumpUntilAnswered();
 
     expect(conversationRepository.answeredQuestionId, 'question_api_key');
     expect(conversationRepository.answeredText, 'DPAPI encryption');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      isEmpty,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -5855,6 +5975,60 @@ void main() {
         ]);
   });
 
+  test('ExitPlanMode prompt becomes a question instead of a failed tool card',
+      () {
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    const conversation = ConversationSummary(
+      id: 'conv_plan',
+      workspaceId: 'workspace_1',
+      adapter: 'claude',
+      status: 'idle',
+      capabilities: capabilities,
+      createdAt: '2026-05-03T00:00:00.000Z',
+      updatedAt: '2026-05-03T00:00:02.000Z',
+    );
+    final events = <Map<String, Object?>>[
+      const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_plan',
+        'type': 'tool.started',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'toolUseId': 'toolu_exit',
+        'toolName': 'ExitPlanMode',
+        'summary': 'ExitPlanMode',
+      },
+      const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_plan',
+        'type': 'tool.output',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'toolUseId': 'toolu_exit',
+        'toolName': 'ExitPlanMode',
+        'text': 'Exit plan mode?',
+        'isError': true,
+      },
+      const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_plan',
+        'type': 'tool.completed',
+        'createdAt': '2026-05-03T00:00:02.000Z',
+        'toolUseId': 'toolu_exit',
+        'toolName': 'ExitPlanMode',
+        'isError': true,
+      },
+    ];
+
+    expect(
+        debugWorkbenchMessageRolesForConversationEvents(events, conversation),
+        const <String>['question:Exit plan mode?']);
+  });
+
   testWidgets('conversation command card shows output and duration',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildConversationCommandCardPreview());
@@ -5867,19 +6041,19 @@ void main() {
     expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
-  testWidgets('task progress card shows badge and item statuses',
+  testWidgets('task progress card shows desktop-style rows and statuses',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildTaskProgressCardPreview());
     await tester.pumpAndSettle();
 
-    expect(find.text('任务进度'), findsOneWidget);
-    expect(find.text('1 / 3 完成'), findsOneWidget);
+    expect(find.text('Tasks'), findsOneWidget);
+    expect(find.text('1/3 done'), findsOneWidget);
     expect(find.text('分析工作区结构'), findsOneWidget);
     expect(find.text('实现进度卡片'), findsOneWidget);
     expect(find.text('运行回归测试'), findsOneWidget);
-    expect(find.text('完成'), findsWidgets);
-    expect(find.text('正在执行'), findsWidgets);
-    expect(find.text('等待执行'), findsWidgets);
+    expect(find.text('done'), findsWidgets);
+    expect(find.text('active'), findsWidgets);
+    expect(find.text('queued'), findsWidgets);
   });
 
   test('empty completed conversation shows diagnostic warning', () {

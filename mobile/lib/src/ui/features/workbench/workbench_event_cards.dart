@@ -928,55 +928,41 @@ class _TaskProgressCard extends StatelessWidget {
     final total = message.totalCount ?? message.taskItems.length;
     return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(12, 11, 12, 9),
         decoration: BoxDecoration(
-            color: const Color(0xFF101113).withValues(alpha: .92),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: .07)),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: .18),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8))
-            ]),
+            color: const Color(0xFF111316).withValues(alpha: .96),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: .085))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: theme.green.withValues(alpha: .10),
-                    borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: theme.green.withValues(alpha: .22))),
-                child: const Icon(Icons.checklist_rounded,
-                    color: theme.green, size: 16)),
-            const SizedBox(width: 9),
+            const Icon(Icons.checklist_rounded, color: theme.muted, size: 15),
+            const SizedBox(width: 7),
             const Expanded(
-                child: Text('任务进度',
+                child: Text('Tasks',
                     style: TextStyle(
-                        color: theme.text,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w900,
+                        color: theme.muted,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
                         letterSpacing: 0))),
             _TaskProgressBadge(completed: completed, total: total),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 9),
           ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(2),
               child: LinearProgressIndicator(
                   value: total <= 0 ? 0 : (completed / total).clamp(0.0, 1.0),
-                  minHeight: 3,
-                  backgroundColor: Colors.white.withValues(alpha: .045),
+                  minHeight: 2,
+                  backgroundColor: Colors.white.withValues(alpha: .055),
                   valueColor:
                       const AlwaysStoppedAnimation<Color>(theme.green))),
-          const SizedBox(height: 14),
-          ...message.taskItems.map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _TaskProgressRow(item: item))),
-          const SizedBox(height: 2),
-          const _TaskProgressLegend(),
+          const SizedBox(height: 6),
+          ...List<Widget>.generate(message.taskItems.length, (index) {
+            final item = message.taskItems[index];
+            return _TaskProgressRow(
+                item: item,
+                index: index + 1,
+                last: index == message.taskItems.length - 1);
+          }),
         ]));
   }
 }
@@ -988,118 +974,132 @@ class _TaskProgressBadge extends StatelessWidget {
   final int total;
 
   @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-          color: theme.green.withValues(alpha: .09),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: theme.green.withValues(alpha: .22))),
-      child: Text('$completed / $total 完成',
-          style: const TextStyle(
-              color: theme.green,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800)));
+  Widget build(BuildContext context) {
+    final done = total > 0 && completed >= total;
+    return Text(done ? 'complete' : '$completed/$total done',
+        style: TextStyle(
+            color: done ? theme.green : theme.faint,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0));
+  }
 }
 
 class _TaskProgressRow extends StatelessWidget {
-  const _TaskProgressRow({required this.item});
+  const _TaskProgressRow({
+    required this.item,
+    required this.index,
+    required this.last,
+  });
 
   final TaskProgressItem item;
+  final int index;
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
     final status = _taskProgressStatus(item.status);
     return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .025),
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: Colors.white.withValues(alpha: .045))),
-        child: Row(children: [
-          _TaskProgressDot(color: status.color),
-          const SizedBox(width: 10),
+            border: Border(
+                bottom: BorderSide(
+                    color: last
+                        ? Colors.transparent
+                        : Colors.white.withValues(alpha: .055)))),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          SizedBox(
+              width: 20,
+              child: Text(index.toString().padLeft(2, '0'),
+                  style: const TextStyle(
+                      color: theme.faint,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0))),
+          _TaskProgressDot(color: status.color, icon: status.icon),
+          const SizedBox(width: 9),
           Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: theme.text,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 3),
-                Text(status.label,
-                    style: TextStyle(
-                        color: status.color.withValues(alpha: .86),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700)),
-              ])),
+              child: Text(item.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color:
+                          item.status == 'completed' ? theme.muted : theme.text,
+                      fontSize: 12.8,
+                      height: 1.25,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0))),
+          const SizedBox(width: 8),
+          _TaskProgressStatePill(status: status),
         ]));
   }
 }
 
-class _TaskProgressLegend extends StatelessWidget {
-  const _TaskProgressLegend();
-
-  @override
-  Widget build(BuildContext context) =>
-      Wrap(spacing: 10, runSpacing: 6, children: [
-        _TaskProgressLegendItem(
-            color: theme.green, label: _taskProgressStatus('completed').label),
-        _TaskProgressLegendItem(
-            color: theme.amber,
-            label: _taskProgressStatus('in_progress').label),
-        _TaskProgressLegendItem(
-            color: theme.faint, label: _taskProgressStatus('pending').label),
-      ]);
-}
-
-class _TaskProgressLegendItem extends StatelessWidget {
-  const _TaskProgressLegendItem({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) =>
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        _TaskProgressDot(color: color, small: true),
-        const SizedBox(width: 5),
-        Text(label,
-            style: const TextStyle(
-                color: theme.faint,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700)),
-      ]);
-}
-
 class _TaskProgressDot extends StatelessWidget {
-  const _TaskProgressDot({required this.color, this.small = false});
+  const _TaskProgressDot({required this.color, required this.icon});
 
   final Color color;
-  final bool small;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) => Container(
-      width: small ? 7 : 9,
-      height: small ? 7 : 9,
+      width: 18,
+      height: 18,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color,
-          boxShadow: [
-            BoxShadow(
-                color: color.withValues(alpha: .25), blurRadius: small ? 5 : 8)
-          ]));
+          color: color.withValues(alpha: .12),
+          border: Border.all(color: color.withValues(alpha: .32))),
+      child: Icon(icon, color: color, size: 11));
 }
 
-({Color color, String label}) _taskProgressStatus(String status) =>
+class _TaskProgressStatePill extends StatelessWidget {
+  const _TaskProgressStatePill({required this.status});
+
+  final ({Color color, IconData icon, String label}) status;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      constraints: const BoxConstraints(minWidth: 62),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+          color: status.color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: status.color.withValues(alpha: .18))),
+      child: Text(status.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              color: status.color.withValues(alpha: .9),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0)));
+}
+
+({Color color, IconData icon, String label}) _taskProgressStatus(
+        String status) =>
     switch (status) {
-      'completed' => (color: theme.green, label: '完成'),
-      'in_progress' => (color: theme.amber, label: '正在执行'),
-      'pending' => (color: theme.faint, label: '等待执行'),
-      _ => (color: theme.muted, label: status.isEmpty ? '等待执行' : status),
+      'completed' => (
+          color: theme.green,
+          icon: Icons.check_rounded,
+          label: 'done'
+        ),
+      'in_progress' => (
+          color: theme.amber,
+          icon: Icons.more_horiz_rounded,
+          label: 'active'
+        ),
+      'pending' => (
+          color: theme.faint,
+          icon: Icons.circle_outlined,
+          label: 'queued'
+        ),
+      _ => (
+          color: theme.muted,
+          icon: Icons.circle_outlined,
+          label: status.isEmpty ? 'queued' : status
+        ),
     };
 
 String _commandTitle(WorkbenchMessage message) {

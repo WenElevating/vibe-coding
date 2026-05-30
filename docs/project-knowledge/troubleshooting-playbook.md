@@ -257,6 +257,61 @@ flutter test --no-pub test\widget_test.dart --plain-name "question suggestion en
 
 - Last verified: 2026-05-30
 
+## Symptom: Claude Plan Mode Exit Or Session Open Looks Stuck
+
+- Symptom: Claude Code plan mode shows an `ExitPlanMode` tool card with
+  `Exit plan mode?`, but no obvious mobile action is available. Separately,
+  tapping a historical session from the session list can appear to do nothing
+  if stored event fetch or WebSocket setup is slow.
+- Action: inspect persisted Claude `tool.output` / `tool.completed` rows and
+  `result.permission_denials` before treating this as a generic approval UI
+  bug. `ExitPlanMode` can arrive as a tool denial rather than a
+  `control_request`; mobile should remap that prompt to a question card and
+  hide the failed tool card. Session navigation should enter the conversation
+  detail route before awaiting historical event backfill, then surface backfill
+  failures inside the detail page.
+- Related files:
+  [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js),
+  [conversation_reducer.dart](../../mobile/lib/src/ui/features/workbench/conversation_reducer.dart),
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart)
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+cd mobile
+flutter test --no-pub test\widget_test.dart --plain-name "ExitPlanMode prompt becomes a question instead of a failed tool card"
+flutter test --no-pub test\widget_test.dart --plain-name "opening existing conversation navigates before history returns"
+```
+
+- Last verified: 2026-05-30
+
+## Symptom: Claude Task Updates Or Question Suggestions Feel Stuck
+
+- Symptom: Claude Code `TaskCreate` / `TaskUpdate` rows appear as generic
+  tool cards instead of a task progress table, or tapping a question suggestion
+  only fills the composer and still requires a separate send tap.
+- Action: keep Claude task tools out of the generic `tool.started` /
+  `tool.output` card path. The daemon should aggregate `TaskCreate` and
+  `TaskUpdate` into `task.progress.updated` with `source=claude`, while mobile
+  consumes the existing task progress reducer/card. For question suggestions,
+  if the active conversation has a `pendingQuestionId`, the chip should call
+  `answerConversationQuestion` immediately; only fall back to composer fill when
+  there is no pending question context.
+- Related files:
+  [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js),
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
+  [conversation_reducer.dart](../../mobile/lib/src/ui/features/workbench/conversation_reducer.dart)
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+cd mobile
+flutter test --no-pub test\widget_test.dart --plain-name "question suggestion immediately sends an input response"
+dart analyze lib test
+```
+
+- Last verified: 2026-05-30
+
 ## Symptom: Android Update Download Shows No Progress Or Offers Download Again
 
 - Symptom: after tapping app update download, the mobile UI opens a blocking
