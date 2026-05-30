@@ -320,13 +320,56 @@ class AppSqliteStore {
     `).run(conversationId, seq, type, createdAt, JSON.stringify(payload));
   }
 
-  listEvents(conversationId, afterSeq = 0) {
+  listEventsAfter(conversationId, afterSeq = 0) {
     return this.db.prepare(`
       SELECT conversation_id, seq, type, created_at, payload_json
       FROM conversation_events
       WHERE conversation_id = ? AND seq > ?
       ORDER BY seq ASC
     `).all(conversationId, Number(afterSeq || 0)).map(deserializeEvent);
+  }
+
+  listEventsTail(conversationId, limit = 80) {
+    const rows = this.db.prepare(`
+      SELECT conversation_id, seq, type, created_at, payload_json
+      FROM conversation_events
+      WHERE conversation_id = ?
+      ORDER BY seq DESC
+      LIMIT ?
+    `).all(conversationId, clampConversationEventPageLimit(limit)).reverse();
+    const events = rows.map(deserializeEvent);
+    return conversationEventPage(events, this.hasConversationEventsBefore(conversationId, events[0]?.seq));
+  }
+
+  listEventsBefore(conversationId, beforeSeq, limit = 80) {
+    const rows = this.db.prepare(`
+      SELECT conversation_id, seq, type, created_at, payload_json
+      FROM conversation_events
+      WHERE conversation_id = ? AND seq < ?
+      ORDER BY seq DESC
+      LIMIT ?
+    `).all(
+      conversationId,
+      Number(beforeSeq),
+      clampConversationEventPageLimit(limit)
+    ).reverse();
+    const events = rows.map(deserializeEvent);
+    return conversationEventPage(events, this.hasConversationEventsBefore(conversationId, events[0]?.seq));
+  }
+
+  listEvents(conversationId, afterSeq = 0) {
+    return this.listEventsAfter(conversationId, afterSeq);
+  }
+
+  hasConversationEventsBefore(conversationId, seq) {
+    if (seq == null) return false;
+    const row = this.db.prepare(`
+      SELECT EXISTS (
+        SELECT 1 FROM conversation_events
+        WHERE conversation_id = ? AND seq < ?
+      ) AS has_more
+    `).get(conversationId, Number(seq));
+    return Boolean(row?.has_more);
   }
 
   nextEventSeq(conversationId) {
@@ -658,6 +701,21 @@ function deserializeEvent(row) {
     type: row.type,
     createdAt: row.created_at,
     ...parseJson(row.payload_json, {})
+  };
+}
+
+function clampConversationEventPageLimit(limit) {
+  const parsed = Number(limit);
+  if (!Number.isFinite(parsed)) return 80;
+  return Math.max(1, Math.min(Math.trunc(parsed), 200));
+}
+
+function conversationEventPage(events, hasMoreBefore) {
+  return {
+    events,
+    oldestSeq: events[0]?.seq ?? null,
+    newestSeq: events.at(-1)?.seq ?? null,
+    hasMoreBefore: Boolean(hasMoreBefore)
   };
 }
 

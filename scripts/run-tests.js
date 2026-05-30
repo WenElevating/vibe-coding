@@ -370,6 +370,62 @@ test('conversation event store appends and replays ordered events', () => {
   assert.equal(store.list('missing', 0).length, 0);
 });
 
+test('conversation event store tail returns the latest events in ascending order', () => {
+  const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+
+  for (let index = 1; index <= 6; index += 1) {
+    store.append('conv_1', 'assistant.message', { text: `event ${index}` });
+  }
+
+  const page = store.listTail('conv_1', 3);
+
+  assert.deepEqual(page.events.map((event) => event.seq), [4, 5, 6]);
+  assert.equal(page.oldestSeq, 4);
+  assert.equal(page.newestSeq, 6);
+  assert.equal(page.hasMoreBefore, true);
+});
+
+test('conversation event store clamps page limits to supported bounds', () => {
+  const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+
+  for (let index = 1; index <= 3; index += 1) {
+    store.append('conv_1', 'assistant.message', { text: `event ${index}` });
+  }
+
+  assert.deepEqual(store.listTail('conv_1', 0).events.map((event) => event.seq), [3]);
+  assert.deepEqual(store.listBefore('conv_1', 3, -10).events.map((event) => event.seq), [2]);
+  assert.deepEqual(store.listTail('conv_1', 'bad').events.map((event) => event.seq), [1, 2, 3]);
+});
+
+test('conversation event store before page supports SQLite sequence gaps', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-events-gap-') });
+  sqlite.saveConversation({
+    id: 'conv_gap', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
+    permissionMode: 'default', deviceId: 'device_1', status: 'idle', cliSessionId: null,
+    sessionBinding: 'unknown', userMessageCount: 0, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-03T00:00:00.000Z', updatedAt: '2026-05-03T00:00:00.000Z',
+    capabilities: {}, handle: null
+  });
+  for (const seq of [10, 20, 30]) {
+    sqlite.appendEvent({
+      seq,
+      conversationId: 'conv_gap',
+      type: 'assistant.message',
+      createdAt: '2026-05-03T00:00:00.000Z',
+      text: `event ${seq}`
+    });
+  }
+  const store = new ConversationEventStore({ persistentStore: sqlite });
+
+  assert.deepEqual(store.listAfter('conv_gap', 0).map((event) => event.seq), [10, 20, 30]);
+
+  const page = store.listBefore('conv_gap', 30, 1);
+  assert.deepEqual(page.events.map((event) => event.seq), [20]);
+  assert.equal(page.hasMoreBefore, true);
+  sqlite.close();
+});
+
 test('conversation event store isolates append listener failures', () => {
   const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
   const observed = [];
