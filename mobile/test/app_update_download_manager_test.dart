@@ -55,6 +55,40 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('reports download progress while writing response chunks', () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-progress-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 15);
+    final progress = <AppUpdateDownloadProgress>[];
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      openStream: (uri, {rangeStart, ifRange}) async => http.StreamedResponse(
+        Stream<List<int>>.fromIterable(<List<int>>[
+          bytes.sublist(0, 5),
+          bytes.sublist(5),
+        ]),
+        200,
+      ),
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+      onProgress: progress.add,
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(progress.map((event) => event.downloadedBytes), <int>[
+      0,
+      5,
+      bytes.length,
+    ]);
+    expect(progress.last.totalBytes, bytes.length);
+    expect(progress.last.fraction, 1);
+    await temp.delete(recursive: true);
+  });
+
   test('terminal auth failure keeps existing partial file', () async {
     final temp = await Directory.systemTemp.createTemp('app-update-auth-');
     final bytes = utf8.encode('hello');

@@ -37,6 +37,7 @@ import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/settings_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/features/settings/widgets/app_update_panel.dart';
 import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
@@ -749,9 +750,13 @@ class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
   @override
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  ) async =>
+    Uri daemonBaseUri, {
+    AppUpdateDownloadProgressCallback? onProgress,
+  }) async =>
       const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed);
+
+  @override
+  Future<File?> readDownloadedUpdate(AppUpdateManifest manifest) async => null;
 
   @override
   Future<AppUpdateInstallSessionRecord?> readInstallSession(
@@ -1712,6 +1717,43 @@ void main() {
 
     await tester.tap(find.widgetWithText(TextButton, 'Later'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('app update download dialog shows determinate progress',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: AppUpdatePanel(
+        state: const AppUpdateState(
+          status: AppUpdateStatus.downloading,
+          installedVersionName: '1.0.0',
+          installedVersionCode: 1,
+          downloadedBytes: 50,
+          totalBytes: 100,
+        ),
+        onCheck: () {},
+        onDownload: () {},
+        onInstall: () {},
+        onDiscard: () {},
+        onPostpone: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final indicator = tester.widget<LinearProgressIndicator>(
+      find.descendant(
+        of: find.byKey(const ValueKey('app-update-progress-dialog')),
+        matching: find.byType(LinearProgressIndicator),
+      ),
+    );
+    expect(indicator.value, .5);
+    expect(find.textContaining('50%'), findsOneWidget);
+    expect(find.textContaining('50 B / 100 B'), findsOneWidget);
   });
 
   testWidgets('renders assistant markdown instead of raw syntax',

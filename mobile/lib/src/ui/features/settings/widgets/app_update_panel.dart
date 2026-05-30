@@ -292,6 +292,16 @@ bool _shouldPromptForAvailableUpdate(AppUpdateState state) {
 }
 
 String _progressMessageFor(AppLocalizations l10n, AppUpdateState state) {
+  final progress = state.downloadProgress;
+  if (state.status == AppUpdateStatus.downloading && progress != null) {
+    final percent = (progress * 100).clamp(0, 100).round();
+    final downloaded = state.downloadedBytes;
+    final total = state.totalBytes;
+    final byteLabel = downloaded != null && total != null
+        ? ' (${_formatBytes(downloaded)} / ${_formatBytes(total)})'
+        : '';
+    return '${l10n.appUpdateProgressDownloadingMessage} $percent%$byteLabel';
+  }
   return switch (state.status) {
     AppUpdateStatus.downloading => l10n.appUpdateProgressDownloadingMessage,
     AppUpdateStatus.verifying => l10n.appUpdateProgressVerifyingMessage,
@@ -328,6 +338,7 @@ class _AppUpdateProgressDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             LinearProgressIndicator(
+              value: state.downloadProgress,
               minHeight: 4,
               color: theme.active,
               backgroundColor: Colors.white.withValues(alpha: .08),
@@ -343,6 +354,20 @@ class _AppUpdateProgressDialog extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  final kib = bytes / 1024;
+  if (kib < 1024) return '${_formatDecimal(kib)} KB';
+  final mib = kib / 1024;
+  if (mib < 1024) return '${_formatDecimal(mib)} MB';
+  return '${_formatDecimal(mib / 1024)} GB';
+}
+
+String _formatDecimal(double value) {
+  final fixed = value.toStringAsFixed(1);
+  return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
 }
 
 bool _hasNewerManifest(AppUpdateState state) {

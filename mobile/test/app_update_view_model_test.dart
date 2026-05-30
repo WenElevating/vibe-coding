@@ -68,6 +68,63 @@ void main() {
     expect(installer.installCalls, 0);
   });
 
+  test('download can immediately start install when update is ready', () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download(installWhenReady: true);
+
+    expect(installer.installCalls, 1);
+    expect(installer.installedPath, readyFile.path);
+    expect(viewModel.state.status, AppUpdateStatus.installing);
+  });
+
+  test('check uses already downloaded update instead of offering download',
+      () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final manifest = _manifest(versionCode: 22);
+    final downloader = _FakeDownloader(downloadedUpdate: readyFile);
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+
+    expect(downloader.readDownloadedManifest, manifest);
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(viewModel.state.downloadedFile?.path, readyFile.path);
+  });
+
   test('resume after install permission grant continues installation',
       () async {
     final installer = _FakeInstaller(canInstall: false);
@@ -772,6 +829,42 @@ void main() {
     expect(repository.fetchCalls, 1);
     downloadCompleter.complete(
       const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed),
+    );
+    await downloadFuture;
+  });
+
+  test('download progress updates state while transfer is active', () async {
+    final downloadCompleter = Completer<AppUpdateDownloadResult>();
+    final installer = _FakeInstaller();
+    final downloader = _FakeDownloader(downloadCompleter: downloadCompleter);
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest(sizeBytes: 100)),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    final downloadFuture = viewModel.download();
+    await pumpEventQueue();
+
+    downloader.emitProgress(
+      const AppUpdateDownloadProgress(downloadedBytes: 50, totalBytes: 100),
+    );
+
+    expect(viewModel.state.status, AppUpdateStatus.downloading);
+    expect(viewModel.state.downloadedBytes, 50);
+    expect(viewModel.state.totalBytes, 100);
+    expect(viewModel.state.downloadProgress, .5);
+
+    downloadCompleter.complete(
+      const AppUpdateDownloadResult(state: AppUpdateDownloadState.paused),
     );
     await downloadFuture;
   });
@@ -1522,6 +1615,7 @@ AppUpdateWorkflow _workflow({
 AppUpdateManifest _manifest({
   int versionCode = 2,
   int minSupportedVersionCode = 1,
+  int sizeBytes = 10,
 }) {
   return AppUpdateManifest(
     schemaVersion: 1,
@@ -1534,7 +1628,7 @@ AppUpdateManifest _manifest({
     mandatory: false,
     apkUrl: '/api/app-updates/android/apk/$versionCode',
     sha256: 'a' * 64,
-    sizeBytes: 10,
+    sizeBytes: sizeBytes,
     etag: '"etag-$versionCode"',
     publishedAt: DateTime.utc(2026, 5, 24),
   );
@@ -1709,6 +1803,7 @@ class _FakeDownloader implements AppUpdateDownloader {
     ),
     this.installSession,
     this.downloadCompleter,
+    this.downloadedUpdate,
     this.clearSessionCompleter,
     this.clearSessionError,
     this.recordSessionError,
@@ -1717,26 +1812,41 @@ class _FakeDownloader implements AppUpdateDownloader {
   AppUpdateDownloadResult result;
   AppUpdateInstallSessionRecord? installSession;
   Completer<AppUpdateDownloadResult>? downloadCompleter;
+  File? downloadedUpdate;
   Completer<void>? clearSessionCompleter;
   Object? clearSessionError;
   Object? recordSessionError;
   int? discardedVersionCode;
   int? recordedSessionId;
   AppUpdateManifest? recordedManifest;
+  AppUpdateManifest? readDownloadedManifest;
   AppUpdateManifest? readSessionManifest;
   AppUpdateManifest? clearedSessionManifest;
   int? clearedSessionId;
   int clearAllInstallSessionCalls = 0;
   bool clearSessionStarted = false;
+  AppUpdateDownloadProgressCallback? lastOnProgress;
+
+  void emitProgress(AppUpdateDownloadProgress progress) {
+    lastOnProgress?.call(progress);
+  }
 
   @override
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  ) async {
+    Uri daemonBaseUri, {
+    AppUpdateDownloadProgressCallback? onProgress,
+  }) async {
+    lastOnProgress = onProgress;
     final downloadCompleter = this.downloadCompleter;
     if (downloadCompleter != null) return downloadCompleter.future;
     return result;
+  }
+
+  @override
+  Future<File?> readDownloadedUpdate(AppUpdateManifest manifest) async {
+    readDownloadedManifest = manifest;
+    return downloadedUpdate;
   }
 
   @override

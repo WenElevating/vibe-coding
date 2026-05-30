@@ -48,6 +48,8 @@ class AppUpdateState {
     this.promptSuppressed = false,
     this.downloadedFile,
     this.errorMessage,
+    this.downloadedBytes,
+    this.totalBytes,
   });
 
   final AppUpdateStatus status;
@@ -58,6 +60,15 @@ class AppUpdateState {
   final bool promptSuppressed;
   final File? downloadedFile;
   final String? errorMessage;
+  final int? downloadedBytes;
+  final int? totalBytes;
+
+  double? get downloadProgress {
+    final downloaded = downloadedBytes;
+    final total = totalBytes;
+    if (downloaded == null || total == null || total <= 0) return null;
+    return (downloaded / total).clamp(0, 1).toDouble();
+  }
 
   AppUpdateState copyWith({
     AppUpdateStatus? status,
@@ -68,9 +79,14 @@ class AppUpdateState {
     File? downloadedFile,
     bool clearDownloadedFile = false,
     String? errorMessage,
+    int? downloadedBytes,
+    int? totalBytes,
+    bool clearDownloadProgress = false,
   }) {
     assert(!clearManifest || manifest == null);
     assert(!clearDownloadedFile || downloadedFile == null);
+    assert(!clearDownloadProgress ||
+        (downloadedBytes == null && totalBytes == null));
     return AppUpdateState(
       status: status ?? this.status,
       installedVersionName: installedVersionName,
@@ -81,6 +97,10 @@ class AppUpdateState {
       downloadedFile:
           clearDownloadedFile ? null : downloadedFile ?? this.downloadedFile,
       errorMessage: errorMessage,
+      downloadedBytes: clearDownloadProgress
+          ? null
+          : downloadedBytes ?? this.downloadedBytes,
+      totalBytes: clearDownloadProgress ? null : totalBytes ?? this.totalBytes,
     );
   }
 }
@@ -169,12 +189,18 @@ class AppUpdateViewModel extends ChangeNotifier {
       final promptSuppressed = trigger.isSilent &&
           !mandatory &&
           _postponedOptionalVersionCodes.contains(manifest.versionCode);
+      final downloadedFile = await workflow.readDownloadedUpdate(manifest);
       _set(
         state.copyWith(
-          status: AppUpdateStatus.available,
+          status: downloadedFile == null
+              ? AppUpdateStatus.available
+              : AppUpdateStatus.readyToInstall,
           manifest: manifest,
           mandatory: mandatory,
           promptSuppressed: promptSuppressed,
+          downloadedFile: downloadedFile,
+          clearDownloadedFile: downloadedFile == null,
+          clearDownloadProgress: true,
         ),
       );
       _recordSilentCheckCompleted(
@@ -219,7 +245,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     _set(state.copyWith(promptSuppressed: true));
   }
 
-  Future<void> download() async {
+  Future<void> download({bool installWhenReady = false}) async {
     final manifest = state.manifest;
     if (manifest == null) return;
     _set(
@@ -227,10 +253,16 @@ class AppUpdateViewModel extends ChangeNotifier {
         status: AppUpdateStatus.downloading,
         promptSuppressed: false,
         clearDownloadedFile: true,
+        downloadedBytes: 0,
+        totalBytes: manifest.sizeBytes,
       ),
     );
     try {
-      final result = await workflow.download(manifest, daemonBaseUri);
+      final result = await workflow.download(
+        manifest,
+        daemonBaseUri,
+        onProgress: _handleDownloadProgress,
+      );
       if (_isStoragePreflightFailure(result)) {
         _recordDiagnostic('update.storage.preflight_failed', {
           'versionCode': manifest.versionCode,
@@ -250,8 +282,14 @@ class AppUpdateViewModel extends ChangeNotifier {
           clearDownloadedFile: result.file == null,
           errorMessage: result.message,
           promptSuppressed: false,
+          clearDownloadProgress: result.state != AppUpdateDownloadState.paused,
         ),
       );
+      if (installWhenReady &&
+          result.state == AppUpdateDownloadState.readyToInstall &&
+          result.file != null) {
+        await install();
+      }
     } catch (error) {
       _set(
         state.copyWith(
@@ -259,9 +297,20 @@ class AppUpdateViewModel extends ChangeNotifier {
           errorMessage: '$error',
           promptSuppressed: false,
           clearDownloadedFile: true,
+          clearDownloadProgress: true,
         ),
       );
     }
+  }
+
+  void _handleDownloadProgress(AppUpdateDownloadProgress progress) {
+    if (_disposed || state.status != AppUpdateStatus.downloading) return;
+    _set(
+      state.copyWith(
+        downloadedBytes: progress.downloadedBytes,
+        totalBytes: progress.totalBytes,
+      ),
+    );
   }
 
   Future<void> install({bool openPermissionSettings = true}) async {

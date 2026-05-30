@@ -257,6 +257,41 @@ flutter test --no-pub test\widget_test.dart --plain-name "question suggestion en
 
 - Last verified: 2026-05-30
 
+## Symptom: Android Update Download Shows No Progress Or Offers Download Again
+
+- Symptom: after tapping app update download, the mobile UI opens a blocking
+  download dialog but only shows an indeterminate progress bar, so users cannot
+  tell whether the APK is moving or stalled. After the APK is downloaded and
+  verified, checking for updates can also regress the row to "download" instead
+  of offering install.
+- Action: keep progress wired through the whole private update chain. The
+  downloader should emit byte progress while writing response chunks, the
+  workflow should pass the optional progress callback through, the ViewModel
+  should store `downloadedBytes`/`totalBytes`, and `AppUpdatePanel` should bind
+  `LinearProgressIndicator.value` plus a percentage/byte label from that state.
+  The UI download action should call `download(installWhenReady: true)` so a
+  ready APK immediately opens the installer path, while non-UI callers can still
+  stop at `readyToInstall`. Update checks should call
+  `readDownloadedUpdate(manifest)` before writing `available`; a verified cached
+  APK for the same manifest should leave state at `readyToInstall`.
+- Related files:
+  [app_update_download_manager.dart](../../mobile/lib/src/services/app_update_download_manager.dart),
+  [app_update_workflow.dart](../../mobile/lib/src/workflows/app_update_workflow.dart),
+  [settings_page.dart](../../mobile/lib/src/ui/features/settings/settings_page.dart),
+  [app_update_view_model.dart](../../mobile/lib/src/ui/features/settings/view_models/app_update_view_model.dart),
+  [app_update_panel.dart](../../mobile/lib/src/ui/features/settings/widgets/app_update_panel.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+flutter test --no-pub test\app_update_download_manager_test.dart
+flutter test --no-pub test\app_update_view_model_test.dart
+flutter test --no-pub test\widget_test.dart --plain-name "app update download dialog shows determinate progress"
+flutter test --no-pub test\widget_test.dart --plain-name "app update"
+```
+
+- Last verified: 2026-05-30
+
 ## Symptom: Workbench Running Timer Resets After Reopening Conversation
 
 - Symptom: the pending/running transition card timer starts from `00:00` after

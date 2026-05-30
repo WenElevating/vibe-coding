@@ -14,6 +14,10 @@ typedef AppUpdateStreamOpener = Future<http.StreamedResponse> Function(
   String? ifRange,
 });
 
+typedef AppUpdateDownloadProgressCallback = void Function(
+  AppUpdateDownloadProgress progress,
+);
+
 enum AppUpdateDownloadState {
   downloading,
   paused,
@@ -25,8 +29,11 @@ enum AppUpdateDownloadState {
 abstract class AppUpdateDownloader {
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  );
+    Uri daemonBaseUri, {
+    AppUpdateDownloadProgressCallback? onProgress,
+  });
+
+  Future<File?> readDownloadedUpdate(AppUpdateManifest manifest);
 
   Future<AppUpdateInstallSessionRecord?> readInstallSession(
     AppUpdateManifest manifest,
@@ -40,6 +47,21 @@ abstract class AppUpdateDownloader {
   Future<void> clearAllInstallSessions();
 
   Future<void> discard(int versionCode);
+}
+
+class AppUpdateDownloadProgress {
+  const AppUpdateDownloadProgress({
+    required this.downloadedBytes,
+    required this.totalBytes,
+  });
+
+  final int downloadedBytes;
+  final int totalBytes;
+
+  double get fraction {
+    if (totalBytes <= 0) return 0;
+    return (downloadedBytes / totalBytes).clamp(0, 1).toDouble();
+  }
 }
 
 class AppUpdateDownloadResult {
@@ -92,8 +114,9 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   @override
   Future<AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  ) async {
+    Uri daemonBaseUri, {
+    AppUpdateDownloadProgressCallback? onProgress,
+  }) async {
     final validationError = _validateDownloadableManifest(manifest);
     if (validationError != null) {
       return AppUpdateDownloadResult(
@@ -109,7 +132,11 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     final pendingDownload = _downloadsByKey[downloadKey];
     if (pendingDownload != null) return pendingDownload.future;
 
-    final download = _downloadWithoutGuard(manifest, daemonBaseUri);
+    final download = _downloadWithoutGuard(
+      manifest,
+      daemonBaseUri,
+      onProgress: onProgress,
+    );
     _downloadsByKey[downloadKey] = _ActiveAppUpdateDownload(
       versionCode: versionCode,
       future: download,
@@ -119,8 +146,9 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
 
   Future<AppUpdateDownloadResult> _downloadWithoutGuard(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  ) async {
+    Uri daemonBaseUri, {
+    AppUpdateDownloadProgressCallback? onProgress,
+  }) async {
     try {
       await reconcile(manifest);
 
@@ -150,6 +178,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       }
 
       await _writeMetadata(paths.metadata, manifest, resumeLength);
+      _emitProgress(onProgress, resumeLength, manifest.sizeBytes!);
 
       final apkUri = manifest.resolveApkUri(daemonBaseUri);
       final responseResult = await _downloadFromDaemon(
@@ -157,6 +186,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         apkUri: apkUri,
         paths: paths,
         resumeLength: resumeLength,
+        onProgress: onProgress,
       );
       if (responseResult != null) return responseResult;
 
@@ -231,6 +261,14 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     await _deleteIfExists(paths.part);
     await _deleteIfExists(paths.metadata);
     await _deleteIfExists(paths.apk);
+  }
+
+  @override
+  Future<File?> readDownloadedUpdate(AppUpdateManifest manifest) async {
+    if (_validateDownloadableManifest(manifest) != null) return null;
+    await _awaitActiveDownloadsForVersion(manifest.versionCode!);
+    final paths = await _pathsFor(manifest.versionCode!);
+    return _reuseReadyApk(paths, manifest);
   }
 
   @override
@@ -348,6 +386,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     required Uri apkUri,
     required _AppUpdatePaths paths,
     required int resumeLength,
+    AppUpdateDownloadProgressCallback? onProgress,
   }) async {
     var currentResumeLength = resumeLength;
     var canRestart = true;
@@ -419,6 +458,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
           paths.part,
           mode: writeMode,
           initialBytes: initialBytes,
+          totalBytes: manifest.sizeBytes!,
+          onProgress: onProgress,
         );
         await _writeMetadata(paths.metadata, manifest, downloadedBytes);
         return null;
@@ -490,6 +531,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     File file, {
     required FileMode mode,
     required int initialBytes,
+    required int totalBytes,
+    AppUpdateDownloadProgressCallback? onProgress,
   }) async {
     await file.parent.create(recursive: true);
     final sink = file.openWrite(mode: mode);
@@ -500,6 +543,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         final chunk = iterator.current;
         sink.add(chunk);
         downloadedBytes += chunk.length;
+        _emitProgress(onProgress, downloadedBytes, totalBytes);
       }
       await sink.flush();
       return downloadedBytes;
@@ -694,6 +738,19 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
 
   bool _contentRangeStartsAt(String? contentRange, int start) =>
       contentRange != null && contentRange.startsWith('bytes $start-');
+
+  void _emitProgress(
+    AppUpdateDownloadProgressCallback? onProgress,
+    int downloadedBytes,
+    int totalBytes,
+  ) {
+    onProgress?.call(
+      AppUpdateDownloadProgress(
+        downloadedBytes: downloadedBytes,
+        totalBytes: totalBytes,
+      ),
+    );
+  }
 }
 
 class _ActiveAppUpdateDownload {

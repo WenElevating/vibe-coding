@@ -142,7 +142,7 @@ class _SettingsUpdateCheckRow extends StatelessWidget {
       builder: (context, _) => AppUpdatePanel(
         state: viewModel.state,
         onCheck: () => unawaited(viewModel.checkForUpdates()),
-        onDownload: () => unawaited(viewModel.download()),
+        onDownload: () => unawaited(viewModel.download(installWhenReady: true)),
         onInstall: () => unawaited(viewModel.install()),
         onDiscard: () => unawaited(viewModel.discard()),
         onPostpone: viewModel.postponeCurrentUpdatePrompt,

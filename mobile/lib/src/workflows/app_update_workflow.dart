@@ -9,6 +9,8 @@ export '../services/android_package_installer.dart'
     show AndroidInstallEvent, AndroidInstallStatus;
 export '../services/app_update_download_manager.dart'
     show
+        AppUpdateDownloadProgress,
+        AppUpdateDownloadProgressCallback,
         AppUpdateDownloadResult,
         AppUpdateDownloadState,
         AppUpdateInstallSessionRecord;
@@ -78,9 +80,18 @@ class AppUpdateWorkflow {
 
   Future<downloader.AppUpdateDownloadResult> download(
     AppUpdateManifest manifest,
-    Uri daemonBaseUri,
-  ) {
-    return _downloader.download(manifest, daemonBaseUri);
+    Uri daemonBaseUri, {
+    downloader.AppUpdateDownloadProgressCallback? onProgress,
+  }) {
+    return _downloader.download(
+      manifest,
+      daemonBaseUri,
+      onProgress: onProgress,
+    );
+  }
+
+  Future<File?> readDownloadedUpdate(AppUpdateManifest manifest) {
+    return _downloader.readDownloadedUpdate(manifest);
   }
 
   Future<void> clearInstallSession(
