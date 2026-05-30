@@ -208,6 +208,7 @@ FeatureDependencies _featureDependencies({
         required connectedData,
         required connectionConfig,
         required health,
+        activeConversationProvider,
         diagnostics,
         gitStatus,
         extensionsCount = 0,
@@ -498,6 +499,13 @@ class _UnusedRepository extends WorkspaceRepository
         AppUpdateRepository,
         AuthRepository,
         ConversationRepository {
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) =>
+      throw UnimplementedError();
+
   @override
   Future<List<AdapterStatus>> listAdapters() => throw UnimplementedError();
 

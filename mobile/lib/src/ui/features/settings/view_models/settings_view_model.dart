@@ -3,7 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../../../../data/repositories/coding_preferences_repository.dart';
 import '../../../../data/repositories/workspace_repository.dart';
 import '../../../../domain/models/daemon_connection_config.dart';
+import '../../../../domain/repositories/conversation_repository.dart';
 import '../../../../models/protocol.dart';
+
+typedef ActiveConversationProvider = ConversationSummary? Function();
 
 class SettingsViewModel extends ChangeNotifier {
   SettingsViewModel({
@@ -11,11 +14,15 @@ class SettingsViewModel extends ChangeNotifier {
     required CodingPreferencesRepository codingPreferencesRepository,
     required DaemonConnectionConfig connectionConfig,
     required DaemonHealth health,
+    ConversationRepository? conversationRepository,
+    ActiveConversationProvider? activeConversationProvider,
     CodeDiagnosticsSummary? diagnostics,
     GitStatusSummary? gitStatus,
     int extensionsCount = 0,
   })  : _workspaceRepository = workspaceRepository,
         _codingPreferencesRepository = codingPreferencesRepository,
+        _conversationRepository = conversationRepository,
+        _activeConversationProvider = activeConversationProvider,
         _connectionConfig = connectionConfig,
         _health = health,
         _diagnostics = diagnostics,
@@ -27,6 +34,8 @@ class SettingsViewModel extends ChangeNotifier {
 
   final WorkspaceRepository _workspaceRepository;
   final CodingPreferencesRepository _codingPreferencesRepository;
+  final ConversationRepository? _conversationRepository;
+  final ActiveConversationProvider? _activeConversationProvider;
   DaemonConnectionConfig _connectionConfig;
   DaemonHealth _health;
   CodeDiagnosticsSummary? _diagnostics;
@@ -69,7 +78,11 @@ class SettingsViewModel extends ChangeNotifier {
 
   Future<void> setPermissionMode(String value) async {
     try {
-      await _codingPreferencesRepository.setPermissionMode(value);
+      final normalized = CodingPreferencesRepository.normalizePermissionMode(
+        value,
+      );
+      await _codingPreferencesRepository.setPermissionMode(normalized);
+      await _syncActiveConversationPermissionMode(normalized);
       if (_permissionModeSaveError != null) {
         _permissionModeSaveError = null;
         notifyListeners();
@@ -78,6 +91,19 @@ class SettingsViewModel extends ChangeNotifier {
       _permissionModeSaveError = error;
       notifyListeners();
     }
+  }
+
+  Future<void> _syncActiveConversationPermissionMode(
+    String permissionMode,
+  ) async {
+    final repository = _conversationRepository;
+    final activeConversation = _activeConversationProvider?.call();
+    if (repository == null || activeConversation == null) return;
+    if (activeConversation.adapter.trim().toLowerCase() != 'claude') return;
+    await repository.updateConversationPermissionMode(
+      activeConversation.id,
+      permissionMode,
+    );
   }
 
   void _onRepositoryChanged() => notifyListeners();

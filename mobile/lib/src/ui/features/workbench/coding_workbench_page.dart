@@ -90,6 +90,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   String? get _activeConversationId => _workbenchViewModel.activeConversationId;
   ConversationSummary? get _activeConversation =>
       _workbenchViewModel.activeConversation;
+  ConversationSummary? get activeConversation =>
+      _workbenchViewModel.activeConversation;
   List<WorkbenchMessage> get _messages => _workbenchViewModel.messages;
   List<ConversationEvent> get _conversationEvents =>
       _workbenchViewModel.conversationEvents;

@@ -368,6 +368,7 @@ FeatureDependencies _testFeatureDependencies({
     required ConnectedDataDependencies connectedData,
     required DaemonConnectionConfig connectionConfig,
     required DaemonHealth health,
+    ActiveConversationProvider? activeConversationProvider,
     CodeDiagnosticsSummary? diagnostics,
     GitStatusSummary? gitStatus,
     int extensionsCount,
@@ -417,6 +418,7 @@ SettingsViewModel _defaultTestSettingsViewModelFactory({
   required ConnectedDataDependencies connectedData,
   required DaemonConnectionConfig connectionConfig,
   required DaemonHealth health,
+  ActiveConversationProvider? activeConversationProvider,
   CodeDiagnosticsSummary? diagnostics,
   GitStatusSummary? gitStatus,
   int extensionsCount = 0,
@@ -424,6 +426,8 @@ SettingsViewModel _defaultTestSettingsViewModelFactory({
     SettingsViewModel(
       workspaceRepository: connectedData.workspaceRepository,
       codingPreferencesRepository: CodingPreferencesRepository(),
+      conversationRepository: connectedData.conversationRepository,
+      activeConversationProvider: activeConversationProvider,
       connectionConfig: connectionConfig,
       health: health,
       diagnostics: diagnostics,
@@ -964,6 +968,17 @@ class _LazyConversationRepository implements ConversationRepository {
         status: 'idle',
         model: model,
       );
+
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async =>
+      _conversationSummary(
+        id: conversationId,
+        workspaceId: 'workspace_1',
+        status: 'idle',
+      );
 }
 
 CachedConversationRepository _cachedConversationRepositoryForWorkbenchTest({
@@ -1251,6 +1266,13 @@ class _LifecycleConversationRepository implements ConversationRepository {
     String? model,
   ) async =>
       throw UnimplementedError();
+
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async =>
+      throw UnimplementedError();
 }
 
 class _NewSessionConversationRepository implements ConversationRepository {
@@ -1353,6 +1375,17 @@ class _NewSessionConversationRepository implements ConversationRepository {
         workspaceId: 'workspace_1',
         status: 'idle',
         model: model,
+      );
+
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async =>
+      _conversationSummary(
+        id: conversationId,
+        workspaceId: 'workspace_1',
+        status: 'idle',
       );
 }
 
@@ -2476,6 +2509,7 @@ void main() {
           required ConnectedDataDependencies connectedData,
           required DaemonConnectionConfig connectionConfig,
           required DaemonHealth health,
+          ActiveConversationProvider? activeConversationProvider,
           CodeDiagnosticsSummary? diagnostics,
           GitStatusSummary? gitStatus,
           int extensionsCount = 0,
@@ -2484,6 +2518,7 @@ void main() {
             connectedData: connectedData,
             connectionConfig: connectionConfig,
             health: health,
+            activeConversationProvider: activeConversationProvider,
             diagnostics: diagnostics,
             gitStatus: gitStatus,
             extensionsCount: extensionsCount,

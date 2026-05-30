@@ -58,6 +58,7 @@ boundary first before loading more knowledge.
 - [Voice input post-processing is final-text only](decisions/2026-05-23-voice-input-final-text-post-processing.md)
 - [Workbench conversation events use WebSocket notifications](decisions/2026-05-23-websocket-notification-gateway.md)
 - [Private Android APK update channel](decisions/2026-05-24-private-android-apk-update-channel.md)
+- [Claude conversation control follows SDK stdio protocol](decisions/2026-05-30-claude-sdk-control-parity.md)
 
 ## Verification
 

@@ -113,6 +113,24 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
           )
         });
       }
+      const conversationPermissionMode = url.pathname.match(/^\/api\/conversations\/([^/]+)\/permission-mode$/);
+      if (method === 'PATCH' && conversationPermissionMode) {
+        return json(res, 200, {
+          conversation: await conversations.updatePermissionMode(
+            conversationPermissionMode[1],
+            await readJson(req),
+            device
+          )
+        });
+      }
+      const conversationControl = url.pathname.match(/^\/api\/conversations\/([^/]+)\/control$/);
+      if (method === 'POST' && conversationControl) {
+        return json(res, 200, await conversations.controlConversation(
+          conversationControl[1],
+          await readJson(req),
+          device
+        ));
+      }
       const conversationEvents = url.pathname.match(/^\/api\/conversations\/([^/]+)\/events$/);
       if (method === 'GET' && conversationEvents) {
         const pageRequest = parseConversationEventPageRequest(url.searchParams);

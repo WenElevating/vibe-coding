@@ -510,6 +510,8 @@ class _MainTabsPageState extends State<MainTabsPage>
       connectedData: _connectedData,
       connectionConfig: widget.connectionConfig,
       health: data.health,
+      activeConversationProvider: () =>
+          _codingWorkbenchKey.currentState?.activeConversation,
     );
   }
 

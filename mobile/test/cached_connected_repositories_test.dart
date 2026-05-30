@@ -966,6 +966,19 @@ class _FakeConversationRepository implements ConversationRepository {
   }
 
   @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    final existing = _conversations.singleWhere(
+      (conversation) => conversation.id == conversationId,
+    );
+    final updated = _copyConversation(existing);
+    _conversations = <ConversationSummary>[updated];
+    return updated;
+  }
+
+  @override
   Future<ConversationSummary> createConversation({
     required String workspaceId,
     String adapter = 'claude',

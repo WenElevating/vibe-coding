@@ -41,7 +41,11 @@ class AppSqliteStore {
         idle_expires_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL DEFAULT '{}'
+        capabilities_json TEXT NOT NULL DEFAULT '{}',
+        requested_tool_policy_json TEXT NOT NULL DEFAULT '{}',
+        resume_policy_json TEXT NOT NULL DEFAULT '{"type":"fresh"}',
+        system_prompt_policy_json TEXT NOT NULL DEFAULT '{"type":"none"}',
+        claude_options_json TEXT NOT NULL DEFAULT '{}'
       );
       CREATE INDEX IF NOT EXISTS idx_conversations_device_updated
         ON conversations(device_id, updated_at DESC);
@@ -126,6 +130,10 @@ class AppSqliteStore {
     ensureColumn(this.db, 'conversations', 'title', 'TEXT');
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn(this.db, 'conversations', 'model', 'TEXT');
+    ensureColumn(this.db, 'conversations', 'requested_tool_policy_json', "TEXT NOT NULL DEFAULT '{}'");
+    ensureColumn(this.db, 'conversations', 'resume_policy_json', "TEXT NOT NULL DEFAULT '{\"type\":\"fresh\"}'");
+    ensureColumn(this.db, 'conversations', 'system_prompt_policy_json', "TEXT NOT NULL DEFAULT '{\"type\":\"none\"}'");
+    ensureColumn(this.db, 'conversations', 'claude_options_json', "TEXT NOT NULL DEFAULT '{}'");
     this.ensureWorkspaceDeleteSchema();
     this.ensureWorkspaceIndexes();
     this.ensureOwnerWorkspaceAuthorizations();
@@ -208,8 +216,10 @@ class AppSqliteStore {
         id, workspace_id, workspace_path, adapter, model, permission_mode, device_id,
         status, cli_session_id, session_binding, title, user_message_count,
         blocking_item_json, idle_expires_at,
-        created_at, updated_at, capabilities_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at, capabilities_json,
+        requested_tool_policy_json, resume_policy_json, system_prompt_policy_json,
+        claude_options_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         workspace_path = excluded.workspace_path,
@@ -226,7 +236,11 @@ class AppSqliteStore {
         idle_expires_at = excluded.idle_expires_at,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
-        capabilities_json = excluded.capabilities_json
+        capabilities_json = excluded.capabilities_json,
+        requested_tool_policy_json = excluded.requested_tool_policy_json,
+        resume_policy_json = excluded.resume_policy_json,
+        system_prompt_policy_json = excluded.system_prompt_policy_json,
+        claude_options_json = excluded.claude_options_json
     `).run(
       row.id,
       row.workspace_id,
@@ -244,7 +258,11 @@ class AppSqliteStore {
       row.idle_expires_at,
       row.created_at,
       row.updated_at,
-      row.capabilities_json
+      row.capabilities_json,
+      row.requested_tool_policy_json,
+      row.resume_policy_json,
+      row.system_prompt_policy_json,
+      row.claude_options_json
     );
   }
 
@@ -666,7 +684,11 @@ function serializeConversation(conversation) {
     idle_expires_at: conversation.idleExpiresAt || null,
     created_at: conversation.createdAt,
     updated_at: conversation.updatedAt,
-    capabilities_json: JSON.stringify(conversation.capabilities || {})
+    capabilities_json: JSON.stringify(conversation.capabilities || {}),
+    requested_tool_policy_json: JSON.stringify(conversation.requestedToolPolicy || { tools: [], allowedTools: [], disallowedTools: [] }),
+    resume_policy_json: JSON.stringify(conversation.resumePolicy || { type: 'fresh' }),
+    system_prompt_policy_json: JSON.stringify(conversation.systemPromptPolicy || { type: 'none' }),
+    claude_options_json: JSON.stringify(conversation.claudeOptions || {})
   };
 }
 
@@ -690,6 +712,10 @@ function deserializeConversation(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     capabilities: parseJson(row.capabilities_json, {}),
+    requestedToolPolicy: parseJson(row.requested_tool_policy_json, { tools: [], allowedTools: [], disallowedTools: [] }),
+    resumePolicy: parseJson(row.resume_policy_json, { type: 'fresh' }),
+    systemPromptPolicy: parseJson(row.system_prompt_policy_json, { type: 'none' }),
+    claudeOptions: parseJson(row.claude_options_json, {}),
     handle: null
   };
 }

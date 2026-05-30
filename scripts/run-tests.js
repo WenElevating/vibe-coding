@@ -306,7 +306,8 @@ test('conversation protocol validates statuses and blocking payloads', () => {
     requestedTools: [],
     requestedToolPolicy: { tools: [], allowedTools: [], disallowedTools: [] },
     resumePolicy: { type: 'fresh' },
-    systemPromptPolicy: { type: 'none' }
+    systemPromptPolicy: { type: 'none' },
+    claudeOptions: {}
   });
   const extendedConversationCreate = normalizeConversationCreate({
     workspaceId: 'default',
@@ -319,7 +320,17 @@ test('conversation protocol validates statuses and blocking payloads', () => {
       disallowedTools: ['Bash']
     },
     resumePolicy: { type: 'resume', sessionId: 'claude-session-1', name: 'bugfix' },
-    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
+    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' },
+    claudeOptions: {
+      tools: ['Task', 'Read'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash'],
+      systemPrompt: 'You are concise.',
+      maxTurns: 4,
+      maxBudgetUsd: 1.5,
+      extraArgs: { debug: null, color: 'never' },
+      env: { SHOULD_NOT_PASS: '1' }
+    }
   });
   assert.deepEqual(extendedConversationCreate, {
     workspaceId: 'default',
@@ -329,7 +340,27 @@ test('conversation protocol validates statuses and blocking payloads', () => {
     requestedTools: ['Read', 'Glob'],
     requestedToolPolicy: { tools: ['Read', 'Glob', 'Grep'], allowedTools: ['Read'], disallowedTools: ['Bash'] },
     resumePolicy: { type: 'resume', sessionId: 'claude-session-1', name: 'bugfix' },
-    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' }
+    systemPromptPolicy: { type: 'append', text: 'Keep responses concise.' },
+    claudeOptions: {
+      tools: ['Task', 'Read'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash'],
+      systemPrompt: 'You are concise.',
+      maxTurns: 4,
+      maxBudgetUsd: 1.5,
+      extraArgs: { debug: null, color: 'never' }
+    }
+  });
+  assert.deepEqual(normalizeApprovalDecision({ decision: 'deny' }), { decision: 'deny', interrupt: true });
+  assert.deepEqual(normalizeApprovalDecision({ decision: 'deny', interrupt: false }), { decision: 'deny', interrupt: false });
+  assert.deepEqual(normalizeApprovalDecision({
+    decision: 'allow',
+    updatedInput: { command: 'npm test' },
+    updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
+  }), {
+    decision: 'allow',
+    updatedInput: { command: 'npm test' },
+    updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
   });
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: ' gpt-5.5 ' }).model, 'gpt-5.5');
   assert.equal(normalizeConversationCreate({ workspaceId: 'default', model: '   ' }).model, null);
@@ -1576,7 +1607,7 @@ test('conversation manager handles input and approval blocking states', async ()
   await assert.rejects(() => manager.respondApproval(conversation.id, 'bad', { decision: 'allow' }, device), /approvalId does not match/);
   await manager.respondApproval(conversation.id, 'ap1', { decision: 'allow' }, device);
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
-  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap1', decision: 'allow' }]);
+  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap1', decision: { decision: 'allow' } }]);
   const resolvedApproval = manager.listEvents(conversation.id, 0, device)
     .find((event) => event.type === 'approval.resolved');
   assert.equal(resolvedApproval.toolUseId, 'toolu_1');
@@ -1591,6 +1622,113 @@ test('conversation manager handles input and approval blocking states', async ()
   const hidden = manager.listEvents(conversation.id, 0, device).find((event) => event.text === 'hidden lifecycle');
   assert.ok(hidden);
   assert.equal(hidden.visible, false);
+});
+
+test('conversation manager fails conversation when blocking response write fails', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const fakeHandle = {
+    sendUserMessage() {},
+    answerQuestion() { throw new Error('stdin closed'); },
+    respondApproval() { throw new Error('stdin closed'); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    async startConversation({ onEvent }) { adapter.onEvent = onEvent; return fakeHandle; }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-03T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const questionConversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(questionConversation.id, { text: 'hello' }, device);
+  adapter.onEvent({ type: 'assistant.question', questionId: 'q1', text: 'Continue?' });
+
+  await assert.rejects(
+    () => manager.answerQuestion(questionConversation.id, { questionId: 'q1', text: 'yes' }, device),
+    /stdin closed/
+  );
+
+  assert.equal(manager.getConversation(questionConversation.id, device).status, 'failed');
+  assert.equal(eventStore.list(questionConversation.id, 0).at(-2).type, 'run.error');
+  assert.equal(eventStore.list(questionConversation.id, 0).at(-1).type, 'conversation.status_changed');
+
+  const approvalConversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(approvalConversation.id, { text: 'run command' }, device);
+  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap1', toolName: 'Bash', input: { command: 'dir' } });
+
+  await assert.rejects(
+    () => manager.respondApproval(approvalConversation.id, 'ap1', { decision: 'allow' }, device),
+    /stdin closed/
+  );
+
+  assert.equal(manager.getConversation(approvalConversation.id, device).status, 'failed');
+  assert.equal(eventStore.list(approvalConversation.id, 0).at(-2).type, 'run.error');
+  assert.equal(eventStore.list(approvalConversation.id, 0).at(-1).status, 'failed');
+});
+
+test('conversation manager controls active Claude conversation dynamically', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const calls = [];
+  const fakeHandle = {
+    sendUserMessage() {},
+    setPermissionMode(mode) { calls.push(['permission', mode]); },
+    setModel(model) { calls.push(['model', model]); },
+    interrupt() { calls.push(['interrupt']); },
+    getContextUsage() { calls.push(['context']); return { tokens: 12 }; },
+    getMcpStatus() { calls.push(['mcpStatus']); return { servers: [] }; },
+    reconnectMcpServer(name) { calls.push(['mcpReconnect', name]); },
+    toggleMcpServer(name, enabled) { calls.push(['mcpToggle', name, enabled]); },
+    stopTask(taskId) { calls.push(['stopTask', taskId]); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    getModelCapability() {
+      return { canSelectModel: true, models: [{ id: 'claude-sonnet' }, { id: 'claude-opus' }] };
+    },
+    async startConversation() { return fakeHandle; }
+  };
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore(),
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]])
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude', model: 'claude-sonnet' }, device);
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+
+  await manager.updatePermissionMode(conversation.id, { permissionMode: 'auto' }, device);
+  await manager.updateModel(conversation.id, { model: 'claude-opus' }, device);
+  assert.deepEqual((await manager.controlConversation(conversation.id, { action: 'get_context_usage' }, device)).result, { tokens: 12 });
+  await manager.controlConversation(conversation.id, { action: 'interrupt' }, device);
+  await manager.controlConversation(conversation.id, { action: 'get_mcp_status' }, device);
+  await manager.controlConversation(conversation.id, { action: 'reconnect_mcp_server', name: 'fs' }, device);
+  await manager.controlConversation(conversation.id, { action: 'toggle_mcp_server', name: 'fs', enabled: false }, device);
+  await manager.controlConversation(conversation.id, { action: 'stop_task', taskId: 'task_1' }, device);
+
+  assert.deepEqual(calls, [
+    ['permission', 'auto'],
+    ['model', 'claude-opus'],
+    ['context'],
+    ['interrupt'],
+    ['mcpStatus'],
+    ['mcpReconnect', 'fs'],
+    ['mcpToggle', 'fs', false],
+    ['stopTask', 'task_1']
+  ]);
+  assert.equal(manager.getConversation(conversation.id, device).effectivePermissionMode, 'auto');
+  assert.equal(manager.getConversation(conversation.id, device).model, 'claude-opus');
 });
 
 test('conversation manager clears blocking item when adapter cancels blocking request', async () => {
@@ -2551,6 +2689,84 @@ test('Claude conversation adapter starts long-lived CLI directly in workspace cw
   assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
+  assert.equal(spawnOptions.env.CLAUDE_CODE_ENTRYPOINT, 'sdk-js');
+  assert.equal(spawnOptions.env.CLAUDE_AGENT_SDK_VERSION, require('../package.json').version);
+  assert.equal(Object.prototype.hasOwnProperty.call(spawnOptions.env, 'CLAUDECODE'), false);
+});
+
+test('Claude conversation adapter maps SDK-style Claude options to CLI arguments', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  let spawnArgs = null;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: (_cmd, args) => {
+      spawnArgs = args;
+      return child;
+    }
+  });
+
+  await adapter.startConversation({
+    conversationId: 'conv_claude_options',
+    workspacePath: '.',
+    permissionMode: 'default',
+    model: 'claude-sonnet',
+    requestedToolPolicy: { tools: ['Read'], allowedTools: ['Read'], disallowedTools: ['Bash'] },
+    claudeOptions: {
+      tools: ['Task', 'Read'],
+      allowedTools: ['Read', 'Grep'],
+      disallowedTools: ['Bash'],
+      systemPrompt: 'System text',
+      appendSystemPrompt: 'Append text',
+      maxTurns: 3,
+      maxBudgetUsd: 1.25,
+      taskBudgetTotal: 7,
+      fallbackModel: 'claude-haiku',
+      betas: ['beta-a'],
+      settings: '{"permissions":{}}',
+      addDirs: ['D:\\Extra'],
+      mcpConfig: { local: { command: 'node', args: ['server.js'] } },
+      forkSession: true,
+      settingSources: ['user', 'project'],
+      skills: ['code-review'],
+      sandbox: { enabled: true },
+      plugins: [{ type: 'local', path: 'D:\\Plugin' }],
+      extraArgs: { color: 'never', debug: null },
+      thinking: { type: 'enabled', budgetTokens: 1024 },
+      effort: 'high',
+      outputFormat: { type: 'json_schema', schema: { type: 'object' } },
+      env: { SHOULD_NOT_PASS: '1' }
+    },
+    onEvent: () => {}
+  });
+
+  const joined = spawnArgs.join('\n');
+  assert.match(joined, /--tools\nTask,Read/);
+  assert.match(joined, /--allowedTools\nRead,Grep/);
+  assert.match(joined, /--disallowedTools\nBash/);
+  assert.match(joined, /--system-prompt\nSystem text/);
+  assert.match(joined, /--append-system-prompt\nAppend text/);
+  assert.match(joined, /--max-turns\n3/);
+  assert.match(joined, /--max-budget-usd\n1.25/);
+  assert.match(joined, /--task-budget\n7/);
+  assert.match(joined, /--fallback-model\nclaude-haiku/);
+  assert.match(joined, /--betas\nbeta-a/);
+  assert.match(joined, /--settings\n\{"permissions":\{\}\}/);
+  assert.match(joined, /--add-dir\nD:\\Extra/);
+  assert.match(joined, /--mcp-config\n\{"mcpServers":/);
+  assert.equal(spawnArgs.includes('--fork-session'), true);
+  assert.equal(spawnArgs.includes('--setting-sources=user,project'), true);
+  assert.match(joined, /--plugin-dir\nD:\\Plugin/);
+  assert.match(joined, /--color\nnever/);
+  assert.equal(spawnArgs.includes('--debug'), true);
+  assert.match(joined, /--max-thinking-tokens\n1024/);
+  assert.match(joined, /--effort\nhigh/);
+  assert.match(joined, /--json-schema\n\{"type":"object"\}/);
+  assert.equal(joined.includes('SHOULD_NOT_PASS'), false);
 });
 
 test('Claude conversation adapter enables stdio permission prompt tool in auto mode', async () => {
@@ -3758,6 +3974,157 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(approval.summary, 'dir scripts');
   await handle.respondApproval('approval_1', 'allow');
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
+});
+
+test('Claude conversation adapter responds to unsupported control requests with errors', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const stdinLines = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(data) { stdinLines.push(data.trim()); } };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  await adapter.startConversation({ conversationId: 'conv_unknown_control', workspacePath: '.', onEvent: () => {} });
+
+  for (const subtype of ['hook_callback', 'mcp_message', 'not_supported']) {
+    child.stdout.emit('data', `${JSON.stringify({
+      type: 'control_request',
+      request_id: `req_${subtype}`,
+      request: { subtype, callback_id: 'missing', server_name: 'missing' }
+    })}\n`);
+  }
+
+  const responses = stdinLines
+    .map((line) => JSON.parse(line))
+    .filter((payload) => payload.type === 'control_response' && payload.response?.subtype === 'error');
+  assert.deepEqual(responses.map((payload) => payload.response.request_id), [
+    'req_hook_callback',
+    'req_mcp_message',
+    'req_not_supported'
+  ]);
+});
+
+test('Claude conversation adapter sends dynamic control requests and returns responses', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const stdinLines = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(data) { stdinLines.push(data.trim()); } };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const handle = await adapter.startConversation({ conversationId: 'conv_dynamic_control', workspacePath: '.', onEvent: () => {} });
+  child.stdout.emit('data', `${JSON.stringify({ type: 'control_response', response: { request_id: 'init_dynamic' } })}\n`);
+
+  const usagePromise = handle.getContextUsage();
+  await new Promise((resolve) => setImmediate(resolve));
+  const usageRequest = JSON.parse(stdinLines.at(-1));
+  assert.equal(usageRequest.request.subtype, 'get_context_usage');
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_response',
+    response: { request_id: usageRequest.request_id, subtype: 'success', response: { tokens: 12 } }
+  })}\n`);
+  assert.deepEqual(await usagePromise, { tokens: 12 });
+
+  const permissionPromise = handle.setPermissionMode('auto');
+  await new Promise((resolve) => setImmediate(resolve));
+  const permissionRequest = JSON.parse(stdinLines.at(-1));
+  assert.equal(permissionRequest.request.subtype, 'set_permission_mode');
+  assert.equal(permissionRequest.request.mode, 'auto');
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_response',
+    response: { request_id: permissionRequest.request_id, subtype: 'success', response: {} }
+  })}\n`);
+  await permissionPromise;
+
+  await assert.rejects(async () => {
+    const stopPromise = handle.stopTask('task_1');
+    await new Promise((resolve) => setImmediate(resolve));
+    const stopRequest = JSON.parse(stdinLines.at(-1));
+    child.stdout.emit('data', `${JSON.stringify({
+      type: 'control_response',
+      response: { request_id: stopRequest.request_id, subtype: 'error', error: { message: 'no task' } }
+    })}\n`);
+    await stopPromise;
+  }, /no task/);
+});
+
+test('Claude conversation adapter forwards updated approval input and deny interrupt flags', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const stdinLines = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(data) { stdinLines.push(data.trim()); } };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const handle = await adapter.startConversation({ conversationId: 'conv_approval_payload', workspacePath: '.', onEvent: () => {} });
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_payload',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      input: { command: 'dir' }
+    }
+  })}\n`);
+
+  await handle.respondApproval('approval_payload', {
+    decision: 'allow',
+    updatedInput: { command: 'npm test' },
+    updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
+  });
+  const allowResponse = JSON.parse(stdinLines.at(-1)).response.response;
+  assert.deepEqual(allowResponse.updatedInput, { command: 'npm test' });
+  assert.deepEqual(allowResponse.updatedPermissions, [{ tool: 'Bash', rule: 'allow' }]);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_deny',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      input: { command: 'del file' }
+    }
+  })}\n`);
+  await handle.respondApproval('approval_deny', { decision: 'deny', interrupt: false });
+  const denyResponse = JSON.parse(stdinLines.at(-1)).response.response;
+  assert.equal(denyResponse.behavior, 'deny');
+  assert.equal(denyResponse.interrupt, false);
+});
+
+test('Claude conversation adapter throws when stdin writes fail', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    write(_data, callback) {
+      if (typeof callback === 'function') callback(new Error('stdin closed'));
+      return false;
+    }
+  };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({ conversationId: 'conv_write_fail', workspacePath: '.', onEvent: () => {} }),
+    /stdin closed/
+  );
 });
 
 test('Claude conversation adapter emits blocking cancellation for cancelled approvals', async () => {

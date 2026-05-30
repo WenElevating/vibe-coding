@@ -7,6 +7,7 @@ const { detectClaudeCodeInstallation, unavailableCapability } = require('./claud
 const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 const { textAttachmentWrapper } = require('./attachment-validation');
+const packageJson = require('../../package.json');
 
 const CLAUDE_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -91,20 +92,22 @@ class ClaudeConversationAdapter {
     }
   }
 
-  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, onEvent }) {
+  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, requestedToolPolicy, claudeOptions, onEvent }) {
     if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
     this.ensureAvailable();
     const selectedModel = this.modelCapability?.canSelectModel === true ? model : null;
+    const explicitAllowedTools = Array.isArray(claudeOptions?.allowedTools) || Array.isArray(requestedToolPolicy?.allowedTools);
     const args = [
       '--output-format', 'stream-json',
       '--verbose',
       '--print',
+      ...buildClaudeOptionArgs({ requestedToolPolicy, claudeOptions }),
       '--include-partial-messages',
       ...(sessionId ? ['--resume', sessionId] : []),
       ...(selectedModel ? ['--model', selectedModel] : []),
       '--permission-prompt-tool', 'stdio',
       '--permission-mode', permissionMode === 'default' ? 'default' : 'auto',
-      ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
+      ...(permissionMode === 'auto' && !explicitAllowedTools ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'
     ];
     const child = this.spawnFn(this.invocation.command, [...this.invocation.argsPrefix, ...args], {
@@ -129,7 +132,9 @@ class ClaudeConversationAdapter {
       now: () => new Date(),
       initRequestId,
       initialized: false,
-      initWaiters: []
+      initWaiters: [],
+      controlCounter: 0,
+      pendingControlResponses: new Map()
     };
     child.stdout.on('data', createJsonLineParser((raw) => handleRawClaudeEvent(raw, state)));
     child.stderr.on('data', (chunk) => {
@@ -142,7 +147,7 @@ class ClaudeConversationAdapter {
       else if (code === 0) onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED });
       else if (code !== 0) onEvent({ type: conversationEventTypes.RUN_ERROR, exitCode: code });
     });
-    writeJsonLine(child, {
+    await writeJsonLine(child, {
       type: 'control_request',
       request_id: initRequestId,
       request: { subtype: 'initialize', hooks: null }
@@ -172,21 +177,21 @@ class ClaudeConversationHandle {
 
   async sendUserMessage(text) {
     await waitForInitialize(this.state);
-    writeUserMessage(this.state.child, text);
+    await writeUserMessage(this.state.child, text);
   }
 
   async answerQuestion(questionId, text) {
     await waitForInitialize(this.state);
     const pending = this.state.pendingQuestions.get(questionId);
     if (pending?.toolUseId && !pending.requestId) {
-      writeToolResultMessage(this.state.child, pending.toolUseId, text);
+      await writeToolResultMessage(this.state.child, pending.toolUseId, text);
       this.state.pendingQuestions.delete(questionId);
       return;
     }
-    writeUserMessage(this.state.child, text);
+    await writeUserMessage(this.state.child, text);
     if (pending) {
       if (pending.requestId) {
-        writeControlResponse(this.state.child, pending.requestId, {
+        await writeControlResponse(this.state.child, pending.requestId, {
           subtype: 'success',
           response: { behavior: 'allow', updatedInput: pending.input || {} }
         });
@@ -199,19 +204,69 @@ class ClaudeConversationHandle {
     await waitForInitialize(this.state);
     const pending = this.state.pendingApprovals.get(approvalId);
     const input = pending?.input || {};
-    const response = decision === 'allow'
-      ? { behavior: 'allow', updatedInput: input }
-      : { behavior: 'deny', message: 'User denied permission from mobile client.', interrupt: true };
-    writeControlResponse(this.state.child, approvalId, { subtype: 'success', response });
+    const approval = typeof decision === 'string' ? { decision } : (decision || {});
+    const response = approval.decision === 'allow'
+      ? {
+          behavior: 'allow',
+          updatedInput: approval.updatedInput || input,
+          ...(Array.isArray(approval.updatedPermissions) ? { updatedPermissions: approval.updatedPermissions } : {})
+        }
+      : {
+          behavior: 'deny',
+          message: 'User denied permission from mobile client.',
+          interrupt: Object.prototype.hasOwnProperty.call(approval, 'interrupt') ? approval.interrupt === true : true
+        };
+    await writeControlResponse(this.state.child, approvalId, { subtype: 'success', response });
     this.state.pendingApprovals.delete(approvalId);
   }
 
   async cancel() {
-    if (this.state.child && typeof this.state.child.kill === 'function') this.state.child.kill('SIGTERM');
+    const child = this.state.child;
+    if (!child) return;
+    try {
+      if (isWritableStdin(child.stdin) && typeof child.stdin.end === 'function') child.stdin.end();
+    } catch (_err) {}
+    if (typeof child.kill !== 'function') return;
+    const exited = await waitForChildExit(child, 1000);
+    if (!exited) child.kill('SIGTERM');
+    const terminated = await waitForChildExit(child, 1000);
+    if (!terminated) child.kill('SIGKILL');
   }
 
   async dispose() {
     await this.cancel();
+  }
+
+  async interrupt() {
+    await sendControlRequest(this.state, { subtype: 'interrupt' });
+  }
+
+  async setPermissionMode(mode) {
+    await sendControlRequest(this.state, { subtype: 'set_permission_mode', mode });
+  }
+
+  async setModel(model) {
+    await sendControlRequest(this.state, { subtype: 'set_model', model });
+  }
+
+  async getContextUsage() {
+    return sendControlRequest(this.state, { subtype: 'get_context_usage' });
+  }
+
+  async getMcpStatus() {
+    return sendControlRequest(this.state, { subtype: 'mcp_status' });
+  }
+
+  async reconnectMcpServer(name) {
+    await sendControlRequest(this.state, { subtype: 'mcp_reconnect', serverName: name });
+  }
+
+  async toggleMcpServer(name, enabled) {
+    await sendControlRequest(this.state, { subtype: 'mcp_toggle', serverName: name, enabled });
+  }
+
+  async stopTask(taskId) {
+    await sendControlRequest(this.state, { subtype: 'stop_task', task_id: taskId });
   }
 }
 
@@ -220,6 +275,7 @@ function handleRawClaudeEvent(raw, state) {
   const rawType = typeof event.type === 'string' ? event.type : 'raw';
   if (rawType === 'control_response') {
     const requestId = event.response?.request_id || event.request_id;
+    if (handlePendingControlResponse(state, requestId, event.response || event)) return;
     if (requestId === state.initRequestId || !state.initialized) completeInitialize(state);
     return;
   }
@@ -535,6 +591,44 @@ function handleToolResult(raw, state, originalRaw = raw) {
   state.pendingTools.delete(toolUseId);
 }
 
+function handlePendingControlResponse(state, requestId, response) {
+  if (!requestId || !state.pendingControlResponses?.has(requestId)) return false;
+  const waiter = state.pendingControlResponses.get(requestId);
+  state.pendingControlResponses.delete(requestId);
+  if (response?.subtype === 'error') {
+    const message = response.error?.message || response.message || `Claude control request failed: ${requestId}`;
+    waiter.reject(new Error(message));
+    return true;
+  }
+  const responseData = response?.response && typeof response.response === 'object' ? response.response : {};
+  waiter.resolve(responseData);
+  return true;
+}
+
+async function sendControlRequest(state, request, timeoutMs = 60000) {
+  await waitForInitialize(state);
+  state.controlCounter = Number(state.controlCounter || 0) + 1;
+  const requestId = `req_${state.controlCounter}_${Date.now().toString(16)}`;
+  const responsePromise = new Promise((resolve, reject) => {
+    state.pendingControlResponses.set(requestId, { resolve, reject });
+  });
+  const timeout = setTimeout(() => {
+    const waiter = state.pendingControlResponses.get(requestId);
+    if (!waiter) return;
+    state.pendingControlResponses.delete(requestId);
+    waiter.reject(new Error(`Control request timeout: ${request.subtype || 'unknown'}`));
+  }, timeoutMs);
+  if (typeof timeout.unref === 'function') timeout.unref();
+  try {
+    await writeJsonLine(state.child, { type: 'control_request', request_id: requestId, request });
+  } catch (error) {
+    clearTimeout(timeout);
+    state.pendingControlResponses.delete(requestId);
+    throw error;
+  }
+  return responsePromise.finally(() => clearTimeout(timeout));
+}
+
 function isClaudeTaskToolName(toolName) {
   const name = String(toolName || '').toLowerCase();
   return name === 'taskcreate' || name === 'taskupdate';
@@ -826,7 +920,26 @@ function parsePartialJsonObject(value) {
 function handleControlRequest(raw, state) {
   const requestId = raw.request_id;
   const request = raw.request || {};
-  if (request.subtype !== 'can_use_tool' || !requestId) return;
+  if (!requestId) return;
+  if (request.subtype !== 'can_use_tool') {
+    const message = request.subtype === 'hook_callback'
+      ? `No hook callback found for ID: ${request.callback_id || 'unknown'}`
+      : request.subtype === 'mcp_message'
+        ? `No MCP handler found for server: ${request.server_name || request.serverName || 'unknown'}`
+        : `Unsupported control request subtype: ${request.subtype || 'unknown'}`;
+    writeControlResponse(state.child, requestId, {
+      subtype: 'error',
+      error: { message }
+    }).catch((error) => {
+      state.onEvent({
+        type: conversationEventTypes.PROTOCOL_WARNING,
+        warning: 'control_response_write_failed',
+        message: error.message,
+        visible: false
+      });
+    });
+    return;
+  }
   if (request.tool_name === 'AskUserQuestion') {
     const questionId = request.tool_use_id || requestId;
     state.pendingQuestions.set(questionId, { requestId, input: request.input || {}, toolName: request.tool_name, toolUseId: request.tool_use_id || null });
@@ -981,15 +1094,15 @@ function throwClaudeImageTooLarge() {
   throw error;
 }
 
-function writeUserMessage(child, message) {
+async function writeUserMessage(child, message) {
   const content = typeof message === 'string'
     ? buildClaudeUserContent({ text: message })
     : buildClaudeUserContent(message);
-  writeJsonLine(child, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: '' });
+  await writeJsonLine(child, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: '' });
 }
 
-function writeToolResultMessage(child, toolUseId, text) {
-  writeJsonLine(child, {
+async function writeToolResultMessage(child, toolUseId, text) {
+  await writeJsonLine(child, {
     type: 'user',
     message: {
       role: 'user',
@@ -1000,14 +1113,46 @@ function writeToolResultMessage(child, toolUseId, text) {
   });
 }
 
-function writeControlResponse(child, requestId, response) {
+async function writeControlResponse(child, requestId, response) {
   if (!requestId) return;
-  writeJsonLine(child, { type: 'control_response', response: { request_id: requestId, ...response } });
+  await writeJsonLine(child, { type: 'control_response', response: { request_id: requestId, ...response } });
 }
 
 function writeJsonLine(child, payload) {
-  if (!isWritableStdin(child.stdin)) return;
-  child.stdin.write(`${JSON.stringify(payload)}\n`);
+  return new Promise((resolve, reject) => {
+    if (!isWritableStdin(child?.stdin)) {
+      reject(new Error('Claude stdin is not writable'));
+      return;
+    }
+    const line = `${JSON.stringify(payload)}\n`;
+    let settled = false;
+    const done = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const onError = (error) => done(error || new Error('Claude stdin write failed'));
+    const onDrain = () => done();
+    const cleanup = () => {
+      if (typeof child.stdin.off === 'function') {
+        child.stdin.off('error', onError);
+        child.stdin.off('drain', onDrain);
+      } else if (typeof child.stdin.removeListener === 'function') {
+        child.stdin.removeListener('error', onError);
+        child.stdin.removeListener('drain', onDrain);
+      }
+    };
+    if (typeof child.stdin.once === 'function') child.stdin.once('error', onError);
+    try {
+      const flushed = child.stdin.write(line, (error) => done(error));
+      if (flushed !== false || typeof child.stdin.once !== 'function') done();
+      else child.stdin.once('drain', onDrain);
+    } catch (error) {
+      done(error);
+    }
+  });
 }
 
 function isWritableStdin(stdin) {
@@ -1016,6 +1161,25 @@ function isWritableStdin(stdin) {
     && stdin.writable !== false
     && !stdin.writableEnded
     && !stdin.writableFinished;
+}
+
+function waitForChildExit(child, timeoutMs) {
+  return new Promise((resolve) => {
+    if (!child || typeof child.once !== 'function') return resolve(true);
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (typeof child.off === 'function') child.off('exit', onExit);
+      else if (typeof child.removeListener === 'function') child.removeListener('exit', onExit);
+      resolve(value);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.once('exit', onExit);
+  });
 }
 
 function askUserQuestionText(input) {
@@ -1162,6 +1326,74 @@ function summarizeToolInput(toolName, input) {
   return toolName || 'Tool request';
 }
 
+function buildClaudeOptionArgs({ requestedToolPolicy, claudeOptions } = {}) {
+  const options = claudeOptions && typeof claudeOptions === 'object' && !Array.isArray(claudeOptions) ? claudeOptions : {};
+  const args = [];
+  const tools = Array.isArray(options.tools) ? options.tools : requestedToolPolicy?.tools;
+  const allowed = Array.isArray(options.allowedTools) ? options.allowedTools : requestedToolPolicy?.allowedTools;
+  const disallowed = Array.isArray(options.disallowedTools) ? options.disallowedTools : requestedToolPolicy?.disallowedTools;
+  pushListArg(args, '--tools', tools, { includeEmpty: Array.isArray(options.tools) });
+  pushListArg(args, '--allowedTools', allowed);
+  pushListArg(args, '--disallowedTools', disallowed);
+  pushStringArg(args, '--system-prompt', options.systemPrompt);
+  pushStringArg(args, '--system-prompt-file', options.systemPromptFile);
+  pushStringArg(args, '--append-system-prompt', options.appendSystemPrompt);
+  pushNumberArg(args, '--max-turns', options.maxTurns);
+  pushNumberArg(args, '--max-budget-usd', options.maxBudgetUsd);
+  pushNumberArg(args, '--task-budget', options.taskBudgetTotal);
+  pushStringArg(args, '--fallback-model', options.fallbackModel);
+  pushListArg(args, '--betas', options.betas);
+  pushStringArg(args, '--settings', options.settings);
+  for (const directory of Array.isArray(options.addDirs) ? options.addDirs : []) pushStringArg(args, '--add-dir', directory);
+  if (options.mcpConfig) {
+    args.push('--mcp-config', typeof options.mcpConfig === 'string'
+      ? options.mcpConfig
+      : JSON.stringify({ mcpServers: options.mcpConfig }));
+  }
+  if (options.forkSession === true) args.push('--fork-session');
+  if (Array.isArray(options.settingSources)) args.push(`--setting-sources=${options.settingSources.join(',')}`);
+  if (Array.isArray(options.plugins)) {
+    for (const plugin of options.plugins) {
+      if (plugin?.type === 'local' && plugin.path) args.push('--plugin-dir', String(plugin.path));
+    }
+  }
+  if (options.extraArgs && typeof options.extraArgs === 'object' && !Array.isArray(options.extraArgs)) {
+    for (const [flag, value] of Object.entries(options.extraArgs)) {
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(flag)) continue;
+      args.push(`--${flag}`);
+      if (value != null) args.push(String(value));
+    }
+  }
+  const thinking = options.thinking && typeof options.thinking === 'object' ? options.thinking : null;
+  if (thinking?.type === 'adaptive') args.push('--thinking', 'adaptive');
+  else if (thinking?.type === 'enabled') pushNumberArg(args, '--max-thinking-tokens', thinking.budgetTokens);
+  else if (thinking?.type === 'disabled') args.push('--thinking', 'disabled');
+  else pushNumberArg(args, '--max-thinking-tokens', options.maxThinkingTokens);
+  pushStringArg(args, '--effort', options.effort);
+  const outputFormat = options.outputFormat && typeof options.outputFormat === 'object' ? options.outputFormat : null;
+  if (outputFormat?.type === 'json_schema' && outputFormat.schema) {
+    args.push('--json-schema', JSON.stringify(outputFormat.schema));
+  }
+  return args;
+}
+
+function pushStringArg(args, flag, value) {
+  if (typeof value !== 'string' || !value.trim()) return;
+  args.push(flag, value);
+}
+
+function pushNumberArg(args, flag, value) {
+  if (!Number.isFinite(Number(value))) return;
+  args.push(flag, String(value));
+}
+
+function pushListArg(args, flag, value, { includeEmpty = false } = {}) {
+  if (!Array.isArray(value)) return;
+  const list = value.map((item) => String(item).trim()).filter(Boolean);
+  if (list.length === 0 && !includeEmpty) return;
+  args.push(flag, list.join(','));
+}
+
 function allowedTools() {
   return ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'LS', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(node *)', 'Bash(npm test *)', 'Bash(pnpm test *)', 'Bash(python *)', 'Bash(py *)', 'Bash(dart test *)', 'Bash(flutter test *)', 'Bash(flutter analyze *)'].join(',');
 }
@@ -1169,7 +1401,8 @@ function allowedTools() {
 function sdkProcessEnvForWorkspace(sourceEnv, workspacePath) {
   const env = { ...sourceEnv };
   delete env.CLAUDECODE;
-  env.CLAUDE_CODE_ENTRYPOINT = env.CLAUDE_CODE_ENTRYPOINT || 'sdk-js';
+  env.CLAUDE_CODE_ENTRYPOINT = 'sdk-js';
+  env.CLAUDE_AGENT_SDK_VERSION = packageJson.version || '0.0.0';
   env.CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING = '1';
   if (workspacePath) env.PWD = workspacePath;
   return env;

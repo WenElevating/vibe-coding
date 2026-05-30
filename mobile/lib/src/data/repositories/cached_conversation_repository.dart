@@ -158,6 +158,25 @@ class CachedConversationRepository extends ChangeNotifier
   }
 
   @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    _startMutation();
+    try {
+      final conversation = await _delegate.updateConversationPermissionMode(
+        conversationId,
+        permissionMode,
+      );
+      _upsert(conversation);
+      return conversation;
+    } catch (error) {
+      _applyMutationError(error);
+      rethrow;
+    }
+  }
+
+  @override
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,

@@ -73,6 +73,11 @@ abstract class ConversationService {
     String? model,
   );
 
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  );
+
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq,

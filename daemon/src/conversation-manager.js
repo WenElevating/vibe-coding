@@ -10,6 +10,8 @@ const {
   conversationEventTypes,
   normalizeConversationCreate,
   normalizeConversationModelUpdate,
+  normalizePermissionModeUpdate,
+  normalizeConversationControl,
   normalizeMessagePayload,
   normalizeQuestionResponse,
   normalizeApprovalDecision
@@ -98,6 +100,7 @@ class ConversationManager {
       requestedToolPolicy: input.requestedToolPolicy,
       resumePolicy: input.resumePolicy,
       systemPromptPolicy: input.systemPromptPolicy,
+      claudeOptions: input.claudeOptions,
       permissionSupport: {},
       notices: [],
       protocolVersion: 2,
@@ -143,14 +146,15 @@ class ConversationManager {
   async updateModel(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const input = normalizeConversationModelUpdate(payload);
-    if (activeStateBlocksModelUpdate(conversation)) {
+    const activeHandle = conversation.adapter === 'claude' && conversation.handle && typeof conversation.handle.setModel === 'function';
+    if (!activeHandle && activeStateBlocksModelUpdate(conversation)) {
       throw conflict('conversation is active; wait for the current turn before changing model');
     }
     if (conversation.modelUpdateLock) throw conflict('model update already in flight');
 
     conversation.modelUpdateLock = true;
     try {
-      if (activeStateBlocksModelUpdate(conversation)) {
+      if (!activeHandle && activeStateBlocksModelUpdate(conversation)) {
         throw conflict('conversation is active; wait for the current turn before changing model');
       }
       const adapter = this.getAdapter(conversation.adapter);
@@ -160,14 +164,18 @@ class ConversationManager {
 
       const previousModel = conversation.model || null;
       try {
-        try {
-          await disposeIdleHandle(conversation);
-        } catch (error) {
-          this.auditLog.record('conversation.model_handle_dispose_error', {
-            conversationId: conversation.id,
-            error: error.message
-          });
-          throw error;
+        if (activeHandle) {
+          await conversation.handle.setModel(input.model);
+        } else {
+          try {
+            await disposeIdleHandle(conversation);
+          } catch (error) {
+            this.auditLog.record('conversation.model_handle_dispose_error', {
+              conversationId: conversation.id,
+              error: error.message
+            });
+            throw error;
+          }
         }
 
         conversation.model = input.model;
@@ -255,6 +263,70 @@ class ConversationManager {
       this.multipartDeviceLocks.delete(device.id);
       this.multipartActiveCount -= 1;
     }
+  }
+
+  async updatePermissionMode(conversationId, payload, device) {
+    const conversation = this.requireConversation(conversationId, device);
+    const input = normalizePermissionModeUpdate(payload);
+    if ((conversation.permissionMode || 'default') === input.permissionMode) return publicConversation(conversation);
+    if (conversation.adapter === 'claude' && conversation.handle && typeof conversation.handle.setPermissionMode === 'function') {
+      await conversation.handle.setPermissionMode(input.permissionMode);
+    }
+    conversation.permissionMode = input.permissionMode;
+    conversation.requestedPermissionMode = input.permissionMode;
+    conversation.effectivePermissionMode = input.permissionMode;
+    this.touch(conversation);
+    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, {
+      status: conversation.status,
+      permissionMode: input.permissionMode
+    });
+    return publicConversation(conversation);
+  }
+
+  async controlConversation(conversationId, payload, device) {
+    const conversation = this.requireConversation(conversationId, device);
+    const input = normalizeConversationControl(payload);
+    if (conversation.adapter !== 'claude' || !conversation.handle) throw conflict('conversation is not controlled by an active Claude session');
+    const handle = conversation.handle;
+    let result;
+    switch (input.action) {
+      case 'interrupt':
+        result = await requireHandleMethod(handle, 'interrupt').call(handle);
+        break;
+      case 'set_permission_mode':
+        result = await requireHandleMethod(handle, 'setPermissionMode').call(handle, input.permissionMode);
+        conversation.permissionMode = input.permissionMode;
+        conversation.requestedPermissionMode = input.permissionMode;
+        conversation.effectivePermissionMode = input.permissionMode;
+        this.touch(conversation);
+        break;
+      case 'set_model':
+        result = await requireHandleMethod(handle, 'setModel').call(handle, input.model);
+        conversation.model = input.model || null;
+        this.touch(conversation);
+        break;
+      case 'get_context_usage':
+        result = await requireHandleMethod(handle, 'getContextUsage').call(handle);
+        break;
+      case 'get_mcp_status':
+        result = await requireHandleMethod(handle, 'getMcpStatus').call(handle);
+        break;
+      case 'reconnect_mcp_server':
+        if (!input.name) throw badRequest('name is required');
+        result = await requireHandleMethod(handle, 'reconnectMcpServer').call(handle, input.name);
+        break;
+      case 'toggle_mcp_server':
+        if (!input.name) throw badRequest('name is required');
+        result = await requireHandleMethod(handle, 'toggleMcpServer').call(handle, input.name, input.enabled);
+        break;
+      case 'stop_task':
+        if (!input.taskId) throw badRequest('taskId is required');
+        result = await requireHandleMethod(handle, 'stopTask').call(handle, input.taskId);
+        break;
+      default:
+        throw badRequest(`unsupported control action: ${input.action}`);
+    }
+    return { conversation: publicConversation(conversation), result: result || {} };
   }
 
   async commitAndDispatchMessage(conversation, message, device, { files = [], scratch = null } = {}) {
@@ -463,7 +535,12 @@ class ConversationManager {
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: answer.text, questionId: answer.questionId });
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-    await conversation.handle.answerQuestion(answer.questionId, answer.text);
+    try {
+      await conversation.handle.answerQuestion(answer.questionId, answer.text);
+    } catch (error) {
+      this.markConversationDispatchFailed(conversation, error);
+      throw error;
+    }
     this.auditLog.record('conversation.question_answer', { conversationId: conversation.id, deviceId: device.id, questionId: answer.questionId, textLength: answer.text.length });
     return publicConversation(conversation);
   }
@@ -483,7 +560,12 @@ class ConversationManager {
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.APPROVAL_RESOLVED, resolved);
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-    await conversation.handle.respondApproval(approvalId, decision.decision);
+    try {
+      await conversation.handle.respondApproval(approvalId, decision);
+    } catch (error) {
+      this.markConversationDispatchFailed(conversation, error);
+      throw error;
+    }
     this.auditLog.record('conversation.approval', { conversationId: conversation.id, deviceId: device.id, approvalId, decision: decision.decision });
     return publicConversation(conversation);
   }
@@ -520,6 +602,16 @@ class ConversationManager {
     return this.eventStore
       .listAfter(conversation.id, afterSeq)
       .map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
+  }
+
+  markConversationDispatchFailed(conversation, error) {
+    conversation.status = conversationStatuses.FAILED;
+    conversation.blockingItem = null;
+    conversation.idleExpiresAt = null;
+    conversation.handle = null;
+    this.touch(conversation);
+    this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, { message: error.message });
+    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
   }
 
   listEventPage(conversationId, pageRequest, device) {
@@ -682,6 +774,8 @@ class ConversationManager {
       permissionMode: conversation.permissionMode,
       sessionId: conversation.cliSessionId,
       model: conversation.model,
+      requestedToolPolicy: conversation.requestedToolPolicy,
+      claudeOptions: conversation.claudeOptions,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
     return conversation.handle;
@@ -815,6 +909,11 @@ function assertRequestedModelAllowed(requestedModel, capability) {
   if (!capability.models.some((model) => model && model.id === requestedModel)) {
     throw unprocessable(`model is not available for this adapter: ${requestedModel}`);
   }
+}
+
+function requireHandleMethod(handle, name) {
+  if (typeof handle[name] !== 'function') throw conflict(`active conversation does not support ${name}`);
+  return handle[name];
 }
 
 function attachmentError(status, code, message, details) {
@@ -1201,6 +1300,7 @@ function publicConversation(conversation) {
     requestedToolPolicy: conversation.requestedToolPolicy || { tools: [], allowedTools: [], disallowedTools: [] },
     resumePolicy: conversation.resumePolicy || { type: 'fresh' },
     systemPromptPolicy: conversation.systemPromptPolicy || { type: 'none' },
+    claudeOptions: conversation.claudeOptions || {},
     permissionSupport: conversation.permissionSupport || {},
     notices: Array.isArray(conversation.notices) ? conversation.notices : [],
     protocolVersion: conversation.protocolVersion || 1

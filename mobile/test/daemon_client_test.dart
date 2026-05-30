@@ -295,6 +295,30 @@ void main() {
     expect(conversation.id, 'conv_1');
   });
 
+  test('updateConversationPermissionMode patches conversation permission mode',
+      () async {
+    late Map<String, Object?> uploaded;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.method, 'PATCH');
+        expect(
+          request.url.path,
+          '/api/conversations/conv_1/permission-mode',
+        );
+        uploaded = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response(jsonEncode(_conversationResponse()), 200);
+      }),
+    );
+
+    final conversation =
+        await client.updateConversationPermissionMode('conv_1', 'auto');
+
+    expect(uploaded, const <String, Object?>{'permissionMode': 'auto'});
+    expect(conversation.id, 'conv_1');
+  });
+
   test('sendConversationMessage with attachments uses multipart form data',
       () async {
     final directory = await Directory.systemTemp.createTemp('daemon-client-');

@@ -992,6 +992,15 @@ class _FakeConversationRepository implements ConversationRepository {
   }
 
   @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    calls.add('update-permission-mode:$conversationId:$permissionMode');
+    return _conversation();
+  }
+
+  @override
   Future<List<ConversationSummary>> listConversations() async =>
       const <ConversationSummary>[];
 

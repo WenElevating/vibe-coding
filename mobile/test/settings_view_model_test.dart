@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
+import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/settings_view_model.dart';
 
@@ -33,6 +34,45 @@ void main() {
 
     expect(preferences.permissionMode, 'default');
     expect(viewModel.permissionMode, 'default');
+  });
+
+  test('settings syncs permission mode to active Claude conversation',
+      () async {
+    final preferences = _FakeCodingPreferencesRepository();
+    final conversationRepository = _FakeConversationRepository();
+    final viewModel = _settingsViewModel(
+      _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      preferences: preferences,
+      conversationRepository: conversationRepository,
+      activeConversationProvider: () => _conversation(
+        id: 'conv_1',
+        adapter: 'claude',
+      ),
+    );
+
+    await viewModel.setPermissionMode('auto');
+
+    expect(preferences.permissionMode, 'auto');
+    expect(conversationRepository.permissionModeUpdates, const <String>[
+      'conv_1:auto',
+    ]);
+  });
+
+  test('settings does not sync permission mode to non-Claude conversations',
+      () async {
+    final conversationRepository = _FakeConversationRepository();
+    final viewModel = _settingsViewModel(
+      _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      conversationRepository: conversationRepository,
+      activeConversationProvider: () => _conversation(
+        id: 'conv_1',
+        adapter: 'codex',
+      ),
+    );
+
+    await viewModel.setPermissionMode('auto');
+
+    expect(conversationRepository.permissionModeUpdates, isEmpty);
   });
 
   test('settings records permission mode persistence failures', () async {
@@ -87,11 +127,15 @@ void main() {
 SettingsViewModel _settingsViewModel(
   _FakeWorkspaceRepository workspaceRepository, {
   _FakeCodingPreferencesRepository? preferences,
+  _FakeConversationRepository? conversationRepository,
+  ConversationSummary? Function()? activeConversationProvider,
 }) =>
     SettingsViewModel(
       workspaceRepository: workspaceRepository,
       codingPreferencesRepository:
           preferences ?? _FakeCodingPreferencesRepository(),
+      conversationRepository: conversationRepository,
+      activeConversationProvider: activeConversationProvider,
       connectionConfig: _connectionConfig('http://127.0.0.1:4317'),
       health: _health(daemonVersion: '1.0.0'),
     );
@@ -111,6 +155,21 @@ DaemonHealth _health({required String daemonVersion}) => DaemonHealth(
       bindAddress: '127.0.0.1',
       port: 4317,
       security: const <String, Object?>{},
+    );
+
+ConversationSummary _conversation({
+  required String id,
+  required String adapter,
+}) =>
+    ConversationSummary(
+      id: id,
+      workspaceId: 'workspace_1',
+      adapter: adapter,
+      status: 'running',
+      capabilities:
+          ConversationCapabilities.fromJson(const <String, Object?>{}),
+      createdAt: '2026-05-30T00:00:00.000Z',
+      updatedAt: '2026-05-30T00:00:01.000Z',
     );
 
 class _FakeWorkspaceRepository extends WorkspaceRepository {
@@ -226,4 +285,20 @@ class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
   }
 
   void notifyForTest() => notifyListeners();
+}
+
+class _FakeConversationRepository implements ConversationRepository {
+  final List<String> permissionModeUpdates = <String>[];
+
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    permissionModeUpdates.add('$conversationId:$permissionMode');
+    return _conversation(id: conversationId, adapter: 'claude');
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

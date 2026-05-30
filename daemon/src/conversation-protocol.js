@@ -79,7 +79,8 @@ function normalizeConversationCreate(payload) {
     requestedTools: normalizeStringList(payload.requestedTools),
     requestedToolPolicy: normalizeToolPolicy(payload.requestedToolPolicy),
     resumePolicy: normalizeResumePolicy(payload.resumePolicy),
-    systemPromptPolicy: normalizeSystemPromptPolicy(payload.systemPromptPolicy)
+    systemPromptPolicy: normalizeSystemPromptPolicy(payload.systemPromptPolicy),
+    claudeOptions: normalizeClaudeOptions(payload.claudeOptions)
   };
 }
 
@@ -122,7 +123,43 @@ function normalizeApprovalDecision(payload) {
   if (!payload || typeof payload !== 'object') throw badRequest('payload must be an object');
   const decision = stringValue(payload.decision).trim();
   if (!['allow', 'deny'].includes(decision)) throw badRequest('decision must be allow or deny');
-  return { decision };
+  const normalized = { decision };
+  if (Object.prototype.hasOwnProperty.call(payload, 'updatedInput')) {
+    if (!plainObject(payload.updatedInput)) throw badRequest('updatedInput must be an object');
+    normalized.updatedInput = payload.updatedInput;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'updatedPermissions')) {
+    if (!Array.isArray(payload.updatedPermissions)) throw badRequest('updatedPermissions must be an array');
+    normalized.updatedPermissions = payload.updatedPermissions.filter(plainObject);
+  }
+  if (decision === 'deny') {
+    normalized.interrupt = Object.prototype.hasOwnProperty.call(payload, 'interrupt')
+      ? payload.interrupt === true
+      : true;
+  } else if (Object.prototype.hasOwnProperty.call(payload, 'interrupt')) {
+    normalized.interrupt = payload.interrupt === true;
+  }
+  return normalized;
+}
+
+function normalizePermissionModeUpdate(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw badRequest('payload must be an object');
+  if (!Object.prototype.hasOwnProperty.call(payload, 'permissionMode')) throw badRequest('permissionMode is required');
+  return { permissionMode: normalizePermissionMode(payload.permissionMode) };
+}
+
+function normalizeConversationControl(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw badRequest('payload must be an object');
+  const action = stringValue(payload.action).trim();
+  if (!action) throw badRequest('action is required');
+  return {
+    action,
+    ...(Object.prototype.hasOwnProperty.call(payload, 'model') ? { model: payload.model == null ? null : optionalString(payload.model) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'permissionMode') ? { permissionMode: normalizePermissionMode(payload.permissionMode) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'name') ? { name: optionalString(payload.name) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'enabled') ? { enabled: payload.enabled === true } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'taskId') ? { taskId: optionalString(payload.taskId) } : {})
+  };
 }
 
 function normalizePermissionMode(value) {
@@ -175,6 +212,83 @@ function normalizeSystemPromptPolicy(value) {
   return policy;
 }
 
+function normalizeClaudeOptions(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const options = {};
+  copyStringListOption(options, value, 'tools');
+  copyStringListOption(options, value, 'allowedTools');
+  copyStringListOption(options, value, 'disallowedTools');
+  copyStringOption(options, value, 'systemPrompt');
+  copyStringOption(options, value, 'systemPromptFile');
+  copyStringOption(options, value, 'appendSystemPrompt');
+  copyIntegerOption(options, value, 'maxTurns');
+  copyNumberOption(options, value, 'maxBudgetUsd');
+  copyNumberOption(options, value, 'taskBudgetTotal');
+  copyStringOption(options, value, 'fallbackModel');
+  copyStringListOption(options, value, 'betas');
+  copyStringOption(options, value, 'settings');
+  copyStringListOption(options, value, 'addDirs');
+  if (plainObject(value.mcpConfig) || typeof value.mcpConfig === 'string') options.mcpConfig = value.mcpConfig;
+  if (value.forkSession === true) options.forkSession = true;
+  copyStringListOption(options, value, 'settingSources');
+  if (Array.isArray(value.skills)) options.skills = normalizeStringList(value.skills);
+  else if (value.skills === 'all') options.skills = 'all';
+  if (plainObject(value.sandbox)) options.sandbox = value.sandbox;
+  if (Array.isArray(value.plugins)) {
+    options.plugins = value.plugins
+      .filter(plainObject)
+      .map((plugin) => ({ type: stringValue(plugin.type).trim(), path: stringValue(plugin.path).trim() }))
+      .filter((plugin) => plugin.type && plugin.path);
+  }
+  if (plainObject(value.extraArgs)) {
+    options.extraArgs = {};
+    for (const [key, raw] of Object.entries(value.extraArgs)) {
+      const flag = stringValue(key).trim();
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(flag)) continue;
+      options.extraArgs[flag] = raw == null ? null : String(raw);
+    }
+  }
+  if (plainObject(value.thinking)) options.thinking = normalizeThinking(value.thinking);
+  copyIntegerOption(options, value, 'maxThinkingTokens');
+  copyStringOption(options, value, 'effort');
+  if (plainObject(value.outputFormat)) options.outputFormat = value.outputFormat;
+  if (plainObject(value.jsonSchema)) options.outputFormat = { type: 'json_schema', schema: value.jsonSchema };
+  return options;
+}
+
+function normalizeThinking(value) {
+  const type = stringValue(value.type).trim();
+  if (type === 'enabled') return { type, budgetTokens: Number(value.budgetTokens || value.budget_tokens || 0) };
+  if (type === 'adaptive' || type === 'disabled') return { type };
+  return {};
+}
+
+function copyStringOption(target, source, key) {
+  const value = stringValue(source[key]).trim();
+  if (value) target[key] = value;
+}
+
+function copyStringListOption(target, source, key) {
+  const value = normalizeStringList(source[key]);
+  if (value.length > 0 || Array.isArray(source[key])) target[key] = value;
+}
+
+function copyIntegerOption(target, source, key) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+  const value = Number(source[key]);
+  if (Number.isSafeInteger(value) && value > 0) target[key] = value;
+}
+
+function copyNumberOption(target, source, key) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+  const value = Number(source[key]);
+  if (Number.isFinite(value) && value >= 0) target[key] = value;
+}
+
+function plainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function stringValue(value) {
   return typeof value === 'string' ? value : '';
 }
@@ -210,6 +324,8 @@ module.exports = {
   conversationEventTypes,
   normalizeConversationCreate,
   normalizeConversationModelUpdate,
+  normalizePermissionModeUpdate,
+  normalizeConversationControl,
   normalizeMessagePayload,
   normalizeQuestionResponse,
   normalizeApprovalDecision,

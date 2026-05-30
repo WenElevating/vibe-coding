@@ -747,6 +747,16 @@ class _FakeConversationRepository implements ConversationRepository {
         workspaceId: _workspace.id,
         model: model,
       );
+
+  @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async =>
+      _conversation(
+        id: conversationId,
+        workspaceId: _workspace.id,
+      );
 }
 
 class _FakeRunRepository implements RunRepository {

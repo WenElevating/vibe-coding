@@ -60,6 +60,21 @@ class DaemonConversationRepository implements ConversationRepository {
   }
 
   @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    try {
+      return await _client.updateConversationPermissionMode(
+        conversationId,
+        permissionMode,
+      );
+    } on DaemonClientException catch (error) {
+      throw _toRepositoryException(error);
+    }
+  }
+
+  @override
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,

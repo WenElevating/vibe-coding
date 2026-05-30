@@ -573,6 +573,19 @@ class DaemonClient
   }
 
   @override
+  Future<ConversationSummary> updateConversationPermissionMode(
+    String conversationId,
+    String permissionMode,
+  ) async {
+    final response = await _patch(
+      '/api/conversations/$conversationId/permission-mode',
+      <String, Object?>{'permissionMode': permissionMode},
+    );
+    return ConversationSummary.fromJson(
+        response['conversation'] as Map<String, Object?>);
+  }
+
+  @override
   Future<ConversationSummary> sendConversationMessage(String conversationId,
       ConversationServiceMessageSendRequest request) async {
     final path = '/api/conversations/$conversationId/messages';
