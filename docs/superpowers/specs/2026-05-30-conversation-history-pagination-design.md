@@ -189,7 +189,7 @@ windowed history:
 Future<ConversationEventPage> fetchConversationEventPage(
   String conversationId, {
   int? beforeSeq,
-  int limit = 80,
+  required int limit,
 });
 ```
 
@@ -218,27 +218,38 @@ without surfacing a noisy error.
 `WorkbenchViewModel` keeps logical event order but adds pagination state:
 
 ```text
-oldestLoadedConversationSeq
-hasMoreHistoricalConversationEvents
-loadingOlderConversationEvents
-historicalConversationLoadError
+oldestLoadedConversationSeq: int?
+hasMoreHistoricalConversationEvents: bool
+loadingOlderConversationEvents: bool
+historicalConversationLoadError: Object?
 ```
+
+`oldestLoadedConversationSeq = null` means no historical event page has been
+loaded for the active conversation. It must not use `0`; `0` is reserved for
+the live replay cursor fallback when an empty tail page starts WebSocket watch
+with `afterSeq=0`.
 
 Opening a historical conversation:
 
 1. Clear previous active conversation display.
 2. Enter the conversation route immediately.
-3. Fetch the tail page.
-4. Apply the page events.
-5. Set `oldestLoadedConversationSeq`, `hasMoreHistoricalConversationEvents`,
-   and `_lastSeq` from the loaded page.
-6. If the tail page is empty, keep `_lastSeq = 0`.
-7. Start WebSocket watch with `afterSeq = _lastSeq`.
+3. Capture a conversation-load generation/current-target token before starting
+   the tail request. The initial tail request and older-page requests must use
+   the same stale-result discard rule.
+4. Fetch the tail page.
+5. Apply the page events only if the generation/current-target token is still
+   current.
+6. If the tail page has events, set `oldestLoadedConversationSeq`,
+   `hasMoreHistoricalConversationEvents`, and `_lastSeq` from the loaded page.
+7. If the tail page is empty, leave `oldestLoadedConversationSeq = null`, set
+   `hasMoreHistoricalConversationEvents = false`, and keep `_lastSeq = 0`.
+8. Start WebSocket watch with `afterSeq = _lastSeq`.
 
 Loading older events:
 
-1. Ignore the request if there is no active conversation, no older history, or
-   an older-page request is already active.
+1. Ignore the request if there is no active conversation, no loaded
+   `oldestLoadedConversationSeq`, no older history, or an older-page request is
+   already active.
 2. Fetch `beforeSeq = oldestLoadedConversationSeq`.
 3. Merge the returned events into the ViewModel's ordered event window by
    `seq`.
@@ -297,8 +308,8 @@ Implementation guidance:
 - If a new event arrives while an older page is loading, keep it. The ViewModel
   sequence merge is responsible for de-duplicating races between stream events
   and older-page responses.
-- If the user navigates away during any page load, discard the result using the
-  existing generation/current-target checks.
+- If the user navigates away during any page load, including the initial tail
+  request, discard the result using the shared generation/current-target check.
 
 ## Testing Plan
 
@@ -335,6 +346,8 @@ Workbench tests:
 - Older-page load failure keeps the loaded transcript visible.
 - Navigating away while the initial tail load is in flight discards the result
   and does not mutate the next route's transcript.
+- The historical page contract requires an explicit `limit` at every mobile
+  call site.
 
 Verification commands:
 
@@ -352,7 +365,11 @@ dart run tool\check_architecture_imports.dart
   mutate reducer state with prepended events, but very old omitted events may
   contain status transitions that are no longer represented. The active status
   should continue to come from the current `ConversationSummary` plus loaded
-  recent events.
+  recent events. Implementation should audit all conversation-level metadata
+  used by the transcript header, composer gating, blocking prompts, title, and
+  status badges; those fields should come from `ConversationSummary` or another
+  daemon-owned summary source, not from assumptions reconstructed from a partial
+  event window.
 - Scroll offset preservation can be sensitive with variable-height cards.
   Implementation must use a post-frame correction after the prepended page is
   laid out. Tests should assert content continuity and stable route state rather
