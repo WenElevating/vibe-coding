@@ -104,19 +104,48 @@ test('conversation event store returns tail window in ascending order', () => {
 });
 
 test('conversation event store before page uses existence check for sequence gaps', () => {
-  const store = new ConversationEventStore();
-  store.events.set('conv_gap', [
-    { conversationId: 'conv_gap', seq: 10, type: 'assistant.message', createdAt: '2026-05-30T00:00:00.000Z', text: 'old' },
-    { conversationId: 'conv_gap', seq: 20, type: 'assistant.message', createdAt: '2026-05-30T00:00:01.000Z', text: 'middle' },
-    { conversationId: 'conv_gap', seq: 30, type: 'assistant.message', createdAt: '2026-05-30T00:00:02.000Z', text: 'new' },
-  ]);
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-event-gap-page-') });
+  try {
+    sqlite.saveConversation({
+      id: 'conv_gap',
+      workspaceId: 'default',
+      adapter: 'claude',
+      status: 'idle',
+      createdAt: '2026-05-30T00:00:00.000Z',
+      updatedAt: '2026-05-30T00:00:00.000Z',
+    });
+    sqlite.appendEvent({
+      conversationId: 'conv_gap',
+      seq: 10,
+      type: 'assistant.message',
+      createdAt: '2026-05-30T00:00:00.000Z',
+      text: 'old',
+    });
+    sqlite.appendEvent({
+      conversationId: 'conv_gap',
+      seq: 20,
+      type: 'assistant.message',
+      createdAt: '2026-05-30T00:00:01.000Z',
+      text: 'middle',
+    });
+    sqlite.appendEvent({
+      conversationId: 'conv_gap',
+      seq: 30,
+      type: 'assistant.message',
+      createdAt: '2026-05-30T00:00:02.000Z',
+      text: 'new',
+    });
+    const store = new ConversationEventStore({ persistentStore: sqlite });
 
-  const page = store.listBefore('conv_gap', 30, 1);
+    const page = store.listBefore('conv_gap', 30, 1);
 
-  assert.deepEqual(page.events.map((event) => event.seq), [20]);
-  assert.equal(page.oldestSeq, 20);
-  assert.equal(page.newestSeq, 20);
-  assert.equal(page.hasMoreBefore, true);
+    assert.deepEqual(page.events.map((event) => event.seq), [20]);
+    assert.equal(page.oldestSeq, 20);
+    assert.equal(page.newestSeq, 20);
+    assert.equal(page.hasMoreBefore, true);
+  } finally {
+    sqlite.close();
+  }
 });
 ```
 
@@ -347,10 +376,16 @@ test('conversation events API rejects mixed pagination modes', async () => {
       adapter: 'claude',
       permissionMode: 'default',
     }, token);
-    const response = await request(port, 'GET', `/api/conversations/${created.body.conversation.id}/events?afterSeq=0&tail=2`, null, token);
+    for (const query of [
+      'afterSeq=0&tail=2',
+      'afterSeq=0&beforeSeq=3',
+      'tail=2&beforeSeq=3',
+    ]) {
+      const response = await request(port, 'GET', `/api/conversations/${created.body.conversation.id}/events?${query}`, null, token);
 
-    assert.equal(response.status, 400);
-    assert.equal(response.body.error.code, 'invalid_event_page_query');
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error.code, 'invalid_event_page_query');
+    }
   } finally {
     app.server.close();
     app.notificationHub.stop();
@@ -1001,14 +1036,14 @@ Add methods near `fetchConversationEvents`:
     _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
     _historicalConversationLoadError = null;
     _replaceConversationEventWindow(page.events, streamOutput: streamOutput);
-    if (page.events.isEmpty) _lastSeq = 0;
+    _notifyListeners();
     final previewChanged = await _bindAndResolveAttachmentPreviews(
       page.events,
       isCurrent: stillCurrent,
     );
     if (!stillCurrent()) return false;
     if (previewChanged) _rebuildMessagesFromConversationState();
-    _notifyListeners();
+    if (previewChanged) _notifyListeners();
     return page.events.isNotEmpty || previewChanged;
   }
 
@@ -1046,18 +1081,21 @@ Add methods near `fetchConversationEvents`:
         _mergeConversationEventWindow(page.events),
         streamOutput: streamOutput,
       );
+      _loadingOlderConversationEvents = false;
+      _notifyListeners();
       final previewChanged = await _bindAndResolveAttachmentPreviews(
         page.events,
         isCurrent: stillCurrent,
       );
       if (!stillCurrent()) return false;
       if (previewChanged) _rebuildMessagesFromConversationState();
+      if (previewChanged) _notifyListeners();
       return true;
     } catch (error) {
       if (stillCurrent()) _historicalConversationLoadError = error;
       rethrow;
     } finally {
-      if (stillCurrent()) {
+      if (stillCurrent() && _loadingOlderConversationEvents) {
         _loadingOlderConversationEvents = false;
         _notifyListeners();
       }
@@ -1381,6 +1419,9 @@ Add helper methods to `CodingWorkbenchPage`:
     required int generation,
   }) async {
     if (!_scrollController.hasClients) return;
+    // This preserves the user's viewport for the older-page prepend. Live
+    // WebSocket events arriving during the await can also change extent; the
+    // correction intentionally favors keeping the older-page anchor stable.
     final oldOffset = _scrollController.offset;
     final oldMaxExtent = _scrollController.position.maxScrollExtent;
     try {
@@ -1751,4 +1792,7 @@ Verification:
 
 Remaining risks:
 - note any timed-out Flutter command or metadata-source audit finding.
+- note if live WebSocket events arriving during older-page loads cause a small
+  scroll correction offset; the implementation deliberately favors preserving
+  the older-page anchor over perfect isolation from concurrent live appends.
 ```
