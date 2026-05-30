@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { detectClaudeCodeInstallation, unavailableCapability } = require('./claude-adapter');
@@ -10,6 +11,7 @@ const { textAttachmentWrapper } = require('./attachment-validation');
 const packageJson = require('../../package.json');
 
 const CLAUDE_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES = 32 * 1024;
 
 class ClaudeConversationAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile } = {}) {
@@ -130,6 +132,8 @@ class ClaudeConversationAdapter {
       reportedPlanApprovalToolUseIds: new Set(),
       reportedPermissionDenialToolUseIds: new Set(),
       now: () => new Date(),
+      workspacePath,
+      spawnSyncFn: this.spawnSyncFn,
       initRequestId,
       initialized: false,
       initWaiters: [],
@@ -588,7 +592,156 @@ function handleToolResult(raw, state, originalRaw = raw) {
     durationMs: pending ? Math.max(0, state.now().getTime() - Date.parse(pending.startedAt)) : null,
     raw: originalRaw
   });
+  const fileChangeNotice = claudeFileChangeNoticeForTool(state, {
+    toolName,
+    input,
+    isError,
+    permissionError,
+    exitCode,
+    raw: originalRaw
+  });
+  if (fileChangeNotice) state.onEvent(fileChangeNotice);
   state.pendingTools.delete(toolUseId);
+}
+
+function claudeFileChangeNoticeForTool(state, { toolName, input, isError, permissionError, exitCode, raw }) {
+  if (isError || permissionError) return null;
+  if (exitCode !== null && exitCode !== 0) return null;
+  const normalizedToolName = String(toolName || '').toLowerCase();
+  if (!['write', 'edit', 'multiedit'].includes(normalizedToolName)) return null;
+  const filePath = claudeFileChangeInputPath(input);
+  if (!filePath) return null;
+  const change = normalizeClaudeFileChange({
+    filePath,
+    toolName: normalizedToolName,
+    workspacePath: state.workspacePath,
+    spawnSyncFn: state.spawnSyncFn
+  });
+  if (!change) return null;
+  return {
+    type: conversationEventTypes.SYSTEM_NOTICE,
+    text: formatClaudeFileChangeText([change]),
+    noticeKind: 'codex_file_change',
+    visible: true,
+    changes: [change],
+    raw
+  };
+}
+
+function claudeFileChangeInputPath(input) {
+  if (!input || typeof input !== 'object') return '';
+  for (const key of ['file_path', 'filePath', 'path']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  for (const key of ['tool_input', 'toolInput', 'input', 'arguments', 'args']) {
+    const nested = claudeFileChangeInputPath(input[key]);
+    if (nested) return nested;
+  }
+  return '';
+}
+
+function normalizeClaudeFileChange({ filePath, toolName, workspacePath, spawnSyncFn }) {
+  const resolved = resolveWorkspaceFilePath(filePath, workspacePath);
+  if (!resolved) return null;
+  const relativePath = relativeWorkspacePath(resolved, workspacePath);
+  if (!relativePath) return null;
+  const maxBytes = DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES;
+  const gitDiff = workspaceGitDiffForFile(relativePath, workspacePath, spawnSyncFn, maxBytes);
+  const preview = gitDiff || (toolName === 'write' ? addedFilePreview(resolved, maxBytes) : '');
+  const kind = claudeFileChangeKind(toolName, preview);
+  const change = { path: relativePath.replace(/\\/g, '/'), kind };
+  if (preview) change.diff = preview;
+  return change;
+}
+
+function workspaceGitDiffForFile(relativePath, workspacePath, spawnSyncFn, maxBytes) {
+  if (!workspacePath || typeof spawnSyncFn !== 'function') return '';
+  const result = spawnSyncFn('git', ['diff', '--no-ext-diff', '--unified=20', '--', relativePath], {
+    cwd: workspacePath,
+    encoding: 'utf8',
+    timeout: 2000,
+    windowsHide: true,
+    maxBuffer: maxBytes * 2
+  });
+  if (result.error || result.status === null) return '';
+  return truncateText(stripAnsi(result.stdout || ''), maxBytes).text.trim();
+}
+
+function addedFilePreview(resolvedPath, maxBytes) {
+  try {
+    const stat = fs.statSync(resolvedPath);
+    if (!stat.isFile() || stat.size > maxBytes) return '';
+    const content = fs.readFileSync(resolvedPath, 'utf8');
+    const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const preview = lines
+      .slice(0, 80)
+      .map((line) => `+${line}`)
+      .join('\n');
+    return preview ? `@@ new file preview @@\n${preview}` : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveWorkspaceFilePath(rawPath, workspacePath) {
+  if (!workspacePath || !String(workspacePath).trim()) return null;
+  const workspaceRoot = path.resolve(workspacePath);
+  const candidate = path.isAbsolute(rawPath)
+    ? path.resolve(rawPath)
+    : path.resolve(workspaceRoot, rawPath);
+  const comparableRoot =
+    process.platform === 'win32' ? workspaceRoot.toLowerCase() : workspaceRoot;
+  const comparableCandidate =
+    process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+  if (
+    comparableCandidate === comparableRoot ||
+    comparableCandidate.startsWith(`${comparableRoot}${path.sep}`)
+  ) {
+    return candidate;
+  }
+  return null;
+}
+
+function relativeWorkspacePath(resolvedPath, workspacePath) {
+  const relativePath = path.relative(path.resolve(workspacePath), resolvedPath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return '';
+  return relativePath;
+}
+
+function claudeFileChangeKind(toolName, diff) {
+  if (/^new file mode /m.test(diff) || /^@@ new file preview @@/m.test(diff)) return 'add';
+  if (/^deleted file mode /m.test(diff)) return 'delete';
+  if (toolName === 'write' && diff.startsWith('@@ new file preview @@')) return 'add';
+  return 'update';
+}
+
+function formatClaudeFileChangeText(changes) {
+  const parts = changes.map((change) => `${claudeFileChangeKindLabel(change.kind)} ${change.path}`);
+  if (parts.length === 1) return `File changed: ${parts[0]}`;
+  const visibleParts = parts.slice(0, 3);
+  const remaining = parts.length - visibleParts.length;
+  return `Files changed: ${visibleParts.join('; ')}${remaining > 0 ? `; and ${remaining} more` : ''}`;
+}
+
+function claudeFileChangeKindLabel(kind) {
+  switch (String(kind || '').toLowerCase()) {
+    case 'add':
+    case 'added':
+      return 'added';
+    case 'delete':
+    case 'deleted':
+    case 'remove':
+    case 'removed':
+      return 'deleted';
+    case 'update':
+    case 'updated':
+    case 'modify':
+    case 'modified':
+      return 'updated';
+    default:
+      return 'changed';
+  }
 }
 
 function handlePendingControlResponse(state, requestId, response) {
@@ -1406,6 +1559,24 @@ function sdkProcessEnvForWorkspace(sourceEnv, workspacePath) {
   env.CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING = '1';
   if (workspacePath) env.PWD = workspacePath;
   return env;
+}
+
+function truncateText(text, maxBytes) {
+  const value = String(text || '');
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return { text: value, truncated: false };
+  let bytes = 0;
+  let output = '';
+  for (const char of value) {
+    const next = Buffer.byteLength(char, 'utf8');
+    if (bytes + next > maxBytes) break;
+    bytes += next;
+    output += char;
+  }
+  return { text: output, truncated: true };
+}
+
+function stripAnsi(value) {
+  return String(value || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
 module.exports = { ClaudeConversationAdapter, ClaudeConversationHandle, buildClaudeUserContent };

@@ -477,6 +477,39 @@ void main() {
     expect(state.messages.single.fileChanges.single.diff, contains('+new'));
   });
 
+  test('ConversationViewState preserves ordered multi-file change payloads',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-05-23T00:00:00.000Z',
+        'text': 'Files changed',
+        'noticeKind': 'codex_file_change',
+        'visible': true,
+        'changes': [
+          {
+            'path': 'lib/first.dart',
+            'kind': 'update',
+            'diff': '@@ -1 +1 @@\n-old first\n+new first'
+          },
+          {
+            'path': 'lib/second.dart',
+            'kind': 'add',
+            'diff': '@@ new file preview @@\n+new second'
+          }
+        ]
+      })
+    ]);
+
+    expect(state.messages.single.role, 'file_change');
+    expect(state.messages.single.fileChanges.map((change) => change.path),
+        <String>['lib/first.dart', 'lib/second.dart']);
+    expect(state.messages.single.fileChanges[0].diff, contains('+new first'));
+    expect(state.messages.single.fileChanges[1].diff, contains('+new second'));
+  });
+
   test('ConversationViewState routes reconnect notices to pending status', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

@@ -2950,6 +2950,85 @@ test('Claude conversation adapter emits completion when long-lived process exits
   assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
 });
 
+test('Claude conversation adapter emits file change notice after successful Edit tool', async () => {
+  const { spawnSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-file-change-diff-'));
+  const gitAvailable = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (gitAvailable.status !== 0) return;
+  const runGit = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (runGit(['init']).status !== 0) return;
+  fs.writeFileSync(path.join(root, 'example.txt'), 'old line\n', 'utf8');
+  if (runGit(['add', 'example.txt']).status !== 0) return;
+  if (runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'init']).status !== 0) return;
+  fs.writeFileSync(path.join(root, 'example.txt'), 'new line\n', 'utf8');
+
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: (command, args, options) => {
+      if (command === 'git') return spawnSync(command, args, options);
+      return { status: 0, stdout: '2.1.119', stderr: '' };
+    },
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_claude_file_change', workspacePath: root, onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_edit',
+    name: 'Edit',
+    input: { file_path: path.join(root, 'example.txt'), old_string: 'old line', new_string: 'new line' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_edit',
+    content: 'Updated example.txt',
+    is_error: false
+  })}\n`);
+
+  const notice = events.find((event) => event.noticeKind === 'codex_file_change');
+  assert.equal(notice.type, 'system.notice');
+  assert.equal(notice.visible, true);
+  assert.deepEqual(notice.changes.map((change) => change.path), ['example.txt']);
+  assert.equal(notice.changes[0].kind, 'update');
+  assert.match(notice.changes[0].diff, /@@/);
+  assert.match(notice.changes[0].diff, /-old line/);
+  assert.match(notice.changes[0].diff, /\+new line/);
+});
+
+test('Claude conversation adapter suppresses file change notice for failed Edit tool', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_claude_file_change_failed', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_edit_fail',
+    name: 'Edit',
+    input: { file_path: 'missing.txt', old_string: 'old', new_string: 'new' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_edit_fail',
+    content: 'File not found',
+    is_error: true
+  })}\n`);
+
+  assert.equal(events.some((event) => event.noticeKind === 'codex_file_change'), false);
+});
+
 test('Claude adapter rejects missing workspace before spawning', () => {
   const adapter = new ClaudeAdapter({
     spawnSyncFn: fakeSpawnSync,

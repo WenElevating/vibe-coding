@@ -1960,6 +1960,7 @@ class _FileChangeEventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final changes = message.fileChanges;
+    final visibleChanges = changes.take(2).toList(growable: false);
     final title = changes.length == 1
         ? _fileChangeTitle(changes.single)
         : 'Edited ${changes.length} files';
@@ -1972,18 +1973,20 @@ class _FileChangeEventCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: changes.isEmpty
                 ? <Widget>[_FileChangeFallback(text: message.body)]
-                : changes
-                    .take(4)
+                : visibleChanges
                     .map<Widget>((change) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _FileChangeEntry(change: change)))
-                    .followedBy(changes.length > 4
+                        padding: EdgeInsets.only(
+                            bottom: change == visibleChanges.last ? 0 : 10),
+                        child: _PatchTranscriptFile(change: change)))
+                    .followedBy(changes.length > 2
                         ? <Widget>[
-                            Text('+${changes.length - 4} more file(s)',
-                                style: const TextStyle(
-                                    color: theme.faint,
-                                    fontSize: 11,
-                                    fontFamily: 'Consolas'))
+                            Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Text('+${changes.length - 2} more files',
+                                    style: const TextStyle(
+                                        color: theme.faint,
+                                        fontSize: 11,
+                                        fontFamily: 'Consolas')))
                           ]
                         : const <Widget>[])
                     .toList(growable: false)));
@@ -2000,86 +2003,185 @@ class _FileChangeEventCard extends StatelessWidget {
   }
 }
 
-class _FileChangeEntry extends StatelessWidget {
-  const _FileChangeEntry({required this.change});
+class _PatchTranscriptFile extends StatelessWidget {
+  const _PatchTranscriptFile({required this.change});
   final ConversationFileChange change;
 
   @override
   Widget build(BuildContext context) {
-    final diff = change.diff?.trim();
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-            width: 22,
-            height: 22,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: _fileChangeColor(change.kind).withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(
-                    color:
-                        _fileChangeColor(change.kind).withValues(alpha: .22))),
-            child: Icon(_fileChangeIcon(change.kind),
-                size: 13, color: _fileChangeColor(change.kind))),
-        const SizedBox(width: 9),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_fileChangeKindLabel(change.kind),
-              style: const TextStyle(
-                  color: theme.text,
-                  fontSize: 11.5,
-                  height: 1.1,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0)),
-          const SizedBox(height: 3),
-          Text(change.path,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: theme.muted,
-                  fontSize: 11.5,
-                  height: 1.25,
-                  fontFamily: 'Consolas',
-                  letterSpacing: 0)),
-        ])),
-      ]),
-      if (diff != null && diff.isNotEmpty) ...[
-        const SizedBox(height: 8),
-        _FileChangeDiffPreview(diff: diff),
-      ],
-    ]);
+    final parsed = _ParsedPatch.fromDiff(change.diff);
+    return Container(
+        decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .018),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: .06))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+              padding: const EdgeInsets.fromLTRB(10, 9, 10, 8),
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: _fileChangeColor(change.kind)
+                            .withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(
+                            color: _fileChangeColor(change.kind)
+                                .withValues(alpha: .22))),
+                    child: Icon(_fileChangeIcon(change.kind),
+                        size: 13, color: _fileChangeColor(change.kind))),
+                const SizedBox(width: 9),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(_fileChangeKindLabel(change.kind),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.text,
+                              fontSize: 11.5,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0)),
+                      const SizedBox(height: 4),
+                      Text(change.path,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.muted,
+                              fontSize: 11.5,
+                              height: 1.25,
+                              fontFamily: 'Consolas',
+                              letterSpacing: 0)),
+                    ])),
+                if (parsed.hasDiff) ...[
+                  const SizedBox(width: 8),
+                  Text('+${parsed.additions} -${parsed.deletions}',
+                      style: const TextStyle(
+                          color: theme.faint,
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0)),
+                ],
+              ])),
+          if (parsed.hasDiff)
+            _PatchTranscriptPanel(parsed: parsed)
+          else
+            Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: _FileChangeFallback(text: change.path)),
+        ]));
   }
 }
 
-class _FileChangeDiffPreview extends StatelessWidget {
-  const _FileChangeDiffPreview({required this.diff});
-  final String diff;
+class _PatchTranscriptPanel extends StatefulWidget {
+  const _PatchTranscriptPanel({required this.parsed});
+  final _ParsedPatch parsed;
+
+  @override
+  State<_PatchTranscriptPanel> createState() => _PatchTranscriptPanelState();
+}
+
+class _PatchTranscriptPanelState extends State<_PatchTranscriptPanel> {
+  static const _collapsedLineCount = 81;
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final lines = _previewDiffLines(diff);
+    final lines = _expanded
+        ? widget.parsed.lines
+        : widget.parsed.lines.take(_collapsedLineCount).toList(growable: false);
+    final overflow = widget.parsed.lines.length > _collapsedLineCount;
     return Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-        decoration: BoxDecoration(
-            color: const Color(0xFF0B0C0E),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white.withValues(alpha: .055))),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: lines
-                .map((line) => Text(line.text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+        decoration: const BoxDecoration(
+            color: Color(0xFF0B0C0E),
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(8))),
+        clipBehavior: Clip.antiAlias,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          LayoutBuilder(builder: (context, constraints) {
+            return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: lines
+                            .map((line) => _PatchTranscriptLine(line: line))
+                            .toList(growable: false))));
+          }),
+          if (overflow && !_expanded)
+            TextButton(
+                onPressed: () => setState(() => _expanded = true),
+                style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    foregroundColor: theme.text),
+                child: const Text('Show full diff',
                     style: TextStyle(
-                        color: line.color,
-                        fontSize: 11,
-                        height: 1.35,
-                        fontFamily: 'Consolas',
-                        letterSpacing: 0)))
-                .toList(growable: false)));
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0))),
+        ]));
   }
+}
+
+class _PatchTranscriptLine extends StatelessWidget {
+  const _PatchTranscriptLine({required this.line});
+  final _PatchLine line;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        color: line.background,
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _PatchGutterText(line.oldLine?.toString() ?? ''),
+          _PatchGutterText(line.newLine?.toString() ?? ''),
+          SizedBox(
+              width: 18,
+              child: Text(line.marker,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: line.foreground,
+                      fontSize: 11,
+                      height: 1.35,
+                      fontFamily: 'Consolas',
+                      letterSpacing: 0))),
+          Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Text(line.text.isEmpty ? ' ' : line.text,
+                  style: TextStyle(
+                      color: line.foreground,
+                      fontSize: 11,
+                      height: 1.35,
+                      fontFamily: 'Consolas',
+                      letterSpacing: 0))),
+        ]));
+  }
+}
+
+class _PatchGutterText extends StatelessWidget {
+  const _PatchGutterText(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+      width: 34,
+      child: Text(text,
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+              color: theme.faint,
+              fontSize: 10.5,
+              height: 1.42,
+              fontFamily: 'Consolas',
+              letterSpacing: 0)));
 }
 
 class _FileChangeFallback extends StatelessWidget {
@@ -2090,38 +2192,169 @@ class _FileChangeFallback extends StatelessWidget {
   Widget build(BuildContext context) => _EventCodeLine(text: text, ok: true);
 }
 
-class _DiffPreviewLine {
-  const _DiffPreviewLine(this.text, this.color);
-  final String text;
-  final Color color;
+class _ParsedPatch {
+  const _ParsedPatch({
+    required this.lines,
+    required this.additions,
+    required this.deletions,
+  });
+
+  final List<_PatchLine> lines;
+  final int additions;
+  final int deletions;
+
+  bool get hasDiff => lines.isNotEmpty;
+
+  static _ParsedPatch fromDiff(String? diff) {
+    final text = diff?.trim();
+    if (text == null || text.isEmpty) {
+      return const _ParsedPatch(
+          lines: <_PatchLine>[], additions: 0, deletions: 0);
+    }
+    final lines = <_PatchLine>[];
+    var oldLine = 0;
+    var newLine = 0;
+    var inHunk = false;
+    var additions = 0;
+    var deletions = 0;
+
+    for (final rawLine
+        in text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
+      if (rawLine.startsWith('@@')) {
+        final hunk = _parseHunkHeader(rawLine);
+        oldLine = hunk.oldStart;
+        newLine = hunk.newStart;
+        inHunk = true;
+        lines.add(_PatchLine.hunk(rawLine));
+        continue;
+      }
+      if (!inHunk || _isDiffMetadata(rawLine)) {
+        lines.add(_PatchLine.metadata(rawLine));
+        continue;
+      }
+      if (rawLine.startsWith('+')) {
+        additions += 1;
+        lines.add(
+            _PatchLine.added(newLine: newLine, text: rawLine.substring(1)));
+        newLine += 1;
+        continue;
+      }
+      if (rawLine.startsWith('-')) {
+        deletions += 1;
+        lines.add(
+            _PatchLine.removed(oldLine: oldLine, text: rawLine.substring(1)));
+        oldLine += 1;
+        continue;
+      }
+      final body = rawLine.startsWith(' ') ? rawLine.substring(1) : rawLine;
+      lines.add(
+          _PatchLine.context(oldLine: oldLine, newLine: newLine, text: body));
+      oldLine += 1;
+      newLine += 1;
+    }
+
+    final visible = lines
+        .where((line) =>
+            line.kind != _PatchLineKind.metadata || line.text.trim().isNotEmpty)
+        .toList(growable: false);
+    return _ParsedPatch(
+        lines: List<_PatchLine>.unmodifiable(visible),
+        additions: additions,
+        deletions: deletions);
+  }
 }
 
-List<_DiffPreviewLine> _previewDiffLines(String diff) {
-  final normalized = diff.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-  final source = normalized
-      .split('\n')
-      .where((line) =>
-          line.trim().isNotEmpty &&
-          !line.startsWith('diff --git ') &&
-          !line.startsWith('index ') &&
-          !line.startsWith('--- ') &&
-          !line.startsWith('+++ '))
-      .toList(growable: false);
-  final visible = source.take(14).map((line) {
-    if (line.startsWith('+')) {
-      return _DiffPreviewLine(line, theme.green);
-    }
-    if (line.startsWith('-')) {
-      return _DiffPreviewLine(line, theme.red);
-    }
-    if (line.startsWith('@@')) {
-      return _DiffPreviewLine(line, const Color(0xFF9CA7FF));
-    }
-    return _DiffPreviewLine(line, theme.muted);
-  }).toList(growable: false);
-  return visible.isEmpty
-      ? const <_DiffPreviewLine>[]
-      : List<_DiffPreviewLine>.unmodifiable(visible);
+class _PatchLine {
+  const _PatchLine._({
+    required this.kind,
+    required this.text,
+    required this.marker,
+    this.oldLine,
+    this.newLine,
+  });
+
+  factory _PatchLine.hunk(String text) =>
+      _PatchLine._(kind: _PatchLineKind.hunk, text: text, marker: '');
+
+  factory _PatchLine.metadata(String text) =>
+      _PatchLine._(kind: _PatchLineKind.metadata, text: text, marker: '');
+
+  factory _PatchLine.added({required int newLine, required String text}) =>
+      _PatchLine._(
+          kind: _PatchLineKind.added,
+          text: text,
+          marker: '+',
+          newLine: newLine);
+
+  factory _PatchLine.removed({required int oldLine, required String text}) =>
+      _PatchLine._(
+          kind: _PatchLineKind.removed,
+          text: text,
+          marker: '-',
+          oldLine: oldLine);
+
+  factory _PatchLine.context(
+          {required int oldLine, required int newLine, required String text}) =>
+      _PatchLine._(
+          kind: _PatchLineKind.context,
+          text: text,
+          marker: '',
+          oldLine: oldLine,
+          newLine: newLine);
+
+  final _PatchLineKind kind;
+  final int? oldLine;
+  final int? newLine;
+  final String text;
+  final String marker;
+
+  Color get background {
+    return switch (kind) {
+      _PatchLineKind.added => theme.green.withValues(alpha: .10),
+      _PatchLineKind.removed => theme.red.withValues(alpha: .11),
+      _PatchLineKind.hunk => const Color(0xFF151821),
+      _ => Colors.transparent,
+    };
+  }
+
+  Color get foreground {
+    return switch (kind) {
+      _PatchLineKind.added => const Color(0xFF7CE6A3),
+      _PatchLineKind.removed => const Color(0xFFFF8E8E),
+      _PatchLineKind.hunk => const Color(0xFFA7B0FF),
+      _PatchLineKind.metadata => theme.faint,
+      _ => theme.muted,
+    };
+  }
+}
+
+enum _PatchLineKind { added, removed, context, hunk, metadata }
+
+class _HunkStart {
+  const _HunkStart({required this.oldStart, required this.newStart});
+  final int oldStart;
+  final int newStart;
+}
+
+_HunkStart _parseHunkHeader(String line) {
+  final match =
+      RegExp(r'^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@').firstMatch(line);
+  if (match == null) return const _HunkStart(oldStart: 1, newStart: 1);
+  return _HunkStart(
+      oldStart: int.tryParse(match.group(1) ?? '') ?? 1,
+      newStart: int.tryParse(match.group(2) ?? '') ?? 1);
+}
+
+bool _isDiffMetadata(String line) {
+  return line.startsWith('diff --git ') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('new file mode ') ||
+      line.startsWith('deleted file mode ') ||
+      line.startsWith('similarity index ') ||
+      line.startsWith('rename from ') ||
+      line.startsWith('rename to ');
 }
 
 String _shortPathName(String path) {

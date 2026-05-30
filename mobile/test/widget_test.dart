@@ -4599,7 +4599,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('default permission mode is used by default for new Claude sessions',
+  testWidgets(
+      'default permission mode is used by default for new Claude sessions',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       AppLanguage.storageKey: 'en-US',
@@ -5797,9 +5798,132 @@ void main() {
     expect(find.text('Edited example_test.dart'), findsOneWidget);
     expect(find.text('mobile/test/example_test.dart'), findsOneWidget);
     expect(find.text('@@ -1,3 +1,3 @@'), findsOneWidget);
-    expect(find.text('-  old expectation'), findsOneWidget);
-    expect(find.text('+  new expectation'), findsOneWidget);
+    expect(find.text('  old expectation'), findsOneWidget);
+    expect(find.text('  new expectation'), findsOneWidget);
     expect(find.text('System notice'), findsNothing);
+  });
+
+  testWidgets('file change card renders patch transcript gutters and stats',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage('file_change',
+                        'File changes', 'File changed: updated lib/main.dart',
+                        fileChanges: <ConversationFileChange>[
+                          ConversationFileChange(
+                              path: 'lib/main.dart', kind: 'update', diff: '''
+diff --git a/lib/main.dart b/lib/main.dart
+@@ -7,3 +7,3 @@ void main() {
+   final app = App();
+-  runApp(app);
++  runApp(const App());
+ }
+''')
+                        ]),
+                    onApproval: _noopString,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edited main.dart'), findsOneWidget);
+    expect(find.text('+1 -1'), findsOneWidget);
+    expect(find.text('@@ -7,3 +7,3 @@ void main() {'), findsOneWidget);
+    expect(find.text('7'), findsWidgets);
+    expect(find.text('8'), findsWidgets);
+    expect(find.text('  runApp(app);'), findsOneWidget);
+    expect(find.text('  runApp(const App());'), findsOneWidget);
+  });
+
+  testWidgets('file change card truncates long diffs until expanded',
+      (WidgetTester tester) async {
+    final diff = StringBuffer('@@ -1,90 +1,90 @@\n');
+    for (var i = 1; i <= 85; i += 1) {
+      diff.writeln(' line $i');
+    }
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: SingleChildScrollView(
+                child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: WorkbenchMessageCard(
+                        message: WorkbenchMessage('file_change', 'File changes',
+                            'File changed: updated lib/long.dart',
+                            fileChanges: <ConversationFileChange>[
+                              ConversationFileChange(
+                                  path: 'lib/long.dart',
+                                  kind: 'update',
+                                  diff: diff.toString())
+                            ]),
+                        onApproval: _noopString,
+                        onSuggestion: _noopString,
+                        expandThinking: false))))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('line 80'), findsOneWidget);
+    expect(find.text('line 81'), findsNothing);
+    expect(find.text('Show full diff'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Show full diff'));
+    await tester.tap(find.text('Show full diff'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('line 85'), findsOneWidget);
+  });
+
+  testWidgets('file change card folds additional files after two entries',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                        'file_change', 'File changes', 'Files changed',
+                        fileChanges: <ConversationFileChange>[
+                          ConversationFileChange(
+                              path: 'lib/one.dart',
+                              kind: 'update',
+                              diff: '@@ -1 +1 @@\n-old\n+new'),
+                          ConversationFileChange(
+                              path: 'lib/two.dart',
+                              kind: 'update',
+                              diff: '@@ -1 +1 @@\n-old\n+new'),
+                          ConversationFileChange(
+                              path: 'lib/three.dart',
+                              kind: 'update',
+                              diff: '@@ -1 +1 @@\n-old\n+new'),
+                        ]),
+                    onApproval: _noopString,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edited 3 files'), findsOneWidget);
+    expect(find.text('lib/one.dart'), findsOneWidget);
+    expect(find.text('lib/two.dart'), findsOneWidget);
+    expect(find.text('lib/three.dart'), findsNothing);
+    expect(find.text('+1 more files'), findsOneWidget);
   });
 
   testWidgets('Claude auth warning renders as an error notice',
