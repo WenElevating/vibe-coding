@@ -1593,6 +1593,50 @@ test('conversation manager handles input and approval blocking states', async ()
   assert.equal(hidden.visible, false);
 });
 
+test('conversation manager clears blocking item when adapter cancels blocking request', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true },
+    async startConversation({ onEvent }) {
+      adapter.onEvent = onEvent;
+      return {
+        sendUserMessage() {},
+        answerQuestion() {},
+        respondApproval() {},
+        cancel() {},
+        dispose() {}
+      };
+    }
+  };
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') }),
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    idleTtlMs: 600000,
+    now: () => new Date('2026-05-03T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude', permissionMode: 'default' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap_cancel', toolName: 'Bash', toolUseId: 'toolu_cancel', input: { command: 'git push --force' }, summary: 'git push --force' });
+  assert.equal(manager.getConversation(conversation.id, device).status, 'waiting_approval');
+
+  adapter.onEvent({ type: 'blocking.request_cancelled', approvalId: 'ap_cancel', requestId: 'ap_cancel', blockingType: 'approval_request', toolUseId: 'toolu_cancel', toolName: 'Bash' });
+
+  const current = manager.getConversation(conversation.id, device);
+  assert.equal(current.status, 'running');
+  assert.equal(current.blockingItem, null);
+  const events = manager.listEvents(conversation.id, 0, device);
+  assert.equal(events.at(-2).type, 'blocking.request_cancelled');
+  assert.equal(events.at(-1).type, 'conversation.status_changed');
+  assert.equal(events.at(-1).status, 'running');
+});
+
 test('conversation manager keeps non-terminal assistant messages running until completion', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -2507,6 +2551,64 @@ test('Claude conversation adapter starts long-lived CLI directly in workspace cw
   assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
+});
+
+test('Claude conversation adapter enables stdio permission prompt tool in auto mode', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  let spawnArgs = null;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {}, end() { this.destroyed = true; } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: (_cmd, args) => {
+      spawnArgs = args;
+      return child;
+    }
+  });
+
+  await adapter.startConversation({ conversationId: 'conv_auto_prompt_tool', workspacePath: '.', permissionMode: 'auto', onEvent: () => {} });
+
+  assert.deepEqual(spawnArgs.slice(spawnArgs.indexOf('--permission-prompt-tool'), spawnArgs.indexOf('--permission-prompt-tool') + 2), ['--permission-prompt-tool', 'stdio']);
+  assert.deepEqual(spawnArgs.slice(spawnArgs.indexOf('--permission-mode'), spawnArgs.indexOf('--permission-mode') + 2), ['--permission-mode', 'auto']);
+  assert.equal(spawnArgs.includes('--allowedTools'), true);
+});
+
+test('Claude conversation adapter uses SDK initialize timeout defaults', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const originalSetTimeout = global.setTimeout;
+  const originalTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
+  const delays = [];
+  global.setTimeout = (fn, delay) => {
+    delays.push(delay);
+    return { fn, delay };
+  };
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  try {
+    delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
+    await adapter.startConversation({ conversationId: 'conv_init_timeout_default', workspacePath: '.', onEvent: () => {} });
+    process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '1000';
+    await adapter.startConversation({ conversationId: 'conv_init_timeout_min', workspacePath: '.', onEvent: () => {} });
+    process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '75000';
+    await adapter.startConversation({ conversationId: 'conv_init_timeout_env', workspacePath: '.', onEvent: () => {} });
+  } finally {
+    if (originalTimeout == null) delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
+    else process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = originalTimeout;
+    global.setTimeout = originalSetTimeout;
+  }
+
+  assert.deepEqual(delays, [60000, 60000, 75000]);
 });
 
 test('Claude conversation adapter adds model flag only when supported', async () => {
@@ -3658,6 +3760,78 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
 });
 
+test('Claude conversation adapter emits blocking cancellation for cancelled approvals', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_cancel_approval', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_cancel_1',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      tool_use_id: 'toolu_cancel',
+      input: { command: 'git push --force' }
+    }
+  })}\n`);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_cancel_request',
+    request_id: 'approval_cancel_1'
+  })}\n`);
+
+  const cancelled = events.find((event) => event.type === 'blocking.request_cancelled');
+  assert.equal(cancelled.approvalId, 'approval_cancel_1');
+  assert.equal(cancelled.blockingType, 'approval_request');
+  assert.equal(cancelled.toolUseId, 'toolu_cancel');
+  assert.equal(cancelled.toolName, 'Bash');
+});
+
+test('Claude conversation adapter emits blocking cancellation for cancelled questions', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_cancel_question', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'question_cancel_1',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'toolu_question_cancel',
+      input: { question: 'Pick a direction' }
+    }
+  })}\n`);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_cancel_request',
+    request_id: 'question_cancel_1'
+  })}\n`);
+
+  const cancelled = events.find((event) => event.type === 'blocking.request_cancelled');
+  assert.equal(cancelled.questionId, 'toolu_question_cancel');
+  assert.equal(cancelled.requestId, 'question_cancel_1');
+  assert.equal(cancelled.blockingType, 'input_request');
+  assert.equal(cancelled.toolName, 'AskUserQuestion');
+});
+
 test('Claude conversation adapter surfaces ExitPlanMode denial as question', async () => {
   const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
   const child = new EventEmitter();
@@ -3719,6 +3893,8 @@ test('Claude conversation adapter surfaces result permission denials', async () 
   assert.equal(notice.noticeKind, 'permission_unavailable');
   assert.equal(notice.toolUseId, 'toolu_write');
   assert.equal(notice.toolName, 'Write');
+  assert.equal(/自动权限模式/.test(notice.text), false);
+  assert.equal(/默认/.test(notice.text), true);
 });
 
 test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progress', async () => {

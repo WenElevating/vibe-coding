@@ -102,7 +102,7 @@ class ClaudeConversationAdapter {
       '--include-partial-messages',
       ...(sessionId ? ['--resume', sessionId] : []),
       ...(selectedModel ? ['--model', selectedModel] : []),
-      ...(permissionMode === 'default' ? ['--permission-prompt-tool', 'stdio'] : []),
+      '--permission-prompt-tool', 'stdio',
       '--permission-mode', permissionMode === 'default' ? 'default' : 'auto',
       ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'
@@ -147,7 +147,8 @@ class ClaudeConversationAdapter {
       request_id: initRequestId,
       request: { subtype: 'initialize', hooks: null }
     });
-    const fallback = setTimeout(() => completeInitialize(state, { timedOut: true }), 5000);
+    const fallback = setTimeout(() => completeInitialize(state, { timedOut: true }), claudeInitializeTimeoutMs(process.env));
+    if (typeof fallback?.unref === 'function') fallback.unref();
     state.initFallback = fallback;
     return new ClaudeConversationHandle({ conversationId, state });
   }
@@ -155,6 +156,12 @@ class ClaudeConversationAdapter {
 
 function defaultModelCapability() {
   return { models: [], selectedModel: null, canSelectModel: false };
+}
+
+function claudeInitializeTimeoutMs(env = process.env) {
+  const parsed = Number.parseInt(env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT || '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 60000;
+  return Math.max(parsed, 60000);
 }
 
 class ClaudeConversationHandle {
@@ -217,6 +224,10 @@ function handleRawClaudeEvent(raw, state) {
     return;
   }
   if (!state.initialized) completeInitialize(state);
+  if (rawType === 'control_cancel_request') {
+    handleControlCancelRequest(event, state);
+    return;
+  }
   if (rawType === 'control_request') {
     handleControlRequest(event, state);
     return;
@@ -791,7 +802,7 @@ function isPermissionErrorText(text) {
 
 function permissionNoticeText(toolName, input) {
   const target = summarizeToolInput(toolName, input);
-  return `Claude 需要权限执行 ${target}，但当前 CLI 没有发出可响应的移动端审批请求；请切换到自动权限模式或在可交互终端中授权。`;
+  return `Claude 需要权限执行 ${target}，但当前 CLI 没有发出可响应的移动端审批请求；请使用“默认”审批模式重新发送请求，或在可交互终端中授权。`;
 }
 
 function extractToolText(raw) {
@@ -818,7 +829,7 @@ function handleControlRequest(raw, state) {
   if (request.subtype !== 'can_use_tool' || !requestId) return;
   if (request.tool_name === 'AskUserQuestion') {
     const questionId = request.tool_use_id || requestId;
-    state.pendingQuestions.set(questionId, { requestId, input: request.input || {} });
+    state.pendingQuestions.set(questionId, { requestId, input: request.input || {}, toolName: request.tool_name, toolUseId: request.tool_use_id || null });
     const questionText = askUserQuestionText(request.input) || '需要你补充更多信息。';
     state.onEvent({
       type: conversationEventTypes.ASSISTANT_QUESTION,
@@ -832,7 +843,11 @@ function handleControlRequest(raw, state) {
     });
     return;
   }
-  state.pendingApprovals.set(requestId, { input: request.input || {} });
+  state.pendingApprovals.set(requestId, {
+    input: request.input || {},
+    toolName: request.tool_name,
+    toolUseId: request.tool_use_id || null
+  });
   if (request.tool_use_id && request.input && typeof request.input === 'object') {
     const pendingTool = state.pendingTools.get(request.tool_use_id) || {
       toolUseId: request.tool_use_id,
@@ -853,6 +868,48 @@ function handleControlRequest(raw, state) {
     suggestions: request.permission_suggestions || [],
     toolUseId: request.tool_use_id || null,
     summary: summarizeToolInput(request.tool_name, request.input),
+    raw
+  });
+}
+
+function handleControlCancelRequest(raw, state) {
+  const requestId = raw.request_id;
+  if (!requestId) return;
+  const approval = state.pendingApprovals.get(requestId);
+  if (approval) {
+    state.pendingApprovals.delete(requestId);
+    state.onEvent({
+      type: conversationEventTypes.BLOCKING_REQUEST_CANCELLED,
+      requestId,
+      approvalId: requestId,
+      blockingType: 'approval_request',
+      toolName: approval.toolName || null,
+      toolUseId: approval.toolUseId || null,
+      input: approval.input || {},
+      raw
+    });
+    return;
+  }
+  for (const [questionId, question] of state.pendingQuestions.entries()) {
+    if (question?.requestId !== requestId) continue;
+    state.pendingQuestions.delete(questionId);
+    state.onEvent({
+      type: conversationEventTypes.BLOCKING_REQUEST_CANCELLED,
+      requestId,
+      questionId,
+      blockingType: 'input_request',
+      toolName: question.toolName || 'AskUserQuestion',
+      toolUseId: question.toolUseId || null,
+      input: question.input || {},
+      raw
+    });
+    return;
+  }
+  state.onEvent({
+    type: conversationEventTypes.PROTOCOL_WARNING,
+    warning: 'control_cancel_request_without_pending_blocking_item',
+    requestId,
+    visible: false,
     raw
   });
 }

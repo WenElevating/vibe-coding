@@ -1022,4 +1022,61 @@ void main() {
     expect(resolved.messages.where((message) => message.role == 'approval'),
         isEmpty);
   });
+
+  test('ConversationViewState removes cancelled approval requests', () {
+    final pending = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'approvalId': 'ap1',
+        'toolName': 'Bash',
+        'summary': 'git push --force'
+      }),
+    ]);
+    final cancelled = pending.apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'blocking.request_cancelled',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'ap1',
+        'blockingType': 'approval_request'
+      }),
+    ]);
+
+    expect(pending.status, 'waiting_approval');
+    expect(cancelled.status, 'running');
+    expect(cancelled.messages.where((message) => message.role == 'approval'),
+        isEmpty);
+  });
+
+  test('ConversationViewState removes cancelled question requests', () {
+    final pending = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'assistant.question',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'questionId': 'q1',
+        'text': 'Pick a direction'
+      }),
+    ]);
+    final cancelled = pending.apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'blocking.request_cancelled',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'questionId': 'q1',
+        'blockingType': 'input_request'
+      }),
+    ]);
+
+    expect(pending.status, 'waiting_input');
+    expect(cancelled.status, 'running');
+    expect(cancelled.messages.where((message) => message.role == 'question'),
+        isEmpty);
+  });
 }

@@ -220,9 +220,16 @@ npm run lint
   flow: run default permission mode with `--permission-prompt-tool stdio` and
   keep stream-json stdin open so Claude emits `control_request` frames that the
   mobile client can answer.
+  Keep `--permission-prompt-tool stdio` enabled for all long-lived Claude
+  conversation modes so the CLI can emit responsive control frames whenever it
+  chooses to prompt, even though `auto` can still deny high-risk tools without
+  prompting.
   The mobile settings default should remain `default`; `auto` is an explicit
   non-interactive mode for users who accept classifier denials instead of phone
   approval prompts.
+  If Claude later sends `control_cancel_request` for a pending approval or
+  `AskUserQuestion`, clear the blocking card with `blocking.request_cancelled`
+  and restore the conversation to `running`.
   Claude `auto` mode classifier denials can also arrive only as ordinary
   `tool_result` text beginning `Permission for this action was denied`; these
   are not actionable approval requests and must be classified the same way.

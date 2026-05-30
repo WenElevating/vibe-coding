@@ -281,6 +281,19 @@ class ConversationViewState {
           }
           nextStatus = 'running';
           break;
+        case 'blocking.request_cancelled':
+          final approvalId = event.approvalId;
+          final questionId = event.questionId;
+          nextMessages.removeWhere((message) =>
+              (approvalId != null &&
+                  message.role == 'approval' &&
+                  message.approvalId == approvalId) ||
+              (questionId != null &&
+                  (message.role == 'question' ||
+                      message.role == 'question_hidden') &&
+                  message.questionId == questionId));
+          nextStatus = 'running';
+          break;
         case 'system.notice':
           if (event.raw['visible'] == false) break;
           if (isHiddenSystemNotice(event)) break;

@@ -49,6 +49,7 @@ const conversationEventTypes = Object.freeze({
   ASSISTANT_QUESTION: 'assistant.question',
   APPROVAL_REQUESTED: 'approval.requested',
   APPROVAL_RESOLVED: 'approval.resolved',
+  BLOCKING_REQUEST_CANCELLED: 'blocking.request_cancelled',
   SYSTEM_NOTICE: 'system.notice',
   TOOL_STARTED: 'tool.started',
   TOOL_DELTA: 'tool.delta',

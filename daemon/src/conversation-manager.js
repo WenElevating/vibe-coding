@@ -566,6 +566,30 @@ class ConversationManager {
       }, conversationStatuses.WAITING_APPROVAL, event);
       return;
     }
+    if (event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED) {
+      const matchesApproval = conversation.blockingItem?.type === 'approval_request' &&
+        event.blockingType === 'approval_request' &&
+        conversation.blockingItem.approvalId === event.approvalId;
+      const matchesQuestion = conversation.blockingItem?.type === 'input_request' &&
+        event.blockingType === 'input_request' &&
+        conversation.blockingItem.questionId === event.questionId;
+      if (matchesApproval || matchesQuestion) {
+        conversation.status = conversationStatuses.RUNNING;
+        conversation.blockingItem = null;
+        conversation.idleExpiresAt = null;
+        this.touch(conversation);
+        const { type, ...payload } = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+        this.eventStore.append(conversation.id, type, payload);
+        this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+        return;
+      }
+      this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
+        warning: 'blocking request cancellation ignored because no matching blocking item is pending',
+        current: conversation.blockingItem || null,
+        ignored: event
+      });
+      return;
+    }
     const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
     if (eventToAppend.type === 'system.notice') {
       const { type, ...payload } = eventToAppend;
