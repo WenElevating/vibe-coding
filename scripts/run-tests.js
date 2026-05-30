@@ -395,6 +395,7 @@ test('conversation event store clamps page limits to supported bounds', () => {
   assert.deepEqual(store.listTail('conv_1', 0).events.map((event) => event.seq), [3]);
   assert.deepEqual(store.listBefore('conv_1', 3, -10).events.map((event) => event.seq), [2]);
   assert.deepEqual(store.listTail('conv_1', 'bad').events.map((event) => event.seq), [1, 2, 3]);
+  assert.deepEqual(store.listTail('conv_1', undefined).events.map((event) => event.seq), [1, 2, 3]);
   assert.deepEqual(store.listTail('conv_1', null).events.map((event) => event.seq), [1, 2, 3]);
   assert.deepEqual(store.listTail('conv_1', '').events.map((event) => event.seq), [1, 2, 3]);
   assert.deepEqual(store.listBefore('conv_1', 3, '   ').events.map((event) => event.seq), [1, 2]);
@@ -426,6 +427,7 @@ test('conversation event store before page supports SQLite sequence gaps', () =>
   const page = store.listBefore('conv_gap', 30, 1);
   assert.deepEqual(page.events.map((event) => event.seq), [20]);
   assert.equal(page.hasMoreBefore, true);
+  assert.deepEqual(store.listTail('conv_gap', undefined).events.map((event) => event.seq), [10, 20, 30]);
   assert.deepEqual(store.listTail('conv_gap', null).events.map((event) => event.seq), [10, 20, 30]);
   assert.deepEqual(store.listTail('conv_gap', '').events.map((event) => event.seq), [10, 20, 30]);
   assert.deepEqual(store.listBefore('conv_gap', 30, '   ').events.map((event) => event.seq), [10, 20]);
