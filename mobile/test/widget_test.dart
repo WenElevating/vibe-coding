@@ -4599,7 +4599,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('auto permission mode is used by default for new Claude sessions',
+  testWidgets('default permission mode is used by default for new Claude sessions',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       AppLanguage.storageKey: 'en-US',
@@ -4665,7 +4665,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(conversationRepository.createdAdapters, <String>['claude']);
-    expect(conversationRepository.createdPermissionModes, <String>['auto']);
+    expect(conversationRepository.createdPermissionModes, <String>['default']);
 
     conversationRepository.sendCompleter.complete(_conversationSummary(
       id: 'conv_new_running',
