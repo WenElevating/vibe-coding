@@ -78,6 +78,9 @@ class WorkbenchMessageCard extends StatelessWidget {
     if (message.role == 'task_progress') {
       return _TaskProgressCard(message: message);
     }
+    if (isCommand && _isSubAgentCommand(message)) {
+      return _SubAgentCallCard(message: message);
+    }
     if (isCommand) return _CommandEventCard(message: message);
     if (isDiff) return _DiffEventCard(message: message);
     if (isFileChange) return _FileChangeEventCard(message: message);
@@ -916,6 +919,160 @@ class _CommandEventCard extends StatelessWidget {
   Widget build(BuildContext context) => _ToolLogFoldout(message: message);
 }
 
+class _SubAgentCallCard extends StatefulWidget {
+  const _SubAgentCallCard({required this.message});
+
+  final WorkbenchMessage message;
+
+  @override
+  State<_SubAgentCallCard> createState() => _SubAgentCallCardState();
+}
+
+class _SubAgentCallCardState extends State<_SubAgentCallCard> {
+  late bool _expanded = _subAgentDefaultExpanded(widget.message);
+
+  @override
+  void didUpdateWidget(covariant _SubAgentCallCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.message.body != widget.message.body ||
+        oldWidget.message.title != widget.message.title ||
+        oldWidget.message.completed != widget.message.completed ||
+        oldWidget.message.isError != widget.message.isError) {
+      _expanded = _subAgentDefaultExpanded(widget.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final message = widget.message;
+    final accent = message.isError
+        ? theme.red
+        : message.completed
+            ? theme.green
+            : theme.purple2;
+    final title = _subAgentTitle(message);
+    final prompt = _subAgentPrompt(message);
+    final output = _commandOutput(message);
+    return Container(
+        padding: const EdgeInsets.fromLTRB(12, 11, 12, 10),
+        decoration: BoxDecoration(
+            color: const Color(0xFF0F1114),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: accent.withValues(alpha: .16))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Row(children: [
+                Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: accent.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: accent.withValues(alpha: .22))),
+                    child: Icon(Icons.account_tree_rounded,
+                        color: accent, size: 15)),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.text,
+                              fontSize: 13.2,
+                              height: 1.18,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0)),
+                      const SizedBox(height: 3),
+                      Text(_subAgentMeta(message),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: theme.faint,
+                              fontSize: 10.5,
+                              fontFamily: 'Consolas',
+                              height: 1.2,
+                              letterSpacing: 0)),
+                    ])),
+                const SizedBox(width: 8),
+                _SubAgentStatePill(message: message),
+                const SizedBox(width: 4),
+                Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: theme.faint,
+                    size: 17),
+              ])),
+          if (_expanded) ...[
+            const SizedBox(height: 10),
+            if (prompt != null)
+              _ToolDetailBlock(
+                  label: 'handoff',
+                  text: prompt,
+                  onTap: () => _showCommandDetailSheet(
+                      context: context,
+                      title: 'Agent handoff',
+                      subtitle: _subAgentMeta(message),
+                      text: prompt)),
+            if (prompt != null && output != null) const SizedBox(height: 7),
+            if (output != null)
+              _ToolDetailBlock(
+                  label: 'result',
+                  text: output,
+                  onTap: () => _showCommandDetailSheet(
+                      context: context,
+                      title: 'Agent result',
+                      subtitle: _subAgentMeta(message),
+                      text: output)),
+            if (prompt == null && output == null)
+              const Text('Waiting for sub-agent output...',
+                  style: TextStyle(
+                      color: theme.muted, fontSize: 12.5, height: 1.45)),
+          ],
+        ]));
+  }
+}
+
+class _SubAgentStatePill extends StatelessWidget {
+  const _SubAgentStatePill({required this.message});
+
+  final WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = message.isError
+        ? theme.red
+        : message.completed
+            ? theme.green
+            : theme.amber;
+    final label = message.isError
+        ? 'error'
+        : message.completed
+            ? 'complete'
+            : 'running';
+    return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        decoration: BoxDecoration(
+            color: color.withValues(alpha: .09),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: .22))),
+        child: Text(label,
+            style: TextStyle(
+                color: color,
+                fontSize: 10.5,
+                height: 1,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0)));
+  }
+}
+
 class _TaskProgressCard extends StatelessWidget {
   const _TaskProgressCard({required this.message});
 
@@ -1109,6 +1266,103 @@ String _commandTitle(WorkbenchMessage message) {
       .firstWhere((line) => line.isNotEmpty, orElse: () => message.title);
   return firstLine;
 }
+
+bool _isSubAgentCommand(WorkbenchMessage message) {
+  if (message.role != 'command') return false;
+  final tool = _normalizeToolIdentity(_rawToolName(message));
+  final title = _normalizeToolIdentity(_commandTitle(message));
+  return tool == 'agent' || tool == 'subagent' || title == 'agent';
+}
+
+bool _subAgentDefaultExpanded(WorkbenchMessage message) =>
+    !message.completed || message.isError;
+
+String _subAgentTitle(WorkbenchMessage message) {
+  final input = _messageInputMap(message);
+  final subject = input == null
+      ? null
+      : _firstNonEmptyNestedInputString(input, const <String>[
+          'description',
+          'subject',
+          'title',
+          'task',
+          'goal',
+          'objective',
+          'prompt',
+          'instruction',
+          'instructions',
+          'question',
+          'message',
+        ]);
+  if (subject != null) return subject;
+  final command = _commandTitle(message).trim();
+  if (command.isNotEmpty && _normalizeToolIdentity(command) != 'agent') {
+    return command;
+  }
+  return 'Delegated sub-agent';
+}
+
+String? _subAgentPrompt(WorkbenchMessage message) {
+  final input = _messageInputMap(message);
+  final prompt = input == null
+      ? null
+      : _firstNonEmptyNestedInputString(input, const <String>[
+          'prompt',
+          'message',
+          'question',
+          'content',
+          'text',
+          'input',
+          'request',
+          'instruction',
+          'instructions',
+          'goal',
+          'objective',
+          'description',
+          'task',
+        ]);
+  if (prompt != null) return prompt;
+  final body = message.body.trim();
+  if (body.isEmpty || _normalizeToolIdentity(body) == 'agent') return null;
+  return body;
+}
+
+String _subAgentMeta(WorkbenchMessage message) {
+  final parts = <String>['sub-agent'];
+  final duration = _formatCommandDuration(message.duration);
+  if (duration != null) parts.add(duration);
+  parts.add(message.isError
+      ? 'error'
+      : message.completed
+          ? 'completed'
+          : 'running');
+  return parts.join(' / ');
+}
+
+Map<String, Object?>? _messageInputMap(WorkbenchMessage message) {
+  final input = message.event?.raw['input'];
+  if (input is Map) return Map<String, Object?>.from(input);
+  return null;
+}
+
+String? _firstNonEmptyNestedInputString(
+    Map<String, Object?> input, List<String> keys) {
+  for (final key in keys) {
+    final value = input[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  for (final value in input.values) {
+    if (value is Map) {
+      final nested = _firstNonEmptyNestedInputString(
+          Map<String, Object?>.from(value), keys);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
+String _normalizeToolIdentity(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '').trim();
 
 String _noticeMeta(WorkbenchMessage message) {
   if (!message.isError) return 'notice';
@@ -1552,6 +1806,47 @@ Widget buildConversationCommandCardPreview() {
           body: Padding(
               padding: const EdgeInsets.all(16),
               child: _CommandEventCard(message: message))));
+}
+
+@visibleForTesting
+Widget buildSubAgentCallCardPreview() {
+  final event = AgentEvent(
+      type: 'raw.output',
+      seq: 2,
+      runId: 'conversation',
+      createdAt: DateTime.parse('2026-05-03T00:00:01.000Z'),
+      text: 'Agent',
+      name: 'Agent',
+      raw: const <String, Object?>{
+        'toolName': 'Agent',
+        'input': <String, Object?>{
+          'description': 'Review the repository changes',
+          'prompt': 'Check the current diff and report risks.'
+        },
+        'output': 'No blocking issues found.'
+      });
+  return MaterialApp(
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: theme.bg,
+          body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: WorkbenchMessageCard(
+                  message: WorkbenchMessage('command', 'Run command', 'Agent',
+                      event: event,
+                      runId: 'conversation',
+                      completed: true,
+                      duration: const Duration(milliseconds: 2300)),
+                  onApproval: (_) {},
+                  onSuggestion: (_) {},
+                  expandThinking: false))));
 }
 
 @visibleForTesting

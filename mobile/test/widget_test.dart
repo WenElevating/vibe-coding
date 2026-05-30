@@ -6522,6 +6522,21 @@ void main() {
     expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
+  testWidgets('Agent tool call renders as a sub-agent card',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildSubAgentCallCardPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Review the repository changes'), findsOneWidget);
+    expect(find.text('Run command'), findsNothing);
+    expect(find.text('No blocking issues found.'), findsNothing);
+
+    await tester.tap(find.text('Review the repository changes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No blocking issues found.'), findsOneWidget);
+  });
+
   testWidgets('task progress card shows desktop-style rows and statuses',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildTaskProgressCardPreview());
