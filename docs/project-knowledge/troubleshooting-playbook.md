@@ -216,6 +216,13 @@ npm run lint
   completed tool call; treat the tool result as a non-interactive permission
   failure, mark `permissionError=true`, and surface a visible system notice
   explaining that the CLI did not provide a responsive mobile approval request.
+  For long-lived mobile conversations, mirror the Claude Agent SDK permission
+  flow: run default permission mode with `--permission-prompt-tool stdio` and
+  keep stream-json stdin open so Claude emits `control_request` frames that the
+  mobile client can answer.
+  Claude `auto` mode classifier denials can also arrive only as ordinary
+  `tool_result` text beginning `Permission for this action was denied`; these
+  are not actionable approval requests and must be classified the same way.
 - Related file:
   [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js)
 - Verification:
@@ -225,7 +232,7 @@ node scripts/run-tests.js
 npm run lint
 ```
 
-- Last verified: 2026-05-25
+- Last verified: 2026-05-30
 
 ## Symptom: Claude AskUserQuestion Suggestion Leaves Send Disabled Or Returns 409
 

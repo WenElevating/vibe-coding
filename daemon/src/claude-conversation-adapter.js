@@ -102,6 +102,7 @@ class ClaudeConversationAdapter {
       '--include-partial-messages',
       ...(sessionId ? ['--resume', sessionId] : []),
       ...(selectedModel ? ['--model', selectedModel] : []),
+      ...(permissionMode === 'default' ? ['--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permissionMode === 'default' ? 'default' : 'auto',
       ...(permissionMode === 'auto' ? ['--allowedTools', allowedTools()] : []),
       '--input-format', 'stream-json'
@@ -783,6 +784,8 @@ function isPermissionErrorText(text) {
       || /requires approval/i.test(text)
       || /approval required/i.test(text)
       || /permission required/i.test(text)
+      || /permission for this action was denied/i.test(text)
+      || /auto mode classifier/i.test(text)
     );
 }
 

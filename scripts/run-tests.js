@@ -2503,7 +2503,7 @@ test('Claude conversation adapter starts long-lived CLI directly in workspace cw
   assert.equal(spawnCommand, 'claude');
   assert.equal(spawnArgs.includes('--input-format'), true);
   assert.equal(spawnArgs.includes('stream-json'), true);
-  assert.equal(spawnArgs.includes('--permission-prompt-tool'), false);
+  assert.deepEqual(spawnArgs.slice(spawnArgs.indexOf('--permission-prompt-tool'), spawnArgs.indexOf('--permission-prompt-tool') + 2), ['--permission-prompt-tool', 'stdio']);
   assert.equal(spawnArgs.join(' ').includes('cd /d'), false);
   assert.equal(spawnOptions.cwd, workspacePath);
   assert.equal(spawnOptions.env.PWD, workspacePath);
@@ -3881,6 +3881,40 @@ test('Claude conversation adapter marks non-interactive approval failures', asyn
   const completed = events.find((event) => event.type === 'tool.completed');
   assert.equal(notice.noticeKind, 'permission_unavailable');
   assert.equal(notice.text.includes('当前 CLI 没有发出可响应的移动端审批请求'), true);
+  assert.equal(output.permissionError, true);
+  assert.equal(completed.permissionError, true);
+});
+
+test('Claude conversation adapter marks auto classifier denials as permission failures', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_auto_permission_error', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_permission_auto',
+    name: 'Bash',
+    input: { command: 'git commit --amend' }
+  })}\n`);
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_result',
+    tool_use_id: 'toolu_permission_auto',
+    content: 'Permission for this action was denied by the Claude Code auto mode classifier. Reason: Git destructive: `git commit --amend` rewrites remote history.',
+    is_error: true
+  })}\n`);
+
+  const notice = events.find((event) => event.type === 'system.notice');
+  const output = events.find((event) => event.type === 'tool.output');
+  const completed = events.find((event) => event.type === 'tool.completed');
+  assert.equal(notice.noticeKind, 'permission_unavailable');
   assert.equal(output.permissionError, true);
   assert.equal(completed.permissionError, true);
 });
