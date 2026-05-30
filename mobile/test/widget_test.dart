@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -445,12 +446,25 @@ class _AdapterRefreshClient extends DaemonClient {
           status: 'available',
           version: 'synthetic')
     ],
+    List<ConversationSummary>? conversations,
   }) : super(
             baseUri: Uri.parse('http://127.0.0.1:4317'),
-            tokenStore: MemoryTokenStore());
+            tokenStore: MemoryTokenStore()) {
+    this.conversations = conversations ??
+        <ConversationSummary>[
+          _conversationSummary(
+            id: 'conv_lazy',
+            workspaceId: 'workspace_1',
+            status: 'completed',
+            sessionBinding: 'confirmed',
+            userMessageCount: 500,
+          ),
+        ];
+  }
 
   int listAdaptersCalls = 0;
   final List<AdapterStatus> adapters;
+  late final List<ConversationSummary> conversations;
 
   @override
   Future<List<AdapterStatus>> listAdapters() async {
@@ -481,15 +495,7 @@ class _AdapterRefreshClient extends DaemonClient {
 
   @override
   Future<List<ConversationSummary>> listConversations() async =>
-      <ConversationSummary>[
-        _conversationSummary(
-          id: 'conv_lazy',
-          workspaceId: 'workspace_1',
-          status: 'completed',
-          sessionBinding: 'confirmed',
-          userMessageCount: 500,
-        ),
-      ];
+      List<ConversationSummary>.of(conversations);
 }
 
 class _NoBootstrapRefreshClient extends _AdapterRefreshClient {
@@ -789,6 +795,64 @@ Finder _workbenchMessageList() => find.byWidgetPredicate(
                   'workbench-message-list-reverse'),
     );
 
+Widget _pagedWorkbenchHarness({
+  required ConversationRepository conversationRepository,
+  required List<ConversationSummary> conversations,
+}) {
+  final dependencies = AppDependencies.createDefault();
+  final client = _AdapterRefreshClient(conversations: conversations);
+  final connectedData = dependencies.data.forDaemonClient(client);
+  final workbenchDependencies =
+      dependencies.features.createWorkbenchDependencies(client, connectedData);
+  final cachedConversationRepository =
+      _cachedConversationRepositoryForWorkbenchTest(
+    delegate: conversationRepository,
+    conversations: conversations,
+  );
+  final testDependencies = AppDependencies(
+    network: dependencies.network,
+    data: dependencies.data,
+    domain: dependencies.domain,
+    features: _testFeatureDependencies(
+      createDaemonConnectionViewModel:
+          dependencies.features.createDaemonConnectionViewModel,
+      createDiagnosticsViewModel:
+          dependencies.features.createDiagnosticsViewModel,
+      createRunDetailViewModel: dependencies.features.createRunDetailViewModel,
+      createAppUpdateViewModel: dependencies.features.createAppUpdateViewModel,
+      createWorkbenchDependencies: (_, connectedData) => WorkbenchDependencies(
+        adapterRepository: connectedData.cliAdapterRepository,
+        asrModelManager: workbenchDependencies.asrModelManager,
+        conversationRepository: cachedConversationRepository,
+        diagnosticsRepository: connectedData.diagnosticsRepository,
+        runRepository: connectedData.runRepository,
+        speechInputServiceBuilder:
+            workbenchDependencies.speechInputServiceBuilder,
+        workspaceRepository: connectedData.workspaceRepository,
+      ),
+    ),
+  );
+  return _MainTabsHarness(
+    client: client,
+    dependencies: testDependencies,
+    snapshot: _testSnapshot(conversations: conversations),
+  );
+}
+
+ConversationEvent _pagedConversationEvent({
+  required int seq,
+  required String text,
+  String conversationId = 'conv_paged',
+  String type = 'assistant.message',
+}) =>
+    ConversationEvent.fromJson(<String, Object?>{
+      'seq': seq,
+      'conversationId': conversationId,
+      'type': type,
+      'createdAt': '2026-05-30T00:00:00.000Z',
+      'text': text,
+    });
+
 Widget _connectionPage(DaemonConnectionController controller) => MaterialApp(
       supportedLocales: appSupportedLocales,
       localizationsDelegates: appLocalizationsDelegates,
@@ -830,6 +894,30 @@ class _LazyConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) async =>
       messages;
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    final pageEvents = beforeSeq == null
+        ? messages.length <= limit
+            ? messages
+            : messages.sublist(messages.length - limit)
+        : messages
+            .where((event) => event.seq < beforeSeq)
+            .toList(growable: false);
+    final limitedEvents = pageEvents.length <= limit
+        ? pageEvents
+        : pageEvents.sublist(pageEvents.length - limit);
+    return ConversationEventPage(
+      events: limitedEvents,
+      oldestSeq: limitedEvents.isEmpty ? null : limitedEvents.first.seq,
+      newestSeq: limitedEvents.isEmpty ? null : limitedEvents.last.seq,
+      hasMoreBefore: limitedEvents.isNotEmpty && limitedEvents.length == limit,
+    );
+  }
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -878,10 +966,51 @@ class _LazyConversationRepository implements ConversationRepository {
       );
 }
 
+CachedConversationRepository _cachedConversationRepositoryForWorkbenchTest({
+  required ConversationRepository delegate,
+  required List<ConversationSummary> conversations,
+  String workspaceId = 'workspace_1',
+}) =>
+    CachedConversationRepository(delegate: delegate)
+      ..replaceFromBootstrap(
+        workspaceId: workspaceId,
+        conversations: conversations,
+      );
+
+class _PagedHistoryConversationRepository extends _LazyConversationRepository {
+  _PagedHistoryConversationRepository({
+    required this.pages,
+  }) : super(const <ConversationEvent>[]);
+
+  final Queue<ConversationEventPage> pages;
+  final List<String> pageCalls = <String>[];
+  final List<int> watchAfterSeqs = <int>[];
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    pageCalls.add('$conversationId:$beforeSeq:$limit');
+    return pages.removeFirst();
+  }
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) {
+    watchAfterSeqs.add(afterSeq);
+    return const Stream<ConversationEvent>.empty();
+  }
+}
+
 class _StoredHistoryConversationRepository extends _LazyConversationRepository {
   _StoredHistoryConversationRepository(super.messages);
 
   final List<int> fetchAfterSeqs = <int>[];
+  final List<String> pageCalls = <String>[];
   final List<int> watchAfterSeqs = <int>[];
 
   @override
@@ -893,6 +1022,20 @@ class _StoredHistoryConversationRepository extends _LazyConversationRepository {
     return messages
         .where((event) => event.seq > afterSeq)
         .toList(growable: false);
+  }
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    pageCalls.add('$conversationId:$beforeSeq:$limit');
+    return super.fetchConversationEventPage(
+      conversationId,
+      beforeSeq: beforeSeq,
+      limit: limit,
+    );
   }
 
   @override
@@ -921,6 +1064,21 @@ class _HangingFetchConversationRepository extends _LazyConversationRepository {
   }
 
   @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    final events = await fetchConversationEvents(conversationId);
+    return ConversationEventPage(
+      events: events,
+      oldestSeq: events.isEmpty ? null : events.first.seq,
+      newestSeq: events.isEmpty ? null : events.last.seq,
+      hasMoreBefore: false,
+    );
+  }
+
+  @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
@@ -939,6 +1097,30 @@ class _HangingFetchConversationRepository extends _LazyConversationRepository {
           title: 'Slow history conversation',
         ),
       ];
+}
+
+class _HangingPageConversationRepository extends _LazyConversationRepository {
+  _HangingPageConversationRepository() : super(const <ConversationEvent>[]);
+
+  final fetchCompleter = Completer<ConversationEventPage>();
+  bool pageFetchStarted = false;
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) {
+    pageFetchStarted = true;
+    return fetchCompleter.future;
+  }
+
+  @override
+  Stream<ConversationEvent> watchConversationEvents(
+    String conversationId, {
+    required int afterSeq,
+  }) =>
+      const Stream<ConversationEvent>.empty();
 }
 
 class _LifecycleConversationRepository implements ConversationRepository {
@@ -992,6 +1174,26 @@ class _LifecycleConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) async =>
       events.where((event) => event.seq > afterSeq).toList(growable: false);
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    final pageEvents = events
+        .where((event) => beforeSeq == null || event.seq < beforeSeq)
+        .toList(growable: false);
+    final limitedEvents = pageEvents.length <= limit
+        ? pageEvents
+        : pageEvents.sublist(pageEvents.length - limit);
+    return ConversationEventPage(
+      events: limitedEvents,
+      oldestSeq: limitedEvents.isEmpty ? null : limitedEvents.first.seq,
+      newestSeq: limitedEvents.isEmpty ? null : limitedEvents.last.seq,
+      hasMoreBefore: false,
+    );
+  }
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -1099,6 +1301,19 @@ class _NewSessionConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) async =>
       const <ConversationEvent>[];
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async =>
+      const ConversationEventPage(
+        events: <ConversationEvent>[],
+        oldestSeq: null,
+        newestSeq: null,
+        hasMoreBefore: false,
+      );
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -2882,7 +3097,16 @@ void main() {
     );
     final dependencies = AppDependencies.createDefault();
     final conversationRepository = _LazyConversationRepository(messages);
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_lazy',
+        workspaceId: 'workspace_1',
+        status: 'completed',
+        sessionBinding: 'confirmed',
+        userMessageCount: messages.length,
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -2903,8 +3127,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2918,17 +3144,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_lazy',
-              workspaceId: 'workspace_1',
-              status: 'completed',
-              sessionBinding: 'confirmed',
-              userMessageCount: messages.length,
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await tester.pumpAndSettle();
@@ -2960,7 +3176,17 @@ void main() {
     );
     final dependencies = AppDependencies.createDefault();
     final conversationRepository = _LazyConversationRepository(messages);
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_scroll',
+        workspaceId: 'workspace_1',
+        status: 'completed',
+        sessionBinding: 'confirmed',
+        userMessageCount: messages.length,
+        title: 'Scroll regression conversation',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -2981,8 +3207,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -2996,18 +3224,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_scroll',
-              workspaceId: 'workspace_1',
-              status: 'completed',
-              sessionBinding: 'confirmed',
-              userMessageCount: messages.length,
-              title: 'Scroll regression conversation',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await tester.pumpAndSettle();
@@ -3078,10 +3295,25 @@ void main() {
     final dependencies = AppDependencies.createDefault();
     final conversationRepository =
         _StoredHistoryConversationRepository(messages);
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_history',
+        workspaceId: 'workspace_1',
+        status: 'completed',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Historical task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
+    final cachedConversationRepository =
+        _cachedConversationRepositoryForWorkbenchTest(
+      delegate: conversationRepository,
+      conversations: conversations,
+    );
     final testDependencies = AppDependencies(
       network: dependencies.network,
       data: dependencies.data,
@@ -3099,8 +3331,7 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: cachedConversationRepository,
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3114,18 +3345,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_history',
-              workspaceId: 'workspace_1',
-              status: 'completed',
-              sessionBinding: 'confirmed',
-              userMessageCount: 1,
-              title: 'Historical task',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await tester.pumpAndSettle();
@@ -3137,11 +3357,212 @@ void main() {
     await tester.tap(find.text('Historical task'));
     await tester.pumpAndSettle();
 
-    expect(conversationRepository.fetchAfterSeqs, <int>[0]);
+    expect(conversationRepository.fetchAfterSeqs, isEmpty);
+    expect(conversationRepository.pageCalls, <String>['conv_history:null:80']);
     expect(conversationRepository.watchAfterSeqs, <int>[6]);
     expect(find.text('historical prompt'), findsOneWidget);
     expect(find.text('historical answer'), findsOneWidget);
     expect(find.text('00:00'), findsNothing);
+  });
+
+  testWidgets('opening large historical conversation loads tail page first',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final repository = _PagedHistoryConversationRepository(
+      pages: Queue<ConversationEventPage>.from(<ConversationEventPage>[
+        ConversationEventPage(
+          events: <ConversationEvent>[
+            _pagedConversationEvent(
+                seq: 119, type: 'user.message', text: 'recent prompt'),
+            _pagedConversationEvent(seq: 120, text: 'latest sentinel'),
+          ],
+          oldestSeq: 119,
+          newestSeq: 120,
+          hasMoreBefore: true,
+        ),
+      ]),
+    );
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_paged',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'confirmed',
+          userMessageCount: 120,
+          title: 'Paged history conversation',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paged history conversation'));
+    await tester.pumpAndSettle();
+
+    expect(repository.pageCalls, <String>['conv_paged:null:80']);
+    expect(repository.watchAfterSeqs, <int>[120]);
+    expect(find.text('latest sentinel'), findsOneWidget);
+    expect(find.text('recent prompt'), findsOneWidget);
+  });
+
+  testWidgets('empty tail starts conversation watch from zero',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final repository = _PagedHistoryConversationRepository(
+      pages: Queue<ConversationEventPage>.from(const <ConversationEventPage>[
+        ConversationEventPage(
+          events: <ConversationEvent>[],
+          oldestSeq: null,
+          newestSeq: null,
+          hasMoreBefore: false,
+        ),
+      ]),
+    );
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_paged',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'confirmed',
+          userMessageCount: 1,
+          title: 'Paged history conversation',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paged history conversation'));
+    await tester.pumpAndSettle();
+
+    expect(repository.pageCalls, <String>['conv_paged:null:80']);
+    expect(repository.watchAfterSeqs, <int>[0]);
+  });
+
+  testWidgets('scrolling to older edge loads previous conversation page once',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(480, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final repository = _PagedHistoryConversationRepository(
+      pages: Queue<ConversationEventPage>.from(<ConversationEventPage>[
+        ConversationEventPage(
+          events: List<ConversationEvent>.generate(
+            100,
+            (index) => _pagedConversationEvent(
+              seq: index + 21,
+              text: index == 99 ? 'latest sentinel' : 'recent $index',
+            ),
+          ),
+          oldestSeq: 21,
+          newestSeq: 120,
+          hasMoreBefore: true,
+        ),
+        ConversationEventPage(
+          events: <ConversationEvent>[
+            _pagedConversationEvent(
+                seq: 19, type: 'user.message', text: 'older prompt'),
+            _pagedConversationEvent(seq: 20, text: 'older answer'),
+          ],
+          oldestSeq: 19,
+          newestSeq: 20,
+          hasMoreBefore: false,
+        ),
+      ]),
+    );
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_paged',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'confirmed',
+          userMessageCount: 120,
+          title: 'Paged history conversation',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paged history conversation'));
+    await tester.pumpAndSettle();
+
+    await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
+    await tester.pump();
+    await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
+    await tester.pump();
+    await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
+    await tester.pump();
+    await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
+    await tester.pumpAndSettle();
+
+    expect(repository.pageCalls.where((call) => call == 'conv_paged:21:80'),
+        hasLength(1));
+    expect(find.text('older prompt'), findsOneWidget);
+  });
+
+  testWidgets('leaving conversation before tail returns discards stale page',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final repository = _HangingPageConversationRepository();
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_slow_history',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'confirmed',
+          userMessageCount: 1,
+          title: 'Slow history conversation',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Slow history conversation'));
+    await tester.pump();
+    expect(repository.pageFetchStarted, isTrue);
+
+    await tester.tap(find.byIcon(Icons.arrow_back_ios_new_rounded));
+    await tester.pumpAndSettle();
+    repository.fetchCompleter.complete(ConversationEventPage(
+      events: <ConversationEvent>[
+        _pagedConversationEvent(
+          seq: 1,
+          conversationId: 'conv_slow_history',
+          text: 'stale history',
+        ),
+      ],
+      oldestSeq: 1,
+      newestSeq: 1,
+      hasMoreBefore: false,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('stale history'), findsNothing);
+    expect(find.text('Slow history conversation'), findsOneWidget);
   });
 
   testWidgets('opening existing conversation navigates before history returns',
@@ -3258,7 +3679,17 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     }
 
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_lifecycle',
+        workspaceId: 'workspace_1',
+        status: 'running',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Lifecycle task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -3279,8 +3710,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3294,18 +3727,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_lifecycle',
-              workspaceId: 'workspace_1',
-              status: 'running',
-              sessionBinding: 'confirmed',
-              userMessageCount: 1,
-              title: 'Lifecycle task',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await pumpNavigationFrame();
@@ -3364,7 +3786,17 @@ void main() {
       }
     }
 
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_cancel_failure',
+        workspaceId: 'workspace_1',
+        status: 'running',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Cancel failure task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -3385,8 +3817,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3400,18 +3834,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_cancel_failure',
-              workspaceId: 'workspace_1',
-              status: 'running',
-              sessionBinding: 'confirmed',
-              userMessageCount: 1,
-              title: 'Cancel failure task',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await pumpNavigationFrame();
@@ -3464,7 +3887,17 @@ void main() {
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     final dependencies = AppDependencies.createDefault();
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_send_existing',
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Follow-up task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final testDependencies = AppDependencies(
       network: dependencies.network,
       data: dependencies.data,
@@ -3573,7 +4006,17 @@ void main() {
       daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
     );
     final dependencies = AppDependencies.createDefault();
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_send_existing',
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Follow-up task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final testDependencies = AppDependencies(
       network: dependencies.network,
       data: dependencies.data,
@@ -3659,7 +4102,17 @@ void main() {
       }
     }
 
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_send_existing',
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Follow-up task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -3680,8 +4133,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3695,18 +4150,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_send_existing',
-              workspaceId: 'workspace_1',
-              status: 'idle',
-              sessionBinding: 'confirmed',
-              userMessageCount: 1,
-              title: 'Follow-up task',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await pumpNavigationFrame();
@@ -3759,36 +4203,37 @@ void main() {
         }),
       ],
     );
+    const blockingItem = ConversationBlockingItem(
+      type: 'input_request',
+      questionId: 'question_api_key',
+      text: 'API Key storage',
+      suggestions: <String>[
+        'DPAPI encryption',
+        'Keep current behavior',
+      ],
+    );
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_waiting_input',
+        workspaceId: 'workspace_1',
+        status: 'waiting_input',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'API key review',
+        blockingItem: blockingItem,
+      ),
+    ];
     final client = _AdapterRefreshClient();
     final pageDependencies = dependencies.createMainTabsDependencies(
       client,
-      initialData: _testSnapshot(
-        conversations: <ConversationSummary>[
-          _conversationSummary(
-            id: 'conv_waiting_input',
-            workspaceId: 'workspace_1',
-            status: 'idle',
-            sessionBinding: 'confirmed',
-            userMessageCount: 1,
-            title: 'API key review',
-          ),
-        ],
-      ).toDaemonInitialData(),
+      initialData:
+          _testSnapshot(conversations: conversations).toDaemonInitialData(),
     );
     final cachedConversationRepository =
         CachedConversationRepository(delegate: conversationRepository)
           ..replaceFromBootstrap(
             workspaceId: 'workspace_1',
-            conversations: <ConversationSummary>[
-              _conversationSummary(
-                id: 'conv_waiting_input',
-                workspaceId: 'workspace_1',
-                status: 'idle',
-                sessionBinding: 'confirmed',
-                userMessageCount: 1,
-                title: 'API key review',
-              ),
-            ],
+            conversations: conversations,
           );
     final directDependencies = WorkbenchDependencies(
       adapterRepository: pageDependencies.connectedData.cliAdapterRepository,
@@ -3880,7 +4325,17 @@ void main() {
     ];
     final dependencies = AppDependencies.createDefault();
     final conversationRepository = _LazyConversationRepository(messages);
-    final client = _AdapterRefreshClient();
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_short',
+        workspaceId: 'workspace_1',
+        status: 'completed',
+        sessionBinding: 'confirmed',
+        userMessageCount: messages.length,
+        title: 'Short regression conversation',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
     final connectedData = dependencies.data.forDaemonClient(client);
     final workbenchDependencies = dependencies.features
         .createWorkbenchDependencies(client, connectedData);
@@ -3901,8 +4356,10 @@ void main() {
             WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: workbenchDependencies.asrModelManager,
-          conversationRepository:
-              CachedConversationRepository(delegate: conversationRepository),
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,
           speechInputServiceBuilder:
@@ -3916,18 +4373,7 @@ void main() {
       _MainTabsHarness(
         client: client,
         dependencies: testDependencies,
-        snapshot: _testSnapshot(
-          conversations: <ConversationSummary>[
-            _conversationSummary(
-              id: 'conv_short',
-              workspaceId: 'workspace_1',
-              status: 'completed',
-              sessionBinding: 'confirmed',
-              userMessageCount: messages.length,
-              title: 'Short regression conversation',
-            ),
-          ],
-        ),
+        snapshot: _testSnapshot(conversations: conversations),
       ),
     );
     await tester.pumpAndSettle();

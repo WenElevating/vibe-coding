@@ -1003,6 +1003,19 @@ class _FakeConversationRepository implements ConversationRepository {
       const <ConversationEvent>[];
 
   @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async =>
+      const ConversationEventPage(
+        events: <ConversationEvent>[],
+        oldestSeq: null,
+        newestSeq: null,
+        hasMoreBefore: false,
+      );
+
+  @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,

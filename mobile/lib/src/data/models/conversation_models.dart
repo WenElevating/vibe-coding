@@ -245,6 +245,44 @@ class ConversationEvent {
       );
 }
 
+class ConversationEventPage {
+  const ConversationEventPage({
+    required this.events,
+    required this.oldestSeq,
+    required this.newestSeq,
+    required this.hasMoreBefore,
+  });
+
+  final List<ConversationEvent> events;
+  final int? oldestSeq;
+  final int? newestSeq;
+  final bool hasMoreBefore;
+
+  factory ConversationEventPage.fromJson(
+    Map<String, Object?> json, {
+    required int limit,
+  }) {
+    final events = _objectList(json['events'])
+        .map(ConversationEvent.fromJson)
+        .toList(growable: false);
+    final page = _objectMap(json['page']);
+    if (page.isEmpty) {
+      return ConversationEventPage(
+        events: events,
+        oldestSeq: events.isEmpty ? null : events.first.seq,
+        newestSeq: events.isEmpty ? null : events.last.seq,
+        hasMoreBefore: events.isNotEmpty && events.length == limit,
+      );
+    }
+    return ConversationEventPage(
+      events: events,
+      oldestSeq: _optionalInt(page['oldestSeq']),
+      newestSeq: _optionalInt(page['newestSeq']),
+      hasMoreBefore: page['hasMoreBefore'] as bool? ?? false,
+    );
+  }
+}
+
 List<CommittedAttachment> _attachmentsFromJson(Object? value) {
   return _objectList(value)
       .map(CommittedAttachment.fromJson)
@@ -297,3 +335,5 @@ Map<String, Object?> _objectMap(Object? value) {
   }
   return result;
 }
+
+int? _optionalInt(Object? value) => value is int ? value : null;

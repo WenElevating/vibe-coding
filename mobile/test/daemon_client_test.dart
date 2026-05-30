@@ -152,6 +152,101 @@ void main() {
     expect(attachment.localPath, isNull);
   });
 
+  test('fetchConversationEventPage requests tail and parses metadata',
+      () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/events');
+        expect(request.url.queryParameters, const <String, String>{
+          'tail': '2',
+        });
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'events': <Object?>[
+              <String, Object?>{
+                'seq': 8,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:00.000Z',
+                'text': 'older',
+              },
+              <String, Object?>{
+                'seq': 9,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:01.000Z',
+                'text': 'newer',
+              },
+            ],
+            'page': <String, Object?>{
+              'mode': 'tail',
+              'oldestSeq': 8,
+              'newestSeq': 9,
+              'hasMoreBefore': true,
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final page = await client.fetchConversationEventPage('conv_1', limit: 2);
+
+    expect(page.events.map((event) => event.seq), const <int>[8, 9]);
+    expect(page.oldestSeq, 8);
+    expect(page.newestSeq, 9);
+    expect(page.hasMoreBefore, isTrue);
+  });
+
+  test('fetchConversationEventPage requests older page and derives metadata',
+      () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/events');
+        expect(request.url.queryParameters, const <String, String>{
+          'beforeSeq': '8',
+          'limit': '2',
+        });
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'events': <Object?>[
+              <String, Object?>{
+                'seq': 6,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:00.000Z',
+                'text': 'oldest fallback',
+              },
+              <String, Object?>{
+                'seq': 7,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:01.000Z',
+                'text': 'newest fallback',
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final page = await client.fetchConversationEventPage(
+      'conv_1',
+      beforeSeq: 8,
+      limit: 2,
+    );
+
+    expect(page.events.map((event) => event.seq), const <int>[6, 7]);
+    expect(page.oldestSeq, 6);
+    expect(page.newestSeq, 7);
+    expect(page.hasMoreBefore, isTrue);
+  });
+
   test('recordException returns daemon trace id', () async {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),

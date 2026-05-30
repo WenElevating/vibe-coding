@@ -67,6 +67,18 @@ class DaemonConversationRepository implements ConversationRepository {
       _client.fetchConversationEvents(conversationId, afterSeq: afterSeq);
 
   @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) =>
+      _client.fetchConversationEventPage(
+        conversationId,
+        beforeSeq: beforeSeq,
+        limit: limit,
+      );
+
+  @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,

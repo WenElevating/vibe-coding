@@ -573,6 +573,14 @@ class _UnusedRepository extends WorkspaceRepository
       throw UnimplementedError();
 
   @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) =>
+      throw UnimplementedError();
+
+  @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,

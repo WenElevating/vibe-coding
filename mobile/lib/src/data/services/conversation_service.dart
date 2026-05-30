@@ -78,6 +78,12 @@ abstract class ConversationService {
     int afterSeq,
   });
 
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  });
+
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,
     String questionId,

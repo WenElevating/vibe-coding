@@ -144,6 +144,131 @@ void main() {
     await subscription.cancel();
   });
 
+  test('workbench view model applies tail page and tracks historical cursor',
+      () async {
+    final repository = _FakeConversationRepository(
+      eventPage: ConversationEventPage(
+        events: <ConversationEvent>[
+          _event(
+              seq: 7,
+              conversationId: 'conv_existing',
+              type: 'user.message',
+              text: 'tail prompt'),
+          _event(
+              seq: 8,
+              conversationId: 'conv_existing',
+              type: 'assistant.message',
+              text: 'tail answer'),
+        ],
+        oldestSeq: 7,
+        newestSeq: 8,
+        hasMoreBefore: true,
+      ),
+    );
+    final viewModel = _workbenchViewModel(conversationRepository: repository);
+    final conversation = _conversation(
+      id: 'conv_existing',
+      workspaceId: _workspace.id,
+      status: 'idle',
+    );
+    viewModel.openSession(SessionItem(
+      run: WorkbenchViewModel.runSummaryFromConversation(conversation),
+      conversation: conversation,
+    ));
+
+    final changed = await viewModel.loadInitialConversationEventPage(
+      conversationId: 'conv_existing',
+      limit: 80,
+      streamOutput: false,
+    );
+
+    expect(changed, isTrue);
+    expect(repository.calls, <String>['page:conv_existing:null:80']);
+    expect(viewModel.oldestLoadedConversationSeq, 7);
+    expect(viewModel.hasMoreHistoricalConversationEvents, isTrue);
+    expect(viewModel.loadingOlderConversationEvents, isFalse);
+    expect(viewModel.lastSeq, 8);
+    expect(viewModel.messages.map((message) => message.body),
+        containsAll(<String>['tail prompt', 'tail answer']));
+  });
+
+  test('workbench view model dedupes stream overlap with older page', () async {
+    final repository = _FakeConversationRepository(
+      eventPages: <ConversationEventPage>[
+        ConversationEventPage(
+          events: <ConversationEvent>[
+            _event(
+                seq: 2,
+                conversationId: 'conv_existing',
+                type: 'assistant.message',
+                text: 'streamed answer'),
+          ],
+          oldestSeq: 2,
+          newestSeq: 2,
+          hasMoreBefore: true,
+        ),
+        ConversationEventPage(
+          events: <ConversationEvent>[
+            _event(
+                seq: 1,
+                conversationId: 'conv_existing',
+                type: 'user.message',
+                text: 'older prompt'),
+            _event(
+                seq: 2,
+                conversationId: 'conv_existing',
+                type: 'assistant.message',
+                text: 'streamed answer'),
+          ],
+          oldestSeq: 1,
+          newestSeq: 2,
+          hasMoreBefore: false,
+        ),
+      ],
+    );
+    final viewModel = _workbenchViewModel(conversationRepository: repository);
+    final conversation = _conversation(
+      id: 'conv_existing',
+      workspaceId: _workspace.id,
+      status: 'running',
+    );
+    viewModel.openSession(SessionItem(
+      run: WorkbenchViewModel.runSummaryFromConversation(conversation),
+      conversation: conversation,
+    ));
+
+    await viewModel.loadInitialConversationEventPage(
+      conversationId: 'conv_existing',
+      limit: 80,
+      streamOutput: true,
+    );
+    viewModel.applyConversationEvents(<ConversationEvent>[
+      _event(
+          seq: 3,
+          conversationId: 'conv_existing',
+          type: 'assistant.message',
+          text: 'live answer'),
+    ], streamOutput: true);
+    final changed = await viewModel.loadOlderConversationEventPage(
+      conversationId: 'conv_existing',
+      limit: 80,
+      streamOutput: true,
+    );
+
+    expect(changed, isTrue);
+    expect(repository.calls, <String>[
+      'page:conv_existing:null:80',
+      'page:conv_existing:2:80',
+    ]);
+    expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+    expect(
+        viewModel.conversationEvents.map((event) => event.seq), <int>[1, 2, 3]);
+    expect(
+        viewModel.messages
+            .where((message) => message.body == 'streamed answer'),
+        hasLength(1));
+  });
+
   test('workbench view model cancels conversation and run through repositories',
       () async {
     final conversationRepository = _FakeConversationRepository();
@@ -484,11 +609,21 @@ class _NoOpAdapterRepository implements AdapterRepository {
 }
 
 class _FakeConversationRepository implements ConversationRepository {
+  _FakeConversationRepository({
+    ConversationEventPage? eventPage,
+    List<ConversationEventPage>? eventPages,
+  }) : eventPages = eventPages ??
+            <ConversationEventPage>[
+              if (eventPage != null) eventPage,
+            ];
+
+  final List<ConversationEventPage> eventPages;
   final List<String> calls = <String>[];
   final List<ConversationMessageSendRequest> sentRequests =
       <ConversationMessageSendRequest>[];
   final StreamController<ConversationEvent> _events =
       StreamController<ConversationEvent>.broadcast();
+  int _eventPageIndex = 0;
 
   void emitConversationEvent(ConversationEvent event) => _events.add(event);
 
@@ -539,6 +674,24 @@ class _FakeConversationRepository implements ConversationRepository {
         text: 'hello',
       ),
     ];
+  }
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    calls.add('page:$conversationId:$beforeSeq:$limit');
+    if (_eventPageIndex < eventPages.length) {
+      return eventPages[_eventPageIndex++];
+    }
+    return const ConversationEventPage(
+      events: <ConversationEvent>[],
+      oldestSeq: null,
+      newestSeq: null,
+      hasMoreBefore: false,
+    );
   }
 
   @override

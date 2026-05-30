@@ -404,6 +404,27 @@ void main() {
       expect(notifications, 1);
       expect(repository.conversations, isEmpty);
     });
+
+    test('event page requests are delegated without refreshing cache',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+
+      final page = await repository.fetchConversationEventPage(
+        'c1',
+        beforeSeq: 9,
+        limit: 2,
+      );
+
+      expect(delegate.eventPageCalls, const <String>['c1:9:2']);
+      expect(delegate.listConversationsCalls, 0);
+      expect(page.events.map((event) => event.seq), const <int>[7, 8]);
+      expect(page.oldestSeq, 7);
+      expect(page.newestSeq, 8);
+      expect(page.hasMoreBefore, isFalse);
+    });
   });
 
   group('CachedRunRepository', () {
@@ -915,6 +936,7 @@ class _FakeConversationRepository implements ConversationRepository {
   var listConversationsCalls = 0;
   final queuedConversations = <Future<List<ConversationSummary>>>[];
   final queuedModelUpdates = <Future<ConversationSummary>>[];
+  final eventPageCalls = <String>[];
 
   @override
   Future<List<ConversationSummary>> listConversations() async {
@@ -988,6 +1010,24 @@ class _FakeConversationRepository implements ConversationRepository {
     int afterSeq = 0,
   }) async =>
       const <ConversationEvent>[];
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    eventPageCalls.add('$conversationId:$beforeSeq:$limit');
+    return ConversationEventPage(
+      events: <ConversationEvent>[
+        _conversationEvent(conversationId: conversationId, seq: 7),
+        _conversationEvent(conversationId: conversationId, seq: 8),
+      ],
+      oldestSeq: 7,
+      newestSeq: 8,
+      hasMoreBefore: false,
+    );
+  }
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -1152,4 +1192,16 @@ ConversationSummary _copyConversation(
       requestedPermissionMode: conversation.requestedPermissionMode,
       effectivePermissionMode: conversation.effectivePermissionMode,
       permissionSupport: conversation.permissionSupport,
+    );
+
+ConversationEvent _conversationEvent({
+  required String conversationId,
+  required int seq,
+}) =>
+    ConversationEvent(
+      seq: seq,
+      conversationId: conversationId,
+      type: 'assistant.message',
+      createdAt: DateTime.parse('2026-05-30T00:00:00.000Z'),
+      text: 'event $seq',
     );

@@ -1,6 +1,6 @@
 # Conversation History Pagination Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make historical workbench conversations open on the latest transcript window and load older events only when the user scrolls upward.
 
@@ -49,7 +49,7 @@ If a Flutter/Dart command times out on the first attempt, stop automatic retries
 - Modify: `daemon/src/conversation-event-store.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 In `scripts/run-tests.js`, add tests near the other conversation event store tests. Use the existing `test(...)` helper and `assert`.
 
@@ -151,7 +151,7 @@ test('conversation event store before page uses existence check for sequence gap
 });
 ```
 
-- [ ] **Step 2: Run daemon tests and verify failure**
+- [x] **Step 2: Run daemon tests and verify failure**
 
 Run:
 
@@ -161,7 +161,7 @@ npm test
 
 Expected: FAIL because `ConversationEventStore.listTail` and `ConversationEventStore.listBefore` do not exist.
 
-- [ ] **Step 3: Implement store page methods**
+- [x] **Step 3: Implement store page methods**
 
 In `daemon/src/conversation-event-store.js`, replace `list` with explicit methods while keeping `list` as an alias:
 
@@ -296,7 +296,7 @@ function conversationEventPage(events, hasMoreBefore) {
 }
 ```
 
-- [ ] **Step 4: Run daemon tests and verify pass**
+- [x] **Step 4: Run daemon tests and verify pass**
 
 Run:
 
@@ -322,7 +322,7 @@ git commit -m "Support paged conversation event store reads" -m "Historical work
 - Modify: `daemon/src/server.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write failing HTTP API tests**
+- [x] **Step 1: Write failing HTTP API tests**
 
 In `scripts/run-tests.js`, add a test near the HTTP API conversation tests. Use `createApp`, `request`, and the app's stores directly so the test does not rely on a real CLI run.
 
@@ -396,7 +396,7 @@ test('conversation events API rejects mixed pagination modes', async () => {
 });
 ```
 
-- [ ] **Step 2: Run daemon tests and verify failure**
+- [x] **Step 2: Run daemon tests and verify failure**
 
 Run:
 
@@ -406,7 +406,7 @@ npm test
 
 Expected: FAIL because the server treats all event requests as `afterSeq`.
 
-- [ ] **Step 3: Implement manager page method**
+- [x] **Step 3: Implement manager page method**
 
 In `daemon/src/conversation-manager.js`, keep `listEvents` but switch it to `listAfter`, then add `listEventPage`:
 
@@ -435,7 +435,7 @@ In `daemon/src/conversation-manager.js`, keep `listEvents` but switch it to `lis
   }
 ```
 
-- [ ] **Step 4: Implement server query parsing**
+- [x] **Step 4: Implement server query parsing**
 
 In `daemon/src/server.js`, replace the conversation events block with a parser-backed branch:
 
@@ -507,7 +507,7 @@ function httpError(status, code, message) {
 }
 ```
 
-- [ ] **Step 5: Run daemon tests and verify pass**
+- [x] **Step 5: Run daemon tests and verify pass**
 
 Run:
 
@@ -540,7 +540,7 @@ git commit -m "Expose paged conversation event API" -m "Mobile needs a latest-hi
 - Test: `mobile/test/daemon_conversation_repository_test.dart`
 - Test: `mobile/test/cached_connected_repositories_test.dart`
 
-- [ ] **Step 1: Write failing daemon client tests**
+- [x] **Step 1: Write failing daemon client tests**
 
 In `mobile/test/daemon_client_test.dart`, add tests after `fetchConversationEvents ignores legacy attachment preview fields`.
 
@@ -626,7 +626,7 @@ In `mobile/test/daemon_client_test.dart`, add tests after `fetchConversationEven
   });
 ```
 
-- [ ] **Step 2: Run targeted mobile client tests and verify failure**
+- [x] **Step 2: Run targeted mobile client tests and verify failure**
 
 Run from `mobile/`:
 
@@ -636,7 +636,7 @@ flutter test --no-pub test\daemon_client_test.dart --plain-name "fetchConversati
 
 Expected: FAIL because `fetchConversationEventPage` and `ConversationEventPage` do not exist.
 
-- [ ] **Step 3: Add `ConversationEventPage` model**
+- [x] **Step 3: Add `ConversationEventPage` model**
 
 In `mobile/lib/src/data/models/conversation_models.dart`, add after `ConversationEvent`:
 
@@ -679,7 +679,7 @@ int? _lastSeq(List<ConversationEvent> events) =>
     events.isEmpty ? null : events.last.seq;
 ```
 
-- [ ] **Step 4: Add repository and service method signatures**
+- [x] **Step 4: Add repository and service method signatures**
 
 In `mobile/lib/src/domain/repositories/conversation_repository.dart`, add:
 
@@ -693,7 +693,7 @@ In `mobile/lib/src/domain/repositories/conversation_repository.dart`, add:
 
 In `mobile/lib/src/data/services/conversation_service.dart`, add the same signature to `ConversationService`.
 
-- [ ] **Step 5: Implement client and repository forwarding**
+- [x] **Step 5: Implement client and repository forwarding**
 
 In `mobile/lib/src/services/daemon_client.dart`, add:
 
@@ -733,7 +733,7 @@ In `DaemonConversationRepository` and `CachedConversationRepository`, forward th
 
 Use `_delegate` instead of `_client` in `CachedConversationRepository`.
 
-- [ ] **Step 6: Update test fakes to compile**
+- [x] **Step 6: Update test fakes to compile**
 
 For each fake implementing `ConversationRepository`, add the method. For simple fakes:
 
@@ -781,7 +781,7 @@ For fakes without a `messages` field, return an empty page:
       );
 ```
 
-- [ ] **Step 7: Run targeted mobile tests**
+- [x] **Step 7: Run targeted mobile tests**
 
 Run from `mobile/`:
 
@@ -812,7 +812,7 @@ git commit -m "Add mobile conversation event page contract" -m "Historical trans
 - Modify: `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
 - Test: `mobile/test/coding_workbench_controller_test.dart`
 
-- [ ] **Step 1: Write failing ViewModel tests**
+- [x] **Step 1: Write failing ViewModel tests**
 
 In `mobile/test/coding_workbench_controller_test.dart`, add tests near the existing "workbench view model forwards conversation stream operations" test.
 
@@ -939,7 +939,7 @@ Add a fake method:
   }
 ```
 
-- [ ] **Step 2: Run ViewModel tests and verify failure**
+- [x] **Step 2: Run ViewModel tests and verify failure**
 
 Run from `mobile/`:
 
@@ -949,7 +949,7 @@ flutter test --no-pub test\coding_workbench_controller_test.dart --plain-name "w
 
 Expected: FAIL because the new ViewModel methods and getters do not exist.
 
-- [ ] **Step 3: Add ViewModel state and getters**
+- [x] **Step 3: Add ViewModel state and getters**
 
 In `WorkbenchViewModel`, add fields near `_lastSeq`:
 
@@ -980,7 +980,7 @@ In `resetConversationDisplay`, clear the new state:
     _historicalConversationLoadError = null;
 ```
 
-- [ ] **Step 4: Add event-window merge helper**
+- [x] **Step 4: Add event-window merge helper**
 
 Add private helper methods in `WorkbenchViewModel`:
 
@@ -1018,7 +1018,7 @@ Add private helper methods in `WorkbenchViewModel`:
 
 This helper is used only for historical window rebuilds. Keep existing `applyConversationEvents` for live append.
 
-- [ ] **Step 5: Add initial tail and older page methods**
+- [x] **Step 5: Add initial tail and older page methods**
 
 Add methods near `fetchConversationEvents`:
 
@@ -1111,7 +1111,7 @@ Add methods near `fetchConversationEvents`:
 
 `_bindAndResolveAttachmentPreviews` already lives in `WorkbenchViewModel`; call it directly as shown. `_replaceConversationEventWindow` must run before preview binding so committed events are present while previews resolve.
 
-- [ ] **Step 6: Run ViewModel tests and analyzer**
+- [x] **Step 6: Run ViewModel tests and analyzer**
 
 Run from `mobile/`:
 
@@ -1137,7 +1137,7 @@ git commit -m "Track paged historical conversation windows" -m "The workbench ne
 - Modify: `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart`
 - Test: `mobile/test/widget_test.dart`
 
-- [ ] **Step 1: Write failing widget tests for tail open and empty tail watch**
+- [x] **Step 1: Write failing widget tests for tail open and empty tail watch**
 
 In `mobile/test/widget_test.dart`, replace or add tests near the existing historical conversation tests.
 
@@ -1345,7 +1345,7 @@ Add the tests:
 
 Use `_pagedWorkbenchHarness` and `_pagedConversationEvent` in the new tests; do not reuse the preview-only helpers.
 
-- [ ] **Step 2: Run widget tests and verify failure**
+- [x] **Step 2: Run widget tests and verify failure**
 
 Run from `mobile/`:
 
@@ -1355,7 +1355,7 @@ flutter test --no-pub test\widget_test.dart --plain-name "historical conversatio
 
 Expected: FAIL because `_openSession` still calls `fetchConversationEvents(afterSeq: 0)` and not the page method.
 
-- [ ] **Step 3: Replace initial stored-event load with tail page load**
+- [x] **Step 3: Replace initial stored-event load with tail page load**
 
 In `CodingWorkbenchPage`, add a page size constant near existing constants:
 
@@ -1387,7 +1387,7 @@ Replace `_loadStoredConversationEvents` with `_loadInitialConversationEventPage`
 
 In `_openSession`, call `_loadInitialConversationEventPage` instead of `_loadStoredConversationEvents`. Keep the existing generation and error tracing.
 
-- [ ] **Step 4: Add older-edge scroll trigger with post-frame correction**
+- [x] **Step 4: Add older-edge scroll trigger with post-frame correction**
 
 Wrap the transcript list in a `NotificationListener<ScrollNotification>` where `_buildMessageList` is used, or attach detection inside `_buildMessageList` if that is cleaner.
 
@@ -1493,7 +1493,7 @@ Wire the scroll notification:
     );
 ```
 
-- [ ] **Step 5: Add widget tests for older page loading and duplicate guard**
+- [x] **Step 5: Add widget tests for older page loading and duplicate guard**
 
 Add tests:
 
@@ -1562,7 +1562,7 @@ Add tests:
 
 Use `Offset(0, -900)` as shown. The workbench reverse transcript starts at the newest edge and negative vertical drags move toward older messages in this test harness.
 
-- [ ] **Step 6: Add navigation-away stale result test**
+- [x] **Step 6: Add navigation-away stale result test**
 
 Adapt the existing hanging fetch test so it uses `fetchConversationEventPage`:
 
@@ -1658,7 +1658,7 @@ Test:
 
 The English test locale exposes the `Back` tooltip for this route; keep the stale-result assertions unchanged.
 
-- [ ] **Step 7: Run widget tests**
+- [x] **Step 7: Run widget tests**
 
 Run from `mobile/`:
 
@@ -1684,7 +1684,7 @@ git commit -m "Load historical conversations from latest event pages" -m "Openin
 - Modify: `docs/project-knowledge/troubleshooting-playbook.md` only if a durable lesson is found.
 - Modify: `docs/project-knowledge/build-and-test.md` only if verification commands or environment rules changed.
 
-- [ ] **Step 1: Run daemon regression suite**
+- [x] **Step 1: Run daemon regression suite**
 
 Run from repo root:
 
@@ -1697,7 +1697,7 @@ git diff --check
 
 Expected: all PASS.
 
-- [ ] **Step 2: Run mobile architecture and targeted tests**
+- [x] **Step 2: Run mobile architecture and targeted tests**
 
 Run from `mobile/`:
 
@@ -1708,7 +1708,7 @@ dart run tool\check_architecture_imports.dart
 
 Expected: all PASS. If the broad `--plain-name "conversation"` filter misses a newly added test, run the exact test name shown in the test file.
 
-- [ ] **Step 3: Run broader mobile checks if targeted tests pass**
+- [x] **Step 3: Run broader mobile checks if targeted tests pass**
 
 Run from `mobile/`:
 
@@ -1718,7 +1718,7 @@ flutter test --no-pub test\daemon_client_test.dart test\coding_workbench_control
 
 Expected: PASS. If this command times out once, stop automatic retries and record the exact command in the final report.
 
-- [ ] **Step 4: Audit conversation metadata sources**
+- [x] **Step 4: Audit conversation metadata sources**
 
 Inspect `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart` and `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart`.
 
@@ -1731,7 +1731,7 @@ The partial event window is used for transcript messages, command/task cards, an
 
 If a field still derives conversation-level truth only from the partial event window, either fix it in the smallest local change or record it as a remaining risk in the final report.
 
-- [ ] **Step 5: Decide whether project knowledge needs an update**
+- [x] **Step 5: Decide whether project knowledge needs an update**
 
 Update `docs/project-knowledge/troubleshooting-playbook.md` only if implementation reveals a durable lesson. If needed, append:
 
@@ -1753,7 +1753,7 @@ flutter test --no-pub test\widget_test.dart --plain-name "historical conversatio
 
 Do not add the entry if the tests and code already make the lesson obvious and no new operational debugging pattern was discovered.
 
-- [ ] **Step 6: Commit verification knowledge only if changed**
+- [x] **Step 6: Commit verification knowledge only if changed**
 
 If project knowledge changed:
 
@@ -1764,7 +1764,7 @@ git commit -m "Document historical conversation paging recovery" -m "The paginat
 
 If no project knowledge changed, do not create a documentation-only commit.
 
-- [ ] **Step 7: Final implementation report**
+- [x] **Step 7: Final implementation report**
 
 Report:
 

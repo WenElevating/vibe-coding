@@ -79,6 +79,12 @@ abstract class ConversationRepository {
     int afterSeq,
   });
 
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  });
+
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,

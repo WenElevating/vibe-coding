@@ -280,8 +280,7 @@ class DaemonClient
       await tokenStore.writeRefreshTokenSession(
           _deviceId!,
           _sessionFromResponse(response,
-              tokenKey: 'refreshToken',
-              expiresAtKey: 'refreshTokenExpiresAt'));
+              tokenKey: 'refreshToken', expiresAtKey: 'refreshTokenExpiresAt'));
     }
   }
 
@@ -597,6 +596,23 @@ class DaemonClient
     final response = await _get(path);
     final items = _readMapList(response, 'events');
     return items.map(ConversationEvent.fromJson).toList();
+  }
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    final query = beforeSeq == null
+        ? <String, String>{'tail': '$limit'}
+        : <String, String>{'beforeSeq': '$beforeSeq', 'limit': '$limit'};
+    final path = Uri(
+      path: '/api/conversations/$conversationId/events',
+      queryParameters: query,
+    ).toString();
+    final response = await _get(path);
+    return ConversationEventPage.fromJson(response, limit: limit);
   }
 
   @override

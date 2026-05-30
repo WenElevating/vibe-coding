@@ -53,6 +53,63 @@ void main() {
     expect(events.single.seq, 6);
   });
 
+  test('fetchConversationEventPage delegates to daemon client', () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/events');
+        expect(request.url.queryParameters, const <String, String>{
+          'beforeSeq': '7',
+          'limit': '2',
+        });
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'events': <Object?>[
+              <String, Object?>{
+                'seq': 5,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:00.000Z',
+                'text': 'older',
+              },
+              <String, Object?>{
+                'seq': 6,
+                'conversationId': 'conv_1',
+                'type': 'assistant.message',
+                'createdAt': '2026-05-30T00:00:01.000Z',
+                'text': 'newer',
+              },
+            ],
+            'page': <String, Object?>{
+              'mode': 'before',
+              'oldestSeq': 5,
+              'newestSeq': 6,
+              'hasMoreBefore': false,
+            },
+          }),
+          200,
+        );
+      }),
+    );
+    final repository = DaemonConversationRepository(
+      client: client,
+      notificationService: _FakeNotificationService(),
+    );
+    addTearDown(client.close);
+
+    final page = await repository.fetchConversationEventPage(
+      'conv_1',
+      beforeSeq: 7,
+      limit: 2,
+    );
+
+    expect(page.events.map((event) => event.seq), const <int>[5, 6]);
+    expect(page.oldestSeq, 5);
+    expect(page.newestSeq, 6);
+    expect(page.hasMoreBefore, isFalse);
+  });
+
   test('conversation mutation errors map daemon details to repository errors',
       () async {
     final client = DaemonClient(

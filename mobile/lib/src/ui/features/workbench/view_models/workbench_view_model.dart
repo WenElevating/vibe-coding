@@ -96,6 +96,10 @@ class WorkbenchViewModel extends ChangeNotifier {
       <String, List<AttachmentPreviewIdentity>>{};
   ConversationViewState _conversationState = const ConversationViewState();
   int _lastSeq = 0;
+  int? _oldestLoadedConversationSeq;
+  bool _hasMoreHistoricalConversationEvents = false;
+  bool _loadingOlderConversationEvents = false;
+  Object? _historicalConversationLoadError;
   final Set<String> _resolvedApprovalIds = <String>{};
   bool _sending = false;
   String? _openingWorkspaceId;
@@ -170,6 +174,12 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   ConversationViewState get conversationState => _conversationState;
   int get lastSeq => _lastSeq;
+  int? get oldestLoadedConversationSeq => _oldestLoadedConversationSeq;
+  bool get hasMoreHistoricalConversationEvents =>
+      _hasMoreHistoricalConversationEvents;
+  bool get loadingOlderConversationEvents => _loadingOlderConversationEvents;
+  Object? get historicalConversationLoadError =>
+      _historicalConversationLoadError;
   String? get pendingQuestionId {
     final conversation = _activeConversation;
     final blockingItem = conversation?.blockingItem;
@@ -385,6 +395,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     _conversationEvents.clear();
     _conversationState = const ConversationViewState();
     _lastSeq = 0;
+    _oldestLoadedConversationSeq = null;
+    _hasMoreHistoricalConversationEvents = false;
+    _loadingOlderConversationEvents = false;
+    _historicalConversationLoadError = null;
     _resolvedApprovalIds.clear();
     _eventTraceEntries.clear();
     if (clearActiveConversation) {
@@ -514,6 +528,36 @@ class WorkbenchViewModel extends ChangeNotifier {
     final hasChanged = changed || previewChanged;
     if (notify && hasChanged) _notifyListeners();
     return hasChanged;
+  }
+
+  List<ConversationEvent> _mergeConversationEventWindow(
+    List<ConversationEvent> incoming,
+  ) {
+    final bySeq = <int, ConversationEvent>{
+      for (final event in _conversationEvents) event.seq: event,
+    };
+    for (final event in incoming) {
+      bySeq.putIfAbsent(event.seq, () => event);
+    }
+    final merged = bySeq.values.toList(growable: false)
+      ..sort((left, right) => left.seq.compareTo(right.seq));
+    return merged;
+  }
+
+  bool _replaceConversationEventWindow(
+    List<ConversationEvent> events, {
+    required bool streamOutput,
+  }) {
+    final sorted = events.toList(growable: false)
+      ..sort((left, right) => left.seq.compareTo(right.seq));
+    _conversationEvents
+      ..clear()
+      ..addAll(sorted);
+    _lastSeq = sorted.isEmpty ? 0 : sorted.last.seq;
+    _conversationState =
+        const ConversationViewState().apply(sorted, streamOutput: streamOutput);
+    _rebuildMessagesFromConversationState();
+    return true;
   }
 
   void applyApprovalResponse(
@@ -1070,6 +1114,94 @@ class WorkbenchViewModel extends ChangeNotifier {
         conversationId,
         afterSeq: afterSeq,
       );
+
+  Future<bool> loadInitialConversationEventPage({
+    required String conversationId,
+    required int limit,
+    required bool streamOutput,
+    WorkbenchEventApplicationIsCurrent? isCurrent,
+  }) async {
+    final stillCurrent = isCurrent ?? () => true;
+    if (!stillCurrent()) return false;
+    final page = await _requireConversationRepository()
+        .fetchConversationEventPage(conversationId, limit: limit);
+    if (!stillCurrent()) return false;
+    _oldestLoadedConversationSeq =
+        page.oldestSeq ?? (page.events.isEmpty ? null : page.events.first.seq);
+    _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
+    _historicalConversationLoadError = null;
+    _replaceConversationEventWindow(page.events, streamOutput: streamOutput);
+    _notifyListeners();
+    final previewChanged = await _bindAndResolveAttachmentPreviews(
+      page.events,
+      isCurrent: stillCurrent,
+    );
+    if (!stillCurrent()) return false;
+    if (previewChanged) {
+      _rebuildMessagesFromConversationState();
+      _notifyListeners();
+    }
+    return page.events.isNotEmpty || previewChanged;
+  }
+
+  Future<bool> loadOlderConversationEventPage({
+    required String conversationId,
+    required int limit,
+    required bool streamOutput,
+    WorkbenchEventApplicationIsCurrent? isCurrent,
+  }) async {
+    final beforeSeq = _oldestLoadedConversationSeq;
+    if (beforeSeq == null ||
+        !_hasMoreHistoricalConversationEvents ||
+        _loadingOlderConversationEvents) {
+      return false;
+    }
+    final stillCurrent = isCurrent ?? () => true;
+    _loadingOlderConversationEvents = true;
+    _historicalConversationLoadError = null;
+    _notifyListeners();
+    try {
+      final page =
+          await _requireConversationRepository().fetchConversationEventPage(
+        conversationId,
+        beforeSeq: beforeSeq,
+        limit: limit,
+      );
+      if (!stillCurrent()) return false;
+      if (page.events.isEmpty) {
+        _hasMoreHistoricalConversationEvents = false;
+        _loadingOlderConversationEvents = false;
+        _notifyListeners();
+        return false;
+      }
+      _oldestLoadedConversationSeq = page.oldestSeq ?? page.events.first.seq;
+      _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
+      _replaceConversationEventWindow(
+        _mergeConversationEventWindow(page.events),
+        streamOutput: streamOutput,
+      );
+      _loadingOlderConversationEvents = false;
+      _notifyListeners();
+      final previewChanged = await _bindAndResolveAttachmentPreviews(
+        page.events,
+        isCurrent: stillCurrent,
+      );
+      if (!stillCurrent()) return false;
+      if (previewChanged) {
+        _rebuildMessagesFromConversationState();
+        _notifyListeners();
+      }
+      return true;
+    } catch (error) {
+      if (stillCurrent()) _historicalConversationLoadError = error;
+      rethrow;
+    } finally {
+      if (stillCurrent() && _loadingOlderConversationEvents) {
+        _loadingOlderConversationEvents = false;
+        _notifyListeners();
+      }
+    }
+  }
 
   Stream<ConversationEvent> watchConversationEvents({
     required String conversationId,

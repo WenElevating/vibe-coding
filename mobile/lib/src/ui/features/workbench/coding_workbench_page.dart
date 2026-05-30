@@ -57,6 +57,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   static const String _routeSessions = 'sessions';
   static const String _routeConversation = 'conversation';
   static const int _conversationTitleMaxLength = 18;
+  static const int _conversationHistoryPageSize = 80;
   static const Duration _backgroundEventDisconnectDelay = Duration(seconds: 30);
 
   final _navigatorKey = GlobalKey<NavigatorState>();
@@ -206,7 +207,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (conversation != null) {
       final generation = _conversationEventSubscriptionGeneration;
       try {
-        await _loadStoredConversationEvents(
+        await _loadInitialConversationEventPage(
           conversationId: conversation.id,
           runId: item.run.id,
           generation: generation,
@@ -248,20 +249,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  Future<void> _loadStoredConversationEvents({
+  Future<void> _loadInitialConversationEventPage({
     required String conversationId,
     required String runId,
     required int generation,
     required bool streamOutput,
   }) async {
-    final events = await _workbenchViewModel.fetchConversationEvents(
+    await _workbenchViewModel.loadInitialConversationEventPage(
       conversationId: conversationId,
-      afterSeq: _workbenchViewModel.lastSeq,
-    );
-    await _workbenchViewModel.applyConversationEventsAsync(
-      events,
+      limit: _conversationHistoryPageSize,
       streamOutput: streamOutput,
-      notify: true,
       isCurrent: () => _isCurrentConversationEventTarget(
         conversationId: conversationId,
         runId: runId,
@@ -806,6 +803,80 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       setState(() => _bottomAnchorTranscriptUnderflow = underflows);
       if (resumedReverseRendering) _scrollToBottom(jump: true);
     });
+  }
+
+  bool _isNearOlderTranscriptEdge() {
+    if (!_scrollController.hasClients) return false;
+    final position = _scrollController.position;
+    if (_useReverseTranscript) {
+      return position.pixels >= position.maxScrollExtent - 160;
+    }
+    return position.pixels <= position.minScrollExtent + 160;
+  }
+
+  void _maybeLoadOlderConversationEvents() {
+    final conversationId = _activeConversationId;
+    final runId = _activeRunId;
+    if (conversationId == null || runId == null) return;
+    if (!_isNearOlderTranscriptEdge()) return;
+    if (!_workbenchViewModel.hasMoreHistoricalConversationEvents ||
+        _workbenchViewModel.loadingOlderConversationEvents) {
+      return;
+    }
+    unawaited(_loadOlderConversationEvents(
+      conversationId: conversationId,
+      runId: runId,
+      generation: _conversationEventSubscriptionGeneration,
+    ));
+  }
+
+  Future<void> _loadOlderConversationEvents({
+    required String conversationId,
+    required String runId,
+    required int generation,
+  }) async {
+    if (!_scrollController.hasClients) return;
+    final oldOffset = _scrollController.offset;
+    final oldMaxExtent = _scrollController.position.maxScrollExtent;
+    try {
+      final changed = await _workbenchViewModel.loadOlderConversationEventPage(
+        conversationId: conversationId,
+        limit: _conversationHistoryPageSize,
+        streamOutput: widget.streamOutput,
+        isCurrent: () => _isCurrentConversationEventTarget(
+          conversationId: conversationId,
+          runId: runId,
+          generation: generation,
+        ),
+      );
+      if (!changed || !mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            !_scrollController.hasClients ||
+            !_isCurrentConversationEventTarget(
+              conversationId: conversationId,
+              runId: runId,
+              generation: generation,
+            )) {
+          return;
+        }
+        final newMaxExtent = _scrollController.position.maxScrollExtent;
+        final target = oldOffset + (newMaxExtent - oldMaxExtent);
+        _scrollController.jumpTo(
+          target.clamp(
+            _scrollController.position.minScrollExtent,
+            _scrollController.position.maxScrollExtent,
+          ),
+        );
+      });
+    } catch (error, stack) {
+      await _recordWorkbenchException(
+        error,
+        stack,
+        operation: 'loadOlderConversationEvents',
+        path: '/api/conversations/$conversationId/events',
+      );
+    }
   }
 
   Future<void> _sendPrompt() async {
@@ -1381,68 +1452,76 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         (hasError ? 1 : 0) +
         (hasPending ? 1 : 0);
     _syncTranscriptUnderflow();
-    return ListView.builder(
-      key: ValueKey(
-        'workbench-message-list-${useReverseTranscript ? 'reverse' : 'normal'}',
-      ),
-      controller: _scrollController,
-      reverse: useReverseTranscript,
-      padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
-      itemCount: itemCount,
-      itemBuilder: (context, index) {
-        final logicalIndex =
-            useReverseTranscript ? itemCount - 1 - index : index;
-        var messageIndex = logicalIndex;
-        if (hasStatus) {
-          if (logicalIndex == 0) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification.metrics.axis == Axis.vertical) {
+          _maybeLoadOlderConversationEvents();
+        }
+        return false;
+      },
+      child: ListView.builder(
+        key: ValueKey(
+          'workbench-message-list-${useReverseTranscript ? 'reverse' : 'normal'}',
+        ),
+        controller: _scrollController,
+        reverse: useReverseTranscript,
+        padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
+        itemCount: itemCount,
+        itemBuilder: (context, index) {
+          final logicalIndex =
+              useReverseTranscript ? itemCount - 1 - index : index;
+          var messageIndex = logicalIndex;
+          if (hasStatus) {
+            if (logicalIndex == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: WorkbenchInlineStatus(
+                  adapter: adapter,
+                  runId: _activeRunId,
+                  eventCount: _conversationEvents.length,
+                  terminal: _isTerminal,
+                ),
+              );
+            }
+            messageIndex -= 1;
+          }
+          if (messageIndex < _messages.length) {
+            final message = _messages[messageIndex];
             return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: WorkbenchInlineStatus(
-                adapter: adapter,
-                runId: _activeRunId,
-                eventCount: _conversationEvents.length,
-                terminal: _isTerminal,
+              key: ValueKey('workbench-message-$messageIndex-${message.role}'),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: WorkbenchMessageCard(
+                message: message,
+                expandThinking: widget.expandThinking,
+                onSuggestion: (text) => unawaited(_useQuestionSuggestion(text)),
+                onApproval: (decision) =>
+                    _respondApproval(message.event!, decision),
               ),
             );
           }
-          messageIndex -= 1;
-        }
-        if (messageIndex < _messages.length) {
-          final message = _messages[messageIndex];
+          messageIndex -= _messages.length;
+          if (hasError) {
+            if (messageIndex == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _buildRunErrorCard(),
+              );
+            }
+            messageIndex -= 1;
+          }
           return Padding(
-            key: ValueKey('workbench-message-$messageIndex-${message.role}'),
-            padding: const EdgeInsets.only(bottom: 10),
-            child: WorkbenchMessageCard(
-              message: message,
-              expandThinking: widget.expandThinking,
-              onSuggestion: (text) => unawaited(_useQuestionSuggestion(text)),
-              onApproval: (decision) =>
-                  _respondApproval(message.event!, decision),
+            padding: const EdgeInsets.only(top: 10),
+            child: PendingSentinel(
+              adapter: adapter ?? 'CLI',
+              statusText: _pendingStatusText(l10n),
+              startedAt: conversationPendingStartedAt(
+                  _workbenchViewModel.effectiveConversationStatus,
+                  _conversationEvents),
+              actions: _recentActionSummaries,
             ),
           );
-        }
-        messageIndex -= _messages.length;
-        if (hasError) {
-          if (messageIndex == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: _buildRunErrorCard(),
-            );
-          }
-          messageIndex -= 1;
-        }
-        return Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: PendingSentinel(
-            adapter: adapter ?? 'CLI',
-            statusText: _pendingStatusText(l10n),
-            startedAt: conversationPendingStartedAt(
-                _workbenchViewModel.effectiveConversationStatus,
-                _conversationEvents),
-            actions: _recentActionSummaries,
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 

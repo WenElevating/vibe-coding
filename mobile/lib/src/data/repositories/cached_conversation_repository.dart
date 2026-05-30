@@ -165,6 +165,18 @@ class CachedConversationRepository extends ChangeNotifier
       _delegate.fetchConversationEvents(conversationId, afterSeq: afterSeq);
 
   @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) =>
+      _delegate.fetchConversationEventPage(
+        conversationId,
+        beforeSeq: beforeSeq,
+        limit: limit,
+      );
+
+  @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
