@@ -3143,7 +3143,29 @@ test('conversation events API validates sequence cursors and clamps page limits'
     app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'one' });
     app.conversationEventStore.append(conversationId, 'assistant.message', { text: 'two' });
 
-    for (const query of ['afterSeq=bad', 'afterSeq=', 'afterSeq=-1', 'beforeSeq=bad', 'beforeSeq=0']) {
+    for (const query of [
+      'afterSeq=bad',
+      'afterSeq=',
+      'afterSeq=-1',
+      'afterSeq=1e2',
+      'afterSeq=0x10',
+      'afterSeq=1.0',
+      'afterSeq=9007199254740992',
+      'beforeSeq=bad',
+      'beforeSeq=0',
+      'beforeSeq=1e2',
+      'beforeSeq=0x10',
+      'beforeSeq=1.0',
+      'beforeSeq=9007199254740992',
+      'tail=1e2',
+      'tail=0x10',
+      'tail=1.0',
+      'tail=9007199254740992',
+      'beforeSeq=3&limit=1e2',
+      'beforeSeq=3&limit=0x10',
+      'beforeSeq=3&limit=1.0',
+      'beforeSeq=3&limit=9007199254740992'
+    ]) {
       const response = await request(port, 'GET', `/api/conversations/${conversationId}/events?${query}`, null, token);
 
       assert.equal(response.status, 400);

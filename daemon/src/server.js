@@ -239,11 +239,11 @@ function parseNonNegativeInteger(value, field) {
 }
 
 function parseInteger(value, field) {
-  if (typeof value !== 'string' || value.trim() === '') {
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
     throw httpError(400, 'invalid_event_page_query', `${field} must be an integer.`);
   }
   const parsed = Number(value);
-  if (!Number.isInteger(parsed)) {
+  if (!Number.isSafeInteger(parsed)) {
     throw httpError(400, 'invalid_event_page_query', `${field} must be an integer.`);
   }
   return parsed;
