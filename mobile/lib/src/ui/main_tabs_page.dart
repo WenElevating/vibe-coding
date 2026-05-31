@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../l10n/app_localizations.dart';
 import '../app/app_dependencies.dart';
 import '../app/connected_session_scope.dart';
 import '../domain/models/daemon_connection_config.dart';
@@ -14,24 +13,18 @@ import '../models/protocol.dart';
 import '../services/approval_notification_handler.dart';
 import '../services/local_approval_notification_service.dart';
 import '../services/mobile_app_event_bus.dart';
-import '../shell/app_route.dart';
 import '../workflows/workspace/create_workspace_workflow.dart';
-import 'core/widgets/widgets.dart';
-import 'core/theme/theme.dart' as theme;
 import 'features/workspace_picker/workspace_picker_sheet.dart';
 import 'features/settings/settings.dart'
     show
         AppUpdateCheckTrigger,
-        AppUpdatePanel,
-        AppUpdateState,
         AppUpdateStatus,
         AppUpdateViewModel,
-        SettingsViewModel,
-        appUpdateTitleFor;
+        SettingsViewModel;
 import 'features/workbench/workbench.dart';
-import 'main_tab_items.dart';
-import 'main_route_overlay.dart';
-import 'mobile_ui_frame.dart';
+import 'main_tabs/coding_adapter_gate.dart';
+import 'main_tabs/connected_main_tabs_shell.dart';
+import 'main_tabs/empty_main_tabs_shell.dart';
 import 'pages/pages.dart';
 import 'view_models/main_tabs_shell_view_model.dart';
 
@@ -59,198 +52,6 @@ class MainTabsPage extends StatefulWidget {
 
   @override
   State<MainTabsPage> createState() => _MainTabsPageState();
-}
-
-class _ConnectedEmptyHomePage extends StatelessWidget {
-  const _ConnectedEmptyHomePage({required this.onCreateWorkspace});
-
-  final VoidCallback onCreateWorkspace;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return PageScroll(children: [
-      const SizedBox(height: 8),
-      Text(l10n.workspaceListTitle,
-          style: const TextStyle(
-              color: theme.text, fontSize: 28, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 10),
-      Text(
-        l10n.workspaceListFootnote,
-        style: const TextStyle(color: theme.muted, fontSize: 13, height: 1.45),
-      ),
-      const SizedBox(height: 18),
-      PrimaryButton(l10n.workspaceAddTitle, onTap: onCreateWorkspace),
-    ]);
-  }
-}
-
-class _ConnectedEmptySettingsPage extends StatelessWidget {
-  const _ConnectedEmptySettingsPage({
-    required this.health,
-    required this.connectionConfig,
-    this.appUpdateViewModel,
-  });
-
-  final DaemonHealth? health;
-  final DaemonConnectionConfig connectionConfig;
-  final AppUpdateViewModel? appUpdateViewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return PageScroll(children: [
-      Subhead(l10n.settingsCurrentConnectionTitle),
-      _EmptyStateCard(children: [
-        _EmptyStateRow(
-            title: l10n.settingsDaemonAddressLabel,
-            value: connectionConfig.addressInput),
-        _EmptyStateRow(
-            title: l10n.settingsWorkspaceLabel,
-            value: l10n.workspaceAvailableSection),
-      ]),
-      const SizedBox(height: 20),
-      Subhead(l10n.settingsAboutSection),
-      _EmptyStateCard(children: [
-        _EmptyStateRow(title: 'daemon', value: health?.daemonVersion ?? '—'),
-        if (appUpdateViewModel != null)
-          _EmptyAppUpdateCheckRow(viewModel: appUpdateViewModel!),
-      ]),
-    ]);
-  }
-}
-
-class _EmptyAppUpdateCheckRow extends StatelessWidget {
-  const _EmptyAppUpdateCheckRow({required this.viewModel});
-
-  final AppUpdateViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return ListenableBuilder(
-      listenable: viewModel,
-      builder: (context, _) => AppUpdatePanel(
-        state: viewModel.state,
-        onCheck: () => unawaited(viewModel.checkForUpdates()),
-        onDownload: () => unawaited(viewModel.download()),
-        onInstall: () => unawaited(viewModel.install()),
-        onDiscard: () => unawaited(viewModel.discard()),
-        onPostpone: viewModel.postponeCurrentUpdatePrompt,
-        child: _EmptyStateTapRow(
-          title: l10n.appUpdateCheckAction,
-          value: _emptyAppUpdateRowValue(l10n, viewModel.state),
-          onTap: () => unawaited(viewModel.checkForUpdates()),
-        ),
-      ),
-    );
-  }
-}
-
-String _emptyAppUpdateRowValue(AppLocalizations l10n, AppUpdateState state) {
-  if (state.status == AppUpdateStatus.idle) {
-    return state.installedVersionName;
-  }
-  return appUpdateTitleFor(l10n, state);
-}
-
-class _EmptyStateCard extends StatelessWidget {
-  const _EmptyStateCard({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: theme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: theme.stroke),
-        ),
-        child: Column(children: children),
-      );
-}
-
-class _EmptyStateRow extends StatelessWidget {
-  const _EmptyStateRow({required this.title, required this.value});
-
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          Text(title, style: const TextStyle(color: theme.muted, fontSize: 12)),
-          const Spacer(),
-          Flexible(
-            child: Text(value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                    color: theme.text,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800)),
-          ),
-        ]),
-      );
-}
-
-class _EmptyStateTapRow extends StatelessWidget {
-  const _EmptyStateTapRow(
-      {required this.title, this.value, required this.onTap});
-
-  final String title;
-  final String? value;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = this.value;
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          Expanded(
-              child: Text(title,
-                  style: const TextStyle(color: theme.muted, fontSize: 12))),
-          _EmptyStateTapRowTrailing(value: value),
-        ]),
-      ),
-    );
-  }
-}
-
-class _EmptyStateTapRowTrailing extends StatelessWidget {
-  const _EmptyStateTapRowTrailing({required this.value});
-
-  final String? value;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (value != null && value!.isNotEmpty) ...[
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 120),
-              child: Text(
-                value!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                    color: theme.text,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800),
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-          const Icon(Icons.chevron_right_rounded, color: theme.faint, size: 18),
-        ],
-      );
 }
 
 class _MainTabsPageState extends State<MainTabsPage>
@@ -632,9 +433,8 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   Widget _buildShell(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
     final viewModel = _viewModel;
-    if (viewModel == null) return _buildEmptyShell(context, l10n);
+    if (viewModel == null) return _buildEmptyShell(context);
     final initialData = _connectedInitialData;
     final homeViewModel = _homeViewModel;
     final settingsViewModel = _settingsViewModel;
@@ -643,145 +443,37 @@ class _MainTabsPageState extends State<MainTabsPage>
         settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    final pages = [
-      HomePage(
-          open: viewModel.openOverlay,
-          selectTab: viewModel.selectTab,
-          viewModel: homeViewModel,
-          health: initialData.health),
-      _buildCodingTab(),
-      SettingsPage(
-        open: viewModel.openOverlay,
-        viewModel: settingsViewModel,
-        streamOutput: viewModel.streamOutput,
-        expandThinking: viewModel.expandThinking,
-        appUpdateViewModel: _appUpdateViewModel,
-        onStreamOutputChanged: viewModel.setStreamOutput,
-        onExpandThinkingChanged: viewModel.setExpandThinking,
-      ),
-    ];
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) unawaited(_handleSystemBack());
-      },
-      child: Scaffold(
-        body: MobileUiFrame(
-          child: viewModel.activeRoute == RoutePage.tabs
-              ? IndexedStack(index: viewModel.activeTab, children: pages)
-              : MainRouteOverlay(
-                  route: viewModel.activeRoute,
-                  connectedData: _connectedData,
-                  repositories: _repositories,
-                  featureDependencies:
-                      widget.pageDependencies.featureDependencies,
-                  onBack: viewModel.closeOverlay,
-                ),
-        ),
-        bottomNavigationBar: viewModel.activeRoute == RoutePage.tabs &&
-                (viewModel.activeTab != 1 || viewModel.codingSessionListOpen)
-            ? BottomNav(
-                selected: viewModel.activeTab,
-                items: mainTabItems(l10n),
-                onTap: viewModel.selectTab)
-            : null,
-        extendBody: true,
-      ),
+    return ConnectedMainTabsShell(
+      viewModel: viewModel,
+      initialData: initialData,
+      homeViewModel: homeViewModel,
+      settingsViewModel: settingsViewModel,
+      appUpdateViewModel: _appUpdateViewModel,
+      connectedData: _connectedData,
+      repositories: _repositories,
+      featureDependencies: widget.pageDependencies.featureDependencies,
+      codingTab: _buildCodingTab(),
+      onSystemBack: () => unawaited(_handleSystemBack()),
     );
   }
 
-  Widget _buildEmptyShell(BuildContext context, AppLocalizations l10n) {
-    final health = widget.initialData.health;
-    final pages = [
-      _ConnectedEmptyHomePage(onCreateWorkspace: _showCreateWorkspace),
-      _buildEmptyWorkspaceListPage(),
-      _ConnectedEmptySettingsPage(
-        health: health,
-        connectionConfig: widget.connectionConfig,
-        appUpdateViewModel: _appUpdateViewModel,
-      ),
-    ];
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) unawaited(_handleSystemBack());
-      },
-      child: Scaffold(
-        body: MobileUiFrame(
-          child: Stack(children: [
-            IndexedStack(index: _emptyActiveTab, children: pages),
-            if (_creatingWorkspace || _loadingWorkspace)
-              Container(
-                color: Colors.black.withValues(alpha: .24),
-                alignment: Alignment.center,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111820),
-                    borderRadius: BorderRadius.circular(16),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: .1)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 10),
-                      Text('Loading workspace...',
-                          style: TextStyle(color: theme.text, fontSize: 12)),
-                    ],
-                  ),
-                ),
-              ),
-            if (_emptyError != null)
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 20 + MediaQuery.paddingOf(context).bottom,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.red.withValues(alpha: .10),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: theme.red.withValues(alpha: .24)),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.error_outline_rounded,
-                        color: theme.red, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('$_emptyError',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: theme.red, fontSize: 11.5)),
-                    ),
-                  ]),
-                ),
-              ),
-          ]),
-        ),
-        bottomNavigationBar: BottomNav(
-          selected: _emptyActiveTab,
-          items: mainTabItems(l10n),
-          onTap: (index) => setState(() => _emptyActiveTab = index),
-        ),
-        extendBody: true,
-      ),
+  Widget _buildEmptyShell(BuildContext context) {
+    return EmptyMainTabsShell(
+      activeTab: _emptyActiveTab,
+      workspaces: _emptyWorkspaces,
+      health: widget.initialData.health,
+      connectionConfig: widget.connectionConfig,
+      creatingWorkspace: _creatingWorkspace,
+      loadingWorkspace: _loadingWorkspace,
+      error: _emptyError,
+      appUpdateViewModel: _appUpdateViewModel,
+      onCreateWorkspace: _showCreateWorkspace,
+      onOpenWorkspace: (workspace) =>
+          unawaited(_openWorkspace(workspace, _emptyWorkspaces)),
+      onTabSelected: (index) => setState(() => _emptyActiveTab = index),
+      onSystemBack: () => unawaited(_handleSystemBack()),
     );
   }
-
-  Widget _buildEmptyWorkspaceListPage() => WorkspaceListPage(
-        workspaces: _emptyWorkspaces,
-        onSelected: (workspace) =>
-            unawaited(_openWorkspace(workspace, _emptyWorkspaces)),
-        onAddWorkspace: _showCreateWorkspace,
-      );
 
   Future<void> _showCreateWorkspace() async {
     if (_creatingWorkspace) return;
@@ -894,7 +586,7 @@ class _MainTabsPageState extends State<MainTabsPage>
 
   Widget _buildCodingTab() {
     final viewModel = _viewModel;
-    if (viewModel == null) return _buildEmptyWorkspaceListPage();
+    if (viewModel == null) return const SizedBox.shrink();
     // TODO(arch): Remove direct repository access when CodingGateViewModel
     // owns coding gate state. Tracked by migration Slice 4.
     return ListenableBuilder(
@@ -906,7 +598,7 @@ class _MainTabsPageState extends State<MainTabsPage>
   Widget _buildCodingTabContent(MainTabsShellViewModel viewModel) {
     final adapterRepo = _repositories.cliAdapterRepository;
     if (adapterRepo.loading || adapterRepo.error != null) {
-      return _CodingAdapterGate(
+      return CodingAdapterGate(
         failed: adapterRepo.error != null,
         error: adapterRepo.error,
         onRetry: _retryCodingAdapters,
@@ -921,47 +613,6 @@ class _MainTabsPageState extends State<MainTabsPage>
       streamOutput: viewModel.streamOutput,
       expandThinking: viewModel.expandThinking,
       permissionMode: viewModel.permissionMode,
-    );
-  }
-}
-
-class _CodingAdapterGate extends StatelessWidget {
-  const _CodingAdapterGate({
-    required this.failed,
-    required this.error,
-    required this.onRetry,
-  });
-
-  final bool failed;
-  final Object? error;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!failed) ...[
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              const Text('Loading CLI...'),
-            ] else ...[
-              const Icon(Icons.error_outline, size: 42),
-              const SizedBox(height: 12),
-              const Text('Unable to load CLI adapters'),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text('$error', textAlign: TextAlign.center),
-              ],
-              const SizedBox(height: 16),
-              PrimaryButton('Retry loading CLI', onTap: onRetry),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
