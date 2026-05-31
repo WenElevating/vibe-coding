@@ -56,6 +56,15 @@
   lookup, and cache-miss UI fallback for images sent from that mobile device.
 - Related: [mobile-owned attachment preview cache decision](decisions/2026-05-22-mobile-owned-attachment-preview-cache.md).
 
+### Conversation event cache
+
+- Status: accepted; implemented
+- Decision: daemon remains the source of truth for conversation events; mobile
+  owns a local read-through cache for already-synced `ConversationEvent` rows.
+- Mobile may render cached events immediately when opening a conversation, then
+  use daemon replay/backfill to append newer events.
+- Related: [mobile conversation event cache decision](decisions/2026-05-31-mobile-conversation-event-cache.md).
+
 ## Verification
 
 ```powershell

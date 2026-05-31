@@ -1,15 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../domain/repositories/conversation_repository.dart';
 import '../../models/protocol.dart';
+import '../services/conversation_event_cache_store.dart';
 import 'bootstrap_hydration.dart';
 
 class CachedConversationRepository extends ChangeNotifier
     implements ConversationRepository, ConversationBootstrapTarget {
-  CachedConversationRepository({required ConversationRepository delegate})
-      : _delegate = delegate;
+  CachedConversationRepository({
+    required ConversationRepository delegate,
+    ConversationEventCacheStore eventCache =
+        const NoopConversationEventCacheStore(),
+    String eventCacheNamespace = 'default',
+  })  : _delegate = delegate,
+        _eventCache = eventCache,
+        _eventCacheNamespace = eventCacheNamespace;
 
   final ConversationRepository _delegate;
+  final ConversationEventCacheStore _eventCache;
+  final String _eventCacheNamespace;
 
   List<ConversationSummary> _conversations = const <ConversationSummary>[];
   bool _loading = false;
@@ -180,30 +191,60 @@ class CachedConversationRepository extends ChangeNotifier
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,
-  }) =>
-      _delegate.fetchConversationEvents(conversationId, afterSeq: afterSeq);
+  }) async {
+    final events = await _delegate.fetchConversationEvents(conversationId,
+        afterSeq: afterSeq);
+    _cacheBestEffort(_eventCache.upsertEvents(
+      _eventCacheNamespace,
+      conversationId,
+      events,
+    ));
+    return events;
+  }
 
   @override
   Future<ConversationEventPage> fetchConversationEventPage(
     String conversationId, {
     int? beforeSeq,
     required int limit,
-  }) =>
-      _delegate.fetchConversationEventPage(
-        conversationId,
-        beforeSeq: beforeSeq,
-        limit: limit,
-      );
+  }) async {
+    final cached = await _readCachedPage(
+      conversationId,
+      beforeSeq: beforeSeq,
+      limit: limit,
+    );
+    if (cached != null) return cached;
+    final page = await _delegate.fetchConversationEventPage(
+      conversationId,
+      beforeSeq: beforeSeq,
+      limit: limit,
+    );
+    _cacheBestEffort(_eventCache.upsertPage(
+      _eventCacheNamespace,
+      conversationId,
+      page,
+    ));
+    return page;
+  }
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
     String conversationId, {
     required int afterSeq,
   }) =>
-      _delegate.watchConversationEvents(
+      _delegate
+          .watchConversationEvents(
         conversationId,
         afterSeq: afterSeq,
-      );
+      )
+          .map((event) {
+        _cacheBestEffort(_eventCache.upsertEvents(
+          _eventCacheNamespace,
+          conversationId,
+          <ConversationEvent>[event],
+        ));
+        return event;
+      });
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -314,6 +355,33 @@ class CachedConversationRepository extends ChangeNotifier
     if (_disposed) return;
     _error = error;
     _notifyIfActive();
+  }
+
+  Future<ConversationEventPage?> _readCachedPage(
+    String conversationId, {
+    required int? beforeSeq,
+    required int limit,
+  }) async {
+    try {
+      return beforeSeq == null
+          ? await _eventCache.readTail(
+              _eventCacheNamespace,
+              conversationId,
+              limit: limit,
+            )
+          : await _eventCache.readBefore(
+              _eventCacheNamespace,
+              conversationId,
+              beforeSeq: beforeSeq,
+              limit: limit,
+            );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _cacheBestEffort(Future<void> future) {
+    unawaited(future.catchError((Object _) {}));
   }
 
   Future<void> _ensureLoaded() async {

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
+import 'package:lan_ai_cli_control/src/data/services/conversation_event_cache_store.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
@@ -424,6 +425,78 @@ void main() {
       expect(page.oldestSeq, 7);
       expect(page.newestSeq, 8);
       expect(page.hasMoreBefore, isFalse);
+    });
+
+    test('cached tail page avoids daemon event page request', () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      );
+      final eventCache = _MemoryConversationEventCacheStore()
+        ..tailPage = ConversationEventPage(
+          events: <ConversationEvent>[
+            _conversationEvent(conversationId: 'c1', seq: 11),
+          ],
+          oldestSeq: 11,
+          newestSeq: 11,
+          hasMoreBefore: false,
+        );
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      final page = await repository.fetchConversationEventPage(
+        'c1',
+        limit: 80,
+      );
+
+      expect(delegate.eventPageCalls, isEmpty);
+      expect(page.events.single.seq, 11);
+    });
+
+    test('daemon event page is persisted on cache miss', () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      );
+      final eventCache = _MemoryConversationEventCacheStore();
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      await repository.fetchConversationEventPage('c1', limit: 2);
+      await pumpEventQueue();
+
+      expect(delegate.eventPageCalls, const <String>['c1:null:2']);
+      expect(eventCache.upsertedPages.single.events.map((event) => event.seq),
+          const <int>[7, 8]);
+    });
+
+    test('streamed conversation events are persisted', () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      );
+      final eventCache = _MemoryConversationEventCacheStore();
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      final events = repository.watchConversationEvents('c1', afterSeq: 8);
+      final firstEvent = events.first;
+      delegate.emitConversationEvent(
+        _conversationEvent(conversationId: 'c1', seq: 9),
+      );
+      await firstEvent;
+      await pumpEventQueue();
+
+      expect(
+        eventCache.upsertedEvents.single.map((event) => event.seq),
+        const <int>[9],
+      );
     });
   });
 
@@ -937,6 +1010,11 @@ class _FakeConversationRepository implements ConversationRepository {
   final queuedConversations = <Future<List<ConversationSummary>>>[];
   final queuedModelUpdates = <Future<ConversationSummary>>[];
   final eventPageCalls = <String>[];
+  final _conversationEvents = StreamController<ConversationEvent>.broadcast();
+
+  void emitConversationEvent(ConversationEvent event) {
+    _conversationEvents.add(event);
+  }
 
   @override
   Future<List<ConversationSummary>> listConversations() async {
@@ -1047,7 +1125,7 @@ class _FakeConversationRepository implements ConversationRepository {
     String conversationId, {
     required int afterSeq,
   }) =>
-      const Stream<ConversationEvent>.empty();
+      _conversationEvents.stream;
 }
 
 class _FakeRunRepository implements RunRepository {
@@ -1218,3 +1296,50 @@ ConversationEvent _conversationEvent({
       createdAt: DateTime.parse('2026-05-30T00:00:00.000Z'),
       text: 'event $seq',
     );
+
+class _MemoryConversationEventCacheStore
+    implements ConversationEventCacheStore {
+  ConversationEventPage? tailPage;
+  ConversationEventPage? beforePage;
+  final upsertedPages = <ConversationEventPage>[];
+  final upsertedEvents = <List<ConversationEvent>>[];
+
+  @override
+  Future<ConversationEventPage?> readTail(
+    String namespace,
+    String conversationId, {
+    required int limit,
+  }) async =>
+      tailPage;
+
+  @override
+  Future<ConversationEventPage?> readBefore(
+    String namespace,
+    String conversationId, {
+    required int beforeSeq,
+    required int limit,
+  }) async =>
+      beforePage;
+
+  @override
+  Future<void> upsertPage(
+    String namespace,
+    String conversationId,
+    ConversationEventPage page,
+  ) async {
+    upsertedPages.add(page);
+  }
+
+  @override
+  Future<void> upsertEvents(
+    String namespace,
+    String conversationId,
+    List<ConversationEvent> events,
+  ) async {
+    upsertedEvents.add(events);
+  }
+
+  @override
+  Future<void> clearConversation(
+      String namespace, String conversationId) async {}
+}

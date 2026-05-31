@@ -18,6 +18,7 @@ import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../data/repositories/recent_daemon_address_repository.dart';
 import '../data/repositories/workspace_repository.dart';
+import '../data/services/conversation_event_cache_store.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../domain/repositories/adapter_repository.dart';
@@ -234,6 +235,7 @@ class DataDependencies {
     CodingPreferencesRepository? codingPreferencesRepository,
     RecentDaemonAddressRepository? recentAddressRepository,
     NotificationClientFactory? createNotificationClient,
+    ConversationEventCacheStore? conversationEventCacheStore,
   })  : codingPreferencesRepository =
             codingPreferencesRepository ?? CodingPreferencesRepository(),
         recentAddressRepository = recentAddressRepository ??
@@ -241,7 +243,9 @@ class DataDependencies {
               store: RecentDaemonAddressStore(),
             ),
         createNotificationClient =
-            createNotificationClient ?? _createDefaultNotificationClient;
+            createNotificationClient ?? _createDefaultNotificationClient,
+        conversationEventCacheStore =
+            conversationEventCacheStore ?? LocalConversationEventCacheStore();
 
   factory DataDependencies.createDefault() {
     final connectionConfigStore = DaemonConnectionConfigStore();
@@ -260,6 +264,7 @@ class DataDependencies {
   final CodingPreferencesRepository codingPreferencesRepository;
   final RecentDaemonAddressRepository recentAddressRepository;
   final NotificationClientFactory createNotificationClient;
+  final ConversationEventCacheStore conversationEventCacheStore;
 
   ConnectedDataDependencies forDaemonClient(DaemonClient client) {
     final notificationClient = createNotificationClient(client);
@@ -277,6 +282,8 @@ class DataDependencies {
     final rawRunRepository = DaemonRunRepository(client: client);
     final conversationRepository = CachedConversationRepository(
       delegate: rawConversationRepository,
+      eventCache: conversationEventCacheStore,
+      eventCacheNamespace: _conversationEventCacheNamespace(client.baseUri),
     );
     final runRepository = CachedRunRepository(
       delegate: rawRunRepository,
@@ -427,6 +434,15 @@ DaemonNotificationClient _createDefaultNotificationClient(
       ),
       refreshAuth: client.refreshToken,
     );
+
+String _conversationEventCacheNamespace(Uri baseUri) {
+  final normalizedPath = baseUri.path.endsWith('/')
+      ? baseUri.path.substring(0, baseUri.path.length - 1)
+      : baseUri.path;
+  return baseUri
+      .replace(path: normalizedPath, query: null, fragment: null)
+      .toString();
+}
 
 class DomainDependencies {
   DomainDependencies({required this.connectionWorkflow});
