@@ -78,6 +78,89 @@ void main() {
     expect(manager.state.status, AsrModelStatus.ready);
   });
 
+  test('native ASR failure falls back to Dart foreground download', () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: const <int>[],
+      terminalStatus: BackgroundDownloadStatus.failed,
+    );
+    final client = _FakeAsrModelClient(
+      metadata: _metadata(bytes),
+      downloadHandler: (start) => _downloadResponse(
+        200,
+        bytes,
+        null,
+      ),
+    );
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    final modelPath = await manager.ensureReady();
+
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.asrModel);
+    expect(client.downloadCalls, 1);
+    expect(File('$modelPath/encoder.onnx').existsSync(), true);
+    expect(manager.state.status, AsrModelStatus.ready);
+  });
+
+  test('native ASR partial failure falls back using actual partial length',
+      () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes.sublist(0, 8),
+      terminalStatus: BackgroundDownloadStatus.failed,
+    );
+    final client = _FakeAsrModelClient(
+      metadata: _metadata(bytes),
+      downloadHandler: (start) => _downloadResponse(
+        206,
+        bytes.sublist(start ?? 0),
+        'bytes ${start ?? 0}-${bytes.length - 1}/${bytes.length}',
+      ),
+    );
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    await manager.ensureReady();
+
+    expect(client.requestedStarts, <int?>[8]);
+    expect(manager.state.status, AsrModelStatus.ready);
+  });
+
+  test('native ASR start exception falls back to Dart foreground download',
+      () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: const <int>[],
+      startError: StateError('foreground service rejected'),
+    );
+    final client = _FakeAsrModelClient(
+      metadata: _metadata(bytes),
+      downloadHandler: (start) => _downloadResponse(
+        200,
+        bytes,
+        null,
+      ),
+    );
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    final modelPath = await manager.ensureReady();
+
+    expect(client.downloadCalls, 1);
+    expect(File('$modelPath/encoder.onnx').existsSync(), true);
+    expect(manager.state.status, AsrModelStatus.ready);
+  });
+
   test('native ASR path continues when notification permission is denied',
       () async {
     final bytes = _zipBytes();
@@ -605,11 +688,15 @@ class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
     required this.bytes,
     this.notificationsPrepared = true,
     this.completeOnStart = true,
+    this.terminalStatus = BackgroundDownloadStatus.completed,
+    this.startError,
   });
 
   final List<int> bytes;
   final bool notificationsPrepared;
   final bool completeOnStart;
+  final BackgroundDownloadStatus terminalStatus;
+  final Object? startError;
   final requests = <BackgroundDownloadRequest>[];
   final cancelledIds = <String>[];
   final _events = StreamController<BackgroundDownloadSnapshot>.broadcast();
@@ -627,6 +714,8 @@ class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
   Future<BackgroundDownloadSnapshot> start(
     BackgroundDownloadRequest request,
   ) async {
+    final error = startError;
+    if (error != null) throw error;
     requests.add(request);
     if (!completeOnStart) {
       final snapshot = BackgroundDownloadSnapshot(
@@ -644,10 +733,13 @@ class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
     await file.writeAsBytes(bytes);
     final snapshot = BackgroundDownloadSnapshot(
       id: request.id,
-      status: BackgroundDownloadStatus.completed,
+      status: terminalStatus,
       downloadedBytes: bytes.length,
-      totalBytes: bytes.length,
+      totalBytes: request.expectedBytes,
       destinationPath: request.destinationPath,
+      message: terminalStatus == BackgroundDownloadStatus.failed
+          ? 'native failed'
+          : null,
     );
     _events.add(snapshot);
     return snapshot;

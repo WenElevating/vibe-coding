@@ -11309,6 +11309,15 @@ test('android release build requires private signing and portable NDK lookup', (
   assert.equal(buildGradle.includes('TODO: Specify your own unique Application ID'), false);
 });
 
+test('android app permits LAN daemon cleartext traffic for native downloads', () => {
+  const manifest = fs.readFileSync(
+    path.join(__dirname, '..', 'mobile/android/app/src/main/AndroidManifest.xml'),
+    'utf8'
+  );
+
+  assert.match(manifest, /android:usesCleartextTraffic="true"/);
+});
+
 test('android installer native bridge abandons failed sessions after creation', () => {
   const activity = fs.readFileSync(
     path.join(__dirname, '..', 'mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/MainActivity.kt'),

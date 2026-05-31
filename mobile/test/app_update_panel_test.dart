@@ -424,4 +424,86 @@ void main() {
 
     expect(downloads, 1);
   });
+
+  testWidgets('download pause keeps dialog open with reason and retry', (
+    tester,
+  ) async {
+    var retries = 0;
+    const downloading = AppUpdateState(
+      status: AppUpdateStatus.downloading,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      manifest: availableManifest,
+      downloadedBytes: 5,
+      totalBytes: 10,
+    );
+    const paused = AppUpdateState(
+      status: AppUpdateStatus.paused,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      manifest: availableManifest,
+      downloadedBytes: 5,
+      totalBytes: 10,
+      errorMessage: 'HTTP 401 from native downloader',
+    );
+
+    await pumpPanel(
+      tester,
+      state: downloading,
+      onDownload: () => retries++,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('app-update-progress-dialog')),
+        findsOneWidget);
+
+    await pumpPanel(
+      tester,
+      state: paused,
+      onDownload: () => retries++,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('app-update-progress-dialog')),
+        findsOneWidget);
+    expect(find.text('Download paused'), findsWidgets);
+    expect(
+        find.textContaining('HTTP 401 from native downloader'), findsWidgets);
+    expect(find.widgetWithText(TextButton, 'Retry'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.pump();
+
+    expect(retries, 1);
+  });
+
+  testWidgets('download failure keeps dialog open with reason and close', (
+    tester,
+  ) async {
+    const failed = AppUpdateState(
+      status: AppUpdateStatus.failed,
+      installedVersionName: '1.3.0',
+      installedVersionCode: 1,
+      manifest: availableManifest,
+      errorMessage: 'Background update download could not start',
+    );
+
+    await pumpPanel(
+      tester,
+      state: failed,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('app-update-progress-dialog')),
+        findsOneWidget);
+    expect(find.text('Update failed'), findsWidgets);
+    expect(find.textContaining('Background update download could not start'),
+        findsWidgets);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Close').last);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('app-update-progress-dialog')), findsNothing);
+  });
 }

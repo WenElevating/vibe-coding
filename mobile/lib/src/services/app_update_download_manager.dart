@@ -159,6 +159,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     Uri daemonBaseUri, {
     AppUpdateDownloadProgressCallback? onProgress,
   }) async {
+    String? nativeFallbackMessage;
     try {
       await reconcile(manifest);
 
@@ -198,17 +199,24 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         paths: paths,
         resumeLength: resumeLength,
         onProgress: onProgress,
+        onFallback: (message) => nativeFallbackMessage = message,
       );
       if (nativeResult != null) return nativeResult;
 
+      final foregroundResumeLength = await _resumeLength(paths, manifest);
       final responseResult = await _downloadFromDaemon(
         manifest: manifest,
         apkUri: apkUri,
         paths: paths,
-        resumeLength: resumeLength,
+        resumeLength: foregroundResumeLength,
         onProgress: onProgress,
       );
-      if (responseResult != null) return responseResult;
+      if (responseResult != null) {
+        return _withNativeFallbackMessage(
+          responseResult,
+          nativeFallbackMessage,
+        );
+      }
 
       return await _verifyAndPromote(paths, manifest);
     } on AppUpdateDownloadException catch (error) {
@@ -219,17 +227,26 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     } on SocketException catch (error) {
       return AppUpdateDownloadResult(
         state: AppUpdateDownloadState.paused,
-        message: 'Network disconnected while downloading update: $error',
+        message: _joinDownloadMessages(
+          nativeFallbackMessage,
+          'Network disconnected while downloading update: $error',
+        ),
       );
     } on TimeoutException catch (error) {
       return AppUpdateDownloadResult(
         state: AppUpdateDownloadState.paused,
-        message: 'Update download timed out: $error',
+        message: _joinDownloadMessages(
+          nativeFallbackMessage,
+          'Update download timed out: $error',
+        ),
       );
     } on FileSystemException catch (error) {
       return AppUpdateDownloadResult(
         state: AppUpdateDownloadState.paused,
-        message: 'Update download was interrupted while writing cache: $error',
+        message: _joinDownloadMessages(
+          nativeFallbackMessage,
+          'Update download was interrupted while writing cache: $error',
+        ),
       );
     } on FormatException catch (error) {
       return AppUpdateDownloadResult(
@@ -246,6 +263,7 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     required _AppUpdatePaths paths,
     required int resumeLength,
     AppUpdateDownloadProgressCallback? onProgress,
+    void Function(String message)? onFallback,
   }) async {
     final bridge = _backgroundDownloadBridge;
     if (bridge == null || !await bridge.isSupported) return null;
@@ -301,23 +319,19 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         return await _verifyAndPromote(paths, manifest);
       }
       if (result.status == BackgroundDownloadStatus.cancelled) {
-        return AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.paused,
-          message: result.message ?? 'Update download was cancelled.',
-        );
+        onFallback?.call(
+            result.message ?? 'Native background download was cancelled.');
+        return null;
       }
       if (result.status == BackgroundDownloadStatus.failed) {
-        return AppUpdateDownloadResult(
-          state: AppUpdateDownloadState.paused,
-          message: result.message ?? 'Update download was interrupted.',
-        );
+        onFallback
+            ?.call(result.message ?? 'Native background download failed.');
+        return null;
       }
       return null;
     } catch (error) {
-      return AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.paused,
-        message: 'Background update download could not start: $error',
-      );
+      onFallback?.call('Native background download could not start: $error');
+      return null;
     } finally {
       await subscription.cancel();
     }
@@ -854,6 +868,29 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         totalBytes: totalBytes,
       ),
     );
+  }
+
+  AppUpdateDownloadResult _withNativeFallbackMessage(
+    AppUpdateDownloadResult result,
+    String? nativeFallbackMessage,
+  ) {
+    if (nativeFallbackMessage == null ||
+        result.state == AppUpdateDownloadState.readyToInstall) {
+      return result;
+    }
+    return AppUpdateDownloadResult(
+      state: result.state,
+      file: result.file,
+      message: _joinDownloadMessages(nativeFallbackMessage, result.message),
+    );
+  }
+
+  String? _joinDownloadMessages(String? first, String? second) {
+    final firstText = first?.trim();
+    final secondText = second?.trim();
+    if (firstText == null || firstText.isEmpty) return secondText;
+    if (secondText == null || secondText.isEmpty) return firstText;
+    return '$firstText\n$secondText';
   }
 }
 

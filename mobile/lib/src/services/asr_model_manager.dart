@@ -219,6 +219,15 @@ class AsrModelManager extends ChangeNotifier {
     }
     final nativeZip = await _downloadWithNativeBridge(metadata, paths, start);
     if (nativeZip != null) return nativeZip;
+    start = await paths.part.exists() ? await paths.part.length() : 0;
+    if (start > metadata.sizeBytes) {
+      await paths.part.delete();
+      start = 0;
+    }
+    if (start == metadata.sizeBytes) {
+      if (await paths.zip.exists()) await paths.zip.delete();
+      return paths.part.rename(paths.zip.path);
+    }
     while (true) {
       _throwIfStopped();
       final response = await _client.download(start: start);
@@ -336,12 +345,13 @@ class AsrModelManager extends ChangeNotifier {
         );
       }
       if (result.status == BackgroundDownloadStatus.failed) {
-        throw StateError(
-          result.message ?? 'Voice model download was interrupted.',
-        );
+        return null;
       }
       if (await paths.zip.exists()) await paths.zip.delete();
       return paths.part.rename(paths.zip.path);
+    } catch (_) {
+      if (_cancelRequested || _pauseRequested || _disposed) rethrow;
+      return null;
     } finally {
       _nativeDownloadActive = false;
       if (_activeNativeDownloadId == downloadId) {

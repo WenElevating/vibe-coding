@@ -184,6 +184,133 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('native background failure falls back to Dart foreground download',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 24);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      terminalStatus: BackgroundDownloadStatus.failed,
+    );
+    var dartStreamOpened = false;
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        dartStreamOpened = true;
+        return http.StreamedResponse(Stream<List<int>>.value(bytes), 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(dartStreamOpened, true);
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.appUpdate);
+    await temp.delete(recursive: true);
+  });
+
+  test('native partial failure falls back using actual partial length',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 25);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes.sublist(0, 5),
+      terminalStatus: BackgroundDownloadStatus.failed,
+    );
+    final requestedRanges = <int?>[];
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        requestedRanges.add(rangeStart);
+        return http.StreamedResponse(
+          Stream<List<int>>.value(bytes.sublist(rangeStart ?? 0)),
+          rangeStart == null ? 200 : 206,
+          headers: <String, String>{
+            if (rangeStart != null)
+              'content-range':
+                  'bytes $rangeStart-${bytes.length - 1}/${bytes.length}',
+          },
+        );
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(requestedRanges, <int?>[5]);
+    await temp.delete(recursive: true);
+  });
+
+  test('native start exception falls back to Dart foreground download',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 26);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      startError: StateError('foreground service rejected'),
+    );
+    var dartStreamOpened = false;
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async {
+        dartStreamOpened = true;
+        return http.StreamedResponse(Stream<List<int>>.value(bytes), 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(dartStreamOpened, true);
+    await temp.delete(recursive: true);
+  });
+
+  test('native fallback reason is preserved when foreground download pauses',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 27);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: const <int>[],
+      terminalStatus: BackgroundDownloadStatus.failed,
+    );
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.empty(), 503),
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.paused);
+    expect(result.message, contains('native failed'));
+    expect(result.message, contains('Update server returned 503'));
+    await temp.delete(recursive: true);
+  });
+
   test('terminal auth failure keeps existing partial file', () async {
     final temp = await Directory.systemTemp.createTemp('app-update-auth-');
     final bytes = utf8.encode('hello');
@@ -724,11 +851,15 @@ class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
     required this.bytes,
     this.notificationsPrepared = true,
     this.notificationPreparationError,
+    this.terminalStatus = BackgroundDownloadStatus.completed,
+    this.startError,
   });
 
   final List<int> bytes;
   final bool notificationsPrepared;
   final Object? notificationPreparationError;
+  final BackgroundDownloadStatus terminalStatus;
+  final Object? startError;
   final requests = <BackgroundDownloadRequest>[];
   var prepareNotificationsCalls = 0;
   final _events = StreamController<BackgroundDownloadSnapshot>.broadcast();
@@ -751,16 +882,21 @@ class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
   Future<BackgroundDownloadSnapshot> start(
     BackgroundDownloadRequest request,
   ) async {
+    final error = startError;
+    if (error != null) throw error;
     requests.add(request);
     final file = File(request.destinationPath);
     await file.parent.create(recursive: true);
     await file.writeAsBytes(bytes);
     final snapshot = BackgroundDownloadSnapshot(
       id: request.id,
-      status: BackgroundDownloadStatus.completed,
+      status: terminalStatus,
       downloadedBytes: bytes.length,
-      totalBytes: bytes.length,
+      totalBytes: request.expectedBytes,
       destinationPath: request.destinationPath,
+      message: terminalStatus == BackgroundDownloadStatus.failed
+          ? 'native failed'
+          : null,
     );
     _events.add(snapshot);
     return snapshot;

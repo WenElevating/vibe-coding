@@ -49,7 +49,7 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
   @override
   void didUpdateWidget(covariant AppUpdatePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _operationState.value = widget.state;
+    _scheduleOperationStateUpdate(widget.state);
     if (widget.state.status == AppUpdateStatus.checking) {
       _lastPromptKey = null;
     }
@@ -72,6 +72,13 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
   void _scheduleOperationDialogSync() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_syncOperationDialog());
+    });
+  }
+
+  void _scheduleOperationStateUpdate(AppUpdateState state) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _operationState.value = state;
     });
   }
 
@@ -131,7 +138,7 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
 
   Future<void> _syncOperationDialog() async {
     if (!mounted) return;
-    if (!_isBlockingOperation(widget.state.status)) {
+    if (!_shouldShowOperationDialog(widget.state)) {
       if (_operationDialogShowing) {
         Navigator.of(context, rootNavigator: true).pop();
       }
@@ -143,12 +150,14 @@ class _AppUpdatePanelState extends State<AppUpdatePanel> {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (context) => PopScope(
-          canPop: false,
-          child: ValueListenableBuilder<AppUpdateState>(
-            valueListenable: _operationState,
-            builder: (context, state, _) =>
-                _AppUpdateProgressDialog(state: state),
+        builder: (context) => ValueListenableBuilder<AppUpdateState>(
+          valueListenable: _operationState,
+          builder: (context, state, _) => PopScope(
+            canPop: _canDismissOperationDialog(state),
+            child: _AppUpdateProgressDialog(
+              state: state,
+              onRetry: widget.onDownload,
+            ),
           ),
         ),
       );
@@ -285,6 +294,18 @@ bool _isBlockingOperation(AppUpdateStatus status) {
       status == AppUpdateStatus.awaitingUserConfirmation;
 }
 
+bool _shouldShowOperationDialog(AppUpdateState state) {
+  if (_isBlockingOperation(state.status)) return true;
+  if (!_hasNewerManifest(state)) return false;
+  return state.status == AppUpdateStatus.paused ||
+      state.status == AppUpdateStatus.failed;
+}
+
+bool _canDismissOperationDialog(AppUpdateState state) {
+  return state.status == AppUpdateStatus.paused ||
+      state.status == AppUpdateStatus.failed;
+}
+
 bool _shouldPromptForAvailableUpdate(AppUpdateState state) {
   return !state.promptSuppressed &&
       state.status == AppUpdateStatus.available &&
@@ -304,6 +325,8 @@ String _progressMessageFor(AppLocalizations l10n, AppUpdateState state) {
   }
   return switch (state.status) {
     AppUpdateStatus.downloading => l10n.appUpdateProgressDownloadingMessage,
+    AppUpdateStatus.paused => state.errorMessage ?? l10n.appUpdateTitlePaused,
+    AppUpdateStatus.failed => state.errorMessage ?? l10n.appUpdateTitleFailed,
     AppUpdateStatus.verifying => l10n.appUpdateProgressVerifyingMessage,
     AppUpdateStatus.installing => l10n.appUpdateProgressInstallingMessage,
     AppUpdateStatus.awaitingUserConfirmation =>
@@ -313,13 +336,18 @@ String _progressMessageFor(AppLocalizations l10n, AppUpdateState state) {
 }
 
 class _AppUpdateProgressDialog extends StatelessWidget {
-  const _AppUpdateProgressDialog({required this.state});
+  const _AppUpdateProgressDialog({
+    required this.state,
+    required this.onRetry,
+  });
 
   final AppUpdateState state;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final canDismiss = _canDismissOperationDialog(state);
     return AlertDialog(
       key: const ValueKey('app-update-progress-dialog'),
       backgroundColor: const Color(0xFF111820),
@@ -338,7 +366,7 @@ class _AppUpdateProgressDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             LinearProgressIndicator(
-              value: state.downloadProgress,
+              value: _progressValueFor(state),
               minHeight: 4,
               color: theme.active,
               backgroundColor: Colors.white.withValues(alpha: .08),
@@ -352,6 +380,18 @@ class _AppUpdateProgressDialog extends StatelessWidget {
           ],
         ),
       ),
+      actions: [
+        if (canDismiss)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.workbenchCloseTooltip),
+          ),
+        if (canDismiss && _canDownload(state))
+          TextButton(
+            onPressed: onRetry,
+            child: Text(l10n.asrModelRetryAction),
+          ),
+      ],
     );
   }
 }
@@ -363,6 +403,13 @@ String _formatBytes(int bytes) {
   final mib = kib / 1024;
   if (mib < 1024) return '${_formatDecimal(mib)} MB';
   return '${_formatDecimal(mib / 1024)} GB';
+}
+
+double? _progressValueFor(AppUpdateState state) {
+  if (_canDismissOperationDialog(state)) {
+    return state.downloadProgress ?? 0;
+  }
+  return state.downloadProgress;
 }
 
 String _formatDecimal(double value) {

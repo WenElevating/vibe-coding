@@ -523,7 +523,14 @@ flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name 
   ASR extraction. Do not treat denied `POST_NOTIFICATIONS` permission as a hard
   blocker for starting the foreground download service; Android still permits
   foreground service launch without that runtime notification grant, though the
-  notification drawer entry may be hidden.
+  notification drawer entry may be hidden. If the native foreground service
+  fails to start or reports `failed`, fall back to the original Dart foreground
+  download path instead of surfacing `paused` immediately. Re-read the actual
+  `.part` length before the fallback so any bytes written by the native service
+  resume from the correct offset. The Android app must also allow cleartext
+  traffic because the private daemon/update channel is LAN HTTP. If app update
+  download still reaches `paused` or `failed`, keep the progress dialog open and
+  show `errorMessage`; do not auto-dismiss the only visible failure reason.
 - Related files:
   [BackgroundDownloadService.kt](../../mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundDownloadService.kt),
   [background_download_bridge.dart](../../mobile/lib/src/services/background_download_bridge.dart),
@@ -536,7 +543,9 @@ flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name 
 cd mobile
 flutter test --no-pub test\background_download_bridge_test.dart
 flutter test --no-pub test\asr_model_manager_test.dart
-flutter test --no-pub test\app_update_download_manager_test.dart --plain-name "uses native background bridge before verifying downloaded APK"
+flutter test --no-pub test\app_update_download_manager_test.dart
+flutter test --no-pub test\app_update_panel_test.dart
+node scripts/run-tests.js
 flutter build apk --debug
 ```
 
