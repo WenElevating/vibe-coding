@@ -24,6 +24,7 @@ const { conversationStatuses } = require('./conversation-protocol');
 const { RunQueue } = require('./run-queue');
 const { ShortcutStore } = require('./shortcuts');
 const { CommandTemplateStore } = require('./command-templates');
+const { SlashCommandCatalog } = require('./slash-command-catalog');
 const { GitService } = require('./git-service');
 const { WorkspaceInspector } = require('./workspace-inspector');
 const { MigrationService } = require('./migrations');
@@ -87,6 +88,7 @@ function createApp({
   const adapterRegistry = new AdapterRegistry(adapters);
   const shortcuts = new ShortcutStore();
   const commandTemplates = new CommandTemplateStore();
+  const slashCommandCatalog = new SlashCommandCatalog();
   const gitService = new GitService();
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
@@ -114,11 +116,11 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates });
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
   notificationHub.attach(server);
   notificationHub.start();
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec }) {

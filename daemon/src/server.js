@@ -7,7 +7,7 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates }) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -44,6 +44,8 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());
       if (method === 'POST' && url.pathname === '/api/exceptions') return json(res, 201, recordClientException(await readJson(req), { device, diagnosticBundle, req }));
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });
+      const slashCommands = url.pathname.match(/^\/api\/adapters\/([^/]+)\/slash-commands$/);
+      if (method === 'GET' && slashCommands) return json(res, 200, slashCommandCatalog.list(decodeURIComponent(slashCommands[1])));
       if (method === 'GET' && url.pathname === '/api/extensions') return json(res, 200, await workspaceInspector.extensions(adapterRegistry));
       if (method === 'GET' && url.pathname === '/api/queue') return json(res, 200, { queue: runQueue.list() });
       if (method === 'GET' && url.pathname === '/api/shortcuts') return json(res, 200, { shortcuts: shortcuts.list() });
