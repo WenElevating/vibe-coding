@@ -5452,7 +5452,8 @@ void main() {
     expect(find.text('/model'), findsOneWidget);
   });
 
-  testWidgets('slash command catalog loads new adapter after CLI switch',
+  testWidgets(
+      'slash command catalog preloads all adapters on conversation entry',
       (WidgetTester tester) async {
     final catalog = _RecordingSlashCommandCatalogRepository(
       const <String, List<SlashCommand>>{
@@ -5479,6 +5480,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('codex').last);
     await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '/mo');
+    await tester.pumpAndSettle();
+
+    expect(
+        catalog.loadCalls.where((adapter) => adapter == 'codex'), hasLength(1));
+    expect(catalog.loadCalls.where((adapter) => adapter == 'claude'),
+        hasLength(1));
+    expect(find.text('/model'), findsOneWidget);
+    expect(find.text('/compact'), findsNothing);
+
     await tester.tap(find.byKey(const ValueKey('composer-cli-picker')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('claude').last);
@@ -5486,7 +5497,10 @@ void main() {
     await tester.enterText(find.byType(TextField).last, '/co');
     await tester.pumpAndSettle();
 
-    expect(catalog.loadCalls, containsAll(<String>['codex', 'claude']));
+    expect(
+        catalog.loadCalls.where((adapter) => adapter == 'codex'), hasLength(1));
+    expect(catalog.loadCalls.where((adapter) => adapter == 'claude'),
+        hasLength(1));
     expect(find.text('/compact'), findsOneWidget);
     expect(find.text('/model'), findsNothing);
   });

@@ -432,7 +432,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _lastSlashAdapter = adapter;
       _visibleSlashCommands = const <SlashCommand>[];
       _activeSlashToken = null;
-      _ensureSlashCatalogForSelectedAdapter();
+      _ensureSlashCatalogForConversationRoute();
+    } else if (_currentRoute == _routeConversation) {
+      _ensureSlashCatalogForConversationRoute();
     }
     if (mounted) setState(() {});
   }
@@ -596,21 +598,36 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _updateSlashCommandMenu(_prompt.value);
   }
 
-  void _ensureSlashCatalogForSelectedAdapter({
+  void _ensureSlashCatalogForAvailableAdapters({
     bool onlyInConversation = true,
   }) {
     if (onlyInConversation && _currentRoute != _routeConversation) return;
-    final adapter = _normalizedAdapter(_workbenchViewModel.selectedAdapter);
-    if (adapter == null) return;
-    unawaited(_ensureSlashCommandsLoaded(adapter));
+    final adapters = _availableSlashCommandAdapters();
+    for (final adapter in adapters) {
+      unawaited(_ensureSlashCommandsLoaded(adapter));
+    }
   }
 
   void _ensureSlashCatalogForConversationRoute() {
-    _ensureSlashCatalogForSelectedAdapter(onlyInConversation: false);
+    _ensureSlashCatalogForAvailableAdapters(onlyInConversation: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentRoute != _routeConversation) return;
-      _ensureSlashCatalogForSelectedAdapter(onlyInConversation: false);
+      _ensureSlashCatalogForAvailableAdapters(onlyInConversation: false);
     });
+  }
+
+  List<String> _availableSlashCommandAdapters() {
+    final adapters = <String>{
+      for (final adapter in _workbenchViewModel.availableAdaptersFromCache)
+        if (adapter.available)
+          if (_normalizedAdapter(adapter.adapter) case final normalized?)
+            normalized,
+      if (_normalizedAdapter(_workbenchViewModel.selectedAdapter)
+          case final selected?)
+        selected,
+    }.toList(growable: false);
+    adapters.sort();
+    return adapters;
   }
 
   Future<void> _ensureSlashCommandsLoaded(String adapter) async {
