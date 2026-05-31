@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../data/models/app_update_models.dart';
+import 'background_download_bridge.dart';
 
 typedef AppUpdateStreamOpener = Future<http.StreamedResponse> Function(
   Uri uri, {
@@ -17,6 +18,9 @@ typedef AppUpdateStreamOpener = Future<http.StreamedResponse> Function(
 typedef AppUpdateDownloadProgressCallback = void Function(
   AppUpdateDownloadProgress progress,
 );
+
+typedef BackgroundDownloadHeadersProvider = FutureOr<Map<String, String>>
+    Function();
 
 enum AppUpdateDownloadState {
   downloading,
@@ -96,10 +100,14 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
     required Directory cacheDirectory,
     required AppUpdateStreamOpener openStream,
     required Future<int> Function() availableBytes,
+    BackgroundDownloadBridge? backgroundDownloadBridge,
+    BackgroundDownloadHeadersProvider? backgroundDownloadHeadersProvider,
     DateTime Function() now = DateTime.now,
   })  : _cacheDirectory = cacheDirectory,
         _openStream = openStream,
         _availableBytes = availableBytes,
+        _backgroundDownloadBridge = backgroundDownloadBridge,
+        _backgroundDownloadHeadersProvider = backgroundDownloadHeadersProvider,
         _now = now;
 
   static const int _storageSafetyMarginBytes = 5 * 1024 * 1024;
@@ -108,6 +116,8 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   final Directory _cacheDirectory;
   final AppUpdateStreamOpener _openStream;
   final Future<int> Function() _availableBytes;
+  final BackgroundDownloadBridge? _backgroundDownloadBridge;
+  final BackgroundDownloadHeadersProvider? _backgroundDownloadHeadersProvider;
   final DateTime Function() _now;
   final Map<String, _ActiveAppUpdateDownload> _downloadsByKey = {};
 
@@ -181,6 +191,16 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
       _emitProgress(onProgress, resumeLength, manifest.sizeBytes!);
 
       final apkUri = manifest.resolveApkUri(daemonBaseUri);
+      final nativeResult = await _downloadWithNativeBridge(
+        manifest: manifest,
+        daemonBaseUri: daemonBaseUri,
+        apkUri: apkUri,
+        paths: paths,
+        resumeLength: resumeLength,
+        onProgress: onProgress,
+      );
+      if (nativeResult != null) return nativeResult;
+
       final responseResult = await _downloadFromDaemon(
         manifest: manifest,
         apkUri: apkUri,
@@ -216,6 +236,90 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
         state: AppUpdateDownloadState.failed,
         message: error.message,
       );
+    }
+  }
+
+  Future<AppUpdateDownloadResult?> _downloadWithNativeBridge({
+    required AppUpdateManifest manifest,
+    required Uri daemonBaseUri,
+    required Uri apkUri,
+    required _AppUpdatePaths paths,
+    required int resumeLength,
+    AppUpdateDownloadProgressCallback? onProgress,
+  }) async {
+    final bridge = _backgroundDownloadBridge;
+    if (bridge == null || !await bridge.isSupported) return null;
+    if (!await bridge.prepareNotifications()) {
+      return const AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message:
+            'Notification permission is required for background update downloads.',
+      );
+    }
+    final downloadId = 'app-update:${manifest.versionCode}';
+    final terminal = Completer<BackgroundDownloadSnapshot>();
+    late final StreamSubscription<BackgroundDownloadSnapshot> subscription;
+    subscription =
+        bridge.events.where((event) => event.id == downloadId).listen((event) {
+      if (event.status == BackgroundDownloadStatus.downloading ||
+          event.status == BackgroundDownloadStatus.completed) {
+        _emitProgress(
+          onProgress,
+          event.downloadedBytes,
+          event.totalBytes <= 0 ? manifest.sizeBytes! : event.totalBytes,
+        );
+      }
+      if (!terminal.isCompleted &&
+          (event.status == BackgroundDownloadStatus.completed ||
+              event.status == BackgroundDownloadStatus.cancelled ||
+              event.status == BackgroundDownloadStatus.failed)) {
+        terminal.complete(event);
+      }
+    });
+    try {
+      final headers = <String, String>{
+        ...await (_backgroundDownloadHeadersProvider?.call() ??
+            Future<Map<String, String>>.value(const <String, String>{})),
+        if (resumeLength > 0) 'range': 'bytes=$resumeLength-',
+        if (resumeLength > 0 && manifest.etag != null)
+          'if-range': manifest.etag!,
+      };
+      await bridge.start(BackgroundDownloadRequest(
+        id: downloadId,
+        kind: BackgroundDownloadKind.appUpdate,
+        url: daemonBaseUri.resolveUri(apkUri).toString(),
+        destinationPath: paths.part.path,
+        headers: headers,
+        expectedBytes: manifest.sizeBytes!,
+        resumeFromBytes: resumeLength,
+        notificationTitle: 'Downloading update',
+        notificationBody: manifest.versionName ?? 'Android update',
+      ));
+      final result = await terminal.future;
+      if (result.status == BackgroundDownloadStatus.completed) {
+        await _writeMetadata(paths.metadata, manifest, manifest.sizeBytes!);
+        return await _verifyAndPromote(paths, manifest);
+      }
+      if (result.status == BackgroundDownloadStatus.cancelled) {
+        return AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.paused,
+          message: result.message ?? 'Update download was cancelled.',
+        );
+      }
+      if (result.status == BackgroundDownloadStatus.failed) {
+        return AppUpdateDownloadResult(
+          state: AppUpdateDownloadState.paused,
+          message: result.message ?? 'Update download was interrupted.',
+        );
+      }
+      return null;
+    } catch (error) {
+      return AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.paused,
+        message: 'Background update download could not start: $error',
+      );
+    } finally {
+      await subscription.cancel();
     }
   }
 

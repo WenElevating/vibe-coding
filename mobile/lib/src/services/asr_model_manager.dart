@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'asr_model_client.dart';
+import 'background_download_bridge.dart';
 
 enum AsrModelStatus {
   idle,
@@ -72,9 +73,11 @@ class AsrModelState {
 class AsrModelManager extends ChangeNotifier {
   AsrModelManager({
     required AsrModelClient client,
+    BackgroundDownloadBridge? backgroundDownloadBridge,
     Future<Directory> Function()? supportDirectoryProvider,
     DateTime Function()? now,
   })  : _client = client,
+        _backgroundDownloadBridge = backgroundDownloadBridge,
         _supportDirectoryProvider =
             supportDirectoryProvider ?? getApplicationSupportDirectory,
         _now = now ?? DateTime.now;
@@ -90,10 +93,13 @@ class AsrModelManager extends ChangeNotifier {
   static const maxAsrArchiveUncompressedBytes = 2 * 1024 * 1024 * 1024;
 
   final AsrModelClient _client;
+  final BackgroundDownloadBridge? _backgroundDownloadBridge;
   final Future<Directory> Function() _supportDirectoryProvider;
   final DateTime Function() _now;
   AsrModelState _state = const AsrModelState.idle();
   Future<String>? _activePreparation;
+  bool _nativeDownloadActive = false;
+  String? _activeNativeDownloadId;
   bool _cancelRequested = false;
   bool _pauseRequested = false;
   bool _disposed = false;
@@ -175,6 +181,7 @@ class AsrModelManager extends ChangeNotifier {
   void pause() {
     if (_state.status != AsrModelStatus.downloading) return;
     _pauseRequested = true;
+    _cancelNativeDownloadIfActive();
   }
 
   void resume() {
@@ -186,12 +193,15 @@ class AsrModelManager extends ChangeNotifier {
 
   void cancel() {
     _cancelRequested = true;
+    _cancelNativeDownloadIfActive();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _cancelRequested = true;
+    if (!_nativeDownloadActive) {
+      _cancelRequested = true;
+    }
     super.dispose();
   }
 
@@ -203,6 +213,12 @@ class AsrModelManager extends ChangeNotifier {
       await paths.part.delete();
       start = 0;
     }
+    if (start == metadata.sizeBytes) {
+      if (await paths.zip.exists()) await paths.zip.delete();
+      return paths.part.rename(paths.zip.path);
+    }
+    final nativeZip = await _downloadWithNativeBridge(metadata, paths, start);
+    if (nativeZip != null) return nativeZip;
     while (true) {
       _throwIfStopped();
       final response = await _client.download(start: start);
@@ -257,6 +273,87 @@ class AsrModelManager extends ChangeNotifier {
     }
     if (await paths.zip.exists()) await paths.zip.delete();
     return paths.part.rename(paths.zip.path);
+  }
+
+  Future<File?> _downloadWithNativeBridge(
+    AsrModelMetadata metadata,
+    _AsrModelPaths paths,
+    int start,
+  ) async {
+    final bridge = _backgroundDownloadBridge;
+    if (bridge == null || !await bridge.isSupported) return null;
+    if (!await bridge.prepareNotifications()) {
+      throw StateError(
+        'Notification permission is required for background voice model downloads.',
+      );
+    }
+    final token = await _client.tokenProvider();
+    final requestHeaders = <String, String>{
+      if (token != null) 'authorization': 'Bearer $token',
+      if (start > 0) 'range': 'bytes=$start-',
+    };
+    final downloadId = 'asr-model:${metadata.version}';
+    final terminal = Completer<BackgroundDownloadSnapshot>();
+    late final StreamSubscription<BackgroundDownloadSnapshot> subscription;
+    subscription =
+        bridge.events.where((event) => event.id == downloadId).listen((event) {
+      if (event.status == BackgroundDownloadStatus.downloading ||
+          event.status == BackgroundDownloadStatus.completed) {
+        _emit(_state.copyWith(
+          status: AsrModelStatus.downloading,
+          version: metadata.version,
+          downloadedBytes: event.downloadedBytes,
+          totalBytes: metadata.sizeBytes,
+        ));
+      }
+      if (!terminal.isCompleted &&
+          (event.status == BackgroundDownloadStatus.completed ||
+              event.status == BackgroundDownloadStatus.cancelled ||
+              event.status == BackgroundDownloadStatus.failed)) {
+        terminal.complete(event);
+      }
+    });
+    try {
+      _nativeDownloadActive = true;
+      _activeNativeDownloadId = downloadId;
+      await bridge.start(BackgroundDownloadRequest(
+        id: downloadId,
+        kind: BackgroundDownloadKind.asrModel,
+        url: _client.baseUri.resolve(metadata.downloadPath).toString(),
+        destinationPath: paths.part.path,
+        headers: requestHeaders,
+        expectedBytes: metadata.sizeBytes,
+        resumeFromBytes: start,
+        notificationTitle: 'Downloading voice model',
+        notificationBody: metadata.version,
+      ));
+      final result = await terminal.future;
+      if (result.status == BackgroundDownloadStatus.cancelled) {
+        throw _PreparationStopped(
+          _cancelRequested ? AsrModelStatus.cancelled : AsrModelStatus.paused,
+        );
+      }
+      if (result.status == BackgroundDownloadStatus.failed) {
+        throw StateError(
+          result.message ?? 'Voice model download was interrupted.',
+        );
+      }
+      if (await paths.zip.exists()) await paths.zip.delete();
+      return paths.part.rename(paths.zip.path);
+    } finally {
+      _nativeDownloadActive = false;
+      if (_activeNativeDownloadId == downloadId) {
+        _activeNativeDownloadId = null;
+      }
+      await subscription.cancel();
+    }
+  }
+
+  void _cancelNativeDownloadIfActive() {
+    final downloadId = _activeNativeDownloadId;
+    final bridge = _backgroundDownloadBridge;
+    if (!_nativeDownloadActive || downloadId == null || bridge == null) return;
+    unawaited(bridge.cancel(downloadId).catchError((Object _) {}));
   }
 
   Future<void> _verifyZip(File zip, AsrModelMetadata metadata) async {

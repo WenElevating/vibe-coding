@@ -94,7 +94,7 @@
       }
     }
   },
-  "appUpdateProgressDownloadingMessage": "Downloading the update package. Keep this app open until it is ready.",
+  "appUpdateProgressDownloadingMessage": "Downloading the update package. You can leave the app while it continues in the background.",
   "appUpdateProgressVerifyingMessage": "Verifying the downloaded package before installation.",
   "appUpdateProgressInstallingMessage": "Opening the Android installer. Keep this app open.",
   "appUpdateProgressAwaitingConfirmationMessage": "Complete the Android installation confirmation to finish updating.",

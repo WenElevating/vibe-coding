@@ -94,7 +94,7 @@
       }
     }
   },
-  "appUpdateProgressDownloadingMessage": "正在下载更新包，请保持应用打开直到下载完成。",
+  "appUpdateProgressDownloadingMessage": "正在下载更新包，切到后台后会继续下载。",
   "appUpdateProgressVerifyingMessage": "正在校验下载的安装包，确认无误后继续安装。",
   "appUpdateProgressInstallingMessage": "正在打开 Android 安装器，请保持应用打开。",
   "appUpdateProgressAwaitingConfirmationMessage": "请在 Android 安装确认界面完成操作以结束更新。",

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/services/asr_model_client.dart';
 import 'package:lan_ai_cli_control/src/services/asr_model_manager.dart';
+import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart';
 
 void main() {
   late Directory tempDir;
@@ -56,6 +57,119 @@ void main() {
     expect(client.requestedStarts, <int?>[8]);
     expect(manager.state.status, AsrModelStatus.ready);
     expect(File('${root.path}/model-v1/encoder.onnx').existsSync(), true);
+  });
+
+  test('uses native background bridge for ASR archive transfer', () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(bytes: bytes);
+    final client = _FakeAsrModelClient(metadata: _metadata(bytes));
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    final modelPath = await manager.ensureReady();
+
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.asrModel);
+    expect(bridge.requests.single.headers['authorization'], 'Bearer token');
+    expect(client.downloadCalls, 0);
+    expect(File('$modelPath/encoder.onnx').existsSync(), true);
+    expect(manager.state.status, AsrModelStatus.ready);
+  });
+
+  test('native ASR path reports failure when notification permission is denied',
+      () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      notificationsPrepared: false,
+    );
+    final client = _FakeAsrModelClient(metadata: _metadata(bytes));
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    await expectLater(
+      manager.ensureReady(),
+      throwsA(isA<StateError>().having(
+        (error) => '$error',
+        'message',
+        contains('Notification permission is required'),
+      )),
+    );
+
+    expect(manager.state.status, AsrModelStatus.failed);
+    expect(client.downloadCalls, 0);
+    expect(bridge.requests, isEmpty);
+  });
+
+  test('pausing a native ASR download cancels platform transfer and pauses',
+      () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      completeOnStart: false,
+    );
+    final client = _FakeAsrModelClient(metadata: _metadata(bytes));
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    final task = manager.ensureReady();
+    await _waitFor(() => manager.state.status == AsrModelStatus.downloading);
+
+    manager.pause();
+
+    await expectLater(task, throwsA(anything));
+    expect(bridge.cancelledIds, <String>['asr-model:model-v1']);
+    expect(manager.state.status, AsrModelStatus.paused);
+  });
+
+  test('cancelling a native ASR download cancels platform transfer and state',
+      () async {
+    final bytes = _zipBytes();
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      completeOnStart: false,
+    );
+    final client = _FakeAsrModelClient(metadata: _metadata(bytes));
+    final manager = AsrModelManager(
+      client: client,
+      backgroundDownloadBridge: bridge,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    final task = manager.ensureReady();
+    await _waitFor(() => manager.state.status == AsrModelStatus.downloading);
+
+    manager.cancel();
+
+    await expectLater(task, throwsA(anything));
+    expect(bridge.cancelledIds, <String>['asr-model:model-v1']);
+    expect(manager.state.status, AsrModelStatus.cancelled);
+  });
+
+  test('completed ASR part is promoted without reopening network stream',
+      () async {
+    final bytes = _zipBytes();
+    final metadata = _metadata(bytes);
+    final root = Directory('${tempDir.path}/asr_models')..createSync();
+    File('${root.path}/model-v1.zip.part').writeAsBytesSync(bytes);
+    final client = _FakeAsrModelClient(metadata: metadata);
+    final manager = AsrModelManager(
+      client: client,
+      supportDirectoryProvider: () async => tempDir,
+    );
+
+    await manager.ensureReady();
+
+    expect(client.downloadCalls, 0);
+    expect(manager.state.status, AsrModelStatus.ready);
   });
 
   test('mismatched partial response resets and restarts from byte zero',
@@ -455,13 +569,21 @@ AsrModelDownloadResponse _downloadResponse(
         },
         stream: Stream<List<int>>.value(bytes));
 
+Future<void> _waitFor(bool Function() condition) async {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    if (condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail('Timed out waiting for condition.');
+}
+
 class _FakeAsrModelClient extends AsrModelClient {
   _FakeAsrModelClient(
       {required AsrModelMetadata metadata, this.downloadHandler})
       : _metadata = metadata,
         super(
             baseUri: Uri.parse('http://127.0.0.1:4317'),
-            tokenProvider: () => null);
+            tokenProvider: () => 'token');
 
   final AsrModelMetadata _metadata;
   final AsrModelDownloadResponse Function(int? start)? downloadHandler;
@@ -482,4 +604,74 @@ class _FakeAsrModelClient extends AsrModelClient {
     return downloadHandler?.call(start ?? 0) ??
         _downloadResponse(200, const <int>[], null);
   }
+}
+
+class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
+  _FakeBackgroundDownloadBridge({
+    required this.bytes,
+    this.notificationsPrepared = true,
+    this.completeOnStart = true,
+  });
+
+  final List<int> bytes;
+  final bool notificationsPrepared;
+  final bool completeOnStart;
+  final requests = <BackgroundDownloadRequest>[];
+  final cancelledIds = <String>[];
+  final _events = StreamController<BackgroundDownloadSnapshot>.broadcast();
+
+  @override
+  Future<bool> get isSupported async => true;
+
+  @override
+  Future<bool> prepareNotifications() async => notificationsPrepared;
+
+  @override
+  Stream<BackgroundDownloadSnapshot> get events => _events.stream;
+
+  @override
+  Future<BackgroundDownloadSnapshot> start(
+    BackgroundDownloadRequest request,
+  ) async {
+    requests.add(request);
+    if (!completeOnStart) {
+      final snapshot = BackgroundDownloadSnapshot(
+        id: request.id,
+        status: BackgroundDownloadStatus.downloading,
+        downloadedBytes: request.resumeFromBytes,
+        totalBytes: bytes.length,
+        destinationPath: request.destinationPath,
+      );
+      _events.add(snapshot);
+      return snapshot;
+    }
+    final file = File(request.destinationPath);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes);
+    final snapshot = BackgroundDownloadSnapshot(
+      id: request.id,
+      status: BackgroundDownloadStatus.completed,
+      downloadedBytes: bytes.length,
+      totalBytes: bytes.length,
+      destinationPath: request.destinationPath,
+    );
+    _events.add(snapshot);
+    return snapshot;
+  }
+
+  @override
+  Future<void> cancel(String id) async {
+    cancelledIds.add(id);
+    final request = requests.lastWhere((request) => request.id == id);
+    _events.add(BackgroundDownloadSnapshot(
+      id: id,
+      status: BackgroundDownloadStatus.cancelled,
+      downloadedBytes: request.resumeFromBytes,
+      totalBytes: bytes.length,
+      destinationPath: request.destinationPath,
+    ));
+  }
+
+  @override
+  Future<BackgroundDownloadSnapshot?> snapshot(String id) async => null;
 }

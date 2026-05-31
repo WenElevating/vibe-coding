@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:lan_ai_cli_control/src/data/models/app_update_models.dart';
 import 'package:lan_ai_cli_control/src/services/app_update_download_manager.dart';
+import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart';
 
 void main() {
   test('resumes matching partial with range and if-range', () async {
@@ -86,6 +87,45 @@ void main() {
     ]);
     expect(progress.last.totalBytes, bytes.length);
     expect(progress.last.fraction, 1);
+    await temp.delete(recursive: true);
+  });
+
+  test('uses native background bridge before verifying downloaded APK',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 21);
+    final bridge = _FakeBackgroundDownloadBridge(bytes: bytes);
+    var dartStreamOpened = false;
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      backgroundDownloadHeadersProvider: () => const <String, String>{
+        'authorization': 'Bearer token',
+      },
+      openStream: (uri, {rangeStart, ifRange}) async {
+        dartStreamOpened = true;
+        return http.StreamedResponse(Stream<List<int>>.value(bytes), 200);
+      },
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(dartStreamOpened, false);
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.appUpdate);
+    expect(bridge.requests.single.headers['authorization'], 'Bearer token');
+    expect(
+      await File(_updateFile(
+        Directory(_updateDir(temp)),
+        'app-update-21.apk',
+      )).readAsBytes(),
+      bytes,
+    );
     await temp.delete(recursive: true);
   });
 
@@ -623,3 +663,45 @@ String _updateDir(Directory temp) =>
 
 String _updateFile(Directory dir, String name) =>
     '${dir.path}${Platform.pathSeparator}$name';
+
+class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
+  _FakeBackgroundDownloadBridge({required this.bytes});
+
+  final List<int> bytes;
+  final requests = <BackgroundDownloadRequest>[];
+  final _events = StreamController<BackgroundDownloadSnapshot>.broadcast();
+
+  @override
+  Future<bool> get isSupported async => true;
+
+  @override
+  Future<bool> prepareNotifications() async => true;
+
+  @override
+  Stream<BackgroundDownloadSnapshot> get events => _events.stream;
+
+  @override
+  Future<BackgroundDownloadSnapshot> start(
+    BackgroundDownloadRequest request,
+  ) async {
+    requests.add(request);
+    final file = File(request.destinationPath);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes);
+    final snapshot = BackgroundDownloadSnapshot(
+      id: request.id,
+      status: BackgroundDownloadStatus.completed,
+      downloadedBytes: bytes.length,
+      totalBytes: bytes.length,
+      destinationPath: request.destinationPath,
+    );
+    _events.add(snapshot);
+    return snapshot;
+  }
+
+  @override
+  Future<void> cancel(String id) async {}
+
+  @override
+  Future<BackgroundDownloadSnapshot?> snapshot(String id) async => null;
+}

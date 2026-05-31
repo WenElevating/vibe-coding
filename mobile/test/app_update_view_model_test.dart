@@ -909,6 +909,35 @@ void main() {
     expect(repository.fetchCalls, 1);
   });
 
+  test('background native interruption remains paused and resumable', () async {
+    final manifest = _manifest(versionCode: 30);
+    final installer = _FakeInstaller();
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(manifest),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: const AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.paused,
+            message: 'Download can continue later.',
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+
+    expect(viewModel.state.status, AppUpdateStatus.paused);
+    expect(viewModel.state.manifest, manifest);
+    expect(viewModel.state.errorMessage, contains('continue later'));
+  });
+
   test('recovery does not overwrite an active download', () async {
     final downloadCompleter = Completer<AppUpdateDownloadResult>();
     final installer = _FakeInstaller(

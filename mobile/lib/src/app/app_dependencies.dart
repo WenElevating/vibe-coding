@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:path_provider/path_provider.dart';
 
@@ -34,10 +35,13 @@ import '../services/android_package_installer.dart';
 import '../services/app_update_client.dart';
 import '../services/app_update_download_manager.dart';
 import '../services/asr_model_manager.dart';
+import '../services/background_download_bridge.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
+import '../services/method_channel_background_download_bridge.dart';
+import '../services/noop_background_download_bridge.dart';
 import '../services/recent_daemon_address_store.dart';
 import '../services/speech_input_service.dart';
 import '../shell/app_snapshot.dart';
@@ -471,102 +475,120 @@ class FeatureDependencies {
     required this.createRunDetailViewModel,
     required this.createAppUpdateViewModel,
     required this.createWorkbenchDependencies,
-  });
+    BackgroundDownloadBridge? backgroundDownloadBridge,
+  }) : backgroundDownloadBridge = backgroundDownloadBridge ??
+            (Platform.isAndroid
+                ? MethodChannelBackgroundDownloadBridge()
+                : UnsupportedBackgroundDownloadBridge());
 
   factory FeatureDependencies.createDefault({
     required DataDependencies data,
     required DomainDependencies domain,
-  }) =>
-      FeatureDependencies(
-        createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
-          configRepository: data.connectionConfigRepository,
-          recentAddressRepository: data.recentAddressRepository,
-          connectToDaemon: domain.connectionWorkflow,
-        ),
-        createHomeViewModel: (connectedData, {signalMetrics}) => HomeViewModel(
-          workspaceRepository: connectedData.workspaceRepository,
-          conversationRepository: connectedData.conversationRepository,
-          runRepository: connectedData.runRepository,
-          signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
-        ),
-        createSettingsViewModel: ({
-          required ConnectedDataDependencies connectedData,
-          required DaemonConnectionConfig connectionConfig,
-          required DaemonHealth health,
-          ActiveConversationProvider? activeConversationProvider,
-          CodeDiagnosticsSummary? diagnostics,
-          GitStatusSummary? gitStatus,
-          int extensionsCount = 0,
-        }) =>
-            SettingsViewModel(
-          workspaceRepository: connectedData.workspaceRepository,
-          codingPreferencesRepository: data.codingPreferencesRepository,
-          conversationRepository: connectedData.conversationRepository,
-          activeConversationProvider: activeConversationProvider,
-          connectionConfig: connectionConfig,
-          health: health,
-          diagnostics: diagnostics,
-          gitStatus: gitStatus,
-          extensionsCount: extensionsCount,
-        ),
-        createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
-          repository: connectedData.diagnosticsRepository,
-        ),
-        createRunDetailViewModel: (connectedData, run) => RunDetailViewModel(
-          run: run,
-          runRepository: connectedData.runRepository,
-        ),
-        createAppUpdateViewModel: ({
-          required DaemonClient client,
-          required ConnectedDataDependencies connectedData,
-          required int installedVersionCode,
-          required String installedVersionName,
-        }) async {
-          final installer = AndroidPackageInstaller();
-          final cacheDirectory = await getTemporaryDirectory();
-          final appUpdateClient = AppUpdateClient.authorized(
-            baseUri: client.baseUri,
-            authorizedGet: (path, {required headers}) =>
-                client.getAuthorizedRaw(path, headers: headers),
-            authorizedStreamSend: client.sendAuthorizedStream,
-          );
-          return AppUpdateViewModel(
-            installedVersionCode: installedVersionCode,
-            installedVersionName: installedVersionName,
-            workflow: AppUpdateWorkflow(
-              repository: connectedData.appUpdateRepository,
-              installerService: installer,
-              downloaderService: AppUpdateDownloadManager(
-                cacheDirectory: cacheDirectory,
-                openStream: appUpdateClient.openApkStream,
-                availableBytes: installer.availableBytes,
-              ),
+  }) {
+    final backgroundDownloadBridge = Platform.isAndroid
+        ? MethodChannelBackgroundDownloadBridge()
+        : UnsupportedBackgroundDownloadBridge();
+    return FeatureDependencies(
+      createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
+        configRepository: data.connectionConfigRepository,
+        recentAddressRepository: data.recentAddressRepository,
+        connectToDaemon: domain.connectionWorkflow,
+      ),
+      createHomeViewModel: (connectedData, {signalMetrics}) => HomeViewModel(
+        workspaceRepository: connectedData.workspaceRepository,
+        conversationRepository: connectedData.conversationRepository,
+        runRepository: connectedData.runRepository,
+        signalMetrics: signalMetrics ?? const HomeWorkspaceSignalMetrics(),
+      ),
+      createSettingsViewModel: ({
+        required ConnectedDataDependencies connectedData,
+        required DaemonConnectionConfig connectionConfig,
+        required DaemonHealth health,
+        ActiveConversationProvider? activeConversationProvider,
+        CodeDiagnosticsSummary? diagnostics,
+        GitStatusSummary? gitStatus,
+        int extensionsCount = 0,
+      }) =>
+          SettingsViewModel(
+        workspaceRepository: connectedData.workspaceRepository,
+        codingPreferencesRepository: data.codingPreferencesRepository,
+        conversationRepository: connectedData.conversationRepository,
+        activeConversationProvider: activeConversationProvider,
+        connectionConfig: connectionConfig,
+        health: health,
+        diagnostics: diagnostics,
+        gitStatus: gitStatus,
+        extensionsCount: extensionsCount,
+      ),
+      createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
+        repository: connectedData.diagnosticsRepository,
+      ),
+      createRunDetailViewModel: (connectedData, run) => RunDetailViewModel(
+        run: run,
+        runRepository: connectedData.runRepository,
+      ),
+      createAppUpdateViewModel: ({
+        required DaemonClient client,
+        required ConnectedDataDependencies connectedData,
+        required int installedVersionCode,
+        required String installedVersionName,
+      }) async {
+        final installer = AndroidPackageInstaller();
+        final cacheDirectory = await getTemporaryDirectory();
+        final appUpdateClient = AppUpdateClient.authorized(
+          baseUri: client.baseUri,
+          authorizedGet: (path, {required headers}) =>
+              client.getAuthorizedRaw(path, headers: headers),
+          authorizedStreamSend: client.sendAuthorizedStream,
+        );
+        return AppUpdateViewModel(
+          installedVersionCode: installedVersionCode,
+          installedVersionName: installedVersionName,
+          workflow: AppUpdateWorkflow(
+            repository: connectedData.appUpdateRepository,
+            installerService: installer,
+            downloaderService: AppUpdateDownloadManager(
+              cacheDirectory: cacheDirectory,
+              openStream: appUpdateClient.openApkStream,
+              availableBytes: installer.availableBytes,
+              backgroundDownloadBridge: backgroundDownloadBridge,
+              backgroundDownloadHeadersProvider: () {
+                final token = client.currentToken;
+                return <String, String>{
+                  if (token != null) 'authorization': 'Bearer $token',
+                };
+              },
             ),
-            daemonBaseUri: client.baseUri,
-            recordDiagnostic: (event, metadata) {
-              connectedData.recordDiagnosticEvent(
-                event,
-                metadata,
-                path: 'app_update',
-              );
-            },
-          );
-        },
-        createWorkbenchDependencies: (client, connectedData) {
-          return WorkbenchDependencies(
-            adapterRepository: connectedData.cliAdapterRepository,
-            asrModelManager:
-                AsrModelManager(client: client.createAsrModelClient()),
-            conversationRepository: connectedData.conversationRepository,
-            diagnosticsRepository: connectedData.diagnosticsRepository,
-            runRepository: connectedData.runRepository,
-            speechInputServiceBuilder: (modelDirectory) =>
-                SherpaSpeechInputService(modelDirectory: modelDirectory),
-            workspaceRepository: connectedData.workspaceRepository,
-            attachmentPreviewCache: LocalAttachmentPreviewCache(),
-          );
-        },
-      );
+          ),
+          daemonBaseUri: client.baseUri,
+          recordDiagnostic: (event, metadata) {
+            connectedData.recordDiagnosticEvent(
+              event,
+              metadata,
+              path: 'app_update',
+            );
+          },
+        );
+      },
+      createWorkbenchDependencies: (client, connectedData) {
+        return WorkbenchDependencies(
+          adapterRepository: connectedData.cliAdapterRepository,
+          asrModelManager: AsrModelManager(
+            client: client.createAsrModelClient(),
+            backgroundDownloadBridge: backgroundDownloadBridge,
+          ),
+          conversationRepository: connectedData.conversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder: (modelDirectory) =>
+              SherpaSpeechInputService(modelDirectory: modelDirectory),
+          workspaceRepository: connectedData.workspaceRepository,
+          attachmentPreviewCache: LocalAttachmentPreviewCache(),
+        );
+      },
+      backgroundDownloadBridge: backgroundDownloadBridge,
+    );
+  }
 
   final DaemonConnectionViewModel Function() createDaemonConnectionViewModel;
   final HomeViewModel Function(
@@ -598,4 +620,5 @@ class FeatureDependencies {
     DaemonClient client,
     ConnectedDataDependencies connectedData,
   ) createWorkbenchDependencies;
+  final BackgroundDownloadBridge backgroundDownloadBridge;
 }

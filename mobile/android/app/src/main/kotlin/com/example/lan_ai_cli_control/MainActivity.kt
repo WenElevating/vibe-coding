@@ -128,6 +128,8 @@ class MainActivity : FlutterActivity() {
                 eventSink = null
             }
         })
+
+        BackgroundDownloadChannels.register(this, flutterEngine)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -13,6 +13,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/daemon_connection_con
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_notification_client.dart';
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
@@ -114,6 +115,24 @@ void main() {
     workbenchDependencies.asrModelManager.dispose();
     await connectedData.dispose();
     client.close();
+  });
+
+  test('default feature dependencies provide a background download bridge', () {
+    final data = DataDependencies(
+      connectionConfigRepository: _FakeConnectionConfigRepository(),
+    );
+    final features = FeatureDependencies.createDefault(
+      data: data,
+      domain: DomainDependencies.createDefault(
+        data: data,
+        network: NetworkDependencies(
+          tokenStore: MemoryTokenStore(),
+          deviceIdentityStore: MemoryDeviceIdentityStore(deviceId: 'device'),
+        ),
+      ),
+    );
+
+    expect(features.backgroundDownloadBridge, isA<BackgroundDownloadBridge>());
   });
 }
 
