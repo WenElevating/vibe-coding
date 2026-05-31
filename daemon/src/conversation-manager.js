@@ -599,9 +599,8 @@ class ConversationManager {
 
   listEvents(conversationId, afterSeq, device) {
     const conversation = this.requireConversation(conversationId, device);
-    return this.eventStore
-      .listAfter(conversation.id, afterSeq)
-      .map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
+    const events = this.eventStore.listAfter(conversation.id, afterSeq);
+    return normalizeConversationEventsForReplay(events, conversation, this.eventStore);
   }
 
   markConversationDispatchFailed(conversation, error) {
@@ -620,7 +619,7 @@ class ConversationManager {
       ? this.eventStore.listTail(conversation.id, pageRequest.limit)
       : this.eventStore.listBefore(conversation.id, pageRequest.beforeSeq, pageRequest.limit);
     return {
-      events: page.events.map((event) => normalizeLegacyConversationEventForReplay(event, conversation)),
+      events: normalizeConversationEventsForReplay(page.events, conversation, this.eventStore),
       page: {
         mode: pageRequest.mode,
         oldestSeq: page.oldestSeq,
@@ -776,6 +775,9 @@ class ConversationManager {
       model: conversation.model,
       requestedToolPolicy: conversation.requestedToolPolicy,
       claudeOptions: conversation.claudeOptions,
+      initialTaskProgress: conversation.adapter === 'claude'
+        ? buildClaudeTaskProgressSeed(this.eventStore.list(conversation.id, 0))
+        : null,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
     return conversation.handle;
@@ -853,6 +855,16 @@ function activeStateBlocksModelUpdate(conversation) {
   ].includes(conversation.status) || Boolean(conversation.sendLock);
 }
 
+function normalizeConversationEventsForReplay(events, conversation, eventStore) {
+  const normalized = events.map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
+  if (conversation.adapter !== 'claude' || normalized.length === 0) return normalized;
+  const firstSeq = Number(normalized[0]?.seq || 0);
+  const seed = buildClaudeTaskProgressSeed(
+    eventStore.list(conversation.id, 0).filter((event) => Number(event.seq || 0) < firstSeq)
+  );
+  return repairClaudeTaskProgressEvents(normalized, seed);
+}
+
 function normalizeLegacyConversationEventForReplay(event, conversation) {
   if (conversation.adapter !== 'codex') return event;
   if (!event || event.type !== conversationEventTypes.SYSTEM_NOTICE) return event;
@@ -871,6 +883,96 @@ function normalizeLegacyConversationEventForReplay(event, conversation) {
     createdAt: event.createdAt,
     ...mapped
   };
+}
+
+function buildClaudeTaskProgressSeed(events) {
+  const tasks = new Map();
+  for (const event of events || []) {
+    if (!isClaudeTaskProgressEvent(event)) continue;
+    mergeClaudeTaskProgressItems(tasks, event.items, event);
+  }
+  return { items: Array.from(tasks.values()) };
+}
+
+function repairClaudeTaskProgressEvents(events, seed) {
+  const tasks = new Map();
+  mergeClaudeTaskProgressItems(tasks, seed?.items, null);
+  return events.map((event) => {
+    if (!isClaudeTaskProgressEvent(event)) return event;
+    const repairedItems = repairClaudeTaskProgressItems(tasks, event.items, event);
+    mergeClaudeTaskProgressItems(tasks, repairedItems, event);
+    return { ...event, items: repairedItems };
+  });
+}
+
+function isClaudeTaskProgressEvent(event) {
+  return event &&
+    event.type === conversationEventTypes.TASK_PROGRESS_UPDATED &&
+    event.source === 'claude' &&
+    event.taskId === 'claude_tasks' &&
+    Array.isArray(event.items);
+}
+
+function mergeClaudeTaskProgressItems(tasks, items, event) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const normalized = normalizedClaudeTaskProgressItem(tasks, item, event);
+    if (!normalized) continue;
+    tasks.set(normalized.id, normalized);
+  }
+}
+
+function repairClaudeTaskProgressItems(tasks, items, event) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => normalizedClaudeTaskProgressItem(tasks, item, event))
+    .filter(Boolean);
+}
+
+function normalizedClaudeTaskProgressItem(tasks, item, event) {
+  if (!item || typeof item !== 'object') return null;
+  const id = stringValue(item.id);
+  if (!id) return null;
+  const previous = tasks.get(id) || null;
+  const incomingTitle = stringValue(item.title);
+  const previousTitle = stringValue(previous?.title);
+  const knownPreviousTitle = isFallbackClaudeTaskTitle(id, previousTitle) ? '' : previousTitle;
+  const eventTitle = claudeTaskDescriptionForProgressEvent(event, id);
+  const title = isFallbackClaudeTaskTitle(id, incomingTitle)
+    ? knownPreviousTitle || eventTitle || incomingTitle
+    : incomingTitle || knownPreviousTitle || eventTitle;
+  if (!title) return null;
+  return {
+    id,
+    title,
+    status: stringValue(item.status) || stringValue(previous?.status) || 'pending'
+  };
+}
+
+function isFallbackClaudeTaskTitle(id, title) {
+  return title === `Task #${id}`;
+}
+
+function claudeTaskDescriptionForProgressEvent(event, taskId) {
+  if (!event || !event.raw || typeof event.raw !== 'object') return '';
+  const input = firstClaudeToolUseInput(event.raw);
+  const rawTaskId = stringValue(input?.taskId || input?.id);
+  if (rawTaskId && rawTaskId !== taskId) return '';
+  return stringValue(event.raw.task_description || event.raw.taskDescription);
+}
+
+function firstClaudeToolUseInput(raw) {
+  const content = raw.message && typeof raw.message === 'object' ? raw.message.content : null;
+  if (!Array.isArray(content)) return null;
+  for (const item of content) {
+    if (item && typeof item === 'object' && item.type === 'tool_use' && item.input && typeof item.input === 'object') {
+      return item.input;
+    }
+  }
+  return null;
+}
+
+function stringValue(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  return String(value).trim();
 }
 
 async function disposeIdleHandle(conversation) {

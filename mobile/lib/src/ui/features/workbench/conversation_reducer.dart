@@ -229,6 +229,15 @@ class ConversationViewState {
           if (taskId == null || taskId.isEmpty || event.taskItems.isEmpty) {
             break;
           }
+          final existing = _existingTaskProgress(nextMessages, taskId);
+          final taskItems = _mergeTaskProgressItems(
+              existing?.taskItems ?? const <TaskProgressItem>[],
+              event.taskItems,
+              preserveMissing: event.source == 'claude' &&
+                  taskId == 'claude_tasks' &&
+                  existing != null);
+          final completedCount =
+              taskItems.where((item) => item.status == 'completed').length;
           _upsertTaskProgressMessage(
               nextMessages,
               ConversationMessage(
@@ -237,9 +246,11 @@ class ConversationViewState {
                 eventSeq: event.seq,
                 taskId: taskId,
                 source: event.source,
-                taskItems: event.taskItems,
-                completedCount: event.completedCount,
-                totalCount: event.totalCount,
+                taskItems: taskItems,
+                completedCount:
+                    existing == null ? event.completedCount : completedCount,
+                totalCount:
+                    existing == null ? event.totalCount : taskItems.length,
               ));
           break;
         case 'approval.requested':
@@ -640,8 +651,13 @@ void _upsertClaudeTaskProgressFromTool(
 
 ConversationMessage? _existingClaudeTaskProgress(
     List<ConversationMessage> messages) {
-  final index = messages.indexWhere((message) =>
-      message.role == 'task_progress' && message.taskId == 'claude_tasks');
+  return _existingTaskProgress(messages, 'claude_tasks');
+}
+
+ConversationMessage? _existingTaskProgress(
+    List<ConversationMessage> messages, String taskId) {
+  final index = messages.indexWhere(
+      (message) => message.role == 'task_progress' && message.taskId == taskId);
   return index < 0 ? null : messages[index];
 }
 
@@ -898,6 +914,38 @@ void _upsertTaskProgressMessage(
     return;
   }
   messages[index] = incoming;
+}
+
+List<TaskProgressItem> _mergeTaskProgressItems(
+  List<TaskProgressItem> existing,
+  List<TaskProgressItem> incoming, {
+  bool preserveMissing = false,
+}) {
+  if (existing.isEmpty) return incoming;
+  final existingById = <String, TaskProgressItem>{
+    for (final item in existing) item.id: item
+  };
+  final merged = <TaskProgressItem>[];
+  final incomingIds = <String>{};
+  for (final item in incoming) {
+    incomingIds.add(item.id);
+    final previous = existingById[item.id];
+    final title = _isFallbackTaskTitle(item) && previous != null
+        ? previous.title
+        : item.title;
+    merged
+        .add(TaskProgressItem(id: item.id, title: title, status: item.status));
+  }
+  if (preserveMissing) {
+    for (final item in existing) {
+      if (!incomingIds.contains(item.id)) merged.add(item);
+    }
+  }
+  return merged;
+}
+
+bool _isFallbackTaskTitle(TaskProgressItem item) {
+  return item.title.trim() == 'Task #${item.id}';
 }
 
 String _mergeAssistantPartial(String current, String incoming) {

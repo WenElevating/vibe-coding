@@ -95,7 +95,7 @@ class ClaudeConversationAdapter {
     }
   }
 
-  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, requestedToolPolicy, claudeOptions, onEvent }) {
+  async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, requestedToolPolicy, claudeOptions, initialTaskProgress, onEvent }) {
     if (!workspacePath || !String(workspacePath).trim()) throw new Error('workspacePath is required');
     this.ensureAvailable();
     const selectedModel = this.modelCapability?.canSelectModel === true ? model : null;
@@ -119,15 +119,16 @@ class ClaudeConversationAdapter {
       env: sdkProcessEnvForWorkspace(process.env, workspacePath)
     });
     const initRequestId = `init_${Date.now().toString(16)}`;
+    const initialClaudeTasks = claudeTaskMapFromInitialProgress(initialTaskProgress);
     const state = {
       child,
       onEvent,
       pendingQuestions: new Map(),
       pendingApprovals: new Map(),
       pendingTools: new Map(),
-      claudeTasks: new Map(),
+      claudeTasks: initialClaudeTasks,
       claudeTaskToolIds: new Map(),
-      claudeTaskProgressSnapshot: '',
+      claudeTaskProgressSnapshot: claudeTaskProgressSnapshot(initialClaudeTasks),
       contentBlocks: new Map(),
       visibleApiRetryWarnings: new Set(),
       reportedPlanApprovalToolUseIds: new Set(),
@@ -871,7 +872,7 @@ function handleClaudeTaskToolUse(state, { toolName, toolUseId, input, raw }) {
   if (name === 'taskcreate') {
     upsertClaudeCreatedTask(state, { input, result: {}, toolUseId });
   } else if (name === 'taskupdate') {
-    upsertClaudeUpdatedTask(state, { input, result: {}, toolUseId });
+    upsertClaudeUpdatedTask(state, { input, result: {}, toolUseId, raw });
   }
   emitClaudeTaskProgress(state, raw);
 }
@@ -882,7 +883,7 @@ function handleClaudeTaskToolResult(state, { toolName, toolUseId, input, text, r
   if (name === 'taskcreate') {
     upsertClaudeCreatedTask(state, { input, result, resultText: text, toolUseId });
   } else if (name === 'taskupdate') {
-    upsertClaudeUpdatedTask(state, { input, result, toolUseId });
+    upsertClaudeUpdatedTask(state, { input, result, toolUseId, raw: originalRaw || raw });
   }
   emitClaudeTaskProgress(state, originalRaw || raw);
 }
@@ -891,6 +892,7 @@ function upsertClaudeCreatedTask(state, { input, result, resultText, toolUseId }
   const task = objectValue(result.task);
   const parsedResult = parseClaudeCreatedTaskText(resultText);
   const previousTaskId = state.claudeTaskToolIds.get(toolUseId);
+  const previousTask = state.claudeTasks.get(previousTaskId) || null;
   const taskId =
     stringValue(task.id) ||
     stringValue(result.taskId) ||
@@ -898,9 +900,6 @@ function upsertClaudeCreatedTask(state, { input, result, resultText, toolUseId }
     parsedResult.id ||
     parseClaudeTaskId(result) ||
     toolUseId;
-  if (previousTaskId && previousTaskId !== taskId) {
-    state.claudeTasks.delete(previousTaskId);
-  }
   const title =
     stringValue(task.subject) ||
     stringValue(task.title) ||
@@ -908,19 +907,23 @@ function upsertClaudeCreatedTask(state, { input, result, resultText, toolUseId }
     stringValue(input.title) ||
     stringValue(input.description) ||
     parsedResult.title ||
-    stringValue(state.claudeTasks.get(previousTaskId || taskId)?.title) ||
+    stringValue(previousTask?.title) ||
+    stringValue(state.claudeTasks.get(taskId)?.title) ||
     `Task #${taskId}`;
   if (!taskId || !title) return;
   const previous = state.claudeTasks.get(taskId) || {};
+  if (previousTaskId && previousTaskId !== taskId) {
+    state.claudeTasks.delete(previousTaskId);
+  }
   state.claudeTaskToolIds.set(toolUseId, taskId);
   state.claudeTasks.set(taskId, {
     id: taskId,
     title,
-    status: normalizeClaudeTaskStatus(previous.status || result.status || input.status || 'pending')
+    status: normalizeClaudeTaskStatus(previous.status || previousTask?.status || result.status || input.status || 'pending')
   });
 }
 
-function upsertClaudeUpdatedTask(state, { input, result, toolUseId }) {
+function upsertClaudeUpdatedTask(state, { input, result, toolUseId, raw }) {
   const statusChange = objectValue(result.statusChange);
   const taskId =
     stringValue(input.taskId) ||
@@ -932,10 +935,13 @@ function upsertClaudeUpdatedTask(state, { input, result, toolUseId }) {
     toolUseId;
   if (!taskId) return;
   const previous = state.claudeTasks.get(taskId) || {};
+  const previousTitle = stringValue(previous.title);
+  const knownPreviousTitle = isFallbackClaudeTaskTitle(taskId, previousTitle) ? '' : previousTitle;
   const title =
-    stringValue(previous.title) ||
+    knownPreviousTitle ||
     stringValue(input.subject) ||
     stringValue(input.title) ||
+    claudeTaskDescriptionForUpdate(raw, taskId) ||
     `Task #${taskId}`;
   const status = normalizeClaudeTaskStatus(
     stringValue(input.status) ||
@@ -956,10 +962,7 @@ function emitClaudeTaskProgress(state, raw) {
       status: normalizeClaudeTaskStatus(item.status)
     }));
   if (items.length === 0) return;
-  const snapshot = JSON.stringify(items.map((item) => ({
-    title: item.title,
-    status: item.status
-  })));
+  const snapshot = claudeTaskProgressSnapshot(items);
   if (snapshot === state.claudeTaskProgressSnapshot) return;
   state.claudeTaskProgressSnapshot = snapshot;
   const completedCount = items.filter((item) => item.status === 'completed').length;
@@ -973,6 +976,53 @@ function emitClaudeTaskProgress(state, raw) {
     totalCount: items.length,
     raw
   });
+}
+
+function claudeTaskMapFromInitialProgress(initialTaskProgress) {
+  const tasks = new Map();
+  const items = Array.isArray(initialTaskProgress?.items) ? initialTaskProgress.items : [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const id = stringValue(item.id);
+    const title = stringValue(item.title);
+    if (!id || !title) continue;
+    tasks.set(id, {
+      id,
+      title,
+      status: normalizeClaudeTaskStatus(item.status)
+    });
+  }
+  return tasks;
+}
+
+function claudeTaskProgressSnapshot(tasksOrItems) {
+  const items = tasksOrItems instanceof Map ? Array.from(tasksOrItems.values()) : tasksOrItems;
+  return JSON.stringify((Array.isArray(items) ? items : []).map((item) => ({
+    title: item.title,
+    status: item.status
+  })));
+}
+
+function claudeTaskDescriptionForUpdate(raw, taskId) {
+  if (!raw || typeof raw !== 'object') return '';
+  const input = raw.message && typeof raw.message === 'object' ? firstClaudeToolInput(raw.message.content) : null;
+  const rawTaskId = stringValue(input?.taskId || input?.id);
+  if (rawTaskId && rawTaskId !== taskId) return '';
+  return stringValue(raw.task_description || raw.taskDescription);
+}
+
+function firstClaudeToolInput(content) {
+  if (!Array.isArray(content)) return null;
+  for (const item of content) {
+    if (item && typeof item === 'object' && item.type === 'tool_use' && item.input && typeof item.input === 'object') {
+      return item.input;
+    }
+  }
+  return null;
+}
+
+function isFallbackClaudeTaskTitle(id, title) {
+  return title === `Task #${id}`;
 }
 
 function normalizeClaudeTaskStatus(status) {

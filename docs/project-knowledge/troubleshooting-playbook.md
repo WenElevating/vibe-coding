@@ -316,6 +316,11 @@ flutter test --no-pub test\widget_test.dart --plain-name "opening existing conve
   tool starts, while mobile consumes the existing task progress reducer/card.
   Mobile replay should also suppress legacy `AskUserQuestion`, `TaskCreate`,
   and `TaskUpdate` tool cards because older persisted events cannot be rewritten.
+  If later updates regress to `Task #N`, check whether Claude resumed after the
+  adapter lost its in-memory task map or whether a subagent emitted a bare
+  `TaskUpdate`. Seed restarted Claude adapters from prior `task.progress.updated`
+  rows, preserve non-fallback titles when replaying/merging progress, and use
+  Claude `task_description` as a fallback title before showing `Task #N`.
   For question suggestions, if the active conversation has a `pendingQuestionId`,
   the chip should call `answerConversationQuestion` immediately; only fall back
   to composer fill when there is no pending question context.
@@ -333,7 +338,7 @@ flutter test --no-pub test\conversation_reducer_test.dart
 dart analyze lib test
 ```
 
-- Last verified: 2026-05-30
+- Last verified: 2026-05-31
 
 ## Symptom: Android Update Download Shows No Progress Or Offers Download Again
 

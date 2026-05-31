@@ -610,6 +610,63 @@ void main() {
     expect(state.messages.single.taskItems.single.status, 'completed');
   });
 
+  test(
+      'ConversationViewState preserves Claude task titles from fallback updates',
+      () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'task.progress.updated',
+        'createdAt': '2026-05-10T00:00:00.000Z',
+        'taskId': 'claude_tasks',
+        'source': 'claude',
+        'completedCount': 0,
+        'totalCount': 2,
+        'items': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': '2',
+            'title': 'Task 3-6: Server API Routes + Entry Point',
+            'status': 'pending'
+          },
+          <String, Object?>{
+            'id': '3',
+            'title': 'Task 7-8: Frontend Types, Hooks, Layout & Routing',
+            'status': 'pending'
+          },
+        ],
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'task.progress.updated',
+        'createdAt': '2026-05-10T00:00:01.000Z',
+        'taskId': 'claude_tasks',
+        'source': 'claude',
+        'completedCount': 1,
+        'totalCount': 1,
+        'items': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': '2',
+            'title': 'Task #2',
+            'status': 'completed'
+          },
+        ],
+      }),
+    ]);
+
+    final message = state.messages.single;
+    expect(message.taskItems.map((item) => item.id), const <String>['2', '3']);
+    expect(message.taskItems.map((item) => item.title), const <String>[
+      'Task 3-6: Server API Routes + Entry Point',
+      'Task 7-8: Frontend Types, Hooks, Layout & Routing'
+    ]);
+    expect(message.taskItems.map((item) => item.status),
+        const <String>['completed', 'pending']);
+    expect(message.completedCount, 1);
+    expect(message.totalCount, 2);
+  });
+
   test('ConversationViewState hides AskUserQuestion tool echoes', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

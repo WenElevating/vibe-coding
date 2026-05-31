@@ -1827,6 +1827,60 @@ test('conversation manager controls active Claude conversation dynamically', asy
   assert.equal(manager.getConversation(conversation.id, device).model, 'claude-opus');
 });
 
+test('conversation manager seeds restarted Claude conversations with recovered task titles', async () => {
+  const startCalls = [];
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        async sendUserMessage() {},
+        async answerQuestion() {},
+        async respondApproval() {},
+        async cancel() {},
+        async dispose() {}
+      };
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({
+    adapters: new Map([['claude', adapter]])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  eventStore.append(conversation.id, conversationEventTypes.TASK_PROGRESS_UPDATED, {
+    taskId: 'claude_tasks',
+    source: 'claude',
+    items: [
+      { id: '2', title: 'Task 3-6: Server API Routes + Entry Point', status: 'pending' }
+    ],
+    completedCount: 0,
+    totalCount: 1
+  });
+  eventStore.append(conversation.id, conversationEventTypes.TASK_PROGRESS_UPDATED, {
+    taskId: 'claude_tasks',
+    source: 'claude',
+    items: [
+      { id: '2', title: 'Task #2', status: 'in_progress' }
+    ],
+    completedCount: 0,
+    totalCount: 1,
+    raw: {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'TaskUpdate', input: { taskId: '2', status: 'in_progress' } }
+        ]
+      }
+    }
+  });
+
+  await manager.sendMessage(conversation.id, { text: 'continue' }, device);
+
+  assert.equal(startCalls.length, 1);
+  assert.deepEqual(startCalls[0].initialTaskProgress.items, [
+    { id: '2', title: 'Task 3-6: Server API Routes + Entry Point', status: 'in_progress' }
+  ]);
+});
+
 test('conversation manager clears blocking item when adapter cancels blocking request', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -4561,7 +4615,12 @@ test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progres
   child.stdout.emit('data', `${JSON.stringify({
     type: 'tool_result',
     tool_use_id: 'toolu_task_create',
-    content: 'Task #1 created successfully: Fix Converters project external path dependency'
+    tool_use_result: {
+      success: true,
+      task: {
+        id: '1'
+      }
+    }
   })}\n`);
   child.stdout.emit('data', `${JSON.stringify({
     type: 'tool_use',
@@ -4585,12 +4644,51 @@ test('Claude conversation adapter maps TaskCreate and TaskUpdate to task progres
   assert.equal(progressEvents.length, 2);
   assert.equal(progressEvents[0].source, 'claude');
   assert.equal(progressEvents[0].taskId, 'claude_tasks');
+  assert.equal(progressEvents[0].items[0].id, 'toolu_task_create');
   assert.equal(progressEvents[0].items[0].title, 'Fix Converters project external path dependency');
   assert.equal(progressEvents[0].items[0].status, 'pending');
+  assert.equal(progressEvents[1].items[0].id, '1');
+  assert.equal(progressEvents[1].items[0].title, 'Fix Converters project external path dependency');
   assert.equal(progressEvents[1].items[0].status, 'in_progress');
   assert.equal(progressEvents[1].completedCount, 0);
   assert.equal(progressEvents[1].totalCount, 1);
   assert.equal(events.some((event) => event.type === 'tool.started' && event.toolName === 'TaskUpdate'), false);
+});
+
+test('Claude conversation adapter restores task titles from initial progress', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write() {} };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({
+    conversationId: 'conv_claude_seeded_tasks',
+    workspacePath: '.',
+    initialTaskProgress: {
+      items: [
+        { id: '8', title: 'Task 13: Final Integration & Polish', status: 'in_progress' }
+      ]
+    },
+    onEvent: (event) => events.push(event)
+  });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'tool_use',
+    id: 'toolu_task_update_8',
+    name: 'TaskUpdate',
+    input: { taskId: '8', status: 'completed' }
+  })}\n`);
+
+  const progressEvents = events.filter((event) => event.type === 'task.progress.updated');
+  assert.equal(progressEvents.length, 1);
+  assert.equal(progressEvents[0].items[0].id, '8');
+  assert.equal(progressEvents[0].items[0].title, 'Task 13: Final Integration & Polish');
+  assert.equal(progressEvents[0].items[0].status, 'completed');
 });
 
 test('Claude conversation adapter ignores empty lifecycle frames', async () => {
