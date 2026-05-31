@@ -4,6 +4,7 @@
         android:protectionLevel="signature" />
     <uses-permission android:name="${applicationId}.permission.APP_UPDATE_INSTALL_STATUS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

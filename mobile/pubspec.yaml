@@ -22,6 +22,7 @@ dependencies:
   sherpa_onnx: 1.12.36
   shared_preferences: ^2.3.3
   file_picker: ^11.0.2
+  flutter_local_notifications: ^18.0.1
 
 dependency_overrides:
   sherpa_onnx_windows: 1.12.36

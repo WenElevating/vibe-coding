@@ -7,6 +7,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
+import '../../../services/mobile_app_event_bus.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../core/widgets/widgets.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
@@ -113,6 +114,29 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void showSessionListFromShell() {
     _goToWorkspaces();
+  }
+
+  Future<bool> openConversationFromNotification({
+    required String workspaceId,
+    required String conversationId,
+  }) async {
+    if (!mounted) return false;
+    SessionItem? item;
+    for (final candidate in _sessionItems) {
+      if (candidate.conversation?.id == conversationId) {
+        item = candidate;
+        break;
+      }
+    }
+    if (item == null) {
+      final workspace = _workspaceForId(workspaceId);
+      _workbenchViewModel.showSessions(workspace.id);
+      _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+          _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+      return false;
+    }
+    await _openSession(item);
+    return true;
   }
 
   void _setCurrentRoute(String route) {
@@ -1186,7 +1210,53 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     if (changed) {
+      _publishApprovalNotificationEvent(event);
       _scrollToBottom();
+    }
+  }
+
+  void _publishApprovalNotificationEvent(ConversationEvent event) {
+    final bus = widget.dependencies.mobileAppEventBus;
+    if (bus == null) return;
+    final approvalId = event.approvalId;
+    final conversation = _workbenchViewModel.activeConversation;
+    final conversationId = conversation?.id ?? event.conversationId;
+    if (conversationId.isEmpty) return;
+    switch (event.type) {
+      case 'approval.requested':
+        if (approvalId == null || approvalId.isEmpty) return;
+        final workspaceId = conversation?.workspaceId ??
+            _routeWorkspace?.id ??
+            (_workspaces.isNotEmpty ? _workspaces.first.id : '');
+        if (workspaceId.isEmpty) return;
+        final l10n = AppLocalizations.of(context);
+        final body = event.summary?.trim().isNotEmpty == true
+            ? event.summary!.trim()
+            : event.toolName?.trim().isNotEmpty == true
+                ? event.toolName!.trim()
+                : l10n.workbenchApprovalCardTitle;
+        bus.publish(MobileApprovalRequested(
+          workspaceId: workspaceId,
+          conversationId: conversationId,
+          approvalId: approvalId,
+          title: l10n.notificationsApprovalRequired,
+          body: body,
+          createdAt: event.createdAt,
+          conversationTitle: conversation?.title,
+          toolName: event.toolName,
+          summary: event.summary,
+        ));
+        break;
+      case 'approval.resolved':
+      case 'blocking.request_cancelled':
+      case 'conversation.completed':
+      case 'conversation.cancelled':
+      case 'run.error':
+        bus.publish(MobileApprovalResolved(
+          conversationId: conversationId,
+          approvalId: approvalId,
+        ));
+        break;
     }
   }
 

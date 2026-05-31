@@ -4,6 +4,7 @@ import '../../../data/repositories/cli_adapter_repository.dart';
 import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../services/asr_model_manager.dart';
+import '../../../services/mobile_app_event_bus.dart';
 import '../../../services/speech_input_contract.dart';
 import '../../../workflows/connection/open_workspace_use_case.dart';
 import 'attachments/attachment_preview_cache.dart';
@@ -19,6 +20,7 @@ class WorkbenchDependencies {
     required this.workspaceRepository,
     this.workspaceOpeningUseCase,
     this.attachmentPreviewCache = const NoopAttachmentPreviewCache(),
+    this.mobileAppEventBus,
   });
 
   final AttachmentPreviewCache attachmentPreviewCache;
@@ -30,9 +32,11 @@ class WorkbenchDependencies {
   final SpeechInputServiceBuilder speechInputServiceBuilder;
   final WorkspaceRepository workspaceRepository;
   final WorkspaceOpeningUseCase? workspaceOpeningUseCase;
+  final MobileAppEventBus? mobileAppEventBus;
 
   WorkbenchDependencies copyWith({
     WorkspaceOpeningUseCase? workspaceOpeningUseCase,
+    MobileAppEventBus? mobileAppEventBus,
   }) {
     return WorkbenchDependencies(
       adapterRepository: adapterRepository,
@@ -45,6 +49,7 @@ class WorkbenchDependencies {
       workspaceOpeningUseCase:
           workspaceOpeningUseCase ?? this.workspaceOpeningUseCase,
       attachmentPreviewCache: attachmentPreviewCache,
+      mobileAppEventBus: mobileAppEventBus ?? this.mobileAppEventBus,
     );
   }
 }

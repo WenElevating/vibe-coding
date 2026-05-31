@@ -11,6 +11,9 @@ import '../app/connected_session_scope.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
 import '../models/protocol.dart';
+import '../services/approval_notification_handler.dart';
+import '../services/local_approval_notification_service.dart';
+import '../services/mobile_app_event_bus.dart';
 import '../shell/app_route.dart';
 import '../workflows/workspace/create_workspace_workflow.dart';
 import 'core/widgets/widgets.dart';
@@ -255,6 +258,10 @@ class _MainTabsPageState extends State<MainTabsPage>
   MainTabsShellViewModel? _viewModel;
   HomeViewModel? _homeViewModel;
   SettingsViewModel? _settingsViewModel;
+  late final MobileAppEventBus _mobileAppEventBus;
+  late final ApprovalNotificationHandler _approvalNotificationHandler;
+  StreamSubscription<ApprovalNotificationTap>?
+      _approvalNotificationTapSubscription;
   late ConnectedDataDependencies _connectedData;
   late WorkbenchDependencies _workbenchDependencies;
   AppUpdateViewModel? _appUpdateViewModel;
@@ -274,8 +281,16 @@ class _MainTabsPageState extends State<MainTabsPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _mobileAppEventBus = MobileAppEventBus();
+    _approvalNotificationHandler = ApprovalNotificationHandler(
+      eventBus: _mobileAppEventBus,
+      presenter: SystemApprovalNotificationPresenter(),
+    );
+    _approvalNotificationTapSubscription = _approvalNotificationHandler.taps
+        .listen(_handleApprovalNotificationTap);
     _connectedData = widget.pageDependencies.connectedData;
-    _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
+    _workbenchDependencies = widget.pageDependencies.workbenchDependencies
+        .copyWith(mobileAppEventBus: _mobileAppEventBus);
     widget.pageDependencies.codingPreferencesRepository.addListener(
       _handleCodingPreferencesRepositoryChanged,
     );
@@ -307,7 +322,8 @@ class _MainTabsPageState extends State<MainTabsPage>
       }
       final oldWorkbenchDependencies = _workbenchDependencies;
       _connectedData = widget.pageDependencies.connectedData;
-      _workbenchDependencies = widget.pageDependencies.workbenchDependencies;
+      _workbenchDependencies = widget.pageDependencies.workbenchDependencies
+          .copyWith(mobileAppEventBus: _mobileAppEventBus);
       _disposeAppUpdateViewModel();
       _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
@@ -364,6 +380,9 @@ class _MainTabsPageState extends State<MainTabsPage>
     widget.pageDependencies.codingPreferencesRepository.removeListener(
       _handleCodingPreferencesRepositoryChanged,
     );
+    unawaited(_approvalNotificationTapSubscription?.cancel());
+    unawaited(_approvalNotificationHandler.dispose());
+    unawaited(_mobileAppEventBus.dispose());
     _disposeWorkbenchDependencies(_workbenchDependencies);
     _disposeRepositoryBackedViewModels();
     _disposeAppUpdateViewModel();
@@ -374,9 +393,26 @@ class _MainTabsPageState extends State<MainTabsPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _approvalNotificationHandler.updateLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       unawaited(_handleAppUpdateForeground(AppUpdateCheckTrigger.appResumed));
     }
+  }
+
+  void _handleApprovalNotificationTap(ApprovalNotificationTap tap) {
+    final viewModel = _viewModel;
+    if (viewModel == null) return;
+    viewModel.selectTab(1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        _codingWorkbenchKey.currentState?.openConversationFromNotification(
+              workspaceId: tap.workspaceId,
+              conversationId: tap.conversationId,
+            ) ??
+            Future<bool>.value(false),
+      );
+    });
   }
 
   Future<void> _createAppUpdateViewModel() async {
