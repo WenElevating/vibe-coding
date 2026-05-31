@@ -314,13 +314,13 @@ class _CodingComposerState extends State<CodingComposer>
   }
 }
 
-class _SlashCommandMenu extends StatelessWidget {
+class _SlashCommandMenu extends StatefulWidget {
   const _SlashCommandMenu({
     required this.commands,
     required this.onSelected,
   });
 
-  static const double rowHeight = 34;
+  static const double rowHeight = 42;
   static const int maxVisibleRows = 6;
 
   final List<SlashCommand> commands;
@@ -328,68 +328,135 @@ class _SlashCommandMenu extends StatelessWidget {
 
   static double heightFor(int count) {
     final visibleCount = count > maxVisibleRows ? maxVisibleRows : count;
-    return rowHeight * visibleCount;
+    return rowHeight * visibleCount + 8;
   }
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-      decoration: BoxDecoration(
-          color: const Color(0xFF111214),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: .085)),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: .26),
-                blurRadius: 18,
-                offset: const Offset(0, 10)),
-          ]),
-      child: ListView.builder(
-          padding: EdgeInsets.zero,
-          itemExtent: rowHeight,
-          itemCount: commands.length,
-          itemBuilder: (context, index) {
-            final command = commands[index];
-            return _SlashCommandRow(
-                command: command,
-                onTap: onSelected == null
-                    ? null
-                    : () => onSelected?.call(command));
-          }));
+  State<_SlashCommandMenu> createState() => _SlashCommandMenuState();
+}
+
+class _SlashCommandMenuState extends State<_SlashCommandMenu> {
+  int _selectedIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant _SlashCommandMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_selectedIndex >= widget.commands.length) {
+      _selectedIndex = math.max(0, widget.commands.length - 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final outline = colorScheme.onSurface.withValues(alpha: .10);
+    final menuSurface = Color.alphaBlend(
+        colorScheme.primary.withValues(alpha: .025), colorScheme.surface);
+
+    return DecoratedBox(
+        decoration: BoxDecoration(
+            color: menuSurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: outline),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: .30),
+                  blurRadius: 22,
+                  offset: const Offset(0, 12)),
+            ]),
+        child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: ListView.builder(
+                padding: const EdgeInsets.all(4),
+                itemExtent: _SlashCommandMenu.rowHeight,
+                itemCount: widget.commands.length,
+                itemBuilder: (context, index) {
+                  final command = widget.commands[index];
+                  return _SlashCommandRow(
+                      command: command,
+                      selected: index == _selectedIndex,
+                      onHover: () => setState(() => _selectedIndex = index),
+                      onTapDown: () => setState(() => _selectedIndex = index),
+                      onTap: widget.onSelected == null
+                          ? null
+                          : () => widget.onSelected?.call(command));
+                })));
+  }
 }
 
 class _SlashCommandRow extends StatelessWidget {
-  const _SlashCommandRow({required this.command, required this.onTap});
+  const _SlashCommandRow({
+    required this.command,
+    required this.selected,
+    required this.onHover,
+    required this.onTapDown,
+    required this.onTap,
+  });
 
   final SlashCommand command;
+  final bool selected;
+  final VoidCallback onHover;
+  final VoidCallback onTapDown;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(children: [
-            SizedBox(
-                width: 116,
-                child: Text(command.command,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.appTextStyle.copyWith(
-                        color: theme.active,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0))),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Text(command.description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.appTextStyle.copyWith(
-                        color: theme.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0))),
-          ])));
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final selectedFill = colorScheme.primary.withValues(alpha: .15);
+    final selectedOutline = colorScheme.primary.withValues(alpha: .34);
+    final commandColor = selected ? colorScheme.onSurface : colorScheme.primary;
+    final descriptionColor = selected
+        ? colorScheme.onSurface.withValues(alpha: .78)
+        : colorScheme.onSurface.withValues(alpha: .60);
+
+    return Semantics(
+        selected: selected,
+        button: true,
+        child: MouseRegion(
+            onEnter: (_) => onHover(),
+            child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: AnimatedContainer(
+                    key: ValueKey<String>(
+                        'slash-command-row-${command.command}'),
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                        color: selected ? selectedFill : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: selected
+                                ? selectedOutline
+                                : Colors.transparent)),
+                    child: InkWell(
+                        onTap: onTap,
+                        onTapDown: (_) => onTapDown(),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Row(children: [
+                              SizedBox(
+                                  width: 122,
+                                  child: Text(command.command,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.appTextStyle.copyWith(
+                                          color: commandColor,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0))),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                  child: Text(command.description,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.appTextStyle.copyWith(
+                                          color: descriptionColor,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0))),
+                            ])))))));
+  }
 }
 
 class _AttachmentTray extends StatelessWidget {

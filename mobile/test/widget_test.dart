@@ -5374,6 +5374,12 @@ void main() {
     expect(find.text('/code-review'), findsOneWidget);
     expect(find.text('/compact'), findsOneWidget);
     expect(find.text('/fast'), findsNothing);
+
+    final selectedRow = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('slash-command-row-/code-review')),
+    );
+    final selectedDecoration = selectedRow.decoration as BoxDecoration;
+    expect(selectedDecoration.color, isNot(Colors.transparent));
   });
 
   testWidgets('slash command menu inserts selected command at cursor',
