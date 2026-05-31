@@ -6086,8 +6086,12 @@ void main() {
     expect(find.text('00:02'), findsOneWidget);
   });
 
-  testWidgets('pending sentinel pulses localized waiting text',
+  testWidgets('pending sentinel slowly pulses localized waiting text',
       (WidgetTester tester) async {
+    int opaqueRgb(Color color) =>
+        color.withValues(alpha: 1).toARGB32() & 0x00ffffff;
+    int alphaChannel(Color color) => (color.toARGB32() >> 24) & 0xff;
+
     final zh = lookupAppLocalizations(theme.zhHansCnLocale);
     await tester.pumpWidget(MaterialApp(
         locale: theme.zhHansCnLocale,
@@ -6109,8 +6113,16 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 250));
 
+    final quickColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
+    expect(opaqueRgb(quickColor!), opaqueRgb(firstColor!));
+    expect((alphaChannel(quickColor) - alphaChannel(firstColor)).abs(),
+        lessThan(10));
+
+    await tester.pump(const Duration(milliseconds: 900));
+
     final pulsedColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
-    expect(pulsedColor, isNot(firstColor));
+    expect(opaqueRgb(pulsedColor!), opaqueRgb(firstColor));
+    expect(alphaChannel(pulsedColor), greaterThan(alphaChannel(firstColor)));
 
     await tester.pump(const Duration(seconds: 5));
 

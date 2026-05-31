@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -2745,9 +2744,7 @@ class _PendingSentinelState extends State<PendingSentinel>
                                   position: slide, child: child));
                         },
                         child: _PulsingStatusText(
-                            key: ValueKey(displayStatus),
-                            text: displayStatus,
-                            progress: _controller.value)),
+                            key: ValueKey(displayStatus), text: displayStatus)),
                   ])),
               const SizedBox(width: 10),
               _ElapsedTimerPill(text: _formatPendingElapsed(_elapsedSeconds)),
@@ -2790,33 +2787,68 @@ class _PendingSentinelState extends State<PendingSentinel>
   }
 }
 
-class _PulsingStatusText extends StatelessWidget {
+class _PulsingStatusText extends StatefulWidget {
   const _PulsingStatusText({
     super.key,
     required this.text,
-    required this.progress,
   });
 
   final String text;
-  final double progress;
 
   @override
-  Widget build(BuildContext context) {
-    final wave = progress < .5 ? progress * 2 : (1 - progress) * 2;
-    final accentWave = (math.sin(progress * math.pi * 2 - math.pi / 5) + 1) / 2;
-    final base = Color.lerp(theme.muted, theme.text, .18 + wave * .56)!;
-    final accent = Color.lerp(theme.purple2, theme.green, accentWave)!;
-    final color = Color.lerp(base, accent, .12 + wave * .30)!
-        .withValues(alpha: .74 + wave * .26);
-    return Text(text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: color, fontSize: 12, height: 1.3, shadows: [
-          BoxShadow(
-              color: accent.withValues(alpha: .06 + wave * .16),
-              blurRadius: 7 + wave * 10)
-        ]));
+  State<_PulsingStatusText> createState() => _PulsingStatusTextState();
+}
+
+class _PulsingStatusTextState extends State<_PulsingStatusText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1800))
+      ..repeat(reverse: true);
+    _pulse = CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic);
   }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+      animation: _pulse,
+      builder: (context, _) {
+        final base = _stableStatusTextColor(widget.text);
+        final wave = _pulse.value;
+        final color = base.withValues(alpha: .76 + wave * .16);
+        return Text(widget.text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color, fontSize: 12, height: 1.3, shadows: [
+              BoxShadow(
+                  color: base.withValues(alpha: .04 + wave * .08),
+                  blurRadius: 6 + wave * 5)
+            ]));
+      });
+}
+
+Color _stableStatusTextColor(String text) {
+  const palette = <Color>[
+    Color(0xFFB8C7FF),
+    Color(0xFF8FE8B5),
+    Color(0xFF9DD6FF),
+    Color(0xFFD4C2FF),
+  ];
+  var hash = 0;
+  for (final unit in text.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7fffffff;
+  }
+  return palette[hash % palette.length];
 }
 
 String _formatPendingElapsed(int seconds) {
