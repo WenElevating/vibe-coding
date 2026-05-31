@@ -145,6 +145,36 @@ class ExtensionSummary {
           description: json['description'] as String? ?? '');
 }
 
+class SlashCommand {
+  const SlashCommand({
+    required this.command,
+    required this.description,
+  });
+
+  final String command;
+  final String description;
+
+  String get matchingKey => normalizedSlashCommandKey(command);
+
+  factory SlashCommand.fromJson(Map<String, Object?> json) => SlashCommand(
+        command: normalizeSlashCommand(json['command'] as String? ?? ''),
+        description: json['description'] as String? ?? '',
+      );
+}
+
+String normalizeSlashCommand(String value) {
+  final trimmed = value.trim();
+  final withoutLeadingSlash = trimmed.startsWith('/')
+      ? trimmed.substring(1).trimLeft()
+      : trimmed;
+  return '/$withoutLeadingSlash';
+}
+
+String normalizedSlashCommandKey(String value) {
+  final normalized = normalizeSlashCommand(value);
+  return normalized.substring(1).toLowerCase();
+}
+
 List<AdapterModelOption> _adapterModelsFromJson(Object? value) {
   if (value is! Iterable) {
     return const <AdapterModelOption>[];

@@ -327,6 +327,13 @@ class DaemonClient
     return items.map(CommandTemplate.fromJson).toList();
   }
 
+  Future<List<SlashCommand>> listSlashCommands(String adapterId) async {
+    final encoded = Uri.encodeComponent(adapterId.trim().toLowerCase());
+    final response = await _get('/api/adapters/$encoded/slash-commands');
+    final items = _readMapList(response, 'commands');
+    return items.map(SlashCommand.fromJson).toList();
+  }
+
   Future<List<QueueItem>> listQueue() async {
     final response = await _get('/api/queue');
     final items = _readMapList(response, 'queue');
