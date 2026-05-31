@@ -84,6 +84,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _bottomAnchorTranscriptUnderflow = false;
   bool _loadingInitialConversationEvents = false;
   bool _showPendingDuringInitialConversationLoad = false;
+  List<SlashCommand> _visibleSlashCommands = const <SlashCommand>[];
+  final Set<String> _loadingSlashAdapters = <String>{};
+  _SlashToken? _activeSlashToken;
+  String? _lastSlashAdapter;
 
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems;
 
@@ -150,6 +154,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_lastReportedListOpen == listOpen) return;
     _lastReportedListOpen = listOpen;
     widget.onSessionListChanged(listOpen);
+    if (route == _routeConversation) {
+      _ensureSlashCatalogForConversationRoute();
+    } else {
+      _setSlashCommands(const <SlashCommand>[], null);
+    }
   }
 
   void _goToWorkspaces() {
@@ -388,6 +397,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _asrModelManager = widget.dependencies.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
+    _prompt.addListener(_handlePromptValueChanged);
     widget.dependencies.codingPreferencesRepository.addListener(
       _handleCodingPreferencesChanged,
     );
@@ -417,6 +427,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _syncWorkbenchViewModel() {
+    final adapter = _normalizedAdapter(_workbenchViewModel.selectedAdapter);
+    if (adapter != _lastSlashAdapter) {
+      _lastSlashAdapter = adapter;
+      _visibleSlashCommands = const <SlashCommand>[];
+      _activeSlashToken = null;
+      _ensureSlashCatalogForSelectedAdapter();
+    }
     if (mounted) setState(() {});
   }
 
@@ -437,6 +454,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _cancelInitialConversationPendingReveal();
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
+    _prompt.removeListener(_handlePromptValueChanged);
     _workbenchViewModel.removeListener(_syncWorkbenchViewModel);
     _workbenchViewModel.dispose();
     _ownedSpeechInputService = null;
@@ -569,7 +587,133 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _handleComposerTextChanged(String text) {
     unawaited(_finishVoiceInputForTextEdit());
+    _updateSlashCommandMenu(_prompt.value);
     if (mounted) setState(() {});
+  }
+
+  void _handlePromptValueChanged() {
+    if (_applyingVoiceText) return;
+    _updateSlashCommandMenu(_prompt.value);
+  }
+
+  void _ensureSlashCatalogForSelectedAdapter({
+    bool onlyInConversation = true,
+  }) {
+    if (onlyInConversation && _currentRoute != _routeConversation) return;
+    final adapter = _normalizedAdapter(_workbenchViewModel.selectedAdapter);
+    if (adapter == null) return;
+    unawaited(_ensureSlashCommandsLoaded(adapter));
+  }
+
+  void _ensureSlashCatalogForConversationRoute() {
+    _ensureSlashCatalogForSelectedAdapter(onlyInConversation: false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _currentRoute != _routeConversation) return;
+      _ensureSlashCatalogForSelectedAdapter(onlyInConversation: false);
+    });
+  }
+
+  Future<void> _ensureSlashCommandsLoaded(String adapter) async {
+    final normalized = _normalizedAdapter(adapter);
+    if (normalized == null ||
+        _loadingSlashAdapters.contains(normalized) ||
+        widget.dependencies.slashCommandCatalogRepository
+            .hasLoadedAdapter(normalized)) {
+      return;
+    }
+    _loadingSlashAdapters.add(normalized);
+    try {
+      await widget.dependencies.slashCommandCatalogRepository
+          .loadForAdapter(normalized);
+    } catch (_) {
+      return;
+    } finally {
+      _loadingSlashAdapters.remove(normalized);
+    }
+    if (!mounted ||
+        _normalizedAdapter(_workbenchViewModel.selectedAdapter) != normalized) {
+      return;
+    }
+    _updateSlashCommandMenu(_prompt.value);
+  }
+
+  void _updateSlashCommandMenu(TextEditingValue value) {
+    final adapter = _normalizedAdapter(_workbenchViewModel.selectedAdapter);
+    final token = _activeSlashTokenFor(value);
+    if (adapter == null || token == null || _sending || _isRunningCli) {
+      _setSlashCommands(const <SlashCommand>[], null);
+      return;
+    }
+    unawaited(_ensureSlashCommandsLoaded(adapter));
+    final commands =
+        widget.dependencies.slashCommandCatalogRepository.commandsForAdapter(
+      adapter,
+    );
+    final query = token.query.toLowerCase();
+    final prefixMatches = <SlashCommand>[];
+    final containsMatches = <SlashCommand>[];
+    for (final command in commands) {
+      final key = command.matchingKey;
+      if (query.isEmpty || key.startsWith(query)) {
+        prefixMatches.add(command);
+      } else if (key.contains(query)) {
+        containsMatches.add(command);
+      }
+    }
+    _setSlashCommands(
+      <SlashCommand>[...prefixMatches, ...containsMatches],
+      token,
+    );
+  }
+
+  void _setSlashCommands(List<SlashCommand> commands, _SlashToken? token) {
+    final changed = !_sameSlashCommandList(_visibleSlashCommands, commands) ||
+        _activeSlashToken != token;
+    if (!changed) return;
+    _visibleSlashCommands = List<SlashCommand>.unmodifiable(commands);
+    _activeSlashToken = token;
+    if (mounted) setState(() {});
+  }
+
+  void _insertSlashCommand(SlashCommand command) {
+    final token = _activeSlashToken;
+    if (token == null) return;
+    final value = _prompt.value;
+    if (token.start < 0 ||
+        token.end > value.text.length ||
+        token.start > token.end) {
+      return;
+    }
+    final insertText = '${normalizeSlashCommand(command.command)} ';
+    final text = value.text.replaceRange(token.start, token.end, insertText);
+    final offset = token.start + insertText.length;
+    _prompt.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: offset),
+    );
+    _setSlashCommands(const <SlashCommand>[], null);
+  }
+
+  _SlashToken? _activeSlashTokenFor(TextEditingValue value) {
+    final selection = value.selection;
+    if (!selection.isValid || !selection.isCollapsed) return null;
+    final cursor = selection.baseOffset;
+    if (cursor < 0 || cursor > value.text.length) return null;
+    final beforeCursor = value.text.substring(0, cursor);
+    final slash = beforeCursor.lastIndexOf('/');
+    if (slash < 0) return null;
+    if (slash > 0 &&
+        !_isSlashTokenBoundary(beforeCursor.codeUnitAt(slash - 1))) {
+      return null;
+    }
+    for (var index = slash; index < beforeCursor.length; index += 1) {
+      if (_isSlashTokenBoundary(beforeCursor.codeUnitAt(index))) return null;
+    }
+    return _SlashToken(
+      start: slash,
+      end: cursor,
+      query: beforeCursor.substring(slash + 1),
+    );
   }
 
   Future<void> _finishVoiceInputForSend() async {
@@ -1568,6 +1712,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               isVoiceInputPlatformSupported,
           voiceError: null,
           draftAttachments: _workbenchViewModel.draftAttachments,
+          slashCommands: _visibleSlashCommands,
+          onSlashCommandSelected: _insertSlashCommand,
           onAttachmentTap: () => unawaited(_pickAttachments()),
           onRemoveAttachment: _workbenchViewModel.removeDraftAttachment,
           onCliTap: _showAdapterPicker,
@@ -1972,6 +2118,56 @@ bool _isSelectableCliAdapter(AdapterStatus adapter) {
   final id = adapter.adapter.trim().toLowerCase();
   if (id.isEmpty || id.startsWith('synthetic-')) return false;
   return const {'claude', 'codex', 'opencode'}.contains(id);
+}
+
+String? _normalizedAdapter(String? adapter) {
+  final normalized = adapter?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) return null;
+  return normalized;
+}
+
+bool _isSlashTokenBoundary(int codeUnit) =>
+    codeUnit == 0x20 ||
+    codeUnit == 0x09 ||
+    codeUnit == 0x0A ||
+    codeUnit == 0x0D;
+
+bool _sameSlashCommandList(
+  List<SlashCommand> left,
+  List<SlashCommand> right,
+) {
+  if (identical(left, right)) return true;
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index].command != right[index].command ||
+        left[index].description != right[index].description) {
+      return false;
+    }
+  }
+  return true;
+}
+
+class _SlashToken {
+  const _SlashToken({
+    required this.start,
+    required this.end,
+    required this.query,
+  });
+
+  final int start;
+  final int end;
+  final String query;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _SlashToken &&
+          other.start == start &&
+          other.end == end &&
+          other.query == query;
+
+  @override
+  int get hashCode => Object.hash(start, end, query);
 }
 
 class ModelPickerSheet extends StatelessWidget {

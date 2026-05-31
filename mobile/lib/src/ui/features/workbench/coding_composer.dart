@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -9,7 +10,7 @@ import '../workspace_picker/workspace_picker.dart';
 import 'attachments/draft_attachment.dart';
 import 'voice_input.dart';
 
-class CodingComposer extends StatelessWidget {
+class CodingComposer extends StatefulWidget {
   const CodingComposer(
       {super.key,
       required this.controller,
@@ -26,6 +27,8 @@ class CodingComposer extends StatelessWidget {
       this.model,
       this.modelNotice,
       this.draftAttachments = const <DraftAttachment>[],
+      this.slashCommands = const <SlashCommand>[],
+      this.onSlashCommandSelected,
       this.onAttachmentTap,
       this.onRemoveAttachment,
       required this.onCliTap,
@@ -50,6 +53,8 @@ class CodingComposer extends StatelessWidget {
   final String? model;
   final String? modelNotice;
   final List<DraftAttachment> draftAttachments;
+  final List<SlashCommand> slashCommands;
+  final ValueChanged<SlashCommand>? onSlashCommandSelected;
   final VoidCallback? onAttachmentTap;
   final ValueChanged<int>? onRemoveAttachment;
   final VoidCallback onCliTap;
@@ -62,11 +67,79 @@ class CodingComposer extends StatelessWidget {
   final VoidCallback onCancel;
 
   @override
+  State<CodingComposer> createState() => _CodingComposerState();
+}
+
+class _CodingComposerState extends State<CodingComposer> {
+  final _slashMenuController = OverlayPortalController();
+  final _surfaceKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSlashMenuOverlay();
+  }
+
+  @override
+  void didUpdateWidget(covariant CodingComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.slashCommands.isEmpty != widget.slashCommands.isEmpty) {
+      _syncSlashMenuOverlay();
+    }
+  }
+
+  void _syncSlashMenuOverlay() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.slashCommands.isEmpty) {
+        _slashMenuController.hide();
+      } else {
+        _slashMenuController.show();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final attachmentStatus =
-        _firstLocalizedAttachmentError(context, draftAttachments);
+        _firstLocalizedAttachmentError(context, widget.draftAttachments);
+    return OverlayPortal(
+        controller: _slashMenuController,
+        overlayLocation: OverlayChildLocation.rootOverlay,
+        overlayChildBuilder: _buildSlashMenuOverlay,
+        child: _buildComposerSurface(context,
+            l10n: l10n, attachmentStatus: attachmentStatus));
+  }
+
+  Widget _buildSlashMenuOverlay(BuildContext context) {
+    final renderObject = _surfaceKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.hasSize ||
+        widget.slashCommands.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final offset = renderObject.localToGlobal(Offset.zero);
+    final width = math.max(0.0, renderObject.size.width - 24);
+    final menuHeight = _SlashCommandMenu.heightFor(widget.slashCommands.length);
+    final top = math.max(0.0, offset.dy - menuHeight - 8);
+    return Positioned(
+        left: offset.dx + 12,
+        top: top,
+        width: width,
+        height: menuHeight,
+        child: _SlashCommandMenu(
+            commands: widget.slashCommands,
+            onSelected: widget.onSlashCommandSelected));
+  }
+
+  Widget _buildComposerSurface(
+    BuildContext context, {
+    required AppLocalizations l10n,
+    required String? attachmentStatus,
+  }) {
     return Container(
+        key: _surfaceKey,
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
         decoration: BoxDecoration(
             color: const Color(0xF608090B),
@@ -88,10 +161,10 @@ class CodingComposer extends StatelessWidget {
                     border: Border.all(
                         color: Colors.white.withValues(alpha: .085))),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  if (draftAttachments.isNotEmpty) ...[
+                  if (widget.draftAttachments.isNotEmpty) ...[
                     _AttachmentTray(
-                        attachments: draftAttachments,
-                        onRemove: onRemoveAttachment),
+                        attachments: widget.draftAttachments,
+                        onRemove: widget.onRemoveAttachment),
                     if (attachmentStatus != null) ...[
                       const SizedBox(height: 7),
                       _AttachmentStatus(attachmentStatus),
@@ -99,7 +172,7 @@ class CodingComposer extends StatelessWidget {
                     const SizedBox(height: 8),
                   ],
                   TextField(
-                    controller: controller,
+                    controller: widget.controller,
                     minLines: 1,
                     maxLines: 3,
                     style: theme.appTextStyle.copyWith(
@@ -111,11 +184,11 @@ class CodingComposer extends StatelessWidget {
                     decoration: InputDecoration(
                         isDense: true,
                         border: InputBorder.none,
-                        hintText: adapter == null
+                        hintText: widget.adapter == null
                             ? l10n.workbenchComposerNoAdapter
-                            : running
+                            : widget.running
                                 ? l10n.workbenchComposerFollowUpHint
-                                : draftAttachments.isNotEmpty
+                                : widget.draftAttachments.isNotEmpty
                                     ? l10n.workbenchAttachmentAddInstruction
                                     : l10n.workbenchComposerPromptHint,
                         hintStyle: theme.appTextStyle.copyWith(
@@ -124,23 +197,23 @@ class CodingComposer extends StatelessWidget {
                             fontWeight: FontWeight.w400),
                         contentPadding: EdgeInsets.zero),
                     textInputAction: TextInputAction.send,
-                    onChanged: onTextChanged,
+                    onChanged: widget.onTextChanged,
                     onSubmitted: (_) {
-                      if (canSend) onSend();
+                      if (widget.canSend) widget.onSend();
                     },
                   ),
-                  if (voiceState == VoiceInputState.initializing ||
-                      voiceState == VoiceInputState.listening ||
-                      voiceState == VoiceInputState.stopping) ...[
+                  if (widget.voiceState == VoiceInputState.initializing ||
+                      widget.voiceState == VoiceInputState.listening ||
+                      widget.voiceState == VoiceInputState.stopping) ...[
                     const SizedBox(height: 8),
                     _VoiceInputStatus(l10n.workbenchVoiceListeningStatus),
                   ],
-                  if (modelNotice != null &&
-                      modelNotice!.trim().isNotEmpty) ...[
+                  if (widget.modelNotice != null &&
+                      widget.modelNotice!.trim().isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Align(
                         alignment: Alignment.centerLeft,
-                        child: Text(modelNotice!,
+                        child: Text(widget.modelNotice!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -154,17 +227,21 @@ class CodingComposer extends StatelessWidget {
                         child: Align(
                             alignment: Alignment.centerLeft,
                             child: InkWell(
-                                onTap: modelLocked ? null : onModelTap,
+                                onTap: widget.modelLocked
+                                    ? null
+                                    : widget.onModelTap,
                                 borderRadius: BorderRadius.circular(999),
                                 child: _ComposerModelPill(
-                                    model: model, locked: modelLocked)))),
+                                    model: widget.model,
+                                    locked: widget.modelLocked)))),
                     const SizedBox(width: 8),
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Tooltip(
                           message: l10n.workbenchAttachmentAddTooltip,
                           child: InkWell(
-                              onTap:
-                                  running || sending ? null : onAttachmentTap,
+                              onTap: widget.running || widget.sending
+                                  ? null
+                                  : widget.onAttachmentTap,
                               borderRadius: BorderRadius.circular(16),
                               child: const SizedBox(
                                   width: 32,
@@ -174,23 +251,104 @@ class CodingComposer extends StatelessWidget {
                                           _ComposerIcon(Icons.add_rounded))))),
                       const SizedBox(width: 12),
                       _VoiceInputButton(
-                          state: voiceState,
-                          enabled: voiceEnabled && !running && !sending,
-                          onStart: onVoiceStart,
-                          onStop: onVoiceStop,
-                          onCancel: onVoiceCancel),
+                          state: widget.voiceState,
+                          enabled: widget.voiceEnabled &&
+                              !widget.running &&
+                              !widget.sending,
+                          onStart: widget.onVoiceStart,
+                          onStop: widget.onVoiceStop,
+                          onCancel: widget.onVoiceCancel),
                       const SizedBox(width: 12),
                       _SendPromptButton(
                           key: const ValueKey('workbench-send-prompt-button'),
-                          enabled: canSend,
-                          busy: sending,
-                          running: running,
-                          onTap:
-                              running ? onCancel : (canSend ? onSend : null)),
+                          enabled: widget.canSend,
+                          busy: widget.sending,
+                          running: widget.running,
+                          onTap: widget.running
+                              ? widget.onCancel
+                              : (widget.canSend ? widget.onSend : null)),
                     ]),
                   ])
                 ]))));
   }
+}
+
+class _SlashCommandMenu extends StatelessWidget {
+  const _SlashCommandMenu({
+    required this.commands,
+    required this.onSelected,
+  });
+
+  static const double rowHeight = 34;
+  static const int maxVisibleRows = 6;
+
+  final List<SlashCommand> commands;
+  final ValueChanged<SlashCommand>? onSelected;
+
+  static double heightFor(int count) {
+    final visibleCount = count > maxVisibleRows ? maxVisibleRows : count;
+    return rowHeight * visibleCount;
+  }
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+      decoration: BoxDecoration(
+          color: const Color(0xFF111214),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: .085)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: .26),
+                blurRadius: 18,
+                offset: const Offset(0, 10)),
+          ]),
+      child: ListView.builder(
+          padding: EdgeInsets.zero,
+          itemExtent: rowHeight,
+          itemCount: commands.length,
+          itemBuilder: (context, index) {
+            final command = commands[index];
+            return _SlashCommandRow(
+                command: command,
+                onTap: onSelected == null
+                    ? null
+                    : () => onSelected?.call(command));
+          }));
+}
+
+class _SlashCommandRow extends StatelessWidget {
+  const _SlashCommandRow({required this.command, required this.onTap});
+
+  final SlashCommand command;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(children: [
+            SizedBox(
+                width: 116,
+                child: Text(command.command,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.appTextStyle.copyWith(
+                        color: theme.active,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0))),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(command.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.appTextStyle.copyWith(
+                        color: theme.muted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0))),
+          ])));
 }
 
 class _AttachmentTray extends StatelessWidget {
@@ -374,6 +532,7 @@ class ComposerWorkspaceCloud extends StatelessWidget {
                 child: Align(
                     alignment: Alignment.centerLeft,
                     child: InkWell(
+                        key: const ValueKey('composer-cli-picker'),
                         onTap: cliLocked ? null : onCliTap,
                         borderRadius: BorderRadius.circular(999),
                         child: _ComposerCliLabel(
