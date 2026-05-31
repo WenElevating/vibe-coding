@@ -59,6 +59,7 @@ class ConversationManager {
     const restored = { ...conversation, handle: null };
     restored.messageIdempotency = new Map();
     restored.messageInFlightIds = new Set();
+    restored.blockingQueue = [];
     restored.turnAttachmentScratches = [];
     restored.attachmentDispatchRedactionContext = null;
     this.rebuildMessageIdempotency(restored);
@@ -118,6 +119,7 @@ class ConversationManager {
       handle: null,
       messageIdempotency: new Map(),
       messageInFlightIds: new Set(),
+      blockingQueue: [],
       turnAttachmentScratches: [],
       attachmentDispatchRedactionContext: null
     };
@@ -381,6 +383,7 @@ class ConversationManager {
     try {
       conversation.status = conversationStatuses.RUNNING;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
       conversation.userMessageCount = Number(conversation.userMessageCount || 0) + 1;
       const attachmentMetadata = hasAttachments ? this.committedAttachmentMetadata(conversation, files) : [];
@@ -414,6 +417,7 @@ class ConversationManager {
       }
       conversation.status = conversationStatuses.FAILED;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
@@ -541,6 +545,7 @@ class ConversationManager {
       this.markConversationDispatchFailed(conversation, error);
       throw error;
     }
+    this.promoteNextBlockingItem(conversation);
     this.auditLog.record('conversation.question_answer', { conversationId: conversation.id, deviceId: device.id, questionId: answer.questionId, textLength: answer.text.length });
     return publicConversation(conversation);
   }
@@ -566,6 +571,7 @@ class ConversationManager {
       this.markConversationDispatchFailed(conversation, error);
       throw error;
     }
+    this.promoteNextBlockingItem(conversation);
     this.auditLog.record('conversation.approval', { conversationId: conversation.id, deviceId: device.id, approvalId, decision: decision.decision });
     return publicConversation(conversation);
   }
@@ -581,6 +587,7 @@ class ConversationManager {
       conversation.handle = null;
       conversation.status = targetStatus;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
     }
     this.touch(conversation);
@@ -672,8 +679,10 @@ class ConversationManager {
         const { type, ...payload } = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
         this.eventStore.append(conversation.id, type, payload);
         this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+        this.promoteNextBlockingItem(conversation);
         return;
       }
+      if (this.removeQueuedBlockingItem(conversation, event)) return;
       this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
         warning: 'blocking request cancellation ignored because no matching blocking item is pending',
         current: conversation.blockingItem || null,
@@ -690,6 +699,7 @@ class ConversationManager {
     if (eventCompletesTurn(eventToAppend)) {
       conversation.status = conversationStatuses.IDLE;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = addMs(this.now(), this.idleTtlMs).toISOString();
       if (eventToAppend.type === conversationEventTypes.CONVERSATION_COMPLETED) conversation.handle = null;
       this.touch(conversation);
@@ -697,6 +707,7 @@ class ConversationManager {
     if (eventToAppend.type === conversationEventTypes.CONVERSATION_CANCELLED) {
       conversation.status = conversationStatuses.CANCELLED;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
@@ -704,6 +715,7 @@ class ConversationManager {
     if (eventToAppend.type === conversationEventTypes.RUN_ERROR) {
       conversation.status = conversationStatuses.FAILED;
       conversation.blockingItem = null;
+      conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
       conversation.handle = null;
       this.touch(conversation);
@@ -737,6 +749,7 @@ class ConversationManager {
         conversation.sessionBinding = previousBinding || conversationSessionBindings.UNKNOWN;
         conversation.status = conversationStatuses.FAILED;
         conversation.blockingItem = null;
+        conversation.blockingQueue = [];
         conversation.idleExpiresAt = null;
         this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, {
           message: `Failed to persist CLI session binding: ${error.message}`,
@@ -785,11 +798,7 @@ class ConversationManager {
 
   setBlockingItem(conversation, blockingItem, status, event) {
     if (conversation.blockingItem) {
-      this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
-        warning: 'blocking request ignored because another blocking item is pending',
-        existing: conversation.blockingItem,
-        ignored: blockingItem
-      });
+      this.enqueueBlockingItem(conversation, blockingItem, status, event);
       return;
     }
     const createdAt = this.now().toISOString();
@@ -804,6 +813,38 @@ class ConversationManager {
     const { type, ...payload } = event;
     this.eventStore.append(conversation.id, type, payload);
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status });
+  }
+
+  enqueueBlockingItem(conversation, blockingItem, status, event) {
+    const queue = Array.isArray(conversation.blockingQueue) ? conversation.blockingQueue : [];
+    const duplicate = queue.some((item) => blockingItemsMatch(item.blockingItem, blockingItem));
+    if (!duplicate && !blockingItemsMatch(conversation.blockingItem, blockingItem)) {
+      queue.push({ blockingItem, status, event });
+    }
+    conversation.blockingQueue = queue;
+  }
+
+  promoteNextBlockingItem(conversation) {
+    const queue = Array.isArray(conversation.blockingQueue) ? conversation.blockingQueue : [];
+    if (conversation.blockingItem || queue.length === 0) {
+      conversation.blockingQueue = queue;
+      return false;
+    }
+    const next = queue.shift();
+    conversation.blockingQueue = queue;
+    this.setBlockingItem(conversation, next.blockingItem, next.status, next.event);
+    return true;
+  }
+
+  removeQueuedBlockingItem(conversation, event) {
+    const queue = Array.isArray(conversation.blockingQueue) ? conversation.blockingQueue : [];
+    const index = queue.findIndex((item) => blockingCancellationMatches(item.blockingItem, event));
+    if (index < 0) return false;
+    queue.splice(index, 1);
+    conversation.blockingQueue = queue;
+    const { type, ...payload } = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    this.eventStore.append(conversation.id, type, payload);
+    return true;
   }
 
   requireConversation(conversationId, device) {
@@ -1339,10 +1380,25 @@ function rememberMessageIdempotency(map, clientMessageId, payloadHash, maxEntrie
   }
 }
 
+function blockingItemsMatch(left, right) {
+  if (!left || !right || left.type !== right.type) return false;
+  if (left.type === 'approval_request') return !!left.approvalId && left.approvalId === right.approvalId;
+  if (left.type === 'input_request') return !!left.questionId && left.questionId === right.questionId;
+  return false;
+}
+
+function blockingCancellationMatches(blockingItem, event) {
+  if (!blockingItem || !event || blockingItem.type !== event.blockingType) return false;
+  if (blockingItem.type === 'approval_request') return !!blockingItem.approvalId && blockingItem.approvalId === event.approvalId;
+  if (blockingItem.type === 'input_request') return !!blockingItem.questionId && blockingItem.questionId === event.questionId;
+  return false;
+}
+
 function snapshotPreCommitState(conversation) {
   return {
     status: conversation.status,
     blockingItem: conversation.blockingItem,
+    blockingQueue: Array.isArray(conversation.blockingQueue) ? [...conversation.blockingQueue] : [],
     idleExpiresAt: conversation.idleExpiresAt,
     title: conversation.title,
     userMessageCount: conversation.userMessageCount,
@@ -1353,6 +1409,7 @@ function snapshotPreCommitState(conversation) {
 function restorePreCommitState(conversation, snapshot) {
   conversation.status = snapshot.status;
   conversation.blockingItem = snapshot.blockingItem;
+  conversation.blockingQueue = snapshot.blockingQueue;
   conversation.idleExpiresAt = snapshot.idleExpiresAt;
   conversation.title = snapshot.title;
   conversation.userMessageCount = snapshot.userMessageCount;

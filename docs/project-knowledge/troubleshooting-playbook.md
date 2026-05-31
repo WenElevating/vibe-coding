@@ -340,6 +340,27 @@ dart analyze lib test
 
 - Last verified: 2026-05-31
 
+## Symptom: Claude WebSearch Looks Stuck
+
+- Symptom: mobile keeps showing a `WebSearch` tool as searching for minutes,
+  even though the actual search call may have returned or another search call
+  completed normally.
+- Action: inspect persisted `conversation_events` grouped by `toolUseId`.
+  If multiple Claude `control_request` frames arrive while one blocking item is
+  active, the second approval must be queued rather than dropped. A dropped
+  approval leaves Claude waiting for a `control_response` until its permission
+  stream times out, making the UI look like web search itself is stuck.
+- Related file:
+  [conversation-manager.js](../../daemon/src/conversation-manager.js)
+- Verification:
+
+```powershell
+npm test
+npm run lint
+```
+
+- Last verified: 2026-05-31
+
 ## Symptom: Android Update Download Shows No Progress Or Offers Download Again
 
 - Symptom: after tapping app update download, the mobile UI opens a blocking

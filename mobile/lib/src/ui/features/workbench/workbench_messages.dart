@@ -54,6 +54,9 @@ String conversationPendingStatusText(
     if (event.type == 'tool.started') {
       if (hasToolUseId && !activeTool) continue;
       if (!hasToolUseId && toolCompletionSeen) continue;
+      if (_isWebSearchTool(event.toolName)) {
+        return l10n.workbenchPendingSearchingWeb;
+      }
       return l10n.workbenchPendingRunningTool(_pendingToolLabel(l10n, event));
     }
     if (event.type == 'tool.output') {
@@ -118,6 +121,13 @@ String _pendingToolLabel(AppLocalizations l10n, ConversationEvent event) {
     return _compactCommandLabel(command.trim());
   }
   return event.toolName ?? l10n.workbenchPendingToolFallback;
+}
+
+bool _isWebSearchTool(String? toolName) {
+  final normalized = toolName?.trim().toLowerCase();
+  return normalized == 'websearch' ||
+      normalized == 'web_search' ||
+      normalized == 'web search';
 }
 
 String _compactCommandLabel(String command) {

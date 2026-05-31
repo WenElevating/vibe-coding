@@ -6086,6 +6086,37 @@ void main() {
     expect(find.text('00:02'), findsOneWidget);
   });
 
+  testWidgets('pending sentinel pulses localized waiting text',
+      (WidgetTester tester) async {
+    final zh = lookupAppLocalizations(theme.zhHansCnLocale);
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: PendingSentinel(
+                    adapter: 'claude',
+                    statusText: zh.workbenchPendingWaitingNextEvent)))));
+    await tester.pump();
+
+    expect(find.text('酝酿中...'), findsOneWidget);
+    expect(find.text('正在等待下一个事件...'), findsNothing);
+    final firstColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
+
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final pulsedColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
+    expect(pulsedColor, isNot(firstColor));
+
+    await tester.pump(const Duration(seconds: 5));
+
+    expect(find.text('正在推演下一步...'), findsOneWidget);
+  });
+
   testWidgets('pending sentinel resumes elapsed time from stable start',
       (WidgetTester tester) async {
     var now = DateTime.utc(2026, 5, 25, 12);

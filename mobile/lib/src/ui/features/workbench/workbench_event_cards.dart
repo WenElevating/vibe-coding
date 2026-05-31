@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -2706,6 +2707,7 @@ class _PendingSentinelState extends State<PendingSentinel>
   Widget build(BuildContext context) => AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        final displayStatus = _displayStatusText(context);
         return Container(
             margin: const EdgeInsets.only(top: 2, bottom: 8),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -2742,14 +2744,10 @@ class _PendingSentinelState extends State<PendingSentinel>
                               child: SlideTransition(
                                   position: slide, child: child));
                         },
-                        child: Text(widget.statusText,
-                            key: ValueKey(widget.statusText),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: theme.muted,
-                                fontSize: 12,
-                                height: 1.3))),
+                        child: _PulsingStatusText(
+                            key: ValueKey(displayStatus),
+                            text: displayStatus,
+                            progress: _controller.value)),
                   ])),
               const SizedBox(width: 10),
               _ElapsedTimerPill(text: _formatPendingElapsed(_elapsedSeconds)),
@@ -2762,6 +2760,25 @@ class _PendingSentinelState extends State<PendingSentinel>
             ]));
       });
 
+  String _displayStatusText(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    if (widget.statusText == l10n.workbenchPendingSearchingWeb) {
+      return _elapsedSeconds >= 30
+          ? l10n.workbenchPendingSearchingWebStill
+          : widget.statusText;
+    }
+    if (widget.statusText != l10n.workbenchPendingWaitingNextEvent) {
+      return widget.statusText;
+    }
+    final phase = (_elapsedSeconds ~/ 5) % 4;
+    return switch (phase) {
+      0 => l10n.workbenchPendingBrewing,
+      1 => l10n.workbenchPendingThinking,
+      2 => l10n.workbenchPendingWorking,
+      _ => l10n.workbenchPendingAlmostThere,
+    };
+  }
+
   DateTime _now() => widget.now?.call() ?? DateTime.now();
 
   int _initialElapsedSeconds() =>
@@ -2770,6 +2787,35 @@ class _PendingSentinelState extends State<PendingSentinel>
   int _elapsedSecondsSince(DateTime startedAt) {
     final elapsed = _now().difference(startedAt).inSeconds;
     return elapsed < 0 ? 0 : elapsed;
+  }
+}
+
+class _PulsingStatusText extends StatelessWidget {
+  const _PulsingStatusText({
+    super.key,
+    required this.text,
+    required this.progress,
+  });
+
+  final String text;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final wave = progress < .5 ? progress * 2 : (1 - progress) * 2;
+    final accentWave = (math.sin(progress * math.pi * 2 - math.pi / 5) + 1) / 2;
+    final base = Color.lerp(theme.muted, theme.text, .18 + wave * .56)!;
+    final accent = Color.lerp(theme.purple2, theme.green, accentWave)!;
+    final color = Color.lerp(base, accent, .12 + wave * .30)!
+        .withValues(alpha: .74 + wave * .26);
+    return Text(text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: color, fontSize: 12, height: 1.3, shadows: [
+          BoxShadow(
+              color: accent.withValues(alpha: .06 + wave * .16),
+              blurRadius: 7 + wave * 10)
+        ]));
   }
 }
 

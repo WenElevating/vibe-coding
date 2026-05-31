@@ -1720,6 +1720,76 @@ test('conversation manager handles input and approval blocking states', async ()
   assert.equal(hidden.visible, false);
 });
 
+test('conversation manager queues concurrent blocking approvals', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const fakeHandle = {
+    approvals: [],
+    sendUserMessage() {},
+    respondApproval(approvalId, decision) { this.approvals.push({ approvalId, decision }); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    async startConversation({ onEvent }) { adapter.onEvent = onEvent; return fakeHandle; }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    idleTtlMs: 600000,
+    now: () => new Date('2026-05-03T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(conversation.id, { text: 'research UI' }, device);
+
+  adapter.onEvent({
+    type: 'approval.requested',
+    approvalId: 'ap_web_1',
+    toolName: 'WebSearch',
+    toolUseId: 'tool_web_1',
+    input: { query: 'modern dashboard UI' },
+    summary: 'WebSearch'
+  });
+  adapter.onEvent({
+    type: 'approval.requested',
+    approvalId: 'ap_web_2',
+    toolName: 'WebSearch',
+    toolUseId: 'tool_web_2',
+    input: { query: 'developer monitoring dashboard' },
+    summary: 'WebSearch'
+  });
+
+  let current = manager.getConversation(conversation.id, device);
+  assert.equal(current.status, 'waiting_approval');
+  assert.equal(current.blockingItem.approvalId, 'ap_web_1');
+  assert.equal(eventStore.list(conversation.id, 0).filter((event) => event.type === 'approval.requested').length, 1);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.warning === 'blocking request ignored because another blocking item is pending'), false);
+
+  await manager.respondApproval(conversation.id, 'ap_web_1', { decision: 'allow' }, device);
+
+  current = manager.getConversation(conversation.id, device);
+  assert.equal(current.status, 'waiting_approval');
+  assert.equal(current.blockingItem.approvalId, 'ap_web_2');
+  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap_web_1', decision: { decision: 'allow' } }]);
+  assert.deepEqual(
+    eventStore.list(conversation.id, 0)
+      .filter((event) => event.type === 'approval.requested')
+      .map((event) => event.approvalId),
+    ['ap_web_1', 'ap_web_2']
+  );
+
+  await manager.respondApproval(conversation.id, 'ap_web_2', { decision: 'allow' }, device);
+
+  current = manager.getConversation(conversation.id, device);
+  assert.equal(current.status, 'running');
+  assert.deepEqual(fakeHandle.approvals.map((item) => item.approvalId), ['ap_web_1', 'ap_web_2']);
+});
+
 test('conversation manager fails conversation when blocking response write fails', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');

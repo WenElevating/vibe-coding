@@ -454,6 +454,17 @@ void main() {
       contains('flutter test test\\voice_input_controller_test.dart'),
     );
     expect(
+      conversationPendingStatusText(l10n, 'running', <ConversationEvent>[
+        _event(
+          seq: 2,
+          type: 'tool.started',
+          toolUseId: 'web_1',
+          toolName: 'WebSearch',
+        ),
+      ]),
+      '正在搜索网页...',
+    );
+    expect(
       isSendAcknowledgementTimeout(
         TimeoutException('Future not completed'),
         activeConversationId: 'conv_1',
