@@ -70,13 +70,18 @@ class CodingComposer extends StatefulWidget {
   State<CodingComposer> createState() => _CodingComposerState();
 }
 
-class _CodingComposerState extends State<CodingComposer> {
+class _CodingComposerState extends State<CodingComposer>
+    with WidgetsBindingObserver {
   final _slashMenuController = OverlayPortalController();
+  final _promptFocusNode = FocusNode();
   final _surfaceKey = GlobalKey();
+  double _lastViewInsetBottom = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _promptFocusNode.addListener(_syncSlashMenuOverlay);
     _syncSlashMenuOverlay();
   }
 
@@ -88,15 +93,50 @@ class _CodingComposerState extends State<CodingComposer> {
     }
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _promptFocusNode.removeListener(_syncSlashMenuOverlay);
+    _promptFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final insetBottom = _viewInsetBottom(context);
+      final keyboardDismissed = _lastViewInsetBottom > 0 &&
+          insetBottom <= 0 &&
+          _promptFocusNode.hasFocus;
+      _lastViewInsetBottom = insetBottom;
+      if (keyboardDismissed) {
+        _promptFocusNode.unfocus();
+      }
+      _syncSlashMenuOverlay();
+      if (_slashMenuController.isShowing) {
+        setState(() {});
+      }
+    });
+  }
+
   void _syncSlashMenuOverlay() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (widget.slashCommands.isEmpty) {
+      _lastViewInsetBottom = _viewInsetBottom(context);
+      if (widget.slashCommands.isEmpty || !_promptFocusNode.hasFocus) {
         _slashMenuController.hide();
       } else {
         _slashMenuController.show();
       }
     });
+  }
+
+  double _viewInsetBottom(BuildContext context) {
+    final view = View.maybeOf(context);
+    if (view == null) return MediaQuery.viewInsetsOf(context).bottom;
+    return view.viewInsets.bottom / view.devicePixelRatio;
   }
 
   @override
@@ -173,6 +213,7 @@ class _CodingComposerState extends State<CodingComposer> {
                   ],
                   TextField(
                     controller: widget.controller,
+                    focusNode: _promptFocusNode,
                     minLines: 1,
                     maxLines: 3,
                     style: theme.appTextStyle.copyWith(

@@ -29,7 +29,7 @@ class WorkbenchDependencies {
             codingPreferencesRepository ?? CodingPreferencesRepository(),
         slashCommandCatalogRepository = slashCommandCatalogRepository ??
             SlashCommandCatalogRepository(
-              client: (_) async => const [],
+              client: (_, {workspaceId}) async => const [],
             );
 
   final AttachmentPreviewCache attachmentPreviewCache;

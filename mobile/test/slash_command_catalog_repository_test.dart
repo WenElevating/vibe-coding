@@ -21,6 +21,47 @@ void main() {
     expect(repository.commandsForAdapter('codex').single.matchingKey, 'model');
   });
 
+  test('caches commands separately for each workspace', () async {
+    final delegate = _FakeSlashCommandClient()
+      ..responses['codex|workspace-a'] = const <SlashCommand>[
+        SlashCommand(command: '/alpha', description: 'workspace a'),
+      ]
+      ..responses['codex|workspace-b'] = const <SlashCommand>[
+        SlashCommand(command: '/beta', description: 'workspace b'),
+      ];
+    final repository = SlashCommandCatalogRepository(client: delegate.load);
+
+    final first = await repository.loadForAdapter(
+      'codex',
+      workspaceId: 'workspace-a',
+    );
+    final second = await repository.loadForAdapter(
+      'codex',
+      workspaceId: 'workspace-b',
+    );
+
+    expect(first.single.command, '/alpha');
+    expect(second.single.command, '/beta');
+    expect(
+      repository
+          .commandsForAdapter('codex', workspaceId: 'workspace-a')
+          .single
+          .command,
+      '/alpha',
+    );
+    expect(
+      repository
+          .commandsForAdapter('codex', workspaceId: 'workspace-b')
+          .single
+          .command,
+      '/beta',
+    );
+    expect(delegate.calls, const <String>[
+      'codex|workspace-a',
+      'codex|workspace-b',
+    ]);
+  });
+
   test('force reload increments generation and updates cache', () async {
     final delegate = _FakeSlashCommandClient()
       ..responses['codex'] = const <SlashCommand>[
@@ -41,7 +82,8 @@ void main() {
     expect(delegate.calls, const <String>['codex', 'codex']);
   });
 
-  test('deduplicates commands by normalized key and keeps first item', () async {
+  test('deduplicates commands by normalized key and keeps first item',
+      () async {
     final delegate = _FakeSlashCommandClient()
       ..responses['codex'] = const <SlashCommand>[
         SlashCommand(command: '/Code-Review', description: 'first'),
@@ -66,7 +108,7 @@ void main() {
     final second = Completer<List<SlashCommand>>();
     var call = 0;
     final repository = SlashCommandCatalogRepository(
-      client: (adapter) {
+      client: (adapter, {workspaceId}) {
         call += 1;
         return call == 1 ? first.future : second.future;
       },
@@ -114,10 +156,11 @@ class _FakeSlashCommandClient {
   final List<String> calls = <String>[];
   Object? error;
 
-  Future<List<SlashCommand>> load(String adapter) async {
-    calls.add(adapter);
+  Future<List<SlashCommand>> load(String adapter, {String? workspaceId}) async {
+    final key = workspaceId == null ? adapter : '$adapter|$workspaceId';
+    calls.add(key);
     final currentError = error;
     if (currentError != null) throw currentError;
-    return responses[adapter] ?? const <SlashCommand>[];
+    return responses[key] ?? const <SlashCommand>[];
   }
 }

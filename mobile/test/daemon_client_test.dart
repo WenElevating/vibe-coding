@@ -673,9 +673,13 @@ void main() {
       }),
     );
 
-    final commands = await client.listSlashCommands('codex');
+    final commands = await client.listSlashCommands(
+      'codex',
+      workspaceId: 'workspace_1',
+    );
 
     expect(requests.single.url.path, '/api/adapters/codex/slash-commands');
+    expect(requests.single.url.queryParameters['workspaceId'], 'workspace_1');
     expect(commands.map((command) => command.command), const <String>[
       '/Model',
       '/compact',

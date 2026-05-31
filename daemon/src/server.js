@@ -45,7 +45,13 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'POST' && url.pathname === '/api/exceptions') return json(res, 201, recordClientException(await readJson(req), { device, diagnosticBundle, req }));
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });
       const slashCommands = url.pathname.match(/^\/api\/adapters\/([^/]+)\/slash-commands$/);
-      if (method === 'GET' && slashCommands) return json(res, 200, slashCommandCatalog.list(decodeURIComponent(slashCommands[1])));
+      if (method === 'GET' && slashCommands) {
+        const workspaceId = url.searchParams.get('workspaceId');
+        const workspace = workspaceId ? workspaces.getAuthorized(workspaceId, device) : null;
+        return json(res, 200, await slashCommandCatalog.list(decodeURIComponent(slashCommands[1]), {
+          workspacePath: workspace?.workspacePath
+        }));
+      }
       if (method === 'GET' && url.pathname === '/api/extensions') return json(res, 200, await workspaceInspector.extensions(adapterRegistry));
       if (method === 'GET' && url.pathname === '/api/queue') return json(res, 200, { queue: runQueue.list() });
       if (method === 'GET' && url.pathname === '/api/shortcuts') return json(res, 200, { shortcuts: shortcuts.list() });

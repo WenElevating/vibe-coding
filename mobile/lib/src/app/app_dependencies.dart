@@ -339,7 +339,7 @@ class ConnectedDataDependencies {
             CommandCatalogRepository(delegate: adapterRepository),
         slashCommandCatalogRepository = slashCommandCatalogRepository ??
             SlashCommandCatalogRepository(
-              client: (_) async => const <SlashCommand>[],
+              client: (_, {workspaceId}) async => const <SlashCommand>[],
             ),
         conversationRepository = conversationRepository
                 is CachedConversationRepository

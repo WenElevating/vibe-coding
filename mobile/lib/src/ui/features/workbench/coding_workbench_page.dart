@@ -632,20 +632,24 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _ensureSlashCommandsLoaded(String adapter) async {
     final normalized = _normalizedAdapter(adapter);
+    final workspaceId = _routeWorkspace?.id;
+    final loadKey = _slashLoadKey(normalized, workspaceId);
     if (normalized == null ||
-        _loadingSlashAdapters.contains(normalized) ||
+        _loadingSlashAdapters.contains(loadKey) ||
         widget.dependencies.slashCommandCatalogRepository
-            .hasLoadedAdapter(normalized)) {
+            .hasLoadedAdapter(normalized, workspaceId: workspaceId)) {
       return;
     }
-    _loadingSlashAdapters.add(normalized);
+    _loadingSlashAdapters.add(loadKey);
     try {
-      await widget.dependencies.slashCommandCatalogRepository
-          .loadForAdapter(normalized);
+      await widget.dependencies.slashCommandCatalogRepository.loadForAdapter(
+        normalized,
+        workspaceId: workspaceId,
+      );
     } catch (_) {
       return;
     } finally {
-      _loadingSlashAdapters.remove(normalized);
+      _loadingSlashAdapters.remove(loadKey);
     }
     if (!mounted ||
         _normalizedAdapter(_workbenchViewModel.selectedAdapter) != normalized) {
@@ -665,6 +669,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final commands =
         widget.dependencies.slashCommandCatalogRepository.commandsForAdapter(
       adapter,
+      workspaceId: _routeWorkspace?.id,
     );
     final query = token.query.toLowerCase();
     final prefixMatches = <SlashCommand>[];
@@ -2141,6 +2146,12 @@ String? _normalizedAdapter(String? adapter) {
   final normalized = adapter?.trim().toLowerCase();
   if (normalized == null || normalized.isEmpty) return null;
   return normalized;
+}
+
+String _slashLoadKey(String? adapterId, String? workspaceId) {
+  final adapter = adapterId ?? '';
+  final workspace = (workspaceId ?? '').trim();
+  return workspace.isEmpty ? adapter : '$adapter\u0000$workspace';
 }
 
 bool _isSlashTokenBoundary(int codeUnit) =>

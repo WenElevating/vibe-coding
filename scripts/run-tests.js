@@ -6427,6 +6427,82 @@ test('slash command catalog returns adapter commands and unknown adapters as emp
   }
 });
 
+test('slash command catalog prefers Claude SDK initialize commands', async () => {
+  const { SlashCommandCatalog } = require('../daemon/src/slash-command-catalog');
+  const catalog = new SlashCommandCatalog({
+    discoverers: {
+      claude: {
+        async discover({ workspacePath }) {
+          assert.equal(workspacePath, process.cwd());
+          return [
+            { name: 'compact', description: 'SDK compact' },
+            { command: '/review', description: 'SDK review' },
+            { name: 'vim', description: 'SDK vim mode', interactive: true }
+          ];
+        }
+      }
+    }
+  });
+
+  const result = await catalog.list('claude', { workspacePath: process.cwd(), force: true });
+
+  assert.equal(result.adapter, 'claude');
+  assert.deepEqual(result.commands, [
+    { command: '/compact', description: 'SDK compact' },
+    { command: '/review', description: 'SDK review' },
+    { command: '/vim', description: 'SDK vim mode' }
+  ]);
+});
+
+test('Claude slash command discoverer reads SDK initialize response commands', async () => {
+  const { ClaudeSlashCommandDiscoverer } = require('../daemon/src/slash-command-catalog');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    write(data) {
+      const request = JSON.parse(data.trim());
+      setImmediate(() => {
+        child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+          type: 'control_response',
+          response: {
+            request_id: request.request_id,
+            subtype: 'success',
+            response: {
+              commands: [
+                { name: 'compact', description: 'compact from sdk' },
+                { name: 'vim', description: 'vim from sdk', interactive: true }
+              ]
+            }
+          }
+        })}\n`));
+      });
+    },
+    end() { this.destroyed = true; }
+  };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const spawnCalls = [];
+  const discoverer = new ClaudeSlashCommandDiscoverer({
+    command: 'claude',
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    },
+    timeoutMs: 500
+  });
+
+  const commands = await discoverer.discover({ workspacePath: process.cwd() });
+
+  assert.equal(spawnCalls[0].options.cwd, process.cwd());
+  assert.equal(spawnCalls[0].args.includes('--input-format'), true);
+  assert.deepEqual(commands, [
+    { command: '/compact', description: 'compact from sdk' },
+    { command: '/vim', description: 'vim from sdk' }
+  ]);
+});
+
 test('V1.1 run filters, shortcuts, and token revocation work', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
   app.adapterRegistry.get('claude').spawnSyncFn = fakeSpawnSync;

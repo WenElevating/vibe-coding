@@ -61,6 +61,7 @@ boundary first before loading more knowledge.
 - [Claude conversation control follows SDK stdio protocol](decisions/2026-05-30-claude-sdk-control-parity.md)
 - [Mobile conversation events use a local read-through cache](decisions/2026-05-31-mobile-conversation-event-cache.md)
 - [Approval system notifications are mobile-side event handling](decisions/2026-05-31-mobile-approval-notifications.md)
+- [Claude slash commands come from SDK initialize](decisions/2026-05-31-claude-slash-commands-from-sdk-initialize.md)
 
 ## Verification
 

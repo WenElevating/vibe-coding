@@ -810,7 +810,7 @@ SlashCommandCatalogRepository _slashCommandCatalogRepository(
   Map<String, List<SlashCommand>> commandsByAdapter,
 ) =>
     SlashCommandCatalogRepository(
-      client: (adapter) async =>
+      client: (adapter, {workspaceId}) async =>
           commandsByAdapter[adapter.trim().toLowerCase()] ??
           const <SlashCommand>[],
     );
@@ -819,7 +819,7 @@ class _RecordingSlashCommandCatalogRepository
     extends SlashCommandCatalogRepository {
   _RecordingSlashCommandCatalogRepository(this.commandsByAdapter)
       : super(
-          client: (adapter) async =>
+          client: (adapter, {workspaceId}) async =>
               commandsByAdapter[adapter.trim().toLowerCase()] ??
               const <SlashCommand>[],
         );
@@ -830,10 +830,15 @@ class _RecordingSlashCommandCatalogRepository
   @override
   Future<List<SlashCommand>> loadForAdapter(
     String adapterId, {
+    String? workspaceId,
     bool force = false,
   }) {
     loadCalls.add(adapterId.trim().toLowerCase());
-    return super.loadForAdapter(adapterId, force: force);
+    return super.loadForAdapter(
+      adapterId,
+      workspaceId: workspaceId,
+      force: force,
+    );
   }
 }
 
@@ -5385,6 +5390,8 @@ void main() {
     await _pumpWorkbenchForSlashCommands(tester, catalog);
     await _openNewSlashCommandConversation(tester);
     final input = find.byType(TextField).last;
+    await tester.tap(input);
+    await tester.pumpAndSettle();
     final controller = tester.widget<TextField>(input).controller!;
     controller.value = const TextEditingValue(
       text: 'please /CO now',
@@ -5426,6 +5433,30 @@ void main() {
     final after = tester.getTopLeft(input);
 
     expect(after, before);
+  });
+
+  testWidgets('slash command menu hides when composer focus is lost',
+      (WidgetTester tester) async {
+    final catalog = _slashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/compact', description: 'summarize context'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(tester, catalog);
+    await _openNewSlashCommandConversation(tester);
+    final input = find.byType(TextField).last;
+    await tester.enterText(input, '/');
+    await tester.pumpAndSettle();
+
+    expect(find.text('/compact'), findsOneWidget);
+
+    FocusScope.of(tester.element(input)).unfocus();
+    await tester.pumpAndSettle();
+
+    expect(find.text('/compact'), findsNothing);
   });
 
   testWidgets('slash command catalog loads once when entering conversation',

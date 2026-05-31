@@ -24,7 +24,7 @@ const { conversationStatuses } = require('./conversation-protocol');
 const { RunQueue } = require('./run-queue');
 const { ShortcutStore } = require('./shortcuts');
 const { CommandTemplateStore } = require('./command-templates');
-const { SlashCommandCatalog } = require('./slash-command-catalog');
+const { SlashCommandCatalog, ClaudeSlashCommandDiscoverer } = require('./slash-command-catalog');
 const { GitService } = require('./git-service');
 const { WorkspaceInspector } = require('./workspace-inspector');
 const { MigrationService } = require('./migrations');
@@ -88,7 +88,11 @@ function createApp({
   const adapterRegistry = new AdapterRegistry(adapters);
   const shortcuts = new ShortcutStore();
   const commandTemplates = new CommandTemplateStore();
-  const slashCommandCatalog = new SlashCommandCatalog();
+  const slashCommandCatalog = new SlashCommandCatalog({
+    discoverers: {
+      claude: new ClaudeSlashCommandDiscoverer({ command: claudeCommand })
+    }
+  });
   const gitService = new GitService();
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
