@@ -19,4 +19,7 @@ class DaemonAdapterRepository implements AdapterRepository {
 
   @override
   Future<List<ExtensionSummary>> listExtensions() => _client.listExtensions();
+
+  Future<List<SlashCommand>> listSlashCommands(String adapterId) =>
+      _client.listSlashCommands(adapterId);
 }

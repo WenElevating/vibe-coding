@@ -18,6 +18,7 @@ import '../data/repositories/daemon_diagnostics_repository.dart';
 import '../data/repositories/daemon_run_repository.dart';
 import '../data/repositories/daemon_workspace_repository.dart';
 import '../data/repositories/recent_daemon_address_repository.dart';
+import '../data/repositories/slash_command_catalog_repository.dart';
 import '../data/repositories/workspace_repository.dart';
 import '../data/services/conversation_event_cache_store.dart';
 import '../domain/models/daemon_connection_config.dart';
@@ -280,6 +281,9 @@ class DataDependencies {
       authorizedStreamSend: client.sendAuthorizedStream,
     );
     final rawAdapterRepository = DaemonAdapterRepository(client: client);
+    final slashCommandCatalogRepository = SlashCommandCatalogRepository(
+      client: rawAdapterRepository.listSlashCommands,
+    );
     final rawConversationRepository = DaemonConversationRepository(
       client: client,
       notificationService: notificationClient,
@@ -302,6 +306,7 @@ class DataDependencies {
       commandCatalogRepository: CommandCatalogRepository(
         delegate: rawAdapterRepository,
       ),
+      slashCommandCatalogRepository: slashCommandCatalogRepository,
       appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
       conversationRepository: conversationRepository,
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
@@ -318,6 +323,7 @@ class ConnectedDataDependencies {
     required AdapterRepository adapterRepository,
     CliAdapterRepository? cliAdapterRepository,
     CommandCatalogRepository? commandCatalogRepository,
+    SlashCommandCatalogRepository? slashCommandCatalogRepository,
     required this.appUpdateRepository,
     required ConversationRepository conversationRepository,
     required this.diagnosticsRepository,
@@ -331,6 +337,10 @@ class ConnectedDataDependencies {
             CliAdapterRepository(delegate: adapterRepository),
         commandCatalogRepository = commandCatalogRepository ??
             CommandCatalogRepository(delegate: adapterRepository),
+        slashCommandCatalogRepository = slashCommandCatalogRepository ??
+            SlashCommandCatalogRepository(
+              client: (_) async => const <SlashCommand>[],
+            ),
         conversationRepository = conversationRepository
                 is CachedConversationRepository
             ? conversationRepository
@@ -344,6 +354,7 @@ class ConnectedDataDependencies {
   final CachedAdapterRepository adapterRepository;
   final CliAdapterRepository cliAdapterRepository;
   final CommandCatalogRepository commandCatalogRepository;
+  final SlashCommandCatalogRepository slashCommandCatalogRepository;
   final AppUpdateRepository appUpdateRepository;
   final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
@@ -372,6 +383,11 @@ class ConnectedDataDependencies {
     }
     try {
       commandCatalogRepository.dispose();
+    } catch (_) {
+      // Cleanup failures must not surface as unhandled async errors.
+    }
+    try {
+      slashCommandCatalogRepository.dispose();
     } catch (_) {
       // Cleanup failures must not surface as unhandled async errors.
     }
@@ -579,6 +595,8 @@ class FeatureDependencies {
             backgroundDownloadBridge: backgroundDownloadBridge,
           ),
           codingPreferencesRepository: data.codingPreferencesRepository,
+          slashCommandCatalogRepository:
+              connectedData.slashCommandCatalogRepository,
           conversationRepository: connectedData.conversationRepository,
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,

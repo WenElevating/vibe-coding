@@ -108,6 +108,10 @@ void main() {
       ),
       isTrue,
     );
+    expect(
+      workbenchDependencies.slashCommandCatalogRepository,
+      same(connectedData.slashCommandCatalogRepository),
+    );
     expect(viewModel.availableAdaptersFromCache.single.adapter, 'codex');
     expect(viewModel.selectedAdapter, 'codex');
 
