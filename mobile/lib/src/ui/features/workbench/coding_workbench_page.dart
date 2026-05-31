@@ -388,6 +388,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _asrModelManager = widget.dependencies.asrModelManager;
     _voiceInput = VoiceInputViewModel(service: _createSpeechInputService())
       ..addListener(_syncVoicePreviewText);
+    widget.dependencies.codingPreferencesRepository.addListener(
+      _handleCodingPreferencesChanged,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setCurrentRoute(_routeWorkspaces);
     });
@@ -396,6 +399,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   @override
   void didUpdateWidget(covariant CodingWorkbenchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.dependencies.codingPreferencesRepository !=
+        widget.dependencies.codingPreferencesRepository) {
+      oldWidget.dependencies.codingPreferencesRepository.removeListener(
+        _handleCodingPreferencesChanged,
+      );
+      widget.dependencies.codingPreferencesRepository.addListener(
+        _handleCodingPreferencesChanged,
+      );
+      _handleCodingPreferencesChanged();
+    }
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -407,9 +420,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (mounted) setState(() {});
   }
 
+  void _handleCodingPreferencesChanged() {
+    if (widget.dependencies.codingPreferencesRepository
+        .keepConversationEventsInBackground) {
+      _cancelBackgroundEventDisconnectTimer();
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.dependencies.codingPreferencesRepository.removeListener(
+      _handleCodingPreferencesChanged,
+    );
     unawaited(_cancelConversationEventSubscription());
     _cancelInitialConversationPendingReveal();
     _voiceInput.removeListener(_syncVoicePreviewText);
@@ -1141,6 +1164,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _scheduleBackgroundEventDisconnect() {
+    if (widget.dependencies.codingPreferencesRepository
+        .keepConversationEventsInBackground) {
+      _cancelBackgroundEventDisconnectTimer();
+      return;
+    }
     if (_conversationEventSubscription == null ||
         _backgroundEventDisconnectTimer != null) {
       return;

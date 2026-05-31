@@ -125,6 +125,7 @@ class AppDependencies {
           CodingPreferencesRepository.normalizePermissionMode,
       workbenchDependencies:
           features.createWorkbenchDependencies(client, connectedData).copyWith(
+                codingPreferencesRepository: data.codingPreferencesRepository,
                 workspaceOpeningUseCase: sessionScope.useCases.openWorkspace,
               ),
       featureDependencies: features,
@@ -577,6 +578,7 @@ class FeatureDependencies {
             client: client.createAsrModelClient(),
             backgroundDownloadBridge: backgroundDownloadBridge,
           ),
+          codingPreferencesRepository: data.codingPreferencesRepository,
           conversationRepository: connectedData.conversationRepository,
           diagnosticsRepository: connectedData.diagnosticsRepository,
           runRepository: connectedData.runRepository,

@@ -29,6 +29,23 @@ void main() {
     await repository.load();
 
     expect(repository.permissionMode, 'default');
+    expect(repository.keepConversationEventsInBackground, isFalse);
+  });
+
+  test(
+      'load preserves permission mode when background events preference is old',
+      () async {
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{
+        CodingPreferencesRepository.permissionModeStorageKey: 'auto',
+      },
+    );
+    final repository = CodingPreferencesRepository();
+
+    await repository.load();
+
+    expect(repository.permissionMode, 'auto');
+    expect(repository.keepConversationEventsInBackground, isFalse);
   });
 
   test('load treats unknown persisted permission mode as default', () async {
@@ -73,6 +90,38 @@ void main() {
     expect(
       prefs.getString(CodingPreferencesRepository.permissionModeStorageKey),
       'default',
+    );
+  });
+
+  test('setKeepConversationEventsInBackground persists value and notifies',
+      () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = CodingPreferencesRepository();
+    var notifications = 0;
+    repository.addListener(() => notifications++);
+
+    await repository.setKeepConversationEventsInBackground(true);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(repository.keepConversationEventsInBackground, isTrue);
+    expect(
+      prefs.getBool(
+        CodingPreferencesRepository
+            .keepConversationEventsInBackgroundStorageKey,
+      ),
+      isTrue,
+    );
+    expect(notifications, greaterThanOrEqualTo(1));
+
+    await repository.setKeepConversationEventsInBackground(false);
+
+    expect(repository.keepConversationEventsInBackground, isFalse);
+    expect(
+      prefs.getBool(
+        CodingPreferencesRepository
+            .keepConversationEventsInBackgroundStorageKey,
+      ),
+      isFalse,
     );
   });
 

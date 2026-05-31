@@ -18,6 +18,8 @@
   "settingsStreamOutputSubtitle": "When off, only the final answer is shown to avoid duplicate deltas and complete messages.",
   "settingsExpandThinkingTitle": "Show thinking process",
   "settingsExpandThinkingSubtitle": "When on, model thinking is expanded by default; when off, it stays collapsed.",
+  "settingsKeepSessionLiveInBackgroundTitle": "Keep session live in background",
+  "settingsKeepSessionLiveInBackgroundSubtitle": "Continue receiving events for the open conversation while the app is in the background.",
   "settingsPermissionModeTitle": "Permission mode",
   "settingsPermissionDefault": "Default",
   "settingsPermissionAuto": "Auto",

@@ -47,6 +47,8 @@ class SettingsViewModel extends ChangeNotifier {
       _workspaceRepository.selectedWorkspace;
   List<WorkspaceSummary> get workspaces => _workspaceRepository.workspaces;
   String get permissionMode => _codingPreferencesRepository.permissionMode;
+  bool get keepConversationEventsInBackground =>
+      _codingPreferencesRepository.keepConversationEventsInBackground;
   DaemonConnectionConfig get connectionConfig => _connectionConfig;
   DaemonHealth get health => _health;
   CodeDiagnosticsSummary? get diagnostics => _diagnostics;
@@ -83,6 +85,20 @@ class SettingsViewModel extends ChangeNotifier {
       );
       await _codingPreferencesRepository.setPermissionMode(normalized);
       await _syncActiveConversationPermissionMode(normalized);
+      if (_permissionModeSaveError != null) {
+        _permissionModeSaveError = null;
+        notifyListeners();
+      }
+    } catch (error) {
+      _permissionModeSaveError = error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setKeepConversationEventsInBackground(bool value) async {
+    try {
+      await _codingPreferencesRepository
+          .setKeepConversationEventsInBackground(value);
       if (_permissionModeSaveError != null) {
         _permissionModeSaveError = null;
         notifyListeners();

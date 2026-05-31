@@ -79,6 +79,12 @@ class SettingsPage extends StatelessWidget {
                   subtitle: l10n.settingsExpandThinkingSubtitle,
                   value: expandThinking,
                   onChanged: onExpandThinkingChanged),
+              _SettingsSwitchRow(
+                  title: l10n.settingsKeepSessionLiveInBackgroundTitle,
+                  subtitle: l10n.settingsKeepSessionLiveInBackgroundSubtitle,
+                  value: viewModel.keepConversationEventsInBackground,
+                  onChanged: (value) => unawaited(
+                      viewModel.setKeepConversationEventsInBackground(value))),
             ]),
             const SizedBox(height: 20),
             Subhead(l10n.settingsDataStatusSection),

@@ -4020,6 +4020,217 @@ void main() {
   });
 
   testWidgets(
+      'workbench lifecycle keeps event subscription in background when enabled',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    await dependencies.data.codingPreferencesRepository
+        .setKeepConversationEventsInBackground(true);
+    final conversationRepository = _LifecycleConversationRepository();
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    void backgroundApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    }
+
+    void resumeApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }
+
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_lifecycle_keep',
+        workspaceId: 'workspace_1',
+        status: 'running',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Keep live task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.cliAdapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          codingPreferencesRepository:
+              dependencies.data.codingPreferencesRepository,
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(conversations: conversations),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Keep live task'));
+    await pumpUntilWatchCalls(1);
+
+    backgroundApp();
+    await tester.pump(const Duration(seconds: 31));
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    resumeApp();
+    await tester.pump();
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'workbench lifecycle cancels queued background disconnect when enabled',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository();
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    void backgroundApp() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    }
+
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_lifecycle_toggle',
+        workspaceId: 'workspace_1',
+        status: 'running',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Toggle live task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.cliAdapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          codingPreferencesRepository:
+              dependencies.data.codingPreferencesRepository,
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(conversations: conversations),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Toggle live task'));
+    await pumpUntilWatchCalls(1);
+
+    backgroundApp();
+    await tester.pump(const Duration(seconds: 5));
+    await dependencies.data.codingPreferencesRepository
+        .setKeepConversationEventsInBackground(true);
+    await tester.pump(const Duration(seconds: 27));
+
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
       'disposing workbench consumes conversation event cancellation failures',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(

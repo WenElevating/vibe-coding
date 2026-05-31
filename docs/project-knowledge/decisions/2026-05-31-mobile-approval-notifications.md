@@ -23,6 +23,13 @@ not resumed.
 The daemon protocol, `conversation.events`, and approval response APIs are
 unchanged.
 
+Mobile defaults to cancelling the open conversation event subscription after the
+existing 30-second background grace period. Users can opt into keeping the
+current open conversation live in the background through
+`coding.keepConversationEventsInBackground`; the setting is persisted in
+`CodingPreferencesRepository` and read directly by `CodingWorkbenchPage` through
+`WorkbenchDependencies`.
+
 ## Alternatives
 
 - Daemon workspace-level approval topic: rejected because approval events are
@@ -39,6 +46,8 @@ unchanged.
   suppression, approval id dedupe, notification ids, and tap forwarding.
 - `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` publishes
   approval events only after live stream events are applied.
+- `mobile/lib/src/data/repositories/coding_preferences_repository.dart` owns the
+  background live-session preference used by the workbench lifecycle policy.
 
 ## Verification
 

@@ -36,6 +36,20 @@ void main() {
     expect(viewModel.permissionMode, 'default');
   });
 
+  test('settings updates background event preference through repository',
+      () async {
+    final preferences = _FakeCodingPreferencesRepository();
+    final viewModel = _settingsViewModel(
+      _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      preferences: preferences,
+    );
+
+    await viewModel.setKeepConversationEventsInBackground(true);
+
+    expect(preferences.keepConversationEventsInBackground, isTrue);
+    expect(viewModel.keepConversationEventsInBackground, isTrue);
+  });
+
   test('settings syncs permission mode to active Claude conversation',
       () async {
     final preferences = _FakeCodingPreferencesRepository();
@@ -248,11 +262,16 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 
 class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
   String _permissionMode = 'default';
+  bool _keepConversationEventsInBackground = false;
   int listenerCount = 0;
   Object? setPermissionModeError;
 
   @override
   String get permissionMode => _permissionMode;
+
+  @override
+  bool get keepConversationEventsInBackground =>
+      _keepConversationEventsInBackground;
 
   @override
   bool get loading => false;
@@ -281,6 +300,12 @@ class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
     if (error != null) throw error;
     _permissionMode =
         CodingPreferencesRepository.normalizePermissionMode(value);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setKeepConversationEventsInBackground(bool value) async {
+    _keepConversationEventsInBackground = value;
     notifyListeners();
   }
 
