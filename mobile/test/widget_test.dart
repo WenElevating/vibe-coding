@@ -22,6 +22,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/daemon_adapter_reposito
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/repositories/slash_command_catalog_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
     as data_repositories;
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
@@ -798,6 +799,113 @@ Finder _workbenchMessageList() => find.byWidgetPredicate(
               (widget.key as ValueKey<String>).value ==
                   'workbench-message-list-reverse'),
     );
+
+const _slashCommandWorkspace = WorkspaceSummary(
+  id: 'workspace_1',
+  name: 'Current Project',
+  path: r'D:\AiProject\vibe-coding',
+);
+
+SlashCommandCatalogRepository _slashCommandCatalogRepository(
+  Map<String, List<SlashCommand>> commandsByAdapter,
+) =>
+    SlashCommandCatalogRepository(
+      client: (adapter) async =>
+          commandsByAdapter[adapter.trim().toLowerCase()] ??
+          const <SlashCommand>[],
+    );
+
+class _RecordingSlashCommandCatalogRepository
+    extends SlashCommandCatalogRepository {
+  _RecordingSlashCommandCatalogRepository(this.commandsByAdapter)
+      : super(
+          client: (adapter) async =>
+              commandsByAdapter[adapter.trim().toLowerCase()] ??
+              const <SlashCommand>[],
+        );
+
+  final Map<String, List<SlashCommand>> commandsByAdapter;
+  final List<String> loadCalls = <String>[];
+
+  @override
+  Future<List<SlashCommand>> loadForAdapter(
+    String adapterId, {
+    bool force = false,
+  }) {
+    loadCalls.add(adapterId.trim().toLowerCase());
+    return super.loadForAdapter(adapterId, force: force);
+  }
+}
+
+Future<void> _pumpWorkbenchForSlashCommands(
+  WidgetTester tester,
+  SlashCommandCatalogRepository catalog, {
+  List<AdapterStatus> adapters = const <AdapterStatus>[
+    AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+  ],
+}) async {
+  SharedPreferences.setMockInitialValues(
+      <String, Object>{AppLanguage.storageKey: 'en-US'});
+  final client = DaemonClient(
+    baseUri: Uri.parse('http://127.0.0.1:4317'),
+    tokenStore: MemoryTokenStore(),
+  );
+  final adapterRepository = CliAdapterRepository(
+    delegate: DaemonAdapterRepository(client: client),
+  )..replaceFromBootstrap(adapters);
+  final conversationRepository = CachedConversationRepository(
+      delegate: _NewSessionConversationRepository())
+    ..replaceFromBootstrap(
+      workspaceId: _slashCommandWorkspace.id,
+      conversations: const <ConversationSummary>[],
+    );
+  final runRepository =
+      CachedRunRepository(delegate: DaemonRunRepository(client: client))
+        ..replaceFromBootstrap(
+          workspaceId: _slashCommandWorkspace.id,
+          runs: const <RunSummary>[],
+          queue: const <QueueItem>[],
+        );
+  final workspaceRepository = DaemonWorkspaceRepository(client: client)
+    ..applyBootstrapCatalog(
+      selectedWorkspace: _slashCommandWorkspace,
+      workspaces: const <WorkspaceSummary>[_slashCommandWorkspace],
+    );
+
+  await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: Scaffold(
+          body: CodingWorkbenchPage(
+              onBack: () {},
+              onSessionListChanged: (_) {},
+              openSessionListRequest: 0,
+              streamOutput: false,
+              expandThinking: false,
+              permissionMode: 'default',
+              dependencies: WorkbenchDependencies(
+                adapterRepository: adapterRepository,
+                asrModelManager:
+                    AsrModelManager(client: client.createAsrModelClient()),
+                conversationRepository: conversationRepository,
+                diagnosticsRepository:
+                    DaemonDiagnosticsRepository(client: client),
+                runRepository: runRepository,
+                speechInputServiceBuilder: (_) =>
+                    const DisabledSpeechInputService(),
+                slashCommandCatalogRepository: catalog,
+                workspaceRepository: workspaceRepository,
+              )))));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openNewSlashCommandConversation(WidgetTester tester) async {
+  await tester.tap(find.text('Current Project'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('session-new-button')));
+  await tester.pumpAndSettle();
+}
 
 Widget _pagedWorkbenchHarness({
   required ConversationRepository conversationRepository,
@@ -5239,6 +5347,148 @@ void main() {
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('slash command menu filters by command text only',
+      (WidgetTester tester) async {
+    final catalog = _slashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/compact', description: 'summarize context'),
+          SlashCommand(command: '/code-review', description: 'review changes'),
+          SlashCommand(command: '/fast', description: 'contains co in details'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(tester, catalog);
+    await _openNewSlashCommandConversation(tester);
+    await tester.enterText(find.byType(TextField).last, '/co');
+    await tester.pumpAndSettle();
+
+    expect(find.text('/code-review'), findsOneWidget);
+    expect(find.text('/compact'), findsOneWidget);
+    expect(find.text('/fast'), findsNothing);
+  });
+
+  testWidgets('slash command menu inserts selected command at cursor',
+      (WidgetTester tester) async {
+    final catalog = _slashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/compact', description: 'summarize context'),
+          SlashCommand(command: '/code-review', description: 'review changes'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(tester, catalog);
+    await _openNewSlashCommandConversation(tester);
+    final input = find.byType(TextField).last;
+    final controller = tester.widget<TextField>(input).controller!;
+    controller.value = const TextEditingValue(
+      text: 'please /CO now',
+      selection: TextSelection.collapsed(offset: 10),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('/compact'));
+    await tester.pumpAndSettle();
+
+    expect(controller.text, 'please /compact  now');
+    expect(controller.selection.baseOffset, 'please /compact '.length);
+  });
+
+  testWidgets('slash command filtering does not move composer text field',
+      (WidgetTester tester) async {
+    final catalog = _slashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/compact', description: 'summarize context'),
+          SlashCommand(command: '/code-review', description: 'review changes'),
+          SlashCommand(command: '/config', description: 'edit config'),
+          SlashCommand(command: '/continue', description: 'continue session'),
+          SlashCommand(command: '/context', description: 'show context'),
+          SlashCommand(command: '/copy', description: 'copy output'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(tester, catalog);
+    await _openNewSlashCommandConversation(tester);
+    final input = find.byType(TextField).last;
+    await tester.enterText(input, '/co');
+    await tester.pumpAndSettle();
+    final before = tester.getTopLeft(input);
+
+    await tester.enterText(input, '/comp');
+    await tester.pumpAndSettle();
+    final after = tester.getTopLeft(input);
+
+    expect(after, before);
+  });
+
+  testWidgets('slash command catalog loads once when entering conversation',
+      (WidgetTester tester) async {
+    final catalog = _RecordingSlashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/model', description: 'choose model'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(tester, catalog);
+    expect(catalog.loadCalls, isEmpty);
+
+    await _openNewSlashCommandConversation(tester);
+    await tester.enterText(find.byType(TextField).last, '/');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '/m');
+    await tester.pumpAndSettle();
+
+    expect(
+        catalog.loadCalls.where((adapter) => adapter == 'codex'), hasLength(1));
+    expect(find.text('/model'), findsOneWidget);
+  });
+
+  testWidgets('slash command catalog loads new adapter after CLI switch',
+      (WidgetTester tester) async {
+    final catalog = _RecordingSlashCommandCatalogRepository(
+      const <String, List<SlashCommand>>{
+        'codex': <SlashCommand>[
+          SlashCommand(command: '/model', description: 'codex model'),
+        ],
+        'claude': <SlashCommand>[
+          SlashCommand(command: '/compact', description: 'claude compact'),
+        ],
+      },
+    );
+
+    await _pumpWorkbenchForSlashCommands(
+      tester,
+      catalog,
+      adapters: const <AdapterStatus>[
+        AdapterStatus(adapter: 'codex', available: true, status: 'available'),
+        AdapterStatus(adapter: 'claude', available: true, status: 'available'),
+      ],
+    );
+    await _openNewSlashCommandConversation(tester);
+
+    await tester.tap(find.byKey(const ValueKey('composer-cli-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('codex').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('composer-cli-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('claude').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '/co');
+    await tester.pumpAndSettle();
+
+    expect(catalog.loadCalls, containsAll(<String>['codex', 'claude']));
+    expect(find.text('/compact'), findsOneWidget);
+    expect(find.text('/model'), findsNothing);
   });
 
   testWidgets('connected app preloads adapters before new session',

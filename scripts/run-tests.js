@@ -6384,6 +6384,49 @@ test('V1.1 adapter diagnostics include codex disabled and opencode needs configu
   }
 });
 
+test('slash command catalog returns adapter commands and unknown adapters as empty lists', async () => {
+  const app = createApp({
+    port: 0,
+    devAdapters: true,
+    appDbPath: tempConversationDbPath('app-db-slash-commands-')
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'slash-command-test'
+    });
+    const token = paired.body.token;
+
+    const codex = await request(port, 'GET', '/api/adapters/codex/slash-commands', null, token);
+    assert.equal(codex.status, 200);
+    assert.equal(codex.body.adapter, 'codex');
+    assert.equal(Array.isArray(codex.body.commands), true);
+    assert.equal(codex.body.commands.some((item) => item.command === '/model'), true);
+    assert.equal(codex.body.commands.every((item) => typeof item.command === 'string' && item.command.startsWith('/')), true);
+    assert.equal(codex.body.commands.every((item) => typeof item.description === 'string'), true);
+    assert.equal(codex.body.commands.some((item) => Object.prototype.hasOwnProperty.call(item, 'source')), false);
+
+    const claude = await request(port, 'GET', '/api/adapters/claude/slash-commands', null, token);
+    assert.equal(claude.status, 200);
+    assert.equal(claude.body.adapter, 'claude');
+    assert.equal(claude.body.commands.some((item) => item.command === '/compact'), true);
+
+    const opencode = await request(port, 'GET', '/api/adapters/opencode/slash-commands', null, token);
+    assert.equal(opencode.status, 200);
+    assert.equal(opencode.body.adapter, 'opencode');
+    assert.equal(Array.isArray(opencode.body.commands), true);
+
+    const unknown = await request(port, 'GET', '/api/adapters/not-real/slash-commands', null, token);
+    assert.equal(unknown.status, 200);
+    assert.deepEqual(unknown.body, { adapter: 'not-real', commands: [] });
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
 test('V1.1 run filters, shortcuts, and token revocation work', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
   app.adapterRegistry.get('claude').spawnSyncFn = fakeSpawnSync;

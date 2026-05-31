@@ -650,6 +650,43 @@ void main() {
     );
   });
 
+  test('listSlashCommands parses command catalog', () async {
+    final requests = <http.BaseRequest>[];
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: FakeHttpClient((request) {
+        requests.add(request);
+        return jsonResponse(const <String, Object?>{
+          'adapter': 'codex',
+          'commands': <Object?>[
+            <String, Object?>{
+              'command': '/Model',
+              'description': 'choose model',
+            },
+            <String, Object?>{
+              'command': 'compact',
+              'description': 'compact context',
+            },
+          ],
+        });
+      }),
+    );
+
+    final commands = await client.listSlashCommands('codex');
+
+    expect(requests.single.url.path, '/api/adapters/codex/slash-commands');
+    expect(commands.map((command) => command.command), const <String>[
+      '/Model',
+      '/compact',
+    ]);
+    expect(commands.map((command) => command.matchingKey), const <String>[
+      'model',
+      'compact',
+    ]);
+    expect(commands.last.description, 'compact context');
+  });
+
   test('list endpoints report typed parse errors for malformed lists',
       () async {
     final cases = <({
@@ -675,6 +712,12 @@ void main() {
         key: 'templates',
         body: const <String, Object?>{'templates': 'bad'},
         call: (client) => client.listCommandTemplates(),
+      ),
+      (
+        name: 'listSlashCommands',
+        key: 'commands',
+        body: const <String, Object?>{'commands': 'bad'},
+        call: (client) => client.listSlashCommands('codex'),
       ),
       (
         name: 'listQueue',
