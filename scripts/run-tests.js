@@ -587,6 +587,102 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
   }
 });
 
+test('Windows sleep inhibitor starts a scoped power request process', () => {
+  const { createWindowsSleepInhibitor } = require('../daemon/src/windows-sleep-inhibitor');
+  const calls = [];
+  const child = {
+    killed: false,
+    unrefCalled: false,
+    kill() { this.killed = true; },
+    unref() { this.unrefCalled = true; }
+  };
+  const inhibitor = createWindowsSleepInhibitor({
+    platform: 'win32',
+    pid: 1234,
+    env: {},
+    spawnFn(command, args, options) {
+      calls.push({ command, args, options });
+      return child;
+    },
+    logger: { warn() {}, log() {} }
+  });
+
+  const result = inhibitor.start();
+
+  assert.equal(result.active, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'powershell.exe');
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.equal(calls[0].options.stdio, 'ignore');
+  assert.match(calls[0].args.join(' '), /SetThreadExecutionState/);
+  assert.match(calls[0].args.join(' '), /1234/);
+  assert.equal(child.unrefCalled, true);
+
+  inhibitor.stop();
+  assert.equal(child.killed, true);
+});
+
+test('Windows sleep inhibitor stays inactive when unsupported or disabled', () => {
+  const { createWindowsSleepInhibitor } = require('../daemon/src/windows-sleep-inhibitor');
+  let spawnCount = 0;
+  const spawnFn = () => {
+    spawnCount += 1;
+    return { kill() {} };
+  };
+
+  const unsupported = createWindowsSleepInhibitor({
+    platform: 'linux',
+    env: {},
+    spawnFn,
+    logger: { warn() {}, log() {} }
+  });
+  assert.equal(unsupported.start().active, false);
+
+  const disabled = createWindowsSleepInhibitor({
+    platform: 'win32',
+    env: { DAEMON_PREVENT_SLEEP: '0' },
+    spawnFn,
+    logger: { warn() {}, log() {} }
+  });
+  assert.equal(disabled.start().active, false);
+  assert.equal(spawnCount, 0);
+});
+
+test('daemon self-protection detects commands targeting daemon pid or port', () => {
+  const { daemonSelfProtectionForCommand } = require('../daemon/src/daemon-self-protection');
+
+  assert.equal(daemonSelfProtectionForCommand('taskkill /F /PID 43170', {
+    daemonPid: 43170,
+    daemonPort: 4317
+  }).blocked, true);
+  assert.equal(daemonSelfProtectionForCommand('netstat -ano | findstr :4317 | taskkill /F /PID', {
+    daemonPid: 100,
+    daemonPort: 4317
+  }).blocked, true);
+  assert.equal(daemonSelfProtectionForCommand('taskkill /F /PID 30010', {
+    daemonPid: 43170,
+    daemonPort: 4317
+  }).blocked, false);
+});
+
+test('start-daemon batch restarts unexpected daemon exits', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'start-daemon.bat'), 'utf8');
+  assert.match(source, /:start_daemon/);
+  assert.match(source, /goto start_daemon/);
+  assert.match(source, /DAEMON_WATCHDOG/);
+  assert.match(source, /process exited with code/);
+});
+
+test('npm daemon start uses watchdog supervisor', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const source = fs.readFileSync(path.join(__dirname, 'start-daemon-watchdog.js'), 'utf8');
+  assert.equal(packageJson.scripts['start:daemon'], 'node scripts/start-daemon-watchdog.js');
+  assert.match(source, /spawn\(process\.execPath/);
+  assert.match(source, /daemonEntry/);
+  assert.match(source, /main\.js/);
+  assert.match(source, /restarting in/);
+});
+
 test('notification websocket rejects missing bearer token', async () => {
   const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-auth-missing-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -4098,6 +4194,51 @@ test('Claude conversation adapter emits approval requests for tools', async () =
   assert.equal(approval.summary, 'dir scripts');
   await handle.respondApproval('approval_1', 'allow');
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
+});
+
+test('Claude conversation adapter denies Bash commands that target the daemon process', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const stdinLines = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    write(data) { stdinLines.push(data.trim()); }
+  };
+  const adapter = new ClaudeConversationAdapter({
+    command: 'claude',
+    spawnSyncFn: () => ({ status: 0, stdout: '2.1.119', stderr: '' }),
+    spawnFn: () => child
+  });
+  const events = [];
+  await adapter.startConversation({ conversationId: 'conv_daemon_guard', workspacePath: '.', onEvent: (event) => events.push(event) });
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_kill_daemon',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      tool_use_id: 'toolu_kill_daemon',
+      input: { command: `taskkill /F /PID ${process.pid}` },
+      permission_suggestions: ['allow']
+    }
+  })}\n`);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const responses = stdinLines
+    .map((line) => JSON.parse(line))
+    .filter((payload) => payload.type === 'control_response');
+  const deny = responses.find((payload) =>
+    payload.response?.request_id === 'approval_kill_daemon');
+  assert.equal(deny.response.response.behavior, 'deny');
+  assert.equal(deny.response.response.interrupt, false);
+  assert.match(deny.response.response.message, /Blocked a shell command/);
+  assert.equal(events.some((event) => event.type === 'approval.requested'), false);
+  assert.equal(events.some((event) =>
+    event.type === 'system.notice' &&
+    event.noticeKind === 'daemon_self_protection'), true);
 });
 
 test('Claude conversation adapter responds to unsupported control requests with errors', async () => {

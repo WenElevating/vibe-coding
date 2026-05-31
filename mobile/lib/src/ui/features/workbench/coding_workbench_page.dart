@@ -70,6 +70,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final WorkbenchViewModel _workbenchViewModel;
   StreamSubscription<void>? _conversationEventSubscription;
   Timer? _backgroundEventDisconnectTimer;
+  Timer? _initialConversationPendingRevealTimer;
   bool _conversationEventsSuspendedForBackground = false;
   int _conversationEventSubscriptionGeneration = 0;
   String? _lastVoiceErrorNotice;
@@ -81,6 +82,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _bottomAnchorTranscript = false;
   bool _bottomAnchorTranscriptUnderflow = false;
   bool _loadingInitialConversationEvents = false;
+  bool _showPendingDuringInitialConversationLoad = false;
 
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems;
 
@@ -190,7 +192,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     unawaited(_cancelConversationEventSubscription());
     _bottomAnchorTranscript = bottomAnchorTranscript;
     _bottomAnchorTranscriptUnderflow = false;
+    _cancelInitialConversationPendingReveal();
     _loadingInitialConversationEvents = false;
+    _showPendingDuringInitialConversationLoad = false;
     _workbenchViewModel.resetConversationDisplay(notify: false);
   }
 
@@ -203,7 +207,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.openSession(item, notify: false);
       _workbenchViewModel.clearOperationError(notify: false);
       _loadingInitialConversationEvents = item.conversation != null;
+      _showPendingDuringInitialConversationLoad = false;
     });
+    if (item.conversation != null &&
+        isActiveConversationStatus(item.conversation!.status)) {
+      _scheduleInitialConversationPendingReveal();
+    }
     _workbenchViewModel.showConversationRoute(
         _workspaceForId(item.run.workspaceId).id, item.conversation?.id ?? '');
     final conversation = item.conversation;
@@ -258,9 +267,31 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               generation: generation,
             )) {
           setState(() => _loadingInitialConversationEvents = false);
+          _cancelInitialConversationPendingReveal();
         }
       }
     }
+  }
+
+  void _scheduleInitialConversationPendingReveal() {
+    _cancelInitialConversationPendingReveal();
+    _initialConversationPendingRevealTimer =
+        Timer(const Duration(milliseconds: 650), () {
+      if (!mounted || !_loadingInitialConversationEvents) return;
+      setState(() => _showPendingDuringInitialConversationLoad = true);
+    });
+  }
+
+  void _cancelInitialConversationPendingReveal() {
+    _initialConversationPendingRevealTimer?.cancel();
+    _initialConversationPendingRevealTimer = null;
+    _showPendingDuringInitialConversationLoad = false;
+  }
+
+  void _clearInitialConversationLoadingGate() {
+    _cancelInitialConversationPendingReveal();
+    _loadingInitialConversationEvents = false;
+    _showPendingDuringInitialConversationLoad = false;
   }
 
   Future<void> _loadInitialConversationEventPage({
@@ -356,6 +387,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_cancelConversationEventSubscription());
+    _cancelInitialConversationPendingReveal();
     _voiceInput.removeListener(_syncVoicePreviewText);
     _voiceInput.dispose();
     _workbenchViewModel.removeListener(_syncWorkbenchViewModel);
@@ -914,6 +946,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     setState(() {
+      _clearInitialConversationLoadingGate();
       _workbenchViewModel.beginOperation(notify: false);
       final hasDraftAttachment =
           _workbenchViewModel.draftAttachments.any((item) => item.isValid);
@@ -924,6 +957,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _prompt.clear();
     });
     _scrollToBottom();
+    ConversationSummary? restoreConversationAfterExistingSendFailure;
     try {
       final existingConversationId = _activeConversationId;
       if (existingConversationId == null) {
@@ -973,6 +1007,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       } else {
         if (_isRunningCli) return;
         final sendStartSeq = _workbenchViewModel.lastSeq;
+        restoreConversationAfterExistingSendFailure = _activeConversation;
         setState(() {
           _workbenchViewModel.markConversationRunning(notify: false);
         });
@@ -1013,6 +1048,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         await _restartConversationEventSubscription();
         return;
       }
+      final conversationToRestore = restoreConversationAfterExistingSendFailure;
       final traced = await _recordWorkbenchException(
         err,
         stack,
@@ -1024,6 +1060,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _prompt.value = TextEditingValue(
               text: draft,
               selection: TextSelection.collapsed(offset: draft.length));
+        }
+        if (conversationToRestore != null &&
+            conversationToRestore.id == _activeConversationId) {
+          _workbenchViewModel.updateActiveConversation(conversationToRestore,
+              notify: false);
         }
         _workbenchViewModel.setOperationError(traced.message,
             traceId: traced.traceId, notify: false);
@@ -1459,7 +1500,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Widget _buildMessageList(String? adapter, AppLocalizations l10n) {
     final hasStatus = _activeRunId != null;
     final hasError = _error != null;
-    final hasPending = _isBusyCli && !_loadingInitialConversationEvents;
+    final hasPending = _isBusyCli &&
+        (!_loadingInitialConversationEvents ||
+            _showPendingDuringInitialConversationLoad);
     final useReverseTranscript = _useReverseTranscript;
     final itemCount = (hasStatus ? 1 : 0) +
         _messages.length +

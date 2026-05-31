@@ -1141,10 +1141,13 @@ class _HangingPageConversationRepository extends _LazyConversationRepository {
 class _LifecycleConversationRepository implements ConversationRepository {
   _LifecycleConversationRepository({
     this.cancelError,
+    this.sendError,
     this.events = const <ConversationEvent>[],
   });
 
   final Object? cancelError;
+  Object? sendError;
+  Completer<ConversationSummary>? sendCompleter;
   final List<ConversationEvent> events;
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
@@ -1251,6 +1254,13 @@ class _LifecycleConversationRepository implements ConversationRepository {
     ConversationMessageSendRequest request,
   ) async {
     sentText = request.text;
+    final error = sendError;
+    if (error != null) {
+      sendError = null;
+      throw error;
+    }
+    final completer = sendCompleter;
+    if (completer != null) return completer.future;
     return _conversationSummary(
       id: conversationId,
       workspaceId: 'workspace_1',
@@ -3804,6 +3814,96 @@ void main() {
   });
 
   testWidgets(
+      'opening active conversation reveals pending animation when history stalls',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AiProject\vibe-coding',
+    );
+    final conversationRepository = _HangingFetchConversationRepository();
+    final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore());
+    final adapterRepository = CliAdapterRepository(
+        delegate: DaemonAdapterRepository(client: client))
+      ..replaceFromBootstrap(const <AdapterStatus>[
+        AdapterStatus(adapter: 'codex', available: true, status: 'available')
+      ]);
+    final cachedConversationRepository =
+        CachedConversationRepository(delegate: conversationRepository)
+          ..replaceFromBootstrap(
+            workspaceId: workspace.id,
+            conversations: <ConversationSummary>[
+              _conversationSummary(
+                id: 'conv_slow_history',
+                workspaceId: workspace.id,
+                status: 'running',
+                sessionBinding: 'confirmed',
+                userMessageCount: 1,
+                title: 'Slow history conversation',
+              ),
+            ],
+          );
+    final runRepository =
+        CachedRunRepository(delegate: DaemonRunRepository(client: client))
+          ..replaceFromBootstrap(
+              workspaceId: workspace.id,
+              runs: const <RunSummary>[],
+              queue: const <QueueItem>[]);
+    final workspaceRepository = DaemonWorkspaceRepository(client: client)
+      ..applyBootstrapCatalog(
+          selectedWorkspace: workspace,
+          workspaces: const <WorkspaceSummary>[workspace]);
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: WorkbenchDependencies(
+                  adapterRepository: adapterRepository,
+                  asrModelManager:
+                      AsrModelManager(client: client.createAsrModelClient()),
+                  conversationRepository: cachedConversationRepository,
+                  diagnosticsRepository:
+                      DaemonDiagnosticsRepository(client: client),
+                  runRepository: runRepository,
+                  speechInputServiceBuilder: (_) =>
+                      const DisabledSpeechInputService(),
+                  workspaceRepository: workspaceRepository,
+                )))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Slow history conversation'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(conversationRepository.fetchStarted, isTrue);
+    expect(find.text('Running'), findsNothing);
+    expect(find.text('00:00'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 650));
+    await tester.pump();
+
+    expect(find.text('Running'), findsOneWidget);
+    expect(find.text('00:00'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
       'workbench lifecycle restarts event subscription after background',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -4335,6 +4435,135 @@ void main() {
     expect(conversationRepository.watchCalls, 1);
     expect(conversationRepository.cancelCalls, 0);
 
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'existing conversation send can recover pending animation after daemon disconnect',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository(
+      sendError: StateError('Connection refused'),
+    );
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilTextField() async {
+      for (var attempt = 0;
+          attempt < 20 && find.byType(TextField).evaluate().isEmpty;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_send_existing',
+        workspaceId: 'workspace_1',
+        status: 'idle',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Follow-up task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.cliAdapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: _cachedConversationRepositoryForWorkbenchTest(
+            delegate: conversationRepository,
+            conversations: conversations,
+          ),
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainTabsHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(conversations: conversations),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Follow-up task'));
+    await pumpUntilWatchCalls(1);
+    await pumpUntilTextField();
+
+    await tester.enterText(find.byType(TextField), 'first retry');
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Running'), findsNothing);
+    expect(find.byKey(const ValueKey('workbench-send-prompt-button')),
+        findsOneWidget);
+
+    conversationRepository.sentText = null;
+    conversationRepository.sendCompleter = Completer<ConversationSummary>();
+    await tester.enterText(find.byType(TextField), 'second retry');
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-send-prompt-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(conversationRepository.sentText, 'second retry');
+    final pageState = tester
+        .state<CodingWorkbenchPageState>(find.byType(CodingWorkbenchPage));
+    expect(pageState.activeConversation?.status, 'running');
+    expect(find.text('00:00'), findsOneWidget);
+    expect(conversationRepository.sendCompleter!.isCompleted, isFalse);
+
+    conversationRepository.sendCompleter!.complete(_conversationSummary(
+      id: 'conv_send_existing',
+      workspaceId: 'workspace_1',
+      status: 'running',
+      sessionBinding: 'confirmed',
+      userMessageCount: 2,
+    ));
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

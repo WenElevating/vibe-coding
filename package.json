@@ -5,7 +5,7 @@
   "description": "LAN-only controller for mobile Claude Code run control.",
   "scripts": {
     "test": "node scripts/run-tests.js",
-    "start:daemon": "node daemon/src/main.js",
+    "start:daemon": "node scripts/start-daemon-watchdog.js",
     "package:android-update": "powershell -ExecutionPolicy Bypass -File scripts/package-android-update.ps1",
     "lint": "node scripts/check-js.js"
   },

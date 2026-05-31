@@ -8,6 +8,7 @@ const { detectClaudeCodeInstallation, unavailableCapability } = require('./claud
 const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 const { textAttachmentWrapper } = require('./attachment-validation');
+const { daemonSelfProtectionForTool } = require('./daemon-self-protection');
 const packageJson = require('../../package.json');
 
 const CLAUDE_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -1176,6 +1177,39 @@ function handleControlRequest(raw, state) {
       questionId,
       text: questionText,
       suggestions: askUserQuestionSuggestions(request.input),
+      toolName: request.tool_name,
+      input: request.input || {},
+      toolUseId: request.tool_use_id || null,
+      raw
+    });
+    return;
+  }
+  const protection = daemonSelfProtectionForTool({
+    toolName: request.tool_name,
+    input: request.input
+  });
+  if (protection.blocked) {
+    writeControlResponse(state.child, requestId, {
+      subtype: 'success',
+      response: {
+        behavior: 'deny',
+        message: protection.message,
+        interrupt: false
+      }
+    }).catch((error) => {
+      state.onEvent({
+        type: conversationEventTypes.PROTOCOL_WARNING,
+        warning: 'control_response_write_failed',
+        message: error.message,
+        visible: false
+      });
+    });
+    state.onEvent({
+      type: conversationEventTypes.SYSTEM_NOTICE,
+      text: protection.message,
+      summary: 'Blocked command that could stop the daemon',
+      noticeKind: 'daemon_self_protection',
+      visible: true,
       toolName: request.tool_name,
       input: request.input || {},
       toolUseId: request.tool_use_id || null,

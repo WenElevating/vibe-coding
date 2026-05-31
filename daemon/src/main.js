@@ -34,6 +34,7 @@ const { createServer } = require('./server');
 const { AsrModelAsset } = require('./asr-model-asset');
 const { AppUpdateService } = require('./app-update-service');
 const { NotificationHub } = require('./notification-hub');
+const { createWindowsSleepInhibitor } = require('./windows-sleep-inhibitor');
 
 function loadOrCreateSecrets(dbPath) {
   const secretsPath = path.join(path.dirname(dbPath), '.daemon-secrets.json');
@@ -152,10 +153,25 @@ function activeConversationIdsForScratchCleanup(conversations) {
 
 if (require.main === module) {
   const app = createApp();
+  const sleepInhibitor = createWindowsSleepInhibitor();
+  const stopSleepInhibitor = () => sleepInhibitor.stop();
+  process.once('exit', stopSleepInhibitor);
+  process.once('SIGINT', () => {
+    stopSleepInhibitor();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    stopSleepInhibitor();
+    process.exit(143);
+  });
   app.server.listen(app.config.port, app.config.host, () => {
     const lan = app.config.host === '127.0.0.1' ? 'disabled' : 'enabled';
     console.log(`daemon ${app.version.daemonVersion} listening on http://${app.config.host}:${app.config.port} (${app.config.mode}, LAN ${lan})`);
     console.log('Windows Firewall may prompt when LAN mode is enabled.');
+    const sleep = sleepInhibitor.start();
+    if (sleep.active) {
+      console.log('Preventing Windows from sleeping while the daemon is running. Set DAEMON_PREVENT_SLEEP=0 to disable.');
+    }
   });
 }
 

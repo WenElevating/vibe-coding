@@ -554,6 +554,9 @@ class WorkbenchViewModel extends ChangeNotifier {
       ..clear()
       ..addAll(sorted);
     _lastSeq = sorted.isEmpty ? 0 : sorted.last.seq;
+    for (final event in sorted) {
+      _applyConversationStatusEvent(event);
+    }
     _conversationState =
         const ConversationViewState().apply(sorted, streamOutput: streamOutput);
     _rebuildMessagesFromConversationState();

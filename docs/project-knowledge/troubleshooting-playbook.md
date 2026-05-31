@@ -395,6 +395,55 @@ flutter test --no-pub test\coding_workbench_controller_test.dart test\widget_tes
 
 - Last verified: 2026-05-25
 
+## Symptom: Active Conversation Reopen Loses Or Misapplies Pending Animation
+
+- Symptom: reopening an active conversation after daemon disconnect either
+  hides the running transition while history is stalled, or shows it forever
+  after historical events prove the turn already completed.
+- Action: inspect the initial conversation event page path, not only the live
+  stream reducer. Historical page replacement must apply status events back to
+  the active `ConversationSummary`; the UI may delay pending briefly for stale
+  summaries, but should reveal it for active sessions when history remains
+  unavailable. When the user sends a new turn, clear any initial-history
+  loading gate first; otherwise one daemon disconnect can suppress pending UI
+  for every later turn in the same conversation.
+- Related files:
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+flutter test --no-pub test\widget_test.dart --plain-name "opening stale active conversation waits for history before pending animation"
+flutter test --no-pub test\widget_test.dart --plain-name "opening active conversation reveals pending animation when history stalls"
+flutter test --no-pub test\widget_test.dart --plain-name "existing conversation send can recover pending animation after daemon disconnect"
+```
+
+- Last verified: 2026-05-31
+
+## Symptom: CLI Command Kills The Mobile Daemon
+
+- Symptom: an agent tries to clean up an "old server" on port `4317` with
+  `taskkill`/`kill`, and the mobile app immediately gets connection refused
+  errors because `4317` is the daemon API port.
+- Action: protect the daemon at multiple layers. Claude stdio permission
+  requests should deny shell kill commands that reference the daemon PID or
+  port, and `start-daemon.bat` should run the Node process under its watchdog so
+  an unexpected child exit restarts the service. This does not protect a batch
+  parent that is killed explicitly.
+- Related files:
+  [daemon-self-protection.js](../../daemon/src/daemon-self-protection.js),
+  [claude-conversation-adapter.js](../../daemon/src/claude-conversation-adapter.js),
+  [start-daemon.bat](../../start-daemon.bat)
+- Verification:
+
+```powershell
+npm test
+npm run lint
+```
+
+- Last verified: 2026-05-31
+
 ## Symptom: Codex command_execution Times Out But The Same Command Works In PowerShell
 
 - Symptom: the workbench command card reports output such as
