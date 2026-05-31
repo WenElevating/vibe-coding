@@ -249,12 +249,12 @@ class AppUpdateDownloadManager implements AppUpdateDownloader {
   }) async {
     final bridge = _backgroundDownloadBridge;
     if (bridge == null || !await bridge.isSupported) return null;
-    if (!await bridge.prepareNotifications()) {
-      return const AppUpdateDownloadResult(
-        state: AppUpdateDownloadState.paused,
-        message:
-            'Notification permission is required for background update downloads.',
-      );
+    try {
+      await bridge.prepareNotifications();
+    } on Object {
+      // Notification permission is best-effort for Android foreground
+      // downloads. The native foreground service can still run without the
+      // runtime notification grant.
     }
     final downloadId = 'app-update:${manifest.versionCode}';
     final terminal = Completer<BackgroundDownloadSnapshot>();

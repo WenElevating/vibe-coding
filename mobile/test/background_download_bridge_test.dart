@@ -179,4 +179,22 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMessageHandler(eventChannel.name, null);
   });
+
+  test('method channel bridge permits download when notification is denied',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    var requested = false;
+    final bridge = MethodChannelBackgroundDownloadBridge(
+      forceAndroidForTesting: true,
+      notificationPermissionRequester: () async {
+        requested = true;
+        return false;
+      },
+    );
+
+    final prepared = await bridge.prepareNotifications();
+
+    expect(requested, true);
+    expect(prepared, true);
+  });
 }

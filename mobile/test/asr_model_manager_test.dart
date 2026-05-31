@@ -78,7 +78,7 @@ void main() {
     expect(manager.state.status, AsrModelStatus.ready);
   });
 
-  test('native ASR path reports failure when notification permission is denied',
+  test('native ASR path continues when notification permission is denied',
       () async {
     final bytes = _zipBytes();
     final bridge = _FakeBackgroundDownloadBridge(
@@ -92,18 +92,12 @@ void main() {
       supportDirectoryProvider: () async => tempDir,
     );
 
-    await expectLater(
-      manager.ensureReady(),
-      throwsA(isA<StateError>().having(
-        (error) => '$error',
-        'message',
-        contains('Notification permission is required'),
-      )),
-    );
+    final modelPath = await manager.ensureReady();
 
-    expect(manager.state.status, AsrModelStatus.failed);
+    expect(File('$modelPath/encoder.onnx').existsSync(), true);
+    expect(manager.state.status, AsrModelStatus.ready);
     expect(client.downloadCalls, 0);
-    expect(bridge.requests, isEmpty);
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.asrModel);
   });
 
   test('pausing a native ASR download cancels platform transfer and pauses',

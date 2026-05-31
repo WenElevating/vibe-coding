@@ -129,6 +129,61 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('native background bridge starts when notification permission is denied',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 22);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      notificationsPrepared: false,
+    );
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.value(bytes), 200),
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(bridge.prepareNotificationsCalls, 1);
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.appUpdate);
+    await temp.delete(recursive: true);
+  });
+
+  test('native background bridge still starts if notification request fails',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('app-update-native-');
+    final bytes = utf8.encode('hello-world');
+    final manifest = _manifest(bytes, versionCode: 23);
+    final bridge = _FakeBackgroundDownloadBridge(
+      bytes: bytes,
+      notificationPreparationError: StateError('permission prompt failed'),
+    );
+    final manager = AppUpdateDownloadManager(
+      cacheDirectory: temp,
+      backgroundDownloadBridge: bridge,
+      openStream: (uri, {rangeStart, ifRange}) async =>
+          http.StreamedResponse(Stream<List<int>>.value(bytes), 200),
+      availableBytes: () async => 10000000,
+    );
+
+    final result = await manager.download(
+      manifest,
+      Uri.parse('http://127.0.0.1:4317'),
+    );
+
+    expect(result.state, AppUpdateDownloadState.readyToInstall);
+    expect(bridge.requests.single.kind, BackgroundDownloadKind.appUpdate);
+    await temp.delete(recursive: true);
+  });
+
   test('terminal auth failure keeps existing partial file', () async {
     final temp = await Directory.systemTemp.createTemp('app-update-auth-');
     final bytes = utf8.encode('hello');
@@ -665,17 +720,29 @@ String _updateFile(Directory dir, String name) =>
     '${dir.path}${Platform.pathSeparator}$name';
 
 class _FakeBackgroundDownloadBridge implements BackgroundDownloadBridge {
-  _FakeBackgroundDownloadBridge({required this.bytes});
+  _FakeBackgroundDownloadBridge({
+    required this.bytes,
+    this.notificationsPrepared = true,
+    this.notificationPreparationError,
+  });
 
   final List<int> bytes;
+  final bool notificationsPrepared;
+  final Object? notificationPreparationError;
   final requests = <BackgroundDownloadRequest>[];
+  var prepareNotificationsCalls = 0;
   final _events = StreamController<BackgroundDownloadSnapshot>.broadcast();
 
   @override
   Future<bool> get isSupported async => true;
 
   @override
-  Future<bool> prepareNotifications() async => true;
+  Future<bool> prepareNotifications() async {
+    prepareNotificationsCalls++;
+    final error = notificationPreparationError;
+    if (error != null) throw error;
+    return notificationsPrepared;
+  }
 
   @override
   Stream<BackgroundDownloadSnapshot> get events => _events.stream;

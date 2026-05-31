@@ -520,10 +520,14 @@ flutter test --no-pub test\asr_model_manager_test.dart -r expanded --plain-name 
 - Action: keep byte transfers in the Android foreground download service and
   let Dart workflows verify/promote the completed `.part` file on resume. The
   Dart download managers still own checksum validation, metadata promotion, and
-  ASR extraction.
+  ASR extraction. Do not treat denied `POST_NOTIFICATIONS` permission as a hard
+  blocker for starting the foreground download service; Android still permits
+  foreground service launch without that runtime notification grant, though the
+  notification drawer entry may be hidden.
 - Related files:
   [BackgroundDownloadService.kt](../../mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundDownloadService.kt),
   [background_download_bridge.dart](../../mobile/lib/src/services/background_download_bridge.dart),
+  [method_channel_background_download_bridge.dart](../../mobile/lib/src/services/method_channel_background_download_bridge.dart),
   [app_update_download_manager.dart](../../mobile/lib/src/services/app_update_download_manager.dart),
   [asr_model_manager.dart](../../mobile/lib/src/services/asr_model_manager.dart)
 - Verification:

@@ -282,10 +282,12 @@ class AsrModelManager extends ChangeNotifier {
   ) async {
     final bridge = _backgroundDownloadBridge;
     if (bridge == null || !await bridge.isSupported) return null;
-    if (!await bridge.prepareNotifications()) {
-      throw StateError(
-        'Notification permission is required for background voice model downloads.',
-      );
+    try {
+      await bridge.prepareNotifications();
+    } on Object {
+      // Notification permission is best-effort for Android foreground
+      // downloads. The native foreground service can still run without the
+      // runtime notification grant.
     }
     final token = await _client.tokenProvider();
     final requestHeaders = <String, String>{
