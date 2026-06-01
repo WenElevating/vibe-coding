@@ -1736,7 +1736,6 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
 
 AppSnapshot _testSnapshot({
   List<WorkspaceSummary>? workspaces,
-  List<AdapterStatus> adapters = const <AdapterStatus>[],
   List<RunSummary> runs = const <RunSummary>[],
   List<ConversationSummary> conversations = const <ConversationSummary>[],
   List<QueueItem> queue = const <QueueItem>[],
@@ -1773,7 +1772,7 @@ AppSnapshot _testSnapshot({
           symbolCount: 0,
           analysisScore: 0,
           recentFiles: recentFiles),
-      adapters: adapters,
+      adapters: const <AdapterStatus>[],
       runs: runs,
       conversations: conversations,
       queue: queue,
@@ -5587,7 +5586,7 @@ void main() {
     expect(find.text('synthetic-text'), findsNothing);
   });
 
-  testWidgets('coding does not block workspace navigation during adapter probe',
+  testWidgets('coding waits for pending adapter preload',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -5601,8 +5600,10 @@ void main() {
     await tester.tap(find.text('Coding'));
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-    expect(find.text('Loading CLI...'), findsNothing);
+    expect(find.text('Loading CLI...'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
+    expect(find.text('New Session'), findsNothing);
     expect(client.listAdaptersCalls, 1);
 
     client.completeWithAdapters();
@@ -5610,32 +5611,6 @@ void main() {
 
     expect(find.text('Loading CLI...'), findsNothing);
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-  });
-
-  testWidgets('coding uses bootstrap adapters while refresh is pending',
-      (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(
-        <String, Object>{AppLanguage.storageKey: 'en-US'});
-    final client = _PendingAdapterClient();
-
-    await tester.pumpWidget(_MainHarness(
-      client: client,
-      snapshot: _testSnapshot(
-        adapters: const <AdapterStatus>[
-          AdapterStatus(adapter: 'codex', available: true, status: 'available'),
-        ],
-      ),
-    ));
-    await tester.pump();
-
-    expect(client.listAdaptersCalls, 1);
-
-    await tester.tap(find.text('Coding'));
-    await tester.pump();
-
-    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-    expect(find.text('Loading CLI...'), findsNothing);
-    expect(find.text('Unable to load CLI adapters'), findsNothing);
   });
 
   testWidgets('coding adapter preload failure can retry',
@@ -5652,18 +5627,14 @@ void main() {
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-    expect(find.text('Unable to load CLI adapters'), findsNothing);
-    expect(find.text('Retry loading CLI'), findsNothing);
+    expect(find.text('Unable to load CLI adapters'), findsOneWidget);
+    expect(find.text('Retry loading CLI'), findsOneWidget);
 
     client.resetCompleter();
-    final harnessState =
-        tester.state<_MainHarnessState>(find.byType(_MainHarness));
-    final adapterRepository = harnessState
-        ._pageDependencies.sessionScope.repositories.cliAdapterRepository;
-    unawaited(adapterRepository.probe());
+    await tester.tap(find.text('Retry loading CLI'));
     await tester.pump();
 
+    expect(find.text('Loading CLI...'), findsOneWidget);
     expect(client.listAdaptersCalls, 2);
 
     client.completeWithAdapters();

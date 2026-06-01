@@ -23,10 +23,6 @@
 - Do not create a parallel empty shell for "no selected workspace". Keep the
   same main shell and render workspace-unselected variants inside the affected
   tab content.
-- CLI adapter probing is a background capability refresh, not a main-shell
-  readiness gate. The Coding tab should stay navigable while
-  `CliAdapterRepository.probe()` is loading or fails; Workbench composer and
-  picker UI own the "no available CLI adapter" state.
 - New production code should not be added to retired migration roots:
   `mobile/lib/src/features`, `mobile/lib/src/widgets`, `mobile/lib/src/theme`,
   or `mobile/lib/src/state`.
