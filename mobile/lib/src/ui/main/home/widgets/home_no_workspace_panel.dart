@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../../l10n/app_localizations.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
+import '../../../core/widgets/widgets.dart';
 import '../../../features/workspace_picker/workspace_display.dart';
-import '../../../features/workspace_picker/workspace_picker_sheet.dart';
 import 'home_controls.dart';
 import 'home_surface.dart';
 
