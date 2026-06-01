@@ -40,6 +40,9 @@ Current high-risk candidates from the source tree:
   - About 40 KB.
   - Contains adapter picker, workspace list, add-workspace form, directory
     browser, directory rows, mini inputs, and path normalization helpers.
+  - `dedupeWorkspacesByPath` is already shared by Workspace Picker, Home
+    no-workspace presentation, and widget tests, so it should not remain
+    accidentally owned by a picker sheet file after the split.
 - `ui/features/settings/settings_page.dart`
   - About 23 KB.
   - Contains settings page composition, language modal, connection card,
@@ -173,6 +176,13 @@ mobile/lib/src/ui/features/workbench/
 Callers should import the barrel or the specific public file already used by
 the feature, not private leaf files.
 
+The implementation plan should add a lightweight barrel consistency check to
+`mobile/tool/check_architecture_imports.dart` before large barrel churn. The
+check should verify that configured feature barrels export existing Dart files
+and that each exported file still contains at least one public declaration. This
+does not need a full analyzer plugin; a conservative file-exists plus public
+declaration scan is enough to catch stale exports during this cleanup.
+
 ## Workbench Refactor Slices
 
 ### Slice 1: Split event/message rendering
@@ -190,10 +200,10 @@ Initial extraction groups:
 - approval/question/notice/thinking cards;
 - pending sentinel/status widgets.
 
-Behavior should stay byte-for-byte equivalent from a caller perspective:
-`WorkbenchMessageCard`, `WorkbenchInlineStatus`, and `PendingSentinel` keep
-their public constructor contracts unless a test proves a narrower contract is
-safe.
+The public constructor contracts and observable behavior should remain
+equivalent from a caller perspective. `WorkbenchMessageCard`,
+`WorkbenchInlineStatus`, and `PendingSentinel` keep their public constructor
+contracts unless a test proves a narrower contract is safe.
 
 ### Slice 2: Split Workbench page routes and overlays
 
@@ -208,6 +218,20 @@ sections and overlays into focused files:
 - model picker sheet;
 - voice input error dialog;
 - ASR model download dialog.
+
+Before moving route rendering, add explicit source markers in
+`coding_workbench_page.dart` for route-sensitive subscription ownership. Use a
+consistent marker with a concrete reason, such as:
+
+```dart
+// TODO(slice-3): subscription ownership - restarts when opening a conversation route
+```
+
+At minimum, mark the code paths that cancel, restart, suspend, or apply
+conversation event subscriptions during route changes, conversation opening,
+workspace/session navigation, app backgrounding, and initial conversation event
+loading. This makes the later Slice 3 extraction source-guided instead of
+memory-guided.
 
 The page may continue to own the nested navigator, route observer, scroll
 controller, prompt controller, and event subscription during this slice. Those
@@ -245,6 +269,20 @@ Candidate extraction boundaries:
 - small domain/use-case helpers only when an operation crosses repositories or
   has an ordered side-effect sequence.
 
+Before implementing this slice, create a dependency sketch for the candidate
+state groups and approval/model/conversation flows. The sketch must identify:
+
+- which state group can depend on which other group;
+- which group owns route-derived facts such as active workspace and active
+  conversation;
+- whether draft attachment validation reads route/conversation state;
+- whether approval responses mutate both event state and route state;
+- whether any proposed extraction would create a cycle.
+
+Do not split the ViewModel into mutually referencing sibling objects. If the
+dependency sketch shows cycles, keep the state in one ViewModel and extract
+pure helpers or value objects first.
+
 The main `WorkbenchViewModel` should remain the single object consumed by the
 page during this cleanup. Avoid creating a web of sibling ViewModels until a
 concrete UI section needs independent lifecycle or independent tests.
@@ -268,12 +306,24 @@ mobile/lib/src/ui/features/workspace_picker/
 |   +-- directory_row.dart
 |   +-- mini_input.dart
 |   +-- sheet_icon_button.dart
++-- workspace_list_presenter.dart
 +-- workspace_display.dart
 ```
 
-Keep `dedupeWorkspacesByPath` and path normalization close to workspace list
-rendering unless another feature uses them. If tests already import them, keep
-compatibility exports from the barrel.
+Before splitting this file, run a full usage search for
+`dedupeWorkspacesByPath`, workspace path normalization, and workspace display
+helpers. Current usage already includes Workspace Picker, Home no-workspace
+presentation, and widget tests. Because the dedupe logic is shared by main/Home
+and a feature picker, do not leave it privately owned by a sheet file.
+
+Preferred ownership is a small presentation helper such as
+`workspace_list_presenter.dart` in `ui/features/workspace_picker/` if the logic
+remains specific to workspace-list presentation. If another main-shell module
+or feature needs broader path normalization beyond list presentation, promote
+the pure helper to a clearer shared owner, such as `ui/core` or a domain-level
+workspace value helper, only after verifying it has no Flutter/UI dependency.
+Use barrel exports deliberately after ownership is decided; do not use the
+barrel to hide unclear ownership.
 
 The directory browser uses repository callbacks for filesystem listing. Its
 stateful browse/open/back behavior should move with the sheet, not into the
@@ -324,8 +374,23 @@ they compose the connected shell rather than a feature tab.
 
 ## Testing Strategy
 
-This cleanup should rely on existing behavior tests plus focused additions only
-where boundaries become behavioral.
+This cleanup should rely on existing behavior tests only after they are audited
+against the slice risk. Before Workbench page-side controller extraction or
+ViewModel state extraction, add or identify focused tests that lock down key
+`WorkbenchViewModel` transitions:
+
+- event application and rebuild ordering;
+- initial and older event pagination;
+- optimistic user messages and acknowledgement reconciliation;
+- draft attachment validation, preview binding, and orphan cleanup;
+- approval responses for conversation and run approvals;
+- model selection and unsupported-model fallback;
+- route transitions between workspace list, session list, and conversation.
+
+If these paths are not covered, add behavior tests before refactoring the
+stateful code. Snapshot-style tests are acceptable only for stable input/output
+state projections; they must not replace behavior tests for ordered async
+flows.
 
 Run after each implementation slice:
 
@@ -368,13 +433,20 @@ stop retrying automatically and report the exact command as timed out.
 ## Implementation Order
 
 1. Workbench event/message rendering split.
-2. Workbench page route and overlay rendering split.
-3. Workspace Picker sheet/widget split.
-4. Settings page widget/sheet split.
-5. Workbench page-side controller extraction, only after the visual split is
+2. Add route-sensitive subscription ownership markers in
+   `coding_workbench_page.dart`, then split Workbench page route and overlay
+   rendering.
+3. Add barrel consistency coverage to the architecture check before large
+   barrel churn.
+4. Workspace Picker sheet/widget split, after confirming shared workspace-list
+   helper ownership from actual usage.
+5. Settings page widget/sheet split.
+6. Workbench page-side controller extraction, only after the visual split is
    stable.
-6. Workbench ViewModel responsibility split, only with targeted state tests.
-7. Optional `ui/main/main_page.dart` helper extraction under `ui/main/`.
+7. Workbench ViewModel dependency sketch and missing state-transition tests.
+8. Workbench ViewModel responsibility split, only if the sketch has no cycles
+   or the extraction is limited to pure helpers/value objects.
+9. Optional `ui/main/main_page.dart` helper extraction under `ui/main/`.
 
 This order starts with the largest rendering-only file, then simplifies the
 Workbench page before touching delicate state ownership. It leaves the main
