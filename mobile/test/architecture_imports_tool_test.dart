@@ -263,4 +263,65 @@ class DaemonConnectionViewModel {}
     expect(exitCode, isNonZero);
     expect(output.toString().replaceAll('\\', '/'), contains('domain/models'));
   });
+
+  test('feature barrel exporting missing file is reported as forbidden',
+      () async {
+    File('${tempDir.path}${Platform.pathSeparator}pubspec.yaml')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('name: architecture_imports_fixture\n');
+
+    final barrel = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      'lib${Platform.pathSeparator}'
+      'src${Platform.pathSeparator}'
+      'ui${Platform.pathSeparator}'
+      'features${Platform.pathSeparator}'
+      'workbench${Platform.pathSeparator}'
+      'workbench.dart',
+    )..createSync(recursive: true);
+
+    barrel.writeAsStringSync("export 'missing.dart';\n");
+
+    final output = StringBuffer();
+    final exitCode = await checker.checkArchitectureImports(
+      root: tempDir,
+      err: output,
+    );
+
+    expect(exitCode, isNonZero);
+    expect(output.toString(), contains('barrel export target is missing'));
+    expect(output.toString(), contains('workbench.dart'));
+  });
+
+  test('feature barrel exporting file without public declaration is reported',
+      () async {
+    File('${tempDir.path}${Platform.pathSeparator}pubspec.yaml')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('name: architecture_imports_fixture\n');
+
+    final featureDir = Directory(
+      '${tempDir.path}${Platform.pathSeparator}'
+      'lib${Platform.pathSeparator}'
+      'src${Platform.pathSeparator}'
+      'ui${Platform.pathSeparator}'
+      'features${Platform.pathSeparator}'
+      'workbench',
+    )..createSync(recursive: true);
+
+    File('${featureDir.path}${Platform.pathSeparator}workbench.dart')
+        .writeAsStringSync("export 'empty.dart';\n");
+    File('${featureDir.path}${Platform.pathSeparator}empty.dart')
+        .writeAsStringSync('class _PrivateOnly {}\n');
+
+    final output = StringBuffer();
+    final exitCode = await checker.checkArchitectureImports(
+      root: tempDir,
+      err: output,
+    );
+
+    expect(exitCode, isNonZero);
+    expect(output.toString(),
+        contains('barrel export target has no public declaration'));
+    expect(output.toString(), contains('empty.dart'));
+  });
 }

@@ -15,8 +15,19 @@ const allowedUiDaemonClientBoundaryImports = <String>{
 
 const allowedMigrationDebt = <_AllowedDebt>[];
 
+const checkedFeatureBarrels = <String>{
+  'lib/src/ui/features/workbench/workbench.dart',
+  'lib/src/ui/features/workspace_picker/workspace_picker.dart',
+  'lib/src/ui/features/settings/settings.dart',
+};
+
 final importOrExportPattern = RegExp(
   r'''^\s*(import|export)\s+['"]([^'"]+)['"]''',
+);
+
+final publicSurfacePattern = RegExp(
+  r'''^\s*(export\s+['"][^'"]+['"]|(?:abstract\s+|base\s+|final\s+|interface\s+|sealed\s+)*class\s+[A-Za-z][A-Za-z0-9_]*|enum\s+[A-Za-z][A-Za-z0-9_]*|typedef\s+[A-Za-z][A-Za-z0-9_]*|mixin\s+[A-Za-z][A-Za-z0-9_]*|extension(?:\s+[A-Za-z][A-Za-z0-9_]*)?\s+on\s+|(?:[A-Za-z][A-Za-z0-9_<>,? ]+\s+)+[A-Za-z][A-Za-z0-9_]*\s*\(|(?:const|final)\s+[A-Za-z][A-Za-z0-9_<>,? ]*\s+[A-Za-z][A-Za-z0-9_]*\s*=)''',
+  multiLine: true,
 );
 
 Future<void> main(List<String> args) async {
@@ -113,6 +124,11 @@ Future<int> checkArchitectureImports({
       );
     }
   }
+
+  _checkFeatureBarrels(
+    mobileRoot: mobileRoot,
+    violations: violations,
+  );
 
   out.writeln('Architecture import check');
   out.writeln('Migration-only import/export counts:');
@@ -224,6 +240,42 @@ bool _targetsRoot(String normalizedTarget, String root) {
   final libRoot = 'lib/$root';
   return normalizedTarget.startsWith(libRoot) ||
       normalizedTarget.startsWith(root);
+}
+
+void _checkFeatureBarrels({
+  required Directory mobileRoot,
+  required List<String> violations,
+}) {
+  for (final barrelPath in checkedFeatureBarrels) {
+    final barrel = File(_joinMobilePath(mobileRoot, barrelPath));
+    if (!barrel.existsSync()) continue;
+    final lines = barrel.readAsLinesSync();
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final match = importOrExportPattern.firstMatch(lines[lineIndex]);
+      if (match == null || match.group(1) != 'export') continue;
+      final uri = match.group(2)!;
+      if (uri.startsWith('package:') || uri.startsWith('dart:')) continue;
+      final target = _normalizeTarget(barrelPath, uri);
+      final targetFile = File(_joinMobilePath(mobileRoot, target));
+      final location = '$barrelPath:${lineIndex + 1}';
+      if (!targetFile.existsSync()) {
+        violations.add('$location barrel export target is missing ($uri)');
+        continue;
+      }
+      final source = targetFile.readAsStringSync();
+      if (!publicSurfacePattern.hasMatch(source)) {
+        violations.add(
+          '$location barrel export target has no public declaration ($uri)',
+        );
+      }
+    }
+  }
+}
+
+String _joinMobilePath(Directory mobileRoot, String normalizedPath) {
+  final parts = <String>[mobileRoot.absolute.path];
+  parts.addAll(normalizedPath.split('/'));
+  return parts.join(Platform.pathSeparator);
 }
 
 void _checkDomainRule({
