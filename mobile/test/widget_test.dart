@@ -41,14 +41,14 @@ import 'package:lan_ai_cli_control/src/ui/features/diagnostics/diagnostics.dart'
 import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail.dart';
 import 'package:lan_ai_cli_control/src/ui/features/sessions/sessions.dart'
     hide mergeSessionItems;
-import 'package:lan_ai_cli_control/src/ui/features/settings/settings_page.dart'
+import 'package:lan_ai_cli_control/src/ui/features/settings/settings.dart'
     as settings_feature;
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/app_update_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/features/settings/view_models/settings_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/features/settings/widgets/app_update_panel.dart';
 import 'package:lan_ai_cli_control/src/workflows/app_update_workflow.dart';
 import 'package:lan_ai_cli_control/src/testing/testing.dart';
-import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker_sheet.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workspace_picker/workspace_picker.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_connection_config.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_connection_config_store.dart';
 import 'package:lan_ai_cli_control/src/shell/app_snapshot.dart';

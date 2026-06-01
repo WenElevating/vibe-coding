@@ -14,7 +14,7 @@ import '../../services/approval_notification_handler.dart';
 import '../../services/local_approval_notification_service.dart';
 import '../../services/mobile_app_event_bus.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
-import '../features/workspace_picker/workspace_picker_sheet.dart';
+import '../features/workspace_picker/workspace_picker.dart';
 import '../features/settings/settings.dart'
     show
         AppUpdateCheckTrigger,

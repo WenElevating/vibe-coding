@@ -2,13 +2,19 @@ export 'approval_page.dart';
 export 'coding_composer.dart';
 export 'coding_workbench_page.dart';
 export 'workbench_dependencies.dart';
-export 'workbench_event_cards.dart';
 export 'workbench_messages.dart';
 export 'voice_input.dart';
 export 'coding_workbench_controller.dart';
 export 'controllers/slash_command_menu_controller.dart';
 export 'messages/assistant_markdown_body.dart';
+export 'messages/command_event_card.dart'
+    show
+        buildCompletedCommandCardPreview,
+        buildConversationCommandCardPreview,
+        buildLargeOutputCommandCardPreview,
+        buildSubAgentCallCardPreview;
 export 'messages/pending_sentinel.dart';
+export 'messages/task_progress_card.dart' show buildTaskProgressCardPreview;
 export 'messages/workbench_message_card.dart';
 export 'sheets/model_picker_sheet.dart';
 export 'view_models/workbench_view_model.dart';
