@@ -6,7 +6,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.da
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/ui/pages/home_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/main/home/home.dart';
 
 const _conversationCapabilities = ConversationCapabilities(
   longLivedProcess: false,

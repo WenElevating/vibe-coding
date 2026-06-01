@@ -10,11 +10,10 @@ import 'package:lan_ai_cli_control/src/services/daemon_notification_client.dart'
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
 
 void main() {
-  test('main tabs dependencies expose hydrated connected session scope',
-      () async {
+  test('main dependencies expose hydrated connected session scope', () async {
     final appDependencies = AppDependencies.createDefault();
     final client = _daemonClient();
-    final dependencies = appDependencies.createMainTabsDependencies(
+    final dependencies = appDependencies.createMainDependencies(
       client,
       initialData: _initialData(),
     );
@@ -38,7 +37,7 @@ void main() {
     () async {
       final appDependencies = AppDependencies.createDefault();
       final client = _daemonClient();
-      final dependencies = appDependencies.createMainTabsDependencies(
+      final dependencies = appDependencies.createMainDependencies(
         client,
         initialData: _initialDataWithoutSelectedWorkspace(),
       );
@@ -67,7 +66,7 @@ void main() {
     final notificationClient = _CloseRecordingNotificationClient();
     final appDependencies = _appDependencies(notificationClient);
     final client = _daemonClient();
-    final dependencies = appDependencies.createMainTabsDependencies(
+    final dependencies = appDependencies.createMainDependencies(
       client,
       initialData: _initialData(),
     );

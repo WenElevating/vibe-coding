@@ -154,7 +154,7 @@ class BadModel {}
 
     file.writeAsStringSync('''
 import '../../services/daemon_client.dart';
-import '../../ui/main_tabs_page.dart';
+import '../../ui/main_page.dart';
 ''');
 
     final output = StringBuffer();

@@ -610,9 +610,9 @@ node scripts/run-tests.js
   the new workspace disappear from the in-memory workspace list, but restarting
   the app shows it again.
 - Action: inspect the boundary between `WorkbenchViewModel` and
-  `MainTabsViewModel`. Workspace creation refreshes the daemon workspace
+  `MainShellViewModel`. Workspace creation refreshes the daemon workspace
   catalog in the workbench flow; the refreshed catalog must also be written back
-  to `MainTabsViewModel.data`. Otherwise `CodingWorkbenchPage.didUpdateWidget`
+  to `MainShellViewModel.data`. Otherwise `CodingWorkbenchPage.didUpdateWidget`
   can rebuild from a stale `AppSnapshot` during a tab round trip and overwrite
   the workbench route state with the old workspace list.
 - Verification:
@@ -624,7 +624,7 @@ $env:no_proxy='localhost,127.0.0.1,::1'
 $env:PUB_HOSTED_URL='https://pub.flutter-io.cn'
 $env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
 flutter test --no-pub test\widget_test.dart --plain-name "created workspace remains listed after settings tab round trip"
-flutter test --no-pub test\main_tabs_view_model_test.dart --plain-name "updates workspace catalog"
+flutter test --no-pub test\main_shell_view_model_test.dart --plain-name "updates workspace catalog"
 ```
 
 - Last verified: 2026-05-28

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
-import 'package:lan_ai_cli_control/src/ui/pages/home_command_deck_model.dart';
+import 'package:lan_ai_cli_control/src/ui/main/home/home.dart';
 
 void main() {
   const current = WorkspaceSummary(

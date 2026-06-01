@@ -239,8 +239,8 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                       health: _snapshot.health)))));
 }
 
-class _MainTabsHarness extends StatefulWidget {
-  const _MainTabsHarness({
+class _MainHarness extends StatefulWidget {
+  const _MainHarness({
     required this.client,
     this.dependencies,
     this.snapshot,
@@ -253,33 +253,33 @@ class _MainTabsHarness extends StatefulWidget {
   final bool? forceAndroidForTesting;
 
   @override
-  State<_MainTabsHarness> createState() => _MainTabsHarnessState();
+  State<_MainHarness> createState() => _MainHarnessState();
 }
 
-class _MainTabsHarnessState extends State<_MainTabsHarness> {
+class _MainHarnessState extends State<_MainHarness> {
   late final LanguageController _languageController;
   late AppDependencies _dependencies;
-  late MainTabsDependencies _pageDependencies;
+  late MainDependencies _pageDependencies;
 
   @override
   void initState() {
     super.initState();
     _languageController = LanguageController()..load();
     _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-    _pageDependencies = _dependencies.createMainTabsDependencies(
+    _pageDependencies = _dependencies.createMainDependencies(
       widget.client,
       initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
     );
   }
 
   @override
-  void didUpdateWidget(covariant _MainTabsHarness oldWidget) {
+  void didUpdateWidget(covariant _MainHarness oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.client != widget.client ||
         oldWidget.dependencies != widget.dependencies ||
         oldWidget.snapshot != widget.snapshot) {
       _dependencies = widget.dependencies ?? AppDependencies.createDefault();
-      _pageDependencies = _dependencies.createMainTabsDependencies(
+      _pageDependencies = _dependencies.createMainDependencies(
         widget.client,
         initialData: (widget.snapshot ?? _testSnapshot()).toDaemonInitialData(),
       );
@@ -304,7 +304,7 @@ class _MainTabsHarnessState extends State<_MainTabsHarness> {
               localeResolutionCallback: (locale, supportedLocales) =>
                   resolveSupportedLocale(locale, supportedLocales),
               theme: theme.buildAppTheme(),
-              home: MainTabsPage(
+              home: MainPage(
                   initialData: (widget.snapshot ?? _testSnapshot())
                       .toDaemonInitialData(),
                   connectionConfig: const DaemonConnectionConfig(
@@ -949,7 +949,7 @@ Widget _pagedWorkbenchHarness({
       ),
     ),
   );
-  return _MainTabsHarness(
+  return _MainHarness(
     client: client,
     dependencies: testDependencies,
     snapshot: _testSnapshot(conversations: conversations),
@@ -1932,7 +1932,7 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(_MainTabsHarness(
+    await tester.pumpWidget(_MainHarness(
       client: client,
       dependencies: testDependencies,
       snapshot: snapshot,
@@ -2035,7 +2035,7 @@ void main() {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
 
-    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await _pumpNavigationFrame(tester);
 
     await tester.tap(find.text('Settings').last);
@@ -3299,7 +3299,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -3379,7 +3379,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -3500,7 +3500,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4093,7 +4093,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4214,7 +4214,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4316,7 +4316,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4411,7 +4411,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4517,13 +4517,13 @@ void main() {
       }
     }
 
-    void resumeAppThroughMainTabs() {
+    void resumeAppThroughMain() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     }
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         forceAndroidForTesting: true,
@@ -4541,7 +4541,7 @@ void main() {
       sessionId: 22,
       file: File('ready.apk'),
     );
-    resumeAppThroughMainTabs();
+    resumeAppThroughMain();
     await pumpUntilRecoveryReads(2);
     await pumpUntilFetches(3);
     await tester.pump();
@@ -4629,7 +4629,7 @@ void main() {
     }
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         forceAndroidForTesting: true,
@@ -4727,7 +4727,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4838,7 +4838,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -4933,7 +4933,7 @@ void main() {
       ),
     ];
     final client = _AdapterRefreshClient();
-    final pageDependencies = dependencies.createMainTabsDependencies(
+    final pageDependencies = dependencies.createMainDependencies(
       client,
       initialData:
           _testSnapshot(conversations: conversations).toDaemonInitialData(),
@@ -5079,7 +5079,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
         snapshot: _testSnapshot(conversations: conversations),
@@ -5146,7 +5146,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
       ),
@@ -5237,7 +5237,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
       ),
@@ -5318,7 +5318,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _MainTabsHarness(
+      _MainHarness(
         client: client,
         dependencies: testDependencies,
       ),
@@ -5548,7 +5548,7 @@ void main() {
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     final client = _AdapterRefreshClient();
 
-    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpWidget(_MainHarness(client: client));
     await tester.pumpAndSettle();
 
     expect(client.listAdaptersCalls, 1);
@@ -5580,7 +5580,7 @@ void main() {
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     final client = _PendingAdapterClient();
 
-    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpWidget(_MainHarness(client: client));
     await tester.pump();
 
     expect(client.listAdaptersCalls, 1);
@@ -5607,7 +5607,7 @@ void main() {
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     final client = _PendingAdapterClient();
 
-    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpWidget(_MainHarness(client: client));
     await tester.pump();
     client.completeWithError();
     await tester.pumpAndSettle();
@@ -5638,11 +5638,11 @@ void main() {
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     final client = _PendingAdapterClient()..completeCatalogWithError = true;
 
-    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpWidget(_MainHarness(client: client));
     await tester.pump();
 
     final harnessState =
-        tester.state<_MainTabsHarnessState>(find.byType(_MainTabsHarness));
+        tester.state<_MainHarnessState>(find.byType(_MainHarness));
     final commandCatalogRepository = harnessState
         ._pageDependencies.sessionScope.repositories.commandCatalogRepository;
     await expectLater(
@@ -5893,7 +5893,7 @@ void main() {
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
-    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Coding'));
@@ -5930,7 +5930,7 @@ void main() {
       createdWorkspace: createdWorkspace,
     );
 
-    await tester.pumpWidget(_MainTabsHarness(client: client));
+    await tester.pumpWidget(_MainHarness(client: client));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Coding'));
@@ -5967,7 +5967,7 @@ void main() {
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
-    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Coding'));
@@ -6003,7 +6003,7 @@ void main() {
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
-    await tester.pumpWidget(_MainTabsHarness(client: _AdapterRefreshClient()));
+    await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Coding'));

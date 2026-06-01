@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../shell/app_route.dart';
 
-class MainTabsShellViewModel extends ChangeNotifier {
+class MainShellViewModel extends ChangeNotifier {
   int _activeTab = 0;
   bool _streamOutput = false;
   bool _expandThinking = false;

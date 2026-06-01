@@ -52,7 +52,7 @@ import '../ui/features/run_detail/run_detail.dart';
 import '../ui/features/settings/settings.dart';
 import '../ui/features/workbench/attachments/attachment_preview_cache.dart';
 import '../ui/features/workbench/workbench_dependencies.dart';
-import '../ui/pages/home_view_model.dart';
+import '../ui/main/home/home.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 import '../workflows/connection/open_workspace_use_case.dart';
@@ -94,7 +94,7 @@ class AppDependencies {
   final DomainDependencies domain;
   final FeatureDependencies features;
 
-  MainTabsDependencies createMainTabsDependencies(
+  MainDependencies createMainDependencies(
     DaemonClient client, {
     required DaemonInitialData initialData,
   }) {
@@ -118,7 +118,7 @@ class AppDependencies {
       repositories: sessionScope.repositories,
       initialData: initialData,
     );
-    return MainTabsDependencies(
+    return MainDependencies(
       sessionScope: sessionScope,
       connectedData: connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
@@ -144,8 +144,8 @@ class AppDependencies {
   }
 }
 
-class MainTabsDependencies {
-  MainTabsDependencies({
+class MainDependencies {
+  MainDependencies({
     required this.sessionScope,
     required this.connectedData,
     required this.codingPreferencesRepository,

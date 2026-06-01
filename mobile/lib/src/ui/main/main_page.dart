@@ -5,31 +5,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../app/app_dependencies.dart';
-import '../app/connected_session_scope.dart';
-import '../domain/models/daemon_connection_config.dart';
-import '../domain/models/daemon_initial_data.dart';
-import '../models/protocol.dart';
-import '../services/approval_notification_handler.dart';
-import '../services/local_approval_notification_service.dart';
-import '../services/mobile_app_event_bus.dart';
-import '../workflows/workspace/create_workspace_workflow.dart';
-import 'features/workspace_picker/workspace_picker_sheet.dart';
-import 'features/settings/settings.dart'
+import '../../app/app_dependencies.dart';
+import '../../app/connected_session_scope.dart';
+import '../../domain/models/daemon_connection_config.dart';
+import '../../domain/models/daemon_initial_data.dart';
+import '../../models/protocol.dart';
+import '../../services/approval_notification_handler.dart';
+import '../../services/local_approval_notification_service.dart';
+import '../../services/mobile_app_event_bus.dart';
+import '../../workflows/workspace/create_workspace_workflow.dart';
+import '../features/workspace_picker/workspace_picker_sheet.dart';
+import '../features/settings/settings.dart'
     show
         AppUpdateCheckTrigger,
         AppUpdateStatus,
         AppUpdateViewModel,
         SettingsViewModel;
-import 'features/workbench/workbench.dart';
-import 'main_tabs/coding_adapter_gate.dart';
-import 'main_tabs/connected_main_tabs_shell.dart';
-import 'main_tabs/empty_main_tabs_shell.dart';
-import 'pages/pages.dart';
-import 'view_models/main_tabs_shell_view_model.dart';
+import '../features/workbench/workbench.dart';
+import '../pages/pages.dart';
+import 'coding_adapter_gate.dart';
+import 'connected_main_shell.dart';
+import 'empty_main_shell.dart';
+import 'main_shell_view_model.dart';
 
-class MainTabsPage extends StatefulWidget {
-  const MainTabsPage({
+class MainPage extends StatefulWidget {
+  const MainPage({
     super.key,
     required this.initialData,
     required this.connectionConfig,
@@ -37,7 +37,7 @@ class MainTabsPage extends StatefulWidget {
     this.forceAndroidForTesting,
   });
 
-  const MainTabsPage.fromInitialData({
+  const MainPage.fromInitialData({
     super.key,
     required this.initialData,
     required this.connectionConfig,
@@ -47,16 +47,15 @@ class MainTabsPage extends StatefulWidget {
 
   final DaemonInitialData initialData;
   final DaemonConnectionConfig connectionConfig;
-  final MainTabsDependencies pageDependencies;
+  final MainDependencies pageDependencies;
   final bool? forceAndroidForTesting;
 
   @override
-  State<MainTabsPage> createState() => _MainTabsPageState();
+  State<MainPage> createState() => _MainPageState();
 }
 
-class _MainTabsPageState extends State<MainTabsPage>
-    with WidgetsBindingObserver {
-  MainTabsShellViewModel? _viewModel;
+class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
+  MainShellViewModel? _viewModel;
   HomeViewModel? _homeViewModel;
   SettingsViewModel? _settingsViewModel;
   late final MobileAppEventBus _mobileAppEventBus;
@@ -101,7 +100,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     final initialData = widget.initialData;
     if (initialData.workspace != null) {
       _connectedInitialData = initialData;
-      _viewModel = MainTabsShellViewModel();
+      _viewModel = MainShellViewModel();
       _createRepositoryBackedViewModels(initialData);
       unawaited(_loadCodingPreferences(_viewModel!));
       _loadCodingAdapters();
@@ -109,7 +108,7 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   @override
-  void didUpdateWidget(covariant MainTabsPage oldWidget) {
+  void didUpdateWidget(covariant MainPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageDependencies != widget.pageDependencies) {
       if (oldWidget.pageDependencies.codingPreferencesRepository !=
@@ -138,8 +137,7 @@ class _MainTabsPageState extends State<MainTabsPage>
       _connectedInitialData =
           initialData.workspace == null ? null : initialData;
       _viewModel?.dispose();
-      _viewModel =
-          initialData.workspace == null ? null : MainTabsShellViewModel();
+      _viewModel = initialData.workspace == null ? null : MainShellViewModel();
       if (_viewModel != null) {
         _createRepositoryBackedViewModels(initialData);
         unawaited(_loadCodingPreferences(_viewModel!));
@@ -155,7 +153,7 @@ class _MainTabsPageState extends State<MainTabsPage>
       if (widget.initialData.workspace != null) {
         _connectedInitialData = widget.initialData;
         final shellWasMissing = _viewModel == null;
-        _viewModel ??= MainTabsShellViewModel();
+        _viewModel ??= MainShellViewModel();
         if (_homeViewModel == null || _settingsViewModel == null) {
           _createRepositoryBackedViewModels(widget.initialData);
         } else {
@@ -283,7 +281,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     );
   }
 
-  Future<void> _loadCodingPreferences(MainTabsShellViewModel viewModel) async {
+  Future<void> _loadCodingPreferences(MainShellViewModel viewModel) async {
     try {
       final repository = widget.pageDependencies.codingPreferencesRepository;
       await repository.load();
@@ -443,7 +441,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    return ConnectedMainTabsShell(
+    return ConnectedMainShell(
       viewModel: viewModel,
       initialData: initialData,
       homeViewModel: homeViewModel,
@@ -458,7 +456,7 @@ class _MainTabsPageState extends State<MainTabsPage>
   }
 
   Widget _buildEmptyShell(BuildContext context) {
-    return EmptyMainTabsShell(
+    return EmptyMainShell(
       activeTab: _emptyActiveTab,
       workspaces: _emptyWorkspaces,
       health: widget.initialData.health,
@@ -555,7 +553,7 @@ class _MainTabsPageState extends State<MainTabsPage>
         _creatingWorkspace = false;
         _loadingWorkspace = false;
         _connectedInitialData = initialData;
-        _viewModel = MainTabsShellViewModel();
+        _viewModel = MainShellViewModel();
         _createRepositoryBackedViewModels(initialData);
       });
       unawaited(_loadCodingPreferences(_viewModel!));
@@ -595,7 +593,7 @@ class _MainTabsPageState extends State<MainTabsPage>
     );
   }
 
-  Widget _buildCodingTabContent(MainTabsShellViewModel viewModel) {
+  Widget _buildCodingTabContent(MainShellViewModel viewModel) {
     final adapterRepo = _repositories.cliAdapterRepository;
     if (adapterRepo.loading || adapterRepo.error != null) {
       return CodingAdapterGate(

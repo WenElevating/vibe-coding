@@ -35,6 +35,8 @@ Run commands from the repository root unless noted.
 
 Use small, focused changes and keep behavior in existing modules unless a refactor is required. JavaScript uses CommonJS modules, `const`/`let`, two-space indentation, and descriptive function names. Dart code follows Flutter conventions: `UpperCamelCase` for widgets/classes, `lowerCamelCase` for fields/functions, and private members prefixed with `_`. Avoid broad rewrites and do not introduce new dependencies without a clear need.
 
+Do not let one source file accumulate a large page plus many unrelated child components. Keep files cohesive: one primary component/class per file, with only small private helpers that are tightly coupled to it. When a page or UI area needs multiple meaningful subcomponents, move them into files near the owning area, typically a local `widgets/` subdirectory, and keep stateful coordination in the ViewModel/workflow layer instead of burying it in a giant widget file.
+
 ## Flutter Mobile Architecture
 
 The Flutter app in `mobile/` follows a standard layered architecture. Preserve the current boundaries when adding or moving code.
@@ -43,7 +45,7 @@ The Flutter app in `mobile/` follows a standard layered architecture. Preserve t
 - `mobile/lib/src/app/` is the composition root for app setup, localization, theme wiring, and dependency construction. `AppDependencies` should stay grouped into network/data/domain/feature dependency groups instead of becoming a flat service locator.
 - `mobile/lib/src/data/` owns API/daemon DTOs, repository implementations, and data-facing service contracts. Data code may depend on infrastructure clients such as `DaemonClient` and implements domain repository interfaces.
 - `mobile/lib/src/domain/` owns repository abstractions, use-case contracts, workflow-facing business models, and pure domain decisions. Domain code must not import Flutter, HTTP clients, SharedPreferences, UI code, or the concrete `DaemonClient`.
-- `mobile/lib/src/ui/` owns presentation. Keep shared design primitives in `ui/core/`; keep feature views, feature ViewModels, and feature-local UI state in `ui/features/<feature>/`. Views should stay lean; ViewModels expose immutable state snapshots and receive repositories/use cases through constructors.
+- `mobile/lib/src/ui/` owns presentation. Keep shared design primitives in `ui/core/`; keep the app's main shell, Home surface, and tab orchestration in `ui/main/`; keep true feature views, feature ViewModels, and feature-local UI state in `ui/features/<feature>/`. Views should stay lean; ViewModels expose immutable state snapshots and receive repositories/use cases through constructors.
 - `mobile/lib/src/workflows/` owns multi-step application flows that coordinate validation, persistence, daemon calls, refreshes, or other side effects across more than one repository/service. Do not bury these flows inside widgets.
 - `mobile/lib/src/services/` contains infrastructure and platform adapters such as daemon HTTP clients, device identity, ASR, and local stores. Use it from data/workflow/composition code, not as a shortcut from arbitrary UI widgets.
 - `mobile/lib/src/testing/` contains fake implementations, builders, fixtures, and debug helpers for tests. Production code must not import it; tests may import it explicitly.

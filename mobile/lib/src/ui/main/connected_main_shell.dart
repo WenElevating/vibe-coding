@@ -12,10 +12,10 @@ import '../main_route_overlay.dart';
 import '../main_tab_items.dart';
 import '../mobile_ui_frame.dart';
 import '../pages/pages.dart';
-import '../view_models/main_tabs_shell_view_model.dart';
+import 'main_shell_view_model.dart';
 
-class ConnectedMainTabsShell extends StatelessWidget {
-  const ConnectedMainTabsShell({
+class ConnectedMainShell extends StatelessWidget {
+  const ConnectedMainShell({
     super.key,
     required this.viewModel,
     required this.initialData,
@@ -29,7 +29,7 @@ class ConnectedMainTabsShell extends StatelessWidget {
     required this.onSystemBack,
   });
 
-  final MainTabsShellViewModel viewModel;
+  final MainShellViewModel viewModel;
   final DaemonInitialData initialData;
   final HomeViewModel homeViewModel;
   final SettingsViewModel settingsViewModel;

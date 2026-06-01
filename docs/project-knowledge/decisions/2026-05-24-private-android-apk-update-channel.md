@@ -31,7 +31,7 @@ cache, and returns to a retryable install state.
 
 On Dart recovery, the app reads the persisted `installSessionId` from matching
 download metadata only after the cached APK still verifies against the current
-manifest. `MainTabsPage` triggers that recovery on Android when the update
+manifest. `MainPage` triggers that recovery on Android when the update
 ViewModel is created and when the app resumes. Recovery is allowed from idle,
 up-to-date, available, paused, or failed update states, and the ViewModel
 re-checks that guard after async daemon/cache/native calls before applying any

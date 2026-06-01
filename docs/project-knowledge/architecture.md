@@ -39,7 +39,9 @@ The Flutter app follows the standard layered shape described in `AGENTS.md` and
 - `mobile/lib/src/domain/`: repository abstractions, business contracts, pure
   decisions. It must not import Flutter, HTTP clients, `SharedPreferences`, UI,
   or concrete `DaemonClient`.
-- `mobile/lib/src/ui/`: presentation, feature ViewModels, UI state, widgets.
+- `mobile/lib/src/ui/`: presentation, UI state, and widgets. `ui/main/` owns
+  the app's main shell, Home surface, and tab orchestration; `ui/features/`
+  owns true feature areas.
 - `mobile/lib/src/workflows/`: multi-step flows across repositories/services.
 - `mobile/lib/src/services/`: infrastructure/platform adapters.
 - `mobile/lib/src/testing/`: fakes, fixtures, debug helpers for tests.

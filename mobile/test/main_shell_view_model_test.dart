@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/shell/app_route.dart';
-import 'package:lan_ai_cli_control/src/ui/view_models/main_tabs_shell_view_model.dart';
+import 'package:lan_ai_cli_control/src/ui/main/main_shell_view_model.dart';
 
 void main() {
   test('selectTab changes only shell state', () {
-    final viewModel = MainTabsShellViewModel();
+    final viewModel = MainShellViewModel();
 
     viewModel.selectTab(1);
 
@@ -14,7 +14,7 @@ void main() {
   });
 
   test('overlay is independent from business data', () {
-    final viewModel = MainTabsShellViewModel();
+    final viewModel = MainShellViewModel();
 
     viewModel.openOverlay(RoutePage.approval);
     expect(viewModel.isOverlayActive, isTrue);
@@ -24,14 +24,14 @@ void main() {
   });
 
   test('defaults new coding sessions to default permission mode', () {
-    final viewModel = MainTabsShellViewModel();
+    final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
     expect(viewModel.permissionMode, 'default');
   });
 
   test('stream output and expand thinking toggle', () {
-    final viewModel = MainTabsShellViewModel();
+    final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
     viewModel.setStreamOutput(true);
@@ -45,7 +45,7 @@ void main() {
   });
 
   test('reportSessionListOpen tracks open state', () {
-    final viewModel = MainTabsShellViewModel();
+    final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
     expect(viewModel.codingSessionListOpen, isTrue);

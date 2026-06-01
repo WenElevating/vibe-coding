@@ -18,6 +18,8 @@
 - `services/`, `data/`, `domain/`, and `workflows/` must not import UI feature
   code. Shared platform contracts, such as speech input interfaces, belong in a
   lower layer and may be exported through UI barrels only for compatibility.
+- Main-shell and Home code belongs under `mobile/lib/src/ui/main/`, not under
+  `ui/features/`. Use `ui/features/<feature>/` only for true feature areas.
 - New production code should not be added to retired migration roots:
   `mobile/lib/src/features`, `mobile/lib/src/widgets`, `mobile/lib/src/theme`,
   or `mobile/lib/src/state`.

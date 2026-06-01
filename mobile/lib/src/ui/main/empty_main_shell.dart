@@ -12,8 +12,8 @@ import '../mobile_ui_frame.dart';
 import 'empty_home_page.dart';
 import 'empty_settings_page.dart';
 
-class EmptyMainTabsShell extends StatelessWidget {
-  const EmptyMainTabsShell({
+class EmptyMainShell extends StatelessWidget {
+  const EmptyMainShell({
     super.key,
     required this.activeTab,
     required this.workspaces,

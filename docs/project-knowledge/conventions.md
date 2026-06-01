@@ -25,6 +25,10 @@
 - Keep `main.dart` thin and use `src/app/` as composition root.
 - Prefer ViewModel state snapshots and repository/use-case injection over direct
   concrete service calls from widgets.
+- Keep pages thin. Do not pack a page widget and many meaningful child
+  components into one file; move reusable or section-level UI into files near
+  the owning UI area, typically a local `widgets/` directory, and keep
+  presentation aggregation in the page.
 - Long-running async `ChangeNotifier` flows must guard disposal before
   `notifyListeners`; disposal should cancel or suppress pending emissions.
 - Fire-and-forget async work must consume Future errors after projecting failure
