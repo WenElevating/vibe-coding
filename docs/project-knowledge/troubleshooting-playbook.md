@@ -206,6 +206,33 @@ npm run lint
 
 - Last verified: 2026-05-29
 
+## Symptom: Coding Tab Stays Loading CLI Or Times Out Loading Adapters
+
+- Symptom: mobile Coding tab stays on `Loading CLI...` and then shows
+  `Unable to load CLI adapters` with a 10-second `TimeoutException`.
+- Action: keep the mobile adapter gate in place and inspect daemon adapter
+  capability detection first. `GET /api/adapters` waits for
+  `AdapterRegistry.listCapabilities()`, so one slow CLI probe can block the
+  whole adapter list. Do not parse `claude --help` choices or run a
+  `--permission-mode auto --print --max-turns 0` probe to discover permission
+  modes; that probe can hang. Follow the Claude Agent SDK pattern instead:
+  treat the product-supported mobile modes (`default`, `auto`) as a daemon
+  contract and let actual conversation startup surface CLI incompatibility.
+- Related files:
+  [claude-adapter.js](../../daemon/src/claude-adapter.js),
+  [adapter-registry.js](../../daemon/src/adapter-registry.js),
+  [main_page.dart](../../mobile/lib/src/ui/main/main_page.dart)
+- Verification:
+
+```powershell
+node --test daemon\test\claude-adapter.test.js
+node scripts/run-tests.js
+npm run lint
+node scripts/check-project-knowledge.js
+```
+
+- Last verified: 2026-06-01
+
 ## Symptom: Claude Permission Request Ends Without Mobile Approval UI
 
 - Symptom: a Claude Bash/tool card shows `This command requires approval`, then

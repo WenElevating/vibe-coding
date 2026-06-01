@@ -7,6 +7,8 @@ const { eventTypes } = require('./protocol');
 const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 
+const CLAUDE_PERMISSION_MODES = ['default', 'auto'];
+
 class ClaudeAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8') } = {}) {
     this.name = 'claude';
@@ -39,9 +41,6 @@ class ClaudeAdapter {
       ...discoverConfiguredModels({ adapter: 'claude' }),
       canSelectModel: supportsModelFlag
     };
-    const permissionModes = helpAvailable
-      ? detectPermissionModes(this.invocation, this.spawnSyncFn, helpText)
-      : ['default', 'auto'];
     this.capability = {
       adapter: 'claude',
       version: detection.version,
@@ -59,7 +58,7 @@ class ClaudeAdapter {
         includePartialMessages: !helpAvailable || helpText.includes('--include-partial-messages'),
         resume: !helpAvailable || helpText.includes('--resume') || helpText.includes('resume'),
         supportsModelFlag,
-        permissionModes
+        permissionModes: detectPermissionModes()
       }
     };
     const required = ['print', 'streamJson', 'verbose', 'includePartialMessages'];
@@ -362,31 +361,8 @@ function shouldCloseStdinAfterPrompt(permissionMode) {
   return ['auto', 'bypassPermissions', 'dontAsk', 'acceptEdits'].includes(permissionMode);
 }
 
-function detectPermissionModes(invocation, spawnSyncFn, helpText) {
-  const parsed = parsePermissionModes(helpText);
-  if (parsed.length > 1) return parsed;
-  const probed = probePermissionMode(invocation, spawnSyncFn, 'auto');
-  if (probed) return Array.from(new Set([...parsed, 'auto']));
-  return parsed;
-}
-
-function parsePermissionModes(helpText) {
-  const supported = new Set(['default']);
-  const text = String(helpText || '');
-  const line = text.split(/\r?\n/).find((item) => item.includes('--permission-mode')) || '';
-  const bracket = line.match(/\[([^\]]+)\]/)?.[1] || '';
-  const source = `${line} ${bracket}`;
-  for (const mode of ['auto', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'delegate', 'default']) {
-    if (source.includes(mode)) supported.add(mode);
-  }
-  return Array.from(supported);
-}
-
-function probePermissionMode(invocation, spawnSyncFn, mode) {
-  const result = spawnSyncFn(invocation.command, [...invocation.argsPrefix, '--permission-mode', mode, '--print', '--max-turns', '0', 'true'], { encoding: 'utf8' });
-  if (result.error) return false;
-  const text = `${result.stdout || ''}\n${result.stderr || ''}`;
-  return result.status === 0 || !/invalid|unknown|unsupported|parse|option/i.test(text);
+function detectPermissionModes() {
+  return CLAUDE_PERMISSION_MODES;
 }
 
 function isAskUserQuestionTool(toolName) {
@@ -640,5 +616,5 @@ module.exports = {
   unavailableCapability,
   buildClaudeArgs,
   resolvePermissionMode,
-  parsePermissionModes
+  CLAUDE_PERMISSION_MODES
 };

@@ -16,7 +16,7 @@ const { validateRunCreate, assertNoV1TerminalRequest, eventTypes } = require('..
 const { EventStore } = require('../daemon/src/event-store');
 const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
-const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, parsePermissionModes, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
+const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
 const { ConversationManager } = require('../daemon/src/conversation-manager');
@@ -2656,13 +2656,13 @@ test('Claude capability detection records permission modes from help text', () =
     spawnSyncFn: (_cmd, args) => {
       if (args.includes('--version')) return { status: 0, stdout: '2.1.119', stderr: '' };
       if (args.includes('--help')) {
-        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode [default|acceptEdits|plan|dontAsk|bypassPermissions]', stderr: '' };
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode MODE', stderr: '' };
       }
       return { status: 0, stdout: '', stderr: '' };
     }
   });
   const capability = adapter.detectCapabilities();
-  assert.deepEqual(capability.capabilities.permissionModes.sort(), ['acceptEdits', 'bypassPermissions', 'default', 'dontAsk', 'plan'].sort());
+  assert.deepEqual(capability.capabilities.permissionModes, ['default', 'auto']);
 });
 
 test('Claude detection exposes model flag support from help text', () => {
@@ -2731,8 +2731,52 @@ test('Claude launch args keep tools restrictions distinct from pre-approvals', (
   assert.deepEqual(launch.args.slice(launch.args.indexOf('--disallowedTools'), launch.args.indexOf('--disallowedTools') + 2), ['--disallowedTools', 'Bash']);
 });
 
-test('Claude permission mode parser extracts documented candidates', () => {
-  assert.deepEqual(parsePermissionModes('--permission-mode [default|auto|acceptEdits|plan|dontAsk|bypassPermissions]').sort(), ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].sort());
+test('Claude capability detection uses SDK permission mode contract instead of parsing help choices', () => {
+  let probeCalls = 0;
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.159', stderr: '' };
+      if (args.includes('--help')) {
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode MODE', stderr: '' };
+      }
+      if (args.includes('--permission-mode')) {
+        probeCalls++;
+        return { status: 1, stdout: '', stderr: 'unexpected permission mode probe' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(probeCalls, 0);
+  assert.deepEqual(capability.capabilities.permissionModes, ['default', 'auto']);
+});
+
+test('Claude capability detection does not probe permission modes when help omits the flag', () => {
+  let probeCalls = 0;
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.159', stderr: '' };
+      if (args.includes('--help')) {
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume', stderr: '' };
+      }
+      if (args.includes('--permission-mode')) {
+        probeCalls++;
+        return { status: 1, stdout: '', stderr: 'unexpected permission mode probe' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(probeCalls, 0);
+  assert.deepEqual(capability.capabilities.permissionModes, ['default', 'auto']);
 });
 
 test('Claude events map to unified event types', () => {

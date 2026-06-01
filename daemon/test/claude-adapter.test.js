@@ -9,6 +9,7 @@ const { eventTypes } = require('../src/protocol');
 test('Claude capability detection marks adapter unavailable on missing CLI', () => {
   const adapter = new ClaudeAdapter({
     command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'not found' })
   });
 
@@ -20,6 +21,7 @@ test('Claude capability detection marks adapter unavailable on missing CLI', () 
 test('Claude capability detection requires stream json flags', () => {
   const adapter = new ClaudeAdapter({
     command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => {
       if (args.includes('--version')) return { status: 0, stdout: '1.2.3', stderr: '' };
       return { status: 0, stdout: '-p --bare --output-format stream-json --verbose --include-partial-messages --resume', stderr: '' };
@@ -32,6 +34,54 @@ test('Claude capability detection requires stream json flags', () => {
   assert.equal(capability.capabilities.streamJson, true);
 });
 
+test('Claude capability detection uses SDK permission mode contract instead of parsing help choices', () => {
+  let probeCalls = 0;
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.159', stderr: '' };
+      if (args.includes('--help')) {
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-mode MODE', stderr: '' };
+      }
+      if (args.includes('--permission-mode')) {
+        probeCalls++;
+        return { status: 1, stdout: '', stderr: 'unexpected permission mode probe' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(probeCalls, 0);
+  assert.deepEqual(capability.capabilities.permissionModes, ['default', 'auto']);
+});
+
+test('Claude capability detection does not probe permission modes when help omits the flag', () => {
+  let probeCalls = 0;
+  const adapter = new ClaudeAdapter({
+    command: 'claude',
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: (_cmd, args) => {
+      if (args.includes('--version')) return { status: 0, stdout: '2.1.159', stderr: '' };
+      if (args.includes('--help')) {
+        return { status: 0, stdout: '-p --output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume', stderr: '' };
+      }
+      if (args.includes('--permission-mode')) {
+        probeCalls++;
+        return { status: 1, stdout: '', stderr: 'unexpected permission mode probe' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected probe' };
+    }
+  });
+
+  const capability = adapter.detectCapabilities();
+
+  assert.equal(probeCalls, 0);
+  assert.deepEqual(capability.capabilities.permissionModes, ['default', 'auto']);
+});
+
 test('Claude events map to unified event types', () => {
   assert.equal(mapClaudeEvent({ type: 'assistant', text: 'hi' }).type, eventTypes.ASSISTANT_DELTA);
   assert.equal(mapClaudeEvent({ type: 'tool_start', name: 'bash' }).type, eventTypes.TOOL_STARTED);
@@ -41,15 +91,16 @@ test('Claude events map to unified event types', () => {
 
 test('startRun emits actionable unavailable error before spawning', () => {
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: () => ({ status: 1, stdout: '', stderr: 'missing' }),
     spawnFn: () => new EventEmitter()
   });
 
-  assert.throws(() => adapter.startRun({ prompt: 'x', workspacePath: '.', onEvent: () => {} }), /unavailable/);
+  assert.throws(() => adapter.startRun({ prompt: 'x', workspacePath: '.', onEvent: () => {} }), /Unable to inspect Claude CLI/);
 });
 
 
-test('startRun writes stream-json prompt to stdin and closes input without initialize response', async () => {
+test('startRun writes stream-json prompt after initialize response', async () => {
   const writes = [];
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
@@ -57,26 +108,36 @@ test('startRun writes stream-json prompt to stdin and closes input without initi
   child.stdin = {
     destroyed: false,
     ended: false,
-    write(data) { writes.push(data); },
+    write(data) {
+      writes.push(data);
+      if (data.includes('"subtype":"initialize"')) {
+        const request = JSON.parse(data);
+        setImmediate(() => child.stdout.emit('data', Buffer.from(JSON.stringify({
+          type: 'control_response',
+          response: { subtype: 'success', request_id: request.request_id, response: {} }
+        }) + '\n')));
+      }
+    },
     end() { this.ended = true; this.destroyed = true; writes.push('[stdin.end]'); }
   };
   child.kill = () => child.emit('exit', null, 'SIGTERM');
 
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => args.includes('--version')
       ? { status: 0, stdout: '2.1.119', stderr: '' }
       : { status: 0, stdout: '--output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-prompt-tool', stderr: '' },
     spawnFn: (_cmd, args) => {
       assert.equal(args.includes('--input-format'), true);
       assert.equal(args.includes('--print'), true);
-      assert.deepEqual(args.slice(args.indexOf('--system-prompt'), args.indexOf('--system-prompt') + 2), ['--system-prompt', '']);
+      assert.equal(args.includes('--system-prompt'), false);
       assert.equal(args.includes('--permission-prompt-tool'), false);
       return child;
     }
   });
 
   adapter.startRun({ prompt: 'who are you?', workspacePath: '.', permissionMode: 'auto', onEvent: () => {} });
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  await new Promise((resolve) => setTimeout(resolve, 30));
 
   assert.equal(writes.some((line) => line.includes('"type":"control_request"')), true);
   assert.equal(writes.some((line) => line.includes('who are you?')), true);
@@ -107,6 +168,7 @@ test('startRun handles initialize response before writing prompt', async () => {
   child.kill = () => child.emit('exit', null, 'SIGTERM');
 
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => args.includes('--version')
       ? { status: 0, stdout: '2.1.119', stderr: '' }
       : { status: 0, stdout: '--output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-prompt-tool', stderr: '' },
@@ -134,6 +196,14 @@ test('startRun emits assistant text and completion for Claude result frames', as
     ended: false,
     write(data) {
       writes.push(data);
+      if (data.includes('"subtype":"initialize"')) {
+        const request = JSON.parse(data);
+        setImmediate(() => child.stdout.emit('data', Buffer.from(JSON.stringify({
+          type: 'control_response',
+          response: { subtype: 'success', request_id: request.request_id, response: {} }
+        }) + '\n')));
+        return;
+      }
       if (data.includes('"result smoke"')) {
         setImmediate(() => child.stdout.emit('data', Buffer.from(JSON.stringify({
           type: 'result',
@@ -150,6 +220,7 @@ test('startRun emits assistant text and completion for Claude result frames', as
   child.kill = () => child.emit('exit', null, 'SIGTERM');
 
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => args.includes('--version')
       ? { status: 0, stdout: '2.1.119', stderr: '' }
       : { status: 0, stdout: '--output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-prompt-tool', stderr: '' },
@@ -157,7 +228,7 @@ test('startRun emits assistant text and completion for Claude result frames', as
   });
 
   adapter.startRun({ prompt: 'result smoke', workspacePath: '.', permissionMode: 'auto', onEvent: (event) => events.push(event) });
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   assert.equal(writes.some((line) => line.includes('result smoke')), true);
   assert.equal(events.some((event) => event.type === eventTypes.ASSISTANT_DELTA && event.text.includes('AI coding assistant')), true);
@@ -175,6 +246,14 @@ test('startRun suppresses late Claude noise after result completion', async () =
     ended: false,
     write(data) {
       writes.push(data);
+      if (data.includes('"subtype":"initialize"')) {
+        const request = JSON.parse(data);
+        setImmediate(() => child.stdout.emit('data', Buffer.from(JSON.stringify({
+          type: 'control_response',
+          response: { subtype: 'success', request_id: request.request_id, response: {} }
+        }) + '\n')));
+        return;
+      }
       if (data.includes('"late noise smoke"')) {
         setImmediate(() => {
           child.stdout.emit('data', Buffer.from(JSON.stringify({
@@ -199,6 +278,7 @@ test('startRun suppresses late Claude noise after result completion', async () =
   child.kill = () => child.emit('exit', null, 'SIGTERM');
 
   const adapter = new ClaudeAdapter({
+    cliResolverOptions: { platform: 'linux' },
     spawnSyncFn: (_cmd, args) => args.includes('--version')
       ? { status: 0, stdout: '2.1.119', stderr: '' }
       : { status: 0, stdout: '--output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-prompt-tool', stderr: '' },
@@ -206,7 +286,7 @@ test('startRun suppresses late Claude noise after result completion', async () =
   });
 
   adapter.startRun({ prompt: 'late noise smoke', workspacePath: '.', permissionMode: 'auto', onEvent: (event) => events.push(event) });
-  await new Promise((resolve) => setTimeout(resolve, 1700));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   assert.equal(events.filter((event) => event.type === eventTypes.RUN_COMPLETED).length, 1);
   assert.equal(events.some((event) => event.text === 'Claude requesting'), false);
