@@ -25,7 +25,6 @@ import '../features/workbench/workbench.dart';
 import '../pages/pages.dart';
 import 'coding_adapter_gate.dart';
 import 'connected_main_shell.dart';
-import 'empty_main_shell.dart';
 import 'main_shell_view_model.dart';
 
 class MainPage extends StatefulWidget {
@@ -67,9 +66,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   AppUpdateViewModel? _appUpdateViewModel;
   DaemonInitialData? _connectedInitialData;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
-  var _emptyActiveTab = 1;
-  late List<WorkspaceSummary> _emptyWorkspaces;
-  Object? _emptyError;
+  Object? _workspaceActionError;
   bool _creatingWorkspace = false;
   bool _loadingWorkspace = false;
   int _appUpdateGeneration = 0;
@@ -94,17 +91,12 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     widget.pageDependencies.codingPreferencesRepository.addListener(
       _handleCodingPreferencesRepositoryChanged,
     );
-    _emptyWorkspaces =
-        List<WorkspaceSummary>.unmodifiable(widget.initialData.workspaces);
+    _connectedInitialData = widget.initialData;
+    _viewModel = MainShellViewModel();
+    _createRepositoryBackedViewModels(widget.initialData);
+    unawaited(_loadCodingPreferences(_viewModel!));
+    _loadCodingAdapters();
     unawaited(_createAppUpdateViewModel());
-    final initialData = widget.initialData;
-    if (initialData.workspace != null) {
-      _connectedInitialData = initialData;
-      _viewModel = MainShellViewModel();
-      _createRepositoryBackedViewModels(initialData);
-      unawaited(_loadCodingPreferences(_viewModel!));
-      _loadCodingAdapters();
-    }
   }
 
   @override
@@ -129,46 +121,32 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       unawaited(_createAppUpdateViewModel());
       _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
       final initialData = widget.initialData;
-      _emptyWorkspaces =
-          List<WorkspaceSummary>.unmodifiable(initialData.workspaces);
-      _emptyError = null;
+      _workspaceActionError = null;
       _creatingWorkspace = false;
       _loadingWorkspace = false;
-      _connectedInitialData =
-          initialData.workspace == null ? null : initialData;
+      _connectedInitialData = initialData;
       _viewModel?.dispose();
-      _viewModel = initialData.workspace == null ? null : MainShellViewModel();
-      if (_viewModel != null) {
-        _createRepositoryBackedViewModels(initialData);
-        unawaited(_loadCodingPreferences(_viewModel!));
-        _loadCodingAdapters();
-      }
+      _viewModel = MainShellViewModel();
+      _createRepositoryBackedViewModels(initialData);
+      unawaited(_loadCodingPreferences(_viewModel!));
+      _loadCodingAdapters();
       _disposeWorkbenchDependenciesAfterBuild(oldWorkbenchDependencies);
       unawaited(oldWidget.pageDependencies.sessionScope.dispose());
       return;
     }
     if (oldWidget.initialData != widget.initialData) {
-      _emptyWorkspaces =
-          List<WorkspaceSummary>.unmodifiable(widget.initialData.workspaces);
-      if (widget.initialData.workspace != null) {
-        _connectedInitialData = widget.initialData;
-        final shellWasMissing = _viewModel == null;
-        _viewModel ??= MainShellViewModel();
-        if (_homeViewModel == null || _settingsViewModel == null) {
-          _createRepositoryBackedViewModels(widget.initialData);
-        } else {
-          _updateHomeViewModelInputs(widget.initialData);
-          _updateSettingsViewModelInputs(widget.initialData);
-        }
-        if (shellWasMissing) {
-          unawaited(_loadCodingPreferences(_viewModel!));
-          _loadCodingAdapters();
-        }
+      _connectedInitialData = widget.initialData;
+      final shellWasMissing = _viewModel == null;
+      _viewModel ??= MainShellViewModel();
+      if (_homeViewModel == null || _settingsViewModel == null) {
+        _createRepositoryBackedViewModels(widget.initialData);
       } else {
-        _connectedInitialData = null;
-        _viewModel?.dispose();
-        _viewModel = null;
-        _disposeRepositoryBackedViewModels();
+        _updateHomeViewModelInputs(widget.initialData);
+        _updateSettingsViewModelInputs(widget.initialData);
+      }
+      if (shellWasMissing) {
+        unawaited(_loadCodingPreferences(_viewModel!));
+        _loadCodingAdapters();
       }
     }
   }
@@ -331,8 +309,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   }
 
   void _createRepositoryBackedViewModels(DaemonInitialData data) {
-    final selectedWorkspace = data.workspace;
-    if (selectedWorkspace == null) return;
     _disposeRepositoryBackedViewModels();
     final homeViewModel =
         widget.pageDependencies.featureDependencies.createHomeViewModel(
@@ -393,14 +369,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   Future<void> _handleSystemBack() async {
     final viewModel = _viewModel;
-    if (viewModel == null) {
-      if (_emptyActiveTab != 0) {
-        setState(() => _emptyActiveTab = 0);
-        return;
-      }
-      await SystemNavigator.pop();
-      return;
-    }
+    if (viewModel == null) return;
     if (viewModel.isOverlayActive) {
       viewModel.closeOverlay();
       return;
@@ -432,11 +401,11 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   Widget _buildShell(BuildContext context) {
     final viewModel = _viewModel;
-    if (viewModel == null) return _buildEmptyShell(context);
     final initialData = _connectedInitialData;
     final homeViewModel = _homeViewModel;
     final settingsViewModel = _settingsViewModel;
-    if (initialData == null ||
+    if (viewModel == null ||
+        initialData == null ||
         homeViewModel == null ||
         settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
@@ -451,24 +420,13 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       repositories: _repositories,
       featureDependencies: widget.pageDependencies.featureDependencies,
       codingTab: _buildCodingTab(),
-      onSystemBack: () => unawaited(_handleSystemBack()),
-    );
-  }
-
-  Widget _buildEmptyShell(BuildContext context) {
-    return EmptyMainShell(
-      activeTab: _emptyActiveTab,
-      workspaces: _emptyWorkspaces,
-      health: widget.initialData.health,
-      connectionConfig: widget.connectionConfig,
       creatingWorkspace: _creatingWorkspace,
       loadingWorkspace: _loadingWorkspace,
-      error: _emptyError,
-      appUpdateViewModel: _appUpdateViewModel,
+      workspaceActionError: _workspaceActionError,
       onCreateWorkspace: _showCreateWorkspace,
-      onOpenWorkspace: (workspace) =>
-          unawaited(_openWorkspace(workspace, _emptyWorkspaces)),
-      onTabSelected: (index) => setState(() => _emptyActiveTab = index),
+      onOpenWorkspace: (workspace) => unawaited(
+        _openWorkspace(workspace, _repositories.workspaceRepository.workspaces),
+      ),
       onSystemBack: () => unawaited(_handleSystemBack()),
     );
   }
@@ -485,7 +443,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     if (request == null || !mounted) return;
     setState(() {
       _creatingWorkspace = true;
-      _emptyError = null;
+      _workspaceActionError = null;
     });
     final outcome = await CreateWorkspaceWorkflow(
       client: _repositories.workspaceRepository,
@@ -495,22 +453,22 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace, :final workspaces):
         await _openWorkspace(workspace, workspaces);
-      case CreateWorkspaceNotConfirmed(:final workspaceId, :final workspaces):
+      case CreateWorkspaceNotConfirmed(:final workspaceId):
         setState(() {
           _creatingWorkspace = false;
-          _emptyWorkspaces = List<WorkspaceSummary>.unmodifiable(workspaces);
-          _emptyError = StateError(
+          _workspaceActionError = StateError(
               'Workspace $workspaceId was created but not listed yet.');
         });
       case CreateWorkspaceFailure(:final error):
         setState(() {
           _creatingWorkspace = false;
-          _emptyError = error;
+          _workspaceActionError = error;
         });
       case CreateWorkspaceTimeout():
         setState(() {
           _creatingWorkspace = false;
-          _emptyError = TimeoutException('Workspace creation timed out.');
+          _workspaceActionError =
+              TimeoutException('Workspace creation timed out.');
         });
     }
   }
@@ -521,7 +479,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   ) async {
     setState(() {
       _loadingWorkspace = true;
-      _emptyError = null;
+      _workspaceActionError = null;
     });
     try {
       final initialData = await widget
@@ -536,16 +494,13 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         setState(() {
           _creatingWorkspace = false;
           _loadingWorkspace = false;
-          _emptyWorkspaces =
-              List<WorkspaceSummary>.unmodifiable(initialData.workspaces);
-          _emptyError = _workspaceOpenConfirmationError(
+          _connectedInitialData = initialData;
+          _workspaceActionError = _workspaceOpenConfirmationError(
             requested: workspace,
             opened: openedWorkspace,
           );
-          _connectedInitialData = null;
-          _viewModel?.dispose();
-          _viewModel = null;
-          _disposeRepositoryBackedViewModels();
+          _updateHomeViewModelInputs(initialData);
+          _updateSettingsViewModelInputs(initialData);
         });
         return;
       }
@@ -553,17 +508,24 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         _creatingWorkspace = false;
         _loadingWorkspace = false;
         _connectedInitialData = initialData;
-        _viewModel = MainShellViewModel();
-        _createRepositoryBackedViewModels(initialData);
+        _viewModel ??= MainShellViewModel();
+        if (_homeViewModel == null || _settingsViewModel == null) {
+          _createRepositoryBackedViewModels(initialData);
+        } else {
+          _updateHomeViewModelInputs(initialData);
+          _updateSettingsViewModelInputs(initialData);
+        }
       });
-      unawaited(_loadCodingPreferences(_viewModel!));
-      _loadCodingAdapters();
+      if (_viewModel != null) {
+        unawaited(_loadCodingPreferences(_viewModel!));
+        _loadCodingAdapters();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _creatingWorkspace = false;
         _loadingWorkspace = false;
-        _emptyError = error;
+        _workspaceActionError = error;
       });
     }
   }

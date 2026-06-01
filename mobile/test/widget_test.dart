@@ -236,7 +236,9 @@ class _LocalizedHomePageAppState extends State<_LocalizedHomePageApp> {
                       open: (_) {},
                       selectTab: (_) {},
                       viewModel: _homeViewModel,
-                      health: _snapshot.health)))));
+                      health: _snapshot.health,
+                      onCreateWorkspace: () {},
+                      onOpenWorkspace: (_) {})))));
 }
 
 class _MainHarness extends StatefulWidget {
@@ -2559,16 +2561,23 @@ void main() {
     await controller.connect();
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
     expect(find.byType(BottomNav), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Coding'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Workspaces'), findsOneWidget);
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
     expect(find.text('Daemon address'), findsOneWidget);
     expect(find.text('127.0.0.1:4317'), findsOneWidget);
+    await tester.drag(
+      find.byType(Scrollable).first,
+      const Offset(0, -420),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('About'), findsOneWidget);
     expect(find.text('Check for updates'), findsOneWidget);
     expect(find.text('App update'), findsNothing);
@@ -2682,7 +2691,7 @@ void main() {
     expect(openedSettingsViewModel?.selectedWorkspace?.id, 'workspace_2');
   });
 
-  testWidgets('workspace bootstrap failure returns to empty workspace list',
+  testWidgets('workspace bootstrap failure stays in main workspace state',
       (WidgetTester tester) async {
     const workspace = WorkspaceSummary(
         id: 'workspace_1',
@@ -2719,11 +2728,14 @@ void main() {
     await controller.connect();
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.byType(BottomNav), findsOneWidget);
     expect(find.text('Loading workspace...'), findsNothing);
     expect(find.textContaining('list runs unavailable'), findsOneWidget);
   });

@@ -8,6 +8,7 @@ import 'view_models/home_view_model.dart';
 import 'widgets/home_agent_console_panel.dart';
 import 'widgets/home_execution_stream.dart';
 import 'widgets/home_interrupt_lane.dart';
+import 'widgets/home_no_workspace_panel.dart';
 import 'widgets/home_quick_actions.dart';
 import 'widgets/home_workspace_signals.dart';
 
@@ -17,12 +18,16 @@ class HomePage extends StatelessWidget {
       required this.open,
       required this.selectTab,
       required this.viewModel,
-      required this.health});
+      required this.health,
+      required this.onCreateWorkspace,
+      required this.onOpenWorkspace});
 
   final ValueChanged<RoutePage> open;
   final ValueChanged<int> selectTab;
   final HomeViewModel viewModel;
   final DaemonHealth health;
+  final VoidCallback onCreateWorkspace;
+  final ValueChanged<WorkspaceSummary> onOpenWorkspace;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +46,14 @@ class HomePage extends StatelessWidget {
               onWorkspaceTap: () => selectTab(1),
               onPrimaryTap: () => selectTab(1),
               onTemplatesTap: () => selectTab(1),
+            ),
+            const SizedBox(height: 18),
+            HomeNoWorkspacePanel(
+              workspaces: viewModel.workspaces,
+              loading: viewModel.loading,
+              error: viewModel.error,
+              onCreateWorkspace: onCreateWorkspace,
+              onOpenWorkspace: onOpenWorkspace,
             ),
           ]);
         }
