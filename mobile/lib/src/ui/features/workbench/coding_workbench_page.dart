@@ -15,6 +15,7 @@ import '../../../workflows/workspace/create_workspace_workflow.dart'
         CreateWorkspaceSuccess,
         CreateWorkspaceTimeout;
 import 'attachments/attachment_picker.dart';
+import 'controllers/slash_command_menu_controller.dart';
 import 'dialogs/asr_model_download_dialog.dart';
 import 'dialogs/voice_input_error_dialog.dart';
 import 'sheets/model_picker_sheet.dart';
@@ -89,7 +90,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool _showPendingDuringInitialConversationLoad = false;
   List<SlashCommand> _visibleSlashCommands = const <SlashCommand>[];
   final Set<String> _loadingSlashAdapters = <String>{};
-  _SlashToken? _activeSlashToken;
+  SlashCommandToken? _activeSlashToken;
   String? _lastSlashAdapter;
 
   List<SessionItem> get _sessionItems => _workbenchViewModel.sessionItems;
@@ -695,7 +696,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     );
   }
 
-  void _setSlashCommands(List<SlashCommand> commands, _SlashToken? token) {
+  void _setSlashCommands(
+      List<SlashCommand> commands, SlashCommandToken? token) {
     final changed = !_sameSlashCommandList(_visibleSlashCommands, commands) ||
         _activeSlashToken != token;
     if (!changed) return;
@@ -723,27 +725,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _setSlashCommands(const <SlashCommand>[], null);
   }
 
-  _SlashToken? _activeSlashTokenFor(TextEditingValue value) {
-    final selection = value.selection;
-    if (!selection.isValid || !selection.isCollapsed) return null;
-    final cursor = selection.baseOffset;
-    if (cursor < 0 || cursor > value.text.length) return null;
-    final beforeCursor = value.text.substring(0, cursor);
-    final slash = beforeCursor.lastIndexOf('/');
-    if (slash < 0) return null;
-    if (slash > 0 &&
-        !_isSlashTokenBoundary(beforeCursor.codeUnitAt(slash - 1))) {
-      return null;
-    }
-    for (var index = slash; index < beforeCursor.length; index += 1) {
-      if (_isSlashTokenBoundary(beforeCursor.codeUnitAt(index))) return null;
-    }
-    return _SlashToken(
-      start: slash,
-      end: cursor,
-      query: beforeCursor.substring(slash + 1),
-    );
-  }
+  SlashCommandToken? _activeSlashTokenFor(TextEditingValue value) =>
+      SlashCommandMenuController.activeTokenFor(value);
 
   Future<void> _finishVoiceInputForSend() async {
     final merged =
@@ -1868,12 +1851,6 @@ String _slashLoadKey(String? adapterId, String? workspaceId) {
   return workspace.isEmpty ? adapter : '$adapter\u0000$workspace';
 }
 
-bool _isSlashTokenBoundary(int codeUnit) =>
-    codeUnit == 0x20 ||
-    codeUnit == 0x09 ||
-    codeUnit == 0x0A ||
-    codeUnit == 0x0D;
-
 bool _sameSlashCommandList(
   List<SlashCommand> left,
   List<SlashCommand> right,
@@ -1887,27 +1864,4 @@ bool _sameSlashCommandList(
     }
   }
   return true;
-}
-
-class _SlashToken {
-  const _SlashToken({
-    required this.start,
-    required this.end,
-    required this.query,
-  });
-
-  final int start;
-  final int end;
-  final String query;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _SlashToken &&
-          other.start == start &&
-          other.end == end &&
-          other.query == query;
-
-  @override
-  int get hashCode => Object.hash(start, end, query);
 }

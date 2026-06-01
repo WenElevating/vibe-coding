@@ -15,11 +15,29 @@ import 'package:lan_ai_cli_control/src/ui/features/sessions/session_item.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/attachment_preview_cache.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/coding_workbench_controller.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/controllers/slash_command_menu_controller.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/workbench_messages.dart';
 import 'package:lan_ai_cli_control/src/workflows/workspace/create_workspace_workflow.dart';
 
 void main() {
+  test(
+      'slash command token parser returns token only at prompt command position',
+      () {
+    final token = SlashCommandMenuController.findToken('/he');
+    expect(token?.query, 'he');
+    expect(token?.start, 0);
+    expect(token?.end, 3);
+
+    expect(SlashCommandMenuController.findToken('say /he')?.query, 'he');
+    expect(SlashCommandMenuController.findToken('say/he'), isNull);
+    expect(SlashCommandMenuController.findToken('/he now'), isNull);
+    expect(
+      SlashCommandMenuController.findToken('prefix\n/he')?.query,
+      'he',
+    );
+  });
+
   test('workbench route state stores ids and resolves workspace via repository',
       () async {
     const other = WorkspaceSummary(
