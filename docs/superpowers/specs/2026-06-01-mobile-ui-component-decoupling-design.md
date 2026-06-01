@@ -306,7 +306,6 @@ mobile/lib/src/ui/features/workspace_picker/
 |   +-- directory_row.dart
 |   +-- mini_input.dart
 |   +-- sheet_icon_button.dart
-+-- workspace_list_presenter.dart
 +-- workspace_display.dart
 ```
 
@@ -316,14 +315,13 @@ helpers. Current usage already includes Workspace Picker, Home no-workspace
 presentation, and widget tests. Because the dedupe logic is shared by main/Home
 and a feature picker, do not leave it privately owned by a sheet file.
 
-Preferred ownership is a small presentation helper such as
-`workspace_list_presenter.dart` in `ui/features/workspace_picker/` if the logic
-remains specific to workspace-list presentation. If another main-shell module
-or feature needs broader path normalization beyond list presentation, promote
-the pure helper to a clearer shared owner, such as `ui/core` or a domain-level
-workspace value helper, only after verifying it has no Flutter/UI dependency.
-Use barrel exports deliberately after ownership is decided; do not use the
-barrel to hide unclear ownership.
+If the usage search confirms main/Home still uses the dedupe or path
+normalization helper, move the pure helper directly to a shared owner instead of
+temporarily parking it under Workspace Picker. Use `ui/core` for presentation
+helpers that only prepare workspace-list display data and have no domain
+semantics. Use a domain-level workspace value helper only if the logic becomes a
+business rule outside UI presentation. Keep barrel exports deliberate after the
+shared owner is chosen; do not use the barrel to hide unclear ownership.
 
 The directory browser uses repository callbacks for filesystem listing. Its
 stateful browse/open/back behavior should move with the sheet, not into the
@@ -341,6 +339,7 @@ mobile/lib/src/ui/features/settings/
 +-- sheets/
 |   +-- language_picker_sheet.dart
 +-- widgets/
+|   +-- app_update_panel.dart
 |   +-- settings_card.dart
 |   +-- settings_connection_card.dart
 |   +-- settings_metric.dart
@@ -350,7 +349,6 @@ mobile/lib/src/ui/features/settings/
 |   +-- settings_action_button.dart
 |   +-- settings_update_check_row.dart
 +-- view_models/
-+-- widgets/app_update_panel.dart
 ```
 
 `SettingsPage` should read the ViewModel and compose sections. Row/card/chip
