@@ -19,6 +19,7 @@ import '../attachments/draft_attachment.dart';
 import '../coding_workbench_controller.dart';
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
+import 'workbench_model_selection.dart';
 
 typedef WorkbenchEventApplicationIsCurrent = bool Function();
 
@@ -621,7 +622,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_activeConversationId != null || _sending) return;
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
-    _draftModel = _preferredModelFor(selectedAdapterStatus);
+    _draftModel = preferredWorkbenchModelFor(selectedAdapterStatus);
     _modelNotice = null;
     _revalidateDraftAttachments();
     _notifyListeners();
@@ -629,11 +630,11 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   Future<bool> selectModel(String? model) async {
     if (_sending || _modelUpdating) return false;
-    final normalized = _normalizeModel(model);
+    final normalized = normalizeWorkbenchModel(model);
     final status = selectedAdapterStatus;
     if (normalized != null &&
         (status?.canSelectModel != true ||
-            !_modelStillAvailable(normalized, status))) {
+            !workbenchModelStillAvailable(normalized, status))) {
       return false;
     }
 
@@ -677,7 +678,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         return false;
       }
       _modelUpdating = false;
-      if (_isUnsupportedModelUpdate(error)) {
+      if (isUnsupportedWorkbenchModelUpdate(error)) {
         _conversationModelUpdatesUnsupported = true;
         _modelUpdateError = _unsupportedModelUpdateMessage;
       } else {
@@ -772,11 +773,12 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void _reconcileSelectedModel() {
     final status = selectedAdapterStatus;
-    if (_draftModel != null && _modelStillAvailable(_draftModel, status)) {
+    if (_draftModel != null &&
+        workbenchModelStillAvailable(_draftModel, status)) {
       return;
     }
     final previous = _draftModel;
-    final fallback = _preferredModelFor(status);
+    final fallback = preferredWorkbenchModelFor(status);
     if (previous == null && fallback == null) return;
     _draftModel = fallback;
     if (previous != null && fallback != null && previous != fallback) {
@@ -789,8 +791,8 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? _modelForCreate({required String adapter, String? requested}) {
     final status = _adapterStatusFor(adapter);
     if (status?.canSelectModel != true) return null;
-    final normalized = _normalizeModel(requested) ?? _draftModel;
-    return _modelStillAvailable(normalized, status) ? normalized : null;
+    final normalized = normalizeWorkbenchModel(requested) ?? _draftModel;
+    return workbenchModelStillAvailable(normalized, status) ? normalized : null;
   }
 
   bool _isCurrentModelUpdate(int generation, String conversationId) =>
@@ -1515,47 +1517,6 @@ class WorkbenchViewModel extends ChangeNotifier {
       }
     }
     return null;
-  }
-
-  static String? _preferredModelFor(AdapterStatus? adapter) {
-    final models = adapter?.models ?? const <AdapterModelOption>[];
-    if (models.isEmpty) return null;
-    final selectedModel = _normalizeModel(adapter?.selectedModel);
-    if (selectedModel != null &&
-        models.any((model) => model.id == selectedModel)) {
-      return selectedModel;
-    }
-    for (final model in models) {
-      final id = _normalizeModel(model.id);
-      if (model.selected && id != null) return id;
-    }
-    for (final model in models) {
-      final id = _normalizeModel(model.id);
-      if (id != null) return id;
-    }
-    return null;
-  }
-
-  static bool _modelStillAvailable(
-    String? model,
-    AdapterStatus? adapter,
-  ) {
-    final id = _normalizeModel(model);
-    if (id == null) return true;
-    final models = adapter?.models ?? const <AdapterModelOption>[];
-    return models.any((model) => model.id == id);
-  }
-
-  static String? _normalizeModel(String? model) {
-    final trimmed = model?.trim();
-    if (trimmed == null || trimmed.isEmpty) return null;
-    return trimmed;
-  }
-
-  static bool _isUnsupportedModelUpdate(ConversationRepositoryException error) {
-    if (error.statusCode == 405) return true;
-    if (error.statusCode != 404) return false;
-    return error.code != 'NOT_FOUND';
   }
 
   void _revalidateDraftAttachments() {
