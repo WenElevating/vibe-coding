@@ -156,6 +156,188 @@ void main() {
     });
 
     test(
+        'route transitions keep workspace and conversation route ids consistent',
+        () {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final viewModel = _workbenchViewModel(workspaceRepository);
+
+      viewModel.showSessions('w1');
+      expect(viewModel.routeWorkspace?.id, 'w1');
+      expect(viewModel.activeConversationId, isNull);
+
+      viewModel.showConversationRoute('w1', 'c1');
+      expect(viewModel.routeWorkspace?.id, 'w1');
+      expect(viewModel.routeState, isA<ConversationRouteState>());
+      expect(
+        (viewModel.routeState as ConversationRouteState).conversationId,
+        'c1',
+      );
+      expect(viewModel.activeConversationId, isNull);
+
+      viewModel.showWorkspaceList();
+      expect(viewModel.routeWorkspace, isNull);
+      expect(viewModel.activeConversationId, isNull);
+    });
+
+    test(
+        'older event page prepends events without duplicating existing messages',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository(
+        eventPages: <ConversationEventPage>[
+          ConversationEventPage(
+            events: <ConversationEvent>[
+              _event(
+                seq: 2,
+                type: 'user.message',
+                text: 'newer question',
+              ),
+              _event(
+                seq: 3,
+                type: 'assistant.message',
+                text: 'newer answer',
+              ),
+            ],
+            oldestSeq: 2,
+            newestSeq: 3,
+            hasMoreBefore: true,
+          ),
+          ConversationEventPage(
+            events: <ConversationEvent>[
+              _event(
+                seq: 1,
+                type: 'assistant.message',
+                text: 'older answer',
+              ),
+              _event(
+                seq: 2,
+                type: 'user.message',
+                text: 'newer question duplicate',
+              ),
+            ],
+            oldestSeq: 1,
+            newestSeq: 2,
+            hasMoreBefore: false,
+          ),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+
+      await viewModel.loadInitialConversationEventPage(
+        conversationId: 'c1',
+        limit: 2,
+        streamOutput: false,
+      );
+      final loaded = await viewModel.loadOlderConversationEventPage(
+        conversationId: 'c1',
+        limit: 2,
+        streamOutput: false,
+      );
+
+      expect(loaded, isTrue);
+      expect(viewModel.conversationEvents.map((event) => event.seq),
+          const <int>[1, 2, 3]);
+      expect(viewModel.messages.map((message) => message.body).toSet().length,
+          viewModel.messages.length);
+    });
+
+    test('selectModel preserves selected model when repository rejects update',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository()
+        ..updateModelError = const ConversationRepositoryException(
+          message: 'model update unsupported',
+          statusCode: 404,
+        );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        adapterRepository: _FakeCliAdapterRepository(
+          adapters: const <AdapterStatus>[_codexModels],
+        ),
+        conversationRepository: conversationRepository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(id: 'c1', workspaceId: 'w1', model: 'gpt-5-codex'),
+      );
+
+      final changed = await viewModel.selectModel('gpt-5-mini');
+
+      expect(changed, isFalse);
+      expect(viewModel.selectedModel, 'gpt-5-codex');
+      expect(viewModel.conversationModelUpdatesUnsupported, isTrue);
+      expect(viewModel.activeConversationId, 'c1');
+    });
+
+    test('conversation question answer delegates without route mutation',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository();
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+      viewModel.showConversationRoute('w1', 'c1');
+
+      await viewModel.answerConversationQuestion(
+        conversationId: 'c1',
+        questionId: 'q1',
+        text: 'yes',
+      );
+
+      expect(
+        (viewModel.routeState as ConversationRouteState).conversationId,
+        'c1',
+      );
+      expect(conversationRepository.answeredQuestionIds, const <String>['q1']);
+    });
+
+    test('conversation approval delegates without route mutation', () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository();
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+      viewModel.showConversationRoute('w1', 'c1');
+
+      await viewModel.respondConversationApproval(
+        conversationId: 'c1',
+        approvalId: 'ap1',
+        decision: 'allow',
+      );
+
+      expect(
+        (viewModel.routeState as ConversationRouteState).conversationId,
+        'c1',
+      );
+      expect(
+          conversationRepository.respondedApprovalIds, const <String>['ap1']);
+    });
+
+    test(
         'openWorkspaceSessions exposes loading until workspace bootstrap completes',
         () async {
       final completer = Completer<DaemonInitialData>();
@@ -236,13 +418,16 @@ void main() {
 WorkbenchViewModel _workbenchViewModel(
   _FakeWorkspaceRepository workspaceRepository, {
   _FakeCliAdapterRepository? adapterRepository,
+  _FakeCachedConversationRepository? conversationRepository,
+  _FakeCachedRunRepository? runRepository,
   WorkspaceOpeningUseCase? openWorkspace,
 }) {
   return WorkbenchViewModel(
     workspaceRepository: workspaceRepository,
     adapterRepository: adapterRepository ?? _FakeCliAdapterRepository(),
-    conversationRepository: _FakeCachedConversationRepository(),
-    runRepository: _FakeCachedRunRepository(),
+    conversationRepository:
+        conversationRepository ?? _FakeCachedConversationRepository(),
+    runRepository: runRepository ?? _FakeCachedRunRepository(),
     workspaceOpeningUseCase: openWorkspace,
   );
 }
@@ -366,7 +551,11 @@ class _FakeWorkspaceRepository extends WorkspaceRepository {
 // ---------------------------------------------------------------------------
 
 class _FakeCliAdapterRepository extends CliAdapterRepository {
-  _FakeCliAdapterRepository() : super(delegate: _NoOpAdapterRepository());
+  _FakeCliAdapterRepository({List<AdapterStatus> adapters = const []})
+      : _adapters = adapters,
+        super(delegate: _NoOpAdapterRepository());
+
+  final List<AdapterStatus> _adapters;
 
   int get listenerCount => _listenerCount;
   int _listenerCount = 0;
@@ -384,7 +573,7 @@ class _FakeCliAdapterRepository extends CliAdapterRepository {
   }
 
   @override
-  List<AdapterStatus> get adapters => const <AdapterStatus>[];
+  List<AdapterStatus> get adapters => List.unmodifiable(_adapters);
 }
 
 class _NoOpAdapterRepository implements AdapterRepository {
@@ -393,11 +582,66 @@ class _NoOpAdapterRepository implements AdapterRepository {
 }
 
 class _FakeCachedConversationRepository extends CachedConversationRepository {
-  _FakeCachedConversationRepository()
-      : super(delegate: _NoOpConversationRepository());
+  _FakeCachedConversationRepository({
+    List<ConversationEventPage> eventPages = const <ConversationEventPage>[],
+  })  : _eventPages = List<ConversationEventPage>.of(eventPages),
+        super(delegate: _NoOpConversationRepository());
+
+  final List<ConversationEventPage> _eventPages;
+  final List<String> answeredQuestionIds = <String>[];
+  final List<String> respondedApprovalIds = <String>[];
+  ConversationRepositoryException? updateModelError;
+  int _eventPageIndex = 0;
 
   @override
   List<ConversationSummary> get conversations => const <ConversationSummary>[];
+
+  @override
+  Future<ConversationSummary> updateConversationModel(
+    String conversationId,
+    String? model,
+  ) async {
+    final error = updateModelError;
+    if (error != null) throw error;
+    return _conversation(id: conversationId, workspaceId: 'w1', model: model);
+  }
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    if (_eventPageIndex < _eventPages.length) {
+      return _eventPages[_eventPageIndex++];
+    }
+    return const ConversationEventPage(
+      events: <ConversationEvent>[],
+      oldestSeq: null,
+      newestSeq: null,
+      hasMoreBefore: false,
+    );
+  }
+
+  @override
+  Future<ConversationSummary> answerConversationQuestion(
+    String conversationId,
+    String questionId,
+    String text,
+  ) async {
+    answeredQuestionIds.add(questionId);
+    return _conversation(id: conversationId, workspaceId: 'w1');
+  }
+
+  @override
+  Future<ConversationSummary> respondConversationApproval(
+    String conversationId,
+    String approvalId,
+    String decision,
+  ) async {
+    respondedApprovalIds.add(approvalId);
+    return _conversation(id: conversationId, workspaceId: 'w1');
+  }
 }
 
 class _NoOpConversationRepository implements ConversationRepository {
@@ -468,3 +712,58 @@ DaemonInitialData _initialDataWithoutWorkspace() {
     queue: <QueueItem>[],
   );
 }
+
+ConversationSummary _conversation({
+  required String id,
+  required String workspaceId,
+  String adapter = 'codex',
+  String status = 'idle',
+  String? model,
+}) =>
+    ConversationSummary(
+      id: id,
+      workspaceId: workspaceId,
+      adapter: adapter,
+      status: status,
+      model: model,
+      capabilities:
+          ConversationCapabilities.fromJson(const <String, Object?>{}),
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:01.000Z',
+    );
+
+ConversationEvent _event({
+  required int seq,
+  required String type,
+  String conversationId = 'c1',
+  String? text,
+}) =>
+    ConversationEvent(
+      type: type,
+      seq: seq,
+      conversationId: conversationId,
+      createdAt: DateTime.parse('2026-06-01T00:00:0$seq.000Z'),
+      text: text,
+    );
+
+const _codexModels = AdapterStatus(
+  adapter: 'codex',
+  available: true,
+  status: 'available',
+  canSelectModel: true,
+  selectedModel: 'gpt-5-codex',
+  models: <AdapterModelOption>[
+    AdapterModelOption(
+      id: 'gpt-5-codex',
+      label: 'GPT-5 Codex',
+      source: 'codex_config',
+      selected: true,
+    ),
+    AdapterModelOption(
+      id: 'gpt-5-mini',
+      label: 'GPT-5 Mini',
+      source: 'codex_catalog',
+      selected: false,
+    ),
+  ],
+);
