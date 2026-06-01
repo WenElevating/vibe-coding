@@ -720,6 +720,8 @@ class _WidgetAppUpdateInstaller implements PackageInstallerService {
   final bool? returnNullRecoveryOnce;
   final _events = StreamController<AndroidInstallEvent>.broadcast();
   int recoverCalls = 0;
+  int installCalls = 0;
+  String? installedPath;
 
   void close() {
     unawaited(_events.close());
@@ -735,7 +737,11 @@ class _WidgetAppUpdateInstaller implements PackageInstallerService {
   Future<bool> canRequestPackageInstalls() async => true;
 
   @override
-  Future<int> installApk(String filePath) async => 22;
+  Future<int> installApk(String filePath) async {
+    installCalls += 1;
+    installedPath = filePath;
+    return 22;
+  }
 
   @override
   Future<void> openInstallPermissionSettings() async {}
@@ -751,6 +757,13 @@ class _WidgetAppUpdateInstaller implements PackageInstallerService {
 }
 
 class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
+  _WidgetAppUpdateDownloader({
+    this.result = const AppUpdateDownloadResult(
+      state: AppUpdateDownloadState.failed,
+    ),
+  });
+
+  AppUpdateDownloadResult result;
   AppUpdateInstallSessionRecord? installSession;
   int readSessionCalls = 0;
 
@@ -772,7 +785,7 @@ class _WidgetAppUpdateDownloader implements AppUpdateDownloader {
     Uri daemonBaseUri, {
     AppUpdateDownloadProgressCallback? onProgress,
   }) async =>
-      const AppUpdateDownloadResult(state: AppUpdateDownloadState.failed);
+      result;
 
   @override
   Future<File?> readDownloadedUpdate(AppUpdateManifest manifest) async => null;
@@ -4561,8 +4574,112 @@ void main() {
     expect(downloader.readSessionCalls, 2);
     expect(repository.fetchLatestCalls, 3);
     expect(installer.recoverCalls, 1);
-    expect(appUpdateViewModel.state.status,
-        AppUpdateStatus.awaitingUserConfirmation);
+    expect(appUpdateViewModel.state.status, AppUpdateStatus.readyToInstall);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, timeout: const Timeout(Duration(seconds: 10)));
+
+  testWidgets('app update auto install waits for foreground after background',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    PackageInfo.setMockInitialValues(
+      appName: 'LAN AI CLI Control',
+      packageName: 'com.example.lan_ai_cli_control',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    final manifest = _widgetAppUpdateManifest();
+    final installer = _WidgetAppUpdateInstaller();
+    addTearDown(installer.close);
+    final readyDir =
+        Directory.systemTemp.createTempSync('widget-ready-update-');
+    addTearDown(() => readyDir.delete(recursive: true));
+    final readyFile = File('${readyDir.path}/ready.apk')
+      ..writeAsBytesSync(const <int>[1, 2, 3]);
+    final downloader = _WidgetAppUpdateDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final repository = _WidgetAppUpdateRepository(manifest: manifest);
+    final appUpdateViewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: AppUpdateWorkflow(
+        repository: repository,
+        installerService: installer,
+        downloaderService: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    final dependencies = AppDependencies.createDefault();
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel: ({
+          required DaemonClient client,
+          required ConnectedDataDependencies connectedData,
+          required int installedVersionCode,
+          required String installedVersionName,
+        }) async =>
+            appUpdateViewModel,
+        createWorkbenchDependencies:
+            dependencies.features.createWorkbenchDependencies,
+      ),
+    );
+
+    Future<void> pumpUntilFetches(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && repository.fetchLatestCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(
+      _MainHarness(
+        client: _AdapterRefreshClient(),
+        dependencies: testDependencies,
+        forceAndroidForTesting: true,
+      ),
+    );
+    await pumpUntilFetches(2);
+    await appUpdateViewModel.checkForUpdates();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await appUpdateViewModel.download(installWhenReady: true);
+
+    expect(installer.installCalls, 0);
+    expect(appUpdateViewModel.state.status, AppUpdateStatus.readyToInstall);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    for (var attempt = 0;
+        attempt < 20 && installer.installCalls < 1;
+        attempt += 1) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+
+    expect(installer.installCalls, 1);
+    expect(installer.installedPath, readyFile.path);
+    expect(appUpdateViewModel.state.status, AppUpdateStatus.installing);
 
     await tester.pumpWidget(const SizedBox.shrink());
   }, timeout: const Timeout(Duration(seconds: 10)));

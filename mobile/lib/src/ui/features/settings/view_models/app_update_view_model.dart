@@ -134,6 +134,8 @@ class AppUpdateViewModel extends ChangeNotifier {
   bool _recoveringInstallSession = false;
   bool _installInFlight = false;
   bool _checkInFlight = false;
+  bool _appInForeground = true;
+  bool _installWhenReadyOnResume = false;
   final Set<int> _postponedOptionalVersionCodes = <int>{};
 
   AppUpdateState state;
@@ -248,6 +250,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   Future<void> download({bool installWhenReady = false}) async {
     final manifest = state.manifest;
     if (manifest == null) return;
+    _installWhenReadyOnResume = false;
     _set(
       state.copyWith(
         status: AppUpdateStatus.downloading,
@@ -288,9 +291,14 @@ class AppUpdateViewModel extends ChangeNotifier {
       if (installWhenReady &&
           result.state == AppUpdateDownloadState.readyToInstall &&
           result.file != null) {
-        await install();
+        if (_appInForeground) {
+          await install();
+        } else {
+          _installWhenReadyOnResume = true;
+        }
       }
     } catch (error) {
+      _installWhenReadyOnResume = false;
       _set(
         state.copyWith(
           status: AppUpdateStatus.failed,
@@ -442,6 +450,25 @@ class AppUpdateViewModel extends ChangeNotifier {
           final manifest = recovery.manifest;
           final event = recovery.event;
           if (manifest == null || event == null) return;
+          if (event.status == AndroidInstallStatus.pendingUserAction) {
+            await workflow.clearInstallSession(
+              manifest,
+              sessionId: event.sessionId,
+            );
+            if (!_canRecoverInstallSession()) return;
+            _set(
+              state.copyWith(
+                status: AppUpdateStatus.readyToInstall,
+                manifest: manifest,
+                mandatory: manifest.isMandatoryFor(installedVersionCode),
+                downloadedFile: recovery.file,
+                errorMessage:
+                    'Android install confirmation could not be reopened. Tap Install again.',
+                promptSuppressed: false,
+              ),
+            );
+            return;
+          }
           _set(
             state.copyWith(
               status: AppUpdateStatus.readyToInstall,
@@ -471,6 +498,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> discard() async {
+    _installWhenReadyOnResume = false;
     final manifest = state.manifest;
     final versionCode = manifest?.versionCode;
     if (versionCode != null) {
@@ -499,13 +527,22 @@ class AppUpdateViewModel extends ChangeNotifier {
   Future<void> handleAppLifecycleStateChanged(
     AppLifecycleState lifecycleState,
   ) async {
-    if (lifecycleState == AppLifecycleState.resumed) {
-      if (state.status == AppUpdateStatus.installPermissionNeeded) {
-        await _continueInstallAfterPermissionGrant();
-        return;
-      }
-      await recoverInstallSession();
+    if (lifecycleState != AppLifecycleState.resumed) {
+      _appInForeground = false;
+      return;
     }
+    _appInForeground = true;
+    if (state.status == AppUpdateStatus.installPermissionNeeded) {
+      await _continueInstallAfterPermissionGrant();
+      return;
+    }
+    if (_installWhenReadyOnResume &&
+        state.status == AppUpdateStatus.readyToInstall) {
+      _installWhenReadyOnResume = false;
+      await install();
+      return;
+    }
+    await recoverInstallSession();
   }
 
   Future<void> _continueInstallAfterPermissionGrant() async {
@@ -572,7 +609,8 @@ class AppUpdateViewModel extends ChangeNotifier {
         state.status == AppUpdateStatus.upToDate ||
         state.status == AppUpdateStatus.available ||
         state.status == AppUpdateStatus.paused ||
-        state.status == AppUpdateStatus.failed;
+        state.status == AppUpdateStatus.failed ||
+        state.status == AppUpdateStatus.awaitingUserConfirmation;
   }
 
   void _clearInstallSession({int? sessionId}) {

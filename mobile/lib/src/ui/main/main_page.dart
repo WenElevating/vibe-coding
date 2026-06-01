@@ -173,6 +173,11 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     _approvalNotificationHandler.updateLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       unawaited(_handleAppUpdateForeground(AppUpdateCheckTrigger.appResumed));
+      return;
+    }
+    final viewModel = _appUpdateViewModel;
+    if (viewModel != null) {
+      unawaited(viewModel.handleAppLifecycleStateChanged(state));
     }
   }
 

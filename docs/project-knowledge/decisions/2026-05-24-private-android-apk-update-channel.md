@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-05-24
-- Last verified: 2026-05-27
+- Last verified: 2026-06-01
 
 ## Context
 
@@ -52,6 +52,16 @@ preventing a future startup from recovering a completed or failed native session
 as a ghost pending update. Installer event-stream failures are diagnostic-only
 on Dart; they must not escape as unhandled asynchronous errors or mutate update
 state.
+
+Android may refuse or drop a package-installer confirmation UI that is launched
+while the app is backgrounded. Therefore `installWhenReady` defers the install
+start until the app is foreground/resumed when a background download completes.
+If recovery later finds a persisted session whose only available native status
+is `pendingUserAction`, Dart treats that confirmation as non-replayable, clears
+the persisted `installSessionId`, and returns to `readyToInstall` with a retry
+message. This prevents a restart/resume loop that repeatedly shows "confirm
+install" inside the Flutter UI while no Android installer confirmation surface
+exists.
 
 The daemon validates the manifest-referenced APK digest when a new file identity
 is observed, then caches that validated identity by real path, device/inode,

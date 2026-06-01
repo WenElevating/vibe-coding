@@ -98,6 +98,42 @@ void main() {
     expect(viewModel.state.status, AppUpdateStatus.installing);
   });
 
+  test('background download defers automatic install until resume', () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: _FakeDownloader(
+          result: AppUpdateDownloadResult(
+            state: AppUpdateDownloadState.readyToInstall,
+            file: readyFile,
+          ),
+        ),
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await viewModel.download(installWhenReady: true);
+
+    expect(installer.installCalls, 0);
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+    expect(installer.installCalls, 1);
+    expect(installer.installedPath, readyFile.path);
+    expect(viewModel.state.status, AppUpdateStatus.installing);
+  });
+
   test('check uses already downloaded update instead of offering download',
       () async {
     final installer = _FakeInstaller();
@@ -418,6 +454,54 @@ void main() {
     },
   );
 
+  test('resume from pending confirmation restores retryable install', () async {
+    final installer = _FakeInstaller(
+      recoveredEvent: const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 7,
+      ),
+    );
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(viewModel.dispose);
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.pendingUserAction,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+    downloader.installSession =
+        AppUpdateInstallSessionRecord(sessionId: 7, file: readyFile);
+
+    await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+    expect(installer.recoveredSessionId, 7);
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(downloader.clearedSessionId, 7);
+  });
+
   test('installing state ignores repeated install taps', () async {
     final installCompleter = Completer<int>();
     final installer = _FakeInstaller(installCompleter: installCompleter);
@@ -525,7 +609,7 @@ void main() {
   });
 
   test(
-    'recovers persisted install session into pending confirmation state',
+    'recovered pending confirmation returns to retryable install state',
     () async {
       final installer = _FakeInstaller(
         recoveredEvent: const AndroidInstallEvent(
@@ -560,13 +644,19 @@ void main() {
 
       expect(downloader.readSessionManifest, manifest);
       expect(installer.recoveredSessionId, 11);
-      expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+      expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
       expect(viewModel.state.downloadedFile?.path, readyFile.path);
       expect(viewModel.state.manifest, manifest);
+      expect(downloader.clearedSessionManifest, manifest);
+      expect(downloader.clearedSessionId, 11);
+      expect(
+        viewModel.state.errorMessage,
+        contains('confirmation could not be reopened'),
+      );
     },
   );
 
-  test('lifecycle resume recovers persisted session from available state',
+  test('lifecycle resume restores retryable install after pending recovery',
       () async {
     final installer = _FakeInstaller(
       recoveredEvent: const AndroidInstallEvent(
@@ -605,10 +695,11 @@ void main() {
     await viewModel.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 
     expect(installer.recoveredSessionId, 15);
-    expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(downloader.clearedSessionId, 15);
   });
 
-  test('recovers persisted install session while download is paused', () async {
+  test('pending recovery while paused restores retryable install', () async {
     final installer = _FakeInstaller(
       recoveredEvent: const AndroidInstallEvent(
         status: AndroidInstallStatus.pendingUserAction,
@@ -648,7 +739,8 @@ void main() {
     await viewModel.recoverInstallSession();
 
     expect(installer.recoveredSessionId, 16);
-    expect(viewModel.state.status, AppUpdateStatus.awaitingUserConfirmation);
+    expect(viewModel.state.status, AppUpdateStatus.readyToInstall);
+    expect(downloader.clearedSessionId, 16);
   });
 
   test('manifest unavailable recovery clears orphan install sessions',

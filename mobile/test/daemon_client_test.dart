@@ -107,6 +107,7 @@ void main() {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenStore: tokenStore,
+      now: () => DateTime.parse('2026-05-22T00:00:00.000Z'),
       httpClient: MockClient((request) async {
         requests.add(request);
         expect(request.url.path, '/api/conversations/conv_1/events');

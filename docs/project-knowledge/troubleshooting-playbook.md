@@ -578,6 +578,33 @@ flutter build apk --debug
 
 - Last verified: 2026-05-31
 
+## Symptom: Android Update Stuck On Confirm Install After Background Download
+
+- Symptom: an Android update download finishes while the app is in the
+  background; returning to the app shows "confirm install update" in the
+  Flutter progress dialog, but the Android installer confirmation page never
+  appears. Restarting the app can restore the same confirm state repeatedly.
+- Action: do not start `PackageInstaller.Session` from a background
+  `installWhenReady` completion. Track app lifecycle in `AppUpdateViewModel`,
+  defer automatic install until `resumed`, and treat recovered
+  `pendingUserAction` sessions as non-replayable: clear the persisted
+  `installSessionId` and return to `readyToInstall` so the user can retry from
+  the foreground.
+- Related files:
+  [main_page.dart](../../mobile/lib/src/ui/main/main_page.dart),
+  [app_update_view_model.dart](../../mobile/lib/src/ui/features/settings/view_models/app_update_view_model.dart),
+  [app_update_panel.dart](../../mobile/lib/src/ui/features/settings/widgets/app_update_panel.dart)
+- Verification:
+
+```powershell
+cd D:\AiProject\vibe-coding\mobile
+flutter test --no-pub test\app_update_view_model_test.dart -r expanded
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "app update"
+dart analyze lib test
+```
+
+- Last verified: 2026-06-01
+
 ## Symptom: Workbench Send Reports StreamSink Is Closed
 
 - Symptom: a prompt or attachment send succeeds in daemon persistence, but
