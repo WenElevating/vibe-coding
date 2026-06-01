@@ -23,7 +23,6 @@ import '../features/settings/settings.dart'
         SettingsViewModel;
 import '../features/workbench/workbench.dart';
 import '../pages/pages.dart';
-import 'coding_adapter_gate.dart';
 import 'connected_main_shell.dart';
 import 'main_shell_view_model.dart';
 
@@ -294,12 +293,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     }
   }
 
-  void _retryCodingAdapters() {
-    unawaited(
-      _probeCodingAdapters(),
-    );
-  }
-
   void _handleCodingPreferencesRepositoryChanged() {
     final permissionMode =
         widget.pageDependencies.normalizeCodingPermissionMode(
@@ -547,23 +540,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   Widget _buildCodingTab() {
     final viewModel = _viewModel;
     if (viewModel == null) return const SizedBox.shrink();
-    // TODO(arch): Remove direct repository access when CodingGateViewModel
-    // owns coding gate state. Tracked by migration Slice 4.
-    return ListenableBuilder(
-      listenable: _repositories.cliAdapterRepository,
-      builder: (context, _) => _buildCodingTabContent(viewModel),
-    );
-  }
-
-  Widget _buildCodingTabContent(MainShellViewModel viewModel) {
-    final adapterRepo = _repositories.cliAdapterRepository;
-    if (adapterRepo.loading || adapterRepo.error != null) {
-      return CodingAdapterGate(
-        failed: adapterRepo.error != null,
-        error: adapterRepo.error,
-        onRetry: _retryCodingAdapters,
-      );
-    }
     return CodingPage(
       workbenchDependencies: _workbenchDependencies,
       workbenchKey: _codingWorkbenchKey,
