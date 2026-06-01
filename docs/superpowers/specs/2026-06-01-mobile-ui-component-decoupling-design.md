@@ -117,6 +117,13 @@ Use `widgets/` for repeated or section-level presentation components, `sheets/`
 for bottom sheets, and `dialogs/` for dialogs. Keep private helper widgets in
 the same file only when they are tightly coupled to one small public widget.
 
+Workbench may use a feature-specific `messages/` subdirectory for conversation
+message rendering. That directory is reserved for message cards, message body
+renderers, and message-only parsing/presentation helpers. General Workbench
+sections still belong in `widgets/`, and other features should not copy the
+`messages/` layer unless they also have a similarly large message-rendering
+surface.
+
 ### Shared UI
 
 Move a widget to `ui/core/widgets` only when it is reused by more than one
@@ -175,6 +182,11 @@ mobile/lib/src/ui/features/workbench/
 `workbench.dart` remains the feature barrel for intentional public imports.
 Callers should import the barrel or the specific public file already used by
 the feature, not private leaf files.
+
+`command_detail_sheet.dart` is intentionally listed under `messages/`, not
+`sheets/`, because it is a command-message detail surface tightly coupled to
+`command_event_card.dart`. Feature-wide bottom sheets such as model selection
+remain under `sheets/`.
 
 The implementation plan should add a lightweight barrel consistency check to
 `mobile/tool/check_architecture_imports.dart` before large barrel churn. The
@@ -349,6 +361,8 @@ mobile/lib/src/ui/features/settings/
 |   +-- settings_action_button.dart
 |   +-- settings_update_check_row.dart
 +-- view_models/
+|   +-- settings_view_model.dart
+|   +-- app_update_view_model.dart
 ```
 
 `SettingsPage` should read the ViewModel and compose sections. Row/card/chip
@@ -423,6 +437,10 @@ stop retrying automatically and report the exact command as timed out.
   focused message/card modules.
 - `workspace_picker_sheet.dart` is split into sheets, widgets, and model files
   with stable public exports.
+- `dedupeWorkspacesByPath` and related workspace path normalization helpers no
+  longer live privately inside a single feature sheet file. Their final owner is
+  explicit and matches the verified usage scope, such as `ui/core` for shared
+  presentation helpers or a domain-level helper for business semantics.
 - `settings_page.dart` keeps page composition while row/card/sheet widgets move
   into local files.
 - Architecture import checks pass.
@@ -434,17 +452,16 @@ stop retrying automatically and report the exact command as timed out.
 2. Add route-sensitive subscription ownership markers in
    `coding_workbench_page.dart`, then split Workbench page route and overlay
    rendering.
-3. Add barrel consistency coverage to the architecture check before large
-   barrel churn.
-4. Workspace Picker sheet/widget split, after confirming shared workspace-list
-   helper ownership from actual usage.
-5. Settings page widget/sheet split.
-6. Workbench page-side controller extraction, only after the visual split is
+3. Workspace Picker sheet/widget split, after confirming shared workspace-list
+   helper ownership from actual usage. Before this step creates large barrel
+   churn, add barrel consistency coverage to the architecture check.
+4. Settings page widget/sheet split.
+5. Workbench page-side controller extraction, only after the visual split is
    stable.
-7. Workbench ViewModel dependency sketch and missing state-transition tests.
-8. Workbench ViewModel responsibility split, only if the sketch has no cycles
+6. Workbench ViewModel dependency sketch and missing state-transition tests.
+7. Workbench ViewModel responsibility split, only if the sketch has no cycles
    or the extraction is limited to pure helpers/value objects.
-9. Optional `ui/main/main_page.dart` helper extraction under `ui/main/`.
+8. Optional `ui/main/main_page.dart` helper extraction under `ui/main/`.
 
 This order starts with the largest rendering-only file, then simplifies the
 Workbench page before touching delicate state ownership. It leaves the main
