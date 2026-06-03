@@ -116,6 +116,11 @@ validated against request metadata.
 omits `scope`, the daemon treats it as `once` for backward compatibility. The
 daemon ignores and does not validate `scope` for `deny` or `cancel`.
 
+`updatedInput` is reserved for future editable approval flows. The current
+Codex-style approval panel does not provide an input-editing UI and must not set
+this field. Adapters should only consume `updatedInput` when a future
+request-level metadata flag explicitly allows input edits.
+
 Add approval request metadata to conversation events and blocking items:
 
 ```text
@@ -202,7 +207,6 @@ Extend adapter capabilities with explicit approval information:
 ```text
 approval:
   mobileCallbacks: bool
-  responseShape: string | object
   scopes: list<once | session>
   supportsCancel: bool
   denyBehaviors: list<interrupt | continue>
@@ -211,6 +215,20 @@ approval:
 This replaces ambiguous UI inference from `waitingApproval` alone. A provider
 can support waiting for approval but still only offer one-time decisions.
 Provider-native decision names stay out of the mobile capability contract.
+
+Adapter capabilities are an upper bound. Request-level fields such as
+`supportsSessionScope`, `supportsCancel`, and `denyBehavior` must be derived as a
+subset of the adapter capability and provider-native request state. If provider
+metadata and adapter capability conflict, the daemon resolves the conflict
+before emitting the mobile event:
+
+- unsupported session scope is removed by setting `supportsSessionScope: false`.
+- unsupported cancel is removed by setting `supportsCancel: false`.
+- unsupported `denyBehavior: continue` is downgraded to
+  `denyBehavior: interrupt`.
+
+Mobile renders only from request-level metadata. It does not compare request
+metadata against adapter capabilities.
 
 ## Implementation Stages
 
