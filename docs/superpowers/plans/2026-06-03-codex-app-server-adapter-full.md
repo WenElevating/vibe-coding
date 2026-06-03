@@ -64,7 +64,7 @@
 - Create: `docs/superpowers/fixtures/codex-app-server/smoke-report-template.md`
 - Create: `docs/superpowers/fixtures/codex-app-server/samples/.gitkeep`
 
-- [ ] **Step 1: Implement the fixture files**
+- [x] **Step 1: Implement the fixture files**
 
 Use the detailed plan in:
 
@@ -72,7 +72,7 @@ Use the detailed plan in:
 docs/superpowers/plans/2026-06-03-codex-app-server-phase-1-smoke.md
 ```
 
-- [ ] **Step 2: Run project knowledge check**
+- [x] **Step 2: Run project knowledge check**
 
 Run:
 
@@ -86,7 +86,7 @@ Expected:
 Project knowledge check passed
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -f docs/superpowers/fixtures/codex-app-server
@@ -102,7 +102,7 @@ git commit -m "Add app-server smoke fixture contract"
 - Create: `docs/superpowers/fixtures/codex-app-server/smoke-report-<date>.md`
 - Create: `docs/superpowers/fixtures/codex-app-server/samples/<date>-*.json`
 
-- [ ] **Step 1: Run the upstream smoke**
+- [x] **Step 1: Run the upstream smoke**
 
 Follow the commands and thresholds in:
 
@@ -110,7 +110,7 @@ Follow the commands and thresholds in:
 docs/superpowers/plans/2026-06-03-codex-app-server-phase-1-smoke.md
 ```
 
-- [ ] **Step 2: Mark every manifest gate**
+- [x] **Step 2: Mark every manifest gate**
 
 Set every `manifest.json.gates` value to one of:
 
@@ -126,7 +126,7 @@ Expected:
 No gate remains "unknown"
 ```
 
-- [ ] **Step 3: Commit the evidence**
+- [x] **Step 3: Commit the evidence**
 
 ```bash
 git add -f docs/superpowers/fixtures/codex-app-server
@@ -140,7 +140,7 @@ git commit -m "Capture app-server smoke evidence"
 **Files:**
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Add the manifest test**
+- [x] **Step 1: Add the manifest test**
 
 Append near existing adapter/fixture tests:
 
@@ -165,7 +165,7 @@ test('Codex app-server smoke manifest has no unknown gates after Phase 1', () =>
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run:
 
@@ -179,7 +179,7 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/run-tests.js
@@ -194,7 +194,7 @@ git commit -m "Check app-server smoke manifest"
 - Create: `daemon/src/codex-app-server-availability.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write failing availability tests**
+- [x] **Step 1: Write failing availability tests**
 
 Add tests:
 
@@ -225,7 +225,7 @@ test('Codex app-server availability exposes sanitized selectable status', () => 
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -239,7 +239,7 @@ Expected:
 FAIL because daemon/src/codex-app-server-availability.js does not exist
 ```
 
-- [ ] **Step 3: Implement availability module**
+- [x] **Step 3: Implement availability module**
 
 Create `daemon/src/codex-app-server-availability.js`:
 
@@ -321,7 +321,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -335,7 +335,7 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add daemon/src/codex-app-server-availability.js scripts/run-tests.js
@@ -350,7 +350,7 @@ git commit -m "Add app-server availability model"
 - Create: `daemon/src/codex-app-server-transport.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write failing transport tests**
+- [x] **Step 1: Write failing transport tests**
 
 Add tests:
 
@@ -377,7 +377,7 @@ test('Codex app-server transport rejects pending requests on close', async () =>
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -391,7 +391,7 @@ Expected:
 FAIL because daemon/src/codex-app-server-transport.js does not exist
 ```
 
-- [ ] **Step 3: Implement minimal transport**
+- [x] **Step 3: Implement minimal transport**
 
 Create `daemon/src/codex-app-server-transport.js`:
 
@@ -445,7 +445,7 @@ function createCodexAppServerJsonRpcClient({ writeLine, onNotification = () => {
 module.exports = { createCodexAppServerJsonRpcClient };
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -459,7 +459,7 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add daemon/src/codex-app-server-transport.js scripts/run-tests.js
@@ -474,7 +474,7 @@ git commit -m "Add app-server JSON-RPC transport"
 - Create: `daemon/src/codex-app-server-lifecycle.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write lifecycle tests**
+- [x] **Step 1: Write lifecycle tests**
 
 Add tests:
 
@@ -497,7 +497,7 @@ test('Codex app-server lifecycle escalates dispose to kill', async () => {
 });
 ```
 
-- [ ] **Step 2: Implement lifecycle manager**
+- [x] **Step 2: Implement lifecycle manager**
 
 Create `daemon/src/codex-app-server-lifecycle.js`:
 
@@ -532,7 +532,7 @@ class CodexAppServerLifecycle {
 module.exports = { CodexAppServerLifecycle };
 ```
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -558,7 +558,7 @@ git commit -m "Add app-server lifecycle guard"
 - Modify: `daemon/src/main.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 Add tests:
 
@@ -570,7 +570,7 @@ test('conversation protocol accepts codex-app-server adapter id', () => {
 });
 ```
 
-- [ ] **Step 2: Modify protocol**
+- [x] **Step 2: Modify protocol**
 
 Change:
 
@@ -584,7 +584,7 @@ to:
 const supportedConversationAdapters = Object.freeze(['claude', 'codex', 'codex-app-server', 'opencode']);
 ```
 
-- [ ] **Step 3: Wire flags in `main.js`**
+- [x] **Step 3: Wire flags in `main.js`**
 
 Add config reads:
 
@@ -598,7 +598,7 @@ codexAppServerMaxProcesses = Number(process.env.CODEX_APP_SERVER_MAX_PROCESSES |
 
 Keep defaults disabled.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -624,7 +624,7 @@ git commit -m "Register app-server adapter id behind flags"
 - Modify: `daemon/src/app-sqlite-store.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 Add tests:
 
@@ -641,7 +641,7 @@ test('conversation exposes requested and effective adapter fields', () => {
 });
 ```
 
-- [ ] **Step 2: Add fields to conversation object**
+- [x] **Step 2: Add fields to conversation object**
 
 In `createConversation`, add:
 
@@ -653,7 +653,7 @@ fallbackNotice: null,
 providerSession: null,
 ```
 
-- [ ] **Step 3: Add fields to `publicConversation`**
+- [x] **Step 3: Add fields to `publicConversation`**
 
 Return:
 
@@ -665,11 +665,11 @@ fallbackNotice: conversation.fallbackNotice || null,
 providerSession: conversation.providerSession || null,
 ```
 
-- [ ] **Step 4: Persist fields**
+- [x] **Step 4: Persist fields**
 
 Update SQLite persistence to store these fields as JSON/text. If schema migration helpers exist in `app-sqlite-store.js`, add a migration. If not, add nullable columns guarded by existing migration style.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -694,7 +694,7 @@ git commit -m "Expose requested and effective conversation adapters"
 - Modify: `daemon/src/conversation-manager.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write fallback tests**
+- [x] **Step 1: Write fallback tests**
 
 Add tests:
 
@@ -744,7 +744,7 @@ test('codex-app-server does not fall back after side-effect boundary', async () 
 });
 ```
 
-- [ ] **Step 2: Implement fallback path**
+- [x] **Step 2: Implement fallback path**
 
 In `ensureStarted` or the nearest startup path, catch app-server startup errors only when:
 
@@ -756,7 +756,7 @@ error.sideEffectBoundaryCrossed !== true
 
 Then switch to `codex`, set `fallbackNotice`, and start the codex handle.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -782,7 +782,7 @@ git commit -m "Fallback app-server before side effects"
 - Modify: `daemon/src/main.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write adapter skeleton tests**
+- [x] **Step 1: Write adapter skeleton tests**
 
 Add tests:
 
@@ -796,7 +796,7 @@ test('Codex app-server conversation adapter is unavailable when disabled', () =>
 });
 ```
 
-- [ ] **Step 2: Implement skeleton**
+- [x] **Step 2: Implement skeleton**
 
 Create:
 
@@ -849,11 +849,11 @@ class CodexAppServerConversationAdapter {
 module.exports = { CodexAppServerConversationAdapter };
 ```
 
-- [ ] **Step 3: Register in `main.js`**
+- [x] **Step 3: Register in `main.js`**
 
 Add import and register in `createConversationAdapters`.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -880,11 +880,11 @@ git commit -m "Add app-server conversation adapter shell"
 - Modify: `daemon/src/codex-app-server-transport.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write probe tests with fake child transport**
+- [x] **Step 1: Write probe tests with fake child transport**
 
 Test selectable true only when fake initialize succeeds and no side-effect request is sent.
 
-- [ ] **Step 2: Implement lightweight probe**
+- [x] **Step 2: Implement lightweight probe**
 
 Probe sequence:
 
@@ -905,7 +905,7 @@ thread/resume
 turn/start
 ```
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -931,7 +931,7 @@ git commit -m "Probe app-server without side effects"
 - Modify: `daemon/src/codex-app-server-bridge.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write fake fixture-driven tests**
+- [x] **Step 1: Write fake fixture-driven tests**
 
 Use sanitized Phase 1 samples to test:
 
@@ -943,7 +943,7 @@ turn/interrupted -> conversation.cancelled
 turn/failed -> run.error
 ```
 
-- [ ] **Step 2: Implement `CodexAppServerConversationHandle`**
+- [x] **Step 2: Implement `CodexAppServerConversationHandle`**
 
 Required methods:
 
@@ -954,7 +954,7 @@ async cancel() {}
 async dispose() {}
 ```
 
-- [ ] **Step 3: Set side-effect boundary before sending `thread/start`**
+- [x] **Step 3: Set side-effect boundary before sending `thread/start`**
 
 Before writing `thread/start` to transport:
 
@@ -962,7 +962,7 @@ Before writing `thread/start` to transport:
 this.sideEffectBoundaryCrossed = true;
 ```
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -988,7 +988,7 @@ git commit -m "Run app-server thread and turn flow"
 - Modify: `daemon/src/codex-app-server-conversation-adapter.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write tests for safe defaults**
+- [x] **Step 1: Write tests for safe defaults**
 
 Cover:
 
@@ -1001,7 +1001,7 @@ cancel unavailable -> supportsCancel false
 session scope absent -> supportsSessionScope false
 ```
 
-- [ ] **Step 2: Implement approval pending map**
+- [x] **Step 2: Implement approval pending map**
 
 Use key:
 
@@ -1018,7 +1018,7 @@ createdAt
 timeout
 ```
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -1044,7 +1044,7 @@ git commit -m "Handle app-server approvals safely"
 - Modify: `daemon/src/app-sqlite-store.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write persistence tests**
+- [x] **Step 1: Write persistence tests**
 
 Test restored conversation preserves:
 
@@ -1060,11 +1060,11 @@ Test restored conversation preserves:
 }
 ```
 
-- [ ] **Step 2: Persist providerSession**
+- [x] **Step 2: Persist providerSession**
 
 Add JSON storage following existing capabilities JSON patterns.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -1090,7 +1090,7 @@ git commit -m "Persist app-server provider sessions"
 - Modify: `daemon/src/conversation-manager.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write attachment tests**
+- [x] **Step 1: Write attachment tests**
 
 Cover:
 
@@ -1101,11 +1101,11 @@ pdf unsupported -> rejected before thread/start/turn/start
 fallback to codex -> effectiveCapabilities attachments switch to codex
 ```
 
-- [ ] **Step 2: Implement conversion**
+- [x] **Step 2: Implement conversion**
 
 Use existing `buildAdapterUserMessage()` behavior and app-server `UserInput` helper.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -1131,7 +1131,7 @@ git commit -m "Map attachments into app-server input"
 - Modify: `daemon/src/codex-app-server-conversation-adapter.js`
 - Modify: `scripts/run-tests.js`
 
-- [ ] **Step 1: Write diagnostics tests**
+- [x] **Step 1: Write diagnostics tests**
 
 Assert diagnostics expose sanitized counters:
 
@@ -1149,11 +1149,11 @@ transport_close_count
 orphan_process_cleanup_count
 ```
 
-- [ ] **Step 2: Implement metric increments**
+- [x] **Step 2: Implement metric increments**
 
 Keep raw provider payloads out of metrics.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```powershell
 node scripts\run-tests.js
@@ -1178,7 +1178,7 @@ git commit -m "Report app-server adapter diagnostics"
 - Modify: `mobile/test/protocol_compatibility_test.dart`
 - Modify: mobile data models only if tests fail
 
-- [ ] **Step 1: Write compatibility test**
+- [x] **Step 1: Write compatibility test**
 
 Add a test that parses a conversation containing:
 
@@ -1204,7 +1204,7 @@ Add a test that parses a conversation containing:
 }
 ```
 
-- [ ] **Step 2: Run targeted Flutter test**
+- [x] **Step 2: Run targeted Flutter test**
 
 Run from `mobile`:
 
@@ -1218,11 +1218,11 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 3: Fix model parsing only if needed**
+- [x] **Step 3: Fix model parsing only if needed**
 
 If parsing fails, update only data model fields necessary to ignore or preserve the new daemon fields.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mobile/test/protocol_compatibility_test.dart mobile/lib/src/data/models
@@ -1236,7 +1236,7 @@ git commit -m "Accept app-server fallback conversation fields"
 **Files:**
 - No new files unless verification reveals a bug.
 
-- [ ] **Step 1: Run daemon tests**
+- [x] **Step 1: Run daemon tests**
 
 ```powershell
 node scripts\run-tests.js
@@ -1248,7 +1248,7 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 2: Run lint**
+- [x] **Step 2: Run lint**
 
 ```powershell
 npm run lint
@@ -1260,7 +1260,7 @@ Expected:
 No JavaScript lint failures
 ```
 
-- [ ] **Step 3: Run project knowledge check**
+- [x] **Step 3: Run project knowledge check**
 
 ```powershell
 node scripts\check-project-knowledge.js
@@ -1272,7 +1272,7 @@ Expected:
 Project knowledge check passed
 ```
 
-- [ ] **Step 4: Run mobile compatibility test if mobile changed**
+- [x] **Step 4: Run mobile compatibility test if mobile changed**
 
 ```powershell
 cd mobile
@@ -1285,7 +1285,7 @@ Expected:
 All tests pass
 ```
 
-- [ ] **Step 5: Inspect git status**
+- [x] **Step 5: Inspect git status**
 
 ```powershell
 git status --short --branch

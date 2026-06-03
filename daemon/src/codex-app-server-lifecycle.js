@@ -15,7 +15,8 @@ class CodexAppServerLifecycle {
     cwd = process.cwd(),
     env = process.env,
     spawnAppServer = null,
-    processTreeTerminator = undefined
+    processTreeTerminator = undefined,
+    metrics = null
   } = {}) {
     this.maxProcesses = Math.max(1, Number(maxProcesses) || 1);
     this.gracefulShutdownMs = Math.max(1, Number(gracefulShutdownMs) || 5000);
@@ -35,7 +36,7 @@ class CodexAppServerLifecycle {
     this.processTreeTerminator = processTreeTerminator === undefined
       ? (customSpawn ? null : defaultProcessTreeTerminator)
       : processTreeTerminator;
-    this.metrics = {
+    this.metrics = metrics || {
       orphanProcessCleanupCount: 0
     };
     this.handles = new Set();

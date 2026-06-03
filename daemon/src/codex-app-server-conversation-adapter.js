@@ -20,7 +20,9 @@ class CodexAppServerConversationAdapter {
     lifecycle = null,
     toolTimeoutSec = null,
     approvalTimeoutMs = 120000,
-    initializeTimeoutMs = 10000
+    initializeTimeoutMs = 10000,
+    availabilityState = null,
+    metrics = null
   } = {}) {
     this.name = 'codex-app-server';
     this.toolTimeoutSec = toolTimeoutSec;
@@ -28,8 +30,9 @@ class CodexAppServerConversationAdapter {
     this.initializeTimeoutMs = Math.max(1, Number(initializeTimeoutMs) || 10000);
     this.lifecycle = lifecycle;
     this.availability = availability || buildCodexAppServerAvailability({ enabled: false });
-    this.capabilities = this.availability.effectiveCapabilities || {};
-    this.metrics = {
+    this.availabilityState = availabilityState;
+    this.capabilities = this.currentAvailability().effectiveCapabilities || {};
+    this.metrics = metrics || {
       probeSuccess: 0,
       probeFailure: 0,
       spawnFailure: 0,
@@ -45,12 +48,13 @@ class CodexAppServerConversationAdapter {
   }
 
   detectCapabilities() {
+    const availability = this.currentAvailability();
     return {
       adapter: this.name,
-      available: this.availability.selectable === true,
-      status: this.availability.selectable === true ? 'available' : 'unavailable',
-      ...this.availability,
-      capabilities: this.availability.effectiveCapabilities || {},
+      available: availability.selectable === true,
+      status: availability.selectable === true ? 'available' : 'unavailable',
+      ...availability,
+      capabilities: availability.effectiveCapabilities || {},
       diagnostics: {
         metrics: snapshotMetrics(this.metrics, this.lifecycle)
       }
@@ -58,7 +62,7 @@ class CodexAppServerConversationAdapter {
   }
 
   getCapabilities() {
-    return this.availability.effectiveCapabilities || {};
+    return this.currentAvailability().effectiveCapabilities || {};
   }
 
   recordFallbackBeforeFirstRequest() {
@@ -66,8 +70,9 @@ class CodexAppServerConversationAdapter {
   }
 
   async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, onEvent } = {}) {
-    if (!this.availability || this.availability.selectable !== true) {
-      const reason = this.availability?.unavailableReason || 'unavailable';
+    const availability = this.currentAvailability();
+    if (!availability || availability.selectable !== true) {
+      const reason = availability?.unavailableReason || 'unavailable';
       const error = new Error(`Codex app-server adapter is not selectable: ${reason}`);
       error.status = 503;
       error.code = 'CODEX_APP_SERVER_UNAVAILABLE';
@@ -105,6 +110,13 @@ class CodexAppServerConversationAdapter {
       error.codexAppServerFallbackAllowed = conversationHandle.sideEffectBoundaryCrossed !== true;
       throw error;
     }
+  }
+
+  currentAvailability() {
+    if (this.availabilityState && this.availabilityState.current) {
+      return buildCodexAppServerAvailability(this.availabilityState.current);
+    }
+    return this.availability;
   }
 }
 

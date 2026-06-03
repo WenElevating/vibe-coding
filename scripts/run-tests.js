@@ -868,19 +868,98 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
     codexAppServerEnabled: true,
     codexAppServerExperimentalApi: true,
     codexAppServerRolloutPercent: 100,
-    codexAppServerTransport: 'stdio'
+    codexAppServerTransport: 'stdio',
+    codexAppServerProbe: false
   });
   try {
     const adapters = await selectable.adapterRegistry.listCapabilities();
     const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
     assert.ok(appServer);
-    assert.equal(appServer.selectable, true);
-    assert.equal(appServer.transportHealthy, true);
-    assert.equal(appServer.effectiveCapabilities.mobileApprovalCallbacks, true);
-    assert.equal(selectable.conversations.adapters.get('codex-app-server').detectCapabilities().selectable, true);
+    assert.equal(appServer.selectable, false);
+    assert.equal(appServer.unavailableReason, 'probe_not_run');
+    assert.equal(selectable.conversations.adapters.get('codex-app-server').detectCapabilities().selectable, false);
   } finally {
     selectable.appSqliteStore.close();
     fs.rmSync(path.dirname(selectableDbPath), { recursive: true, force: true });
+  }
+
+  const probedDbPath = tempConversationDbPath('app-server-listing-probed-');
+  const probeCalls = [];
+  const probed = createApp({
+    port: 0,
+    appDbPath: probedDbPath,
+    codexAppServerEnabled: true,
+    codexAppServerExperimentalApi: true,
+    codexAppServerRolloutPercent: 100,
+    codexAppServerTransport: 'stdio',
+    codexAppServerProbe: async () => {
+      probeCalls.push('probe');
+      return {
+        installed: true,
+        protocolCompatible: true,
+        transportHealthy: true,
+        unavailableReason: null,
+        lastProbeAt: '2026-06-03T00:00:00.000Z'
+      };
+    }
+  });
+  try {
+    const adapters = await probed.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(probeCalls.length, 1);
+    assert.equal(appServer.selectable, true);
+    assert.equal(appServer.transportHealthy, true);
+    assert.equal(appServer.effectiveCapabilities.mobileApprovalCallbacks, true);
+    assert.equal(probed.conversations.adapters.get('codex-app-server').detectCapabilities().selectable, true);
+  } finally {
+    probed.appSqliteStore.close();
+    fs.rmSync(path.dirname(probedDbPath), { recursive: true, force: true });
+  }
+});
+
+test('diagnostics include sanitized codex app-server adapter metrics', async () => {
+  const dbPath = tempConversationDbPath('app-server-diagnostics-');
+  const app = createApp({
+    port: 0,
+    appDbPath: dbPath,
+    codexAppServerEnabled: true,
+    codexAppServerExperimentalApi: true,
+    codexAppServerRolloutPercent: 100,
+    codexAppServerTransport: 'stdio',
+    codexAppServerProbe: async () => ({
+      installed: true,
+      protocolCompatible: true,
+      transportHealthy: true,
+      unavailableReason: null,
+      lastProbeAt: '2026-06-03T00:00:00.000Z'
+    })
+  });
+  try {
+    const status = await app.diagnostics.status({ includeAdapters: true });
+    const appServer = status.adapters.find((adapter) => adapter.adapter === 'codex-app-server');
+    assert.ok(appServer);
+    const metrics = appServer.diagnostics.metrics;
+    for (const key of [
+      'app_server_probe_success',
+      'app_server_probe_failure',
+      'app_server_spawn_failure',
+      'app_server_initialize_latency',
+      'fallback_before_first_request_count',
+      'run_error_after_side_effect_boundary_count',
+      'approval_requested_count',
+      'approval_timeout_count',
+      'approval_round_trip_latency',
+      'transport_close_count',
+      'orphan_process_cleanup_count'
+    ]) {
+      assert.ok(Object.prototype.hasOwnProperty.call(metrics, key), `${key} is missing`);
+    }
+    assert.equal(typeof metrics.fallback_before_first_request_count, 'number');
+    assert.equal(Array.isArray(metrics.approval_round_trip_latency), true);
+  } finally {
+    app.appSqliteStore.close();
+    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
   }
 });
 

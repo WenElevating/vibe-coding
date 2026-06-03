@@ -70,6 +70,7 @@ function createApp({
   codexAppServerExperimentalApi = process.env.CODEX_APP_SERVER_EXPERIMENTAL_API === '1',
   codexAppServerRolloutPercent = process.env.CODEX_APP_SERVER_ROLLOUT_PERCENT || '0',
   codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
+  codexAppServerProbe = undefined,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -99,7 +100,27 @@ function createApp({
     experimentalApi: codexAppServerExperimentalApi,
     rolloutPercent: codexAppServerRolloutPercent
   });
-  if (codexAppServerEnabled) adapters.push(new CodexAppServerListingAdapter(codexAppServerRuntime.availability));
+  const codexAppServerAvailabilityState = { current: codexAppServerRuntime.availability };
+  const codexAppServerMetrics = createCodexAppServerMetrics();
+  const codexAppServerLifecycle = codexAppServerEnabled ? new CodexAppServerLifecycle({
+    maxProcesses: codexAppServerMaxProcesses,
+    command: codexCommand,
+    args: ['app-server'],
+    metrics: codexAppServerMetrics
+  }) : null;
+  if (codexAppServerEnabled) {
+    adapters.push(new CodexAppServerListingAdapter({
+      availabilityState: codexAppServerAvailabilityState,
+      metrics: codexAppServerMetrics,
+      probe: codexAppServerProbe === false
+        ? null
+        : typeof codexAppServerProbe === 'function'
+        ? codexAppServerProbe
+        : codexAppServerRuntime.shouldProbe
+        ? createCodexAppServerProbe({ lifecycle: codexAppServerLifecycle, metrics: codexAppServerMetrics })
+        : null
+    }));
+  }
   if (devAdapters) adapters.push(new SyntheticAdapter(), new SyntheticAdapter({ name: 'synthetic-text' }), new SyntheticAdapter({ name: 'synthetic-error' }), new SyntheticAdapter({ name: 'synthetic-slow', delayMs: 1000 }));
   const adapterRegistry = new AdapterRegistry(adapters);
   const shortcuts = new ShortcutStore();
@@ -127,7 +148,10 @@ function createApp({
       codexToolTimeoutSec,
       codexAppServerEnabled,
       codexAppServerRuntime,
-      codexAppServerMaxProcesses
+      codexAppServerMaxProcesses,
+      codexAppServerAvailabilityState,
+      codexAppServerLifecycle,
+      codexAppServerMetrics
     }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
@@ -150,7 +174,7 @@ function createApp({
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
-function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null }) {
+function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null, codexAppServerAvailabilityState = null, codexAppServerLifecycle = null, codexAppServerMetrics = null }) {
   const adapters = new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
     ['codex', new CodexConversationAdapter({ command: codexCommand, toolTimeoutSec: codexToolTimeoutSec })],
@@ -158,18 +182,38 @@ function createConversationAdapters({ claudeCommand, codexCommand, codexToolTime
   ]);
   if (codexAppServerEnabled) {
     const runtime = codexAppServerRuntime || buildCodexAppServerRuntimeConfig({ enabled: true });
-    const availability = buildCodexAppServerAvailability(runtime.availability);
+    const availabilityState = codexAppServerAvailabilityState || { current: runtime.availability };
+    const lifecycle = codexAppServerLifecycle || new CodexAppServerLifecycle({
+      maxProcesses: codexAppServerMaxProcesses,
+      command: codexCommand,
+      args: ['app-server'],
+      metrics: codexAppServerMetrics || null
+    });
     adapters.set('codex-app-server', new CodexAppServerConversationAdapter({
-      availability,
-      lifecycle: availability.selectable ? new CodexAppServerLifecycle({
-        maxProcesses: codexAppServerMaxProcesses,
-        command: codexCommand,
-        args: ['app-server']
-      }) : null,
+      availability: buildCodexAppServerAvailability(availabilityState.current),
+      availabilityState,
+      lifecycle,
+      metrics: codexAppServerMetrics || createCodexAppServerMetrics(),
       toolTimeoutSec: codexToolTimeoutSec
     }));
   }
   return adapters;
+}
+
+function createCodexAppServerMetrics() {
+  return {
+    probeSuccess: 0,
+    probeFailure: 0,
+    spawnFailure: 0,
+    initializeLatencyMs: null,
+    fallbackBeforeFirstRequestCount: 0,
+    approvalRequestedCount: 0,
+    approvalTimeoutCount: 0,
+    approvalRoundTripLatencyMs: [],
+    transportCloseCount: 0,
+    runErrorAfterTurnStartedCount: 0,
+    orphanProcessCleanupCount: 0
+  };
 }
 
 function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto', experimentalApi = false, rolloutPercent = 0 } = {}) {
@@ -179,7 +223,7 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
   const rolloutEnabled = rollout > 0;
   const installed = enabled;
   const protocolCompatible = installed && experimentalApi === true && transportSupported && rolloutEnabled;
-  const transportHealthy = protocolCompatible;
+  const transportHealthy = false;
   let unavailableReason = 'disabled';
   if (enabled) {
     if (normalizedTransport === 'off') {
@@ -194,13 +238,14 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
       unavailableReason = 'probe_not_run';
     }
   }
+  const shouldProbe = protocolCompatible && normalizedTransport !== 'off';
   const availability = buildCodexAppServerAvailability({
     enabled,
     installed,
     protocolCompatible,
     transportHealthy,
     unavailableReason,
-    lastProbeAt: protocolCompatible ? new Date().toISOString() : null
+    lastProbeAt: null
   });
   return {
     transport: transportSupported ? 'stdio' : normalizedTransport,
@@ -215,7 +260,63 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
       lastProbeAt: availability.lastProbeAt
     },
     selectable: availability.selectable,
-    effectiveCapabilities: availability.effectiveCapabilities
+    effectiveCapabilities: availability.effectiveCapabilities,
+    shouldProbe
+  };
+}
+
+function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, requestTimeoutMs = 30000, metrics = null } = {}) {
+  return async function probeCodexAppServer() {
+    if (!lifecycle || typeof lifecycle.spawn !== 'function') {
+      return {
+        installed: false,
+        protocolCompatible: false,
+        transportHealthy: false,
+        unavailableReason: 'lifecycle_missing',
+        lastProbeAt: new Date().toISOString()
+      };
+    }
+    let handle = null;
+    try {
+      handle = lifecycle.spawn();
+      const initializeStarted = Date.now();
+      await handle.transport.sendRequest('initialize', {
+        clientInfo: {
+          name: 'vibe-coding-daemon',
+          title: 'vibe-coding daemon',
+          version: '0.1.0'
+        },
+        capabilities: {
+          experimentalApi: true,
+          requestAttestation: false
+        }
+      }, { timeoutMs: initializeTimeoutMs });
+      if (metrics) metrics.initializeLatencyMs = Date.now() - initializeStarted;
+      handle.transport.sendNotification('initialized', {});
+      await handle.transport.sendRequest('model/list', { limit: 1, includeHidden: false }, { timeoutMs: requestTimeoutMs });
+      return {
+        installed: true,
+        protocolCompatible: true,
+        transportHealthy: true,
+        unavailableReason: null,
+        lastProbeAt: new Date().toISOString()
+      };
+    } catch (error) {
+      if (metrics && /spawn|ENOENT|not found|no such file/i.test(error.message || '')) {
+        metrics.spawnFailure += 1;
+      }
+      return {
+        installed: true,
+        protocolCompatible: true,
+        transportHealthy: false,
+        unavailableReason: error.message || 'probe_failed',
+        lastProbeAt: new Date().toISOString()
+      };
+    } finally {
+      if (handle && typeof handle.shutdown === 'function') {
+        await handle.shutdown();
+      }
+    }
   };
 }
 

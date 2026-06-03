@@ -65,6 +65,43 @@ void main() {
     expect(summary.userMessageCount, 0);
   });
 
+  test('ConversationSummary accepts app-server fallback conversation fields', () {
+    final summary = ConversationSummary.fromJson(const <String, Object?>{
+      'id': 'conv_app_server_fallback',
+      'workspaceId': 'default',
+      'adapter': 'codex-app-server',
+      'requestedAdapter': 'codex-app-server',
+      'effectiveAdapter': 'codex',
+      'status': 'idle',
+      'capabilities': <String, Object?>{
+        'waitingApproval': true,
+        'resume': true,
+      },
+      'effectiveCapabilities': <String, Object?>{
+        'mobileApprovalCallbacks': false,
+        'approval': <String, Object?>{
+          'mobileCallbacks': false,
+          'scopes': <Object?>[],
+          'supportsCancel': false,
+          'denyBehaviors': <Object?>[],
+        },
+      },
+      'fallbackNotice': <String, Object?>{
+        'noticeKind': 'adapter_fallback',
+        'requestedAdapter': 'codex-app-server',
+        'effectiveAdapter': 'codex',
+      },
+      'createdAt': '2026-06-03T00:00:00.000Z',
+      'updatedAt': '2026-06-03T00:00:01.000Z',
+    });
+
+    expect(summary.id, 'conv_app_server_fallback');
+    expect(summary.adapter, 'codex-app-server');
+    expect(summary.status, 'idle');
+    expect(summary.capabilities.waitingApproval, isTrue);
+    expect(summary.capabilities.resume, isTrue);
+  });
+
   test('ConversationEvent parses normalized assistant and approval events', () {
     final question = ConversationEvent.fromJson(const <String, Object?>{
       'seq': 1,
