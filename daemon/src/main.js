@@ -68,6 +68,7 @@ function createApp({
   codexAppServerEnabled = process.env.CODEX_APP_SERVER_ENABLED === '1',
   codexAppServerTransport = process.env.CODEX_APP_SERVER_TRANSPORT || 'auto',
   codexAppServerExperimentalApi = process.env.CODEX_APP_SERVER_EXPERIMENTAL_API === '1',
+  codexAppServerRolloutPercent = process.env.CODEX_APP_SERVER_ROLLOUT_PERCENT || '0',
   codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
@@ -95,7 +96,8 @@ function createApp({
   const codexAppServerRuntime = buildCodexAppServerRuntimeConfig({
     enabled: codexAppServerEnabled,
     transport: codexAppServerTransport,
-    experimentalApi: codexAppServerExperimentalApi
+    experimentalApi: codexAppServerExperimentalApi,
+    rolloutPercent: codexAppServerRolloutPercent
   });
   if (codexAppServerEnabled) adapters.push(new CodexAppServerListingAdapter(codexAppServerRuntime.availability));
   if (devAdapters) adapters.push(new SyntheticAdapter(), new SyntheticAdapter({ name: 'synthetic-text' }), new SyntheticAdapter({ name: 'synthetic-error' }), new SyntheticAdapter({ name: 'synthetic-slow', delayMs: 1000 }));
@@ -170,11 +172,13 @@ function createConversationAdapters({ claudeCommand, codexCommand, codexToolTime
   return adapters;
 }
 
-function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto', experimentalApi = false } = {}) {
+function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto', experimentalApi = false, rolloutPercent = 0 } = {}) {
   const normalizedTransport = String(transport || 'auto').trim().toLowerCase();
   const transportSupported = normalizedTransport === 'auto' || normalizedTransport === 'stdio';
+  const rollout = normalizeRolloutPercent(rolloutPercent);
+  const rolloutEnabled = rollout > 0;
   const installed = enabled;
-  const protocolCompatible = installed && experimentalApi === true && transportSupported;
+  const protocolCompatible = installed && experimentalApi === true && transportSupported && rolloutEnabled;
   const transportHealthy = protocolCompatible;
   let unavailableReason = 'disabled';
   if (enabled) {
@@ -184,6 +188,8 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
       unavailableReason = 'unsupported_transport';
     } else if (experimentalApi !== true) {
       unavailableReason = 'experimental_api_disabled';
+    } else if (!rolloutEnabled) {
+      unavailableReason = 'rollout_disabled';
     } else {
       unavailableReason = 'probe_not_run';
     }
@@ -199,6 +205,7 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
   return {
     transport: transportSupported ? 'stdio' : normalizedTransport,
     experimentalApi: experimentalApi === true,
+    rolloutPercent: rollout,
     availability: {
       enabled,
       installed: availability.installed,
@@ -210,6 +217,13 @@ function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto',
     selectable: availability.selectable,
     effectiveCapabilities: availability.effectiveCapabilities
   };
+}
+
+function normalizeRolloutPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  if (numeric >= 100) return 100;
+  return Math.floor(numeric);
 }
 
 function notImplementedConversationAdapter(label) {

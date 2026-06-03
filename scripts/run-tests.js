@@ -841,12 +841,32 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
     fs.rmSync(path.dirname(enabledDbPath), { recursive: true, force: true });
   }
 
+  const rolloutDisabledDbPath = tempConversationDbPath('app-server-listing-rollout-disabled-');
+  const rolloutDisabled = createApp({
+    port: 0,
+    appDbPath: rolloutDisabledDbPath,
+    codexAppServerEnabled: true,
+    codexAppServerExperimentalApi: true,
+    codexAppServerTransport: 'stdio'
+  });
+  try {
+    const adapters = await rolloutDisabled.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, false);
+    assert.equal(appServer.unavailableReason, 'rollout_disabled');
+  } finally {
+    rolloutDisabled.appSqliteStore.close();
+    fs.rmSync(path.dirname(rolloutDisabledDbPath), { recursive: true, force: true });
+  }
+
   const selectableDbPath = tempConversationDbPath('app-server-listing-selectable-');
   const selectable = createApp({
     port: 0,
     appDbPath: selectableDbPath,
     codexAppServerEnabled: true,
     codexAppServerExperimentalApi: true,
+    codexAppServerRolloutPercent: 100,
     codexAppServerTransport: 'stdio'
   });
   try {
