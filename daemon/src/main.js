@@ -13,6 +13,8 @@ const { AuditLog } = require('./audit');
 const { ClaudeAdapter } = require('./claude-adapter');
 const { ClaudeConversationAdapter } = require('./claude-conversation-adapter');
 const { CodexConversationAdapter } = require('./codex-conversation-adapter');
+const { CodexAppServerConversationAdapter } = require('./codex-app-server-conversation-adapter');
+const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
@@ -108,7 +110,7 @@ function createApp({
     workspaces,
     eventStore: conversationEventStore,
     auditLog,
-    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec }),
+    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
@@ -130,12 +132,22 @@ function createApp({
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
-function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec }) {
-  return new Map([
+function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false }) {
+  const adapters = new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
     ['codex', new CodexConversationAdapter({ command: codexCommand, toolTimeoutSec: codexToolTimeoutSec })],
     ['opencode', notImplementedConversationAdapter('OpenCode')]
   ]);
+  if (codexAppServerEnabled) {
+    adapters.set('codex-app-server', new CodexAppServerConversationAdapter({
+      availability: buildCodexAppServerAvailability({
+        enabled: true,
+        installed: true,
+        unavailableReason: 'probe_not_run'
+      })
+    }));
+  }
+  return adapters;
 }
 
 function notImplementedConversationAdapter(label) {

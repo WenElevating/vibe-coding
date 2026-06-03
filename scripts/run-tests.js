@@ -801,6 +801,7 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
     assert.equal(appServer.selectable, false);
     assert.equal(appServer.unavailableReason, 'probe_not_run');
     assert.equal(appServer.effectiveCapabilities.approval.mobileCallbacks, false);
+    assert.equal(enabled.conversations.adapters.has('codex-app-server'), true);
   } finally {
     enabled.appSqliteStore.close();
     fs.rmSync(path.dirname(enabledDbPath), { recursive: true, force: true });
@@ -2458,6 +2459,61 @@ test('Codex app-server conversation adapter rejects sends before selectable prob
     /Codex app-server adapter is not selectable: probe_not_run/
   );
   assert.equal(spawnCount, 0);
+});
+
+test('codex-app-server falls back to codex before provider side effects when unavailable', async () => {
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  let spawnCount = 0;
+  const appServer = new CodexAppServerConversationAdapter({
+    availability: {
+      selectable: false,
+      unavailableReason: 'probe_not_run',
+      effectiveCapabilities: { longLivedProcess: false, waitingApproval: false }
+    },
+    lifecycle: {
+      spawn() {
+        spawnCount += 1;
+        throw new Error('must not spawn');
+      }
+    }
+  });
+  const startCalls = [];
+  const codex = {
+    capabilities: {
+      resume: true,
+      waitingApproval: true,
+      attachments: { image: 'native', textDocument: 'text_extract', pdf: 'unsupported' }
+    },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        async sendUserMessage() {},
+        async dispose() {}
+      };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([
+      ['codex', codex],
+      ['codex-app-server', appServer]
+    ])
+  });
+
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex-app-server' }, device);
+  assert.equal(conversation.adapter, 'codex-app-server');
+  assert.equal(conversation.requestedAdapter, 'codex-app-server');
+  assert.equal(conversation.effectiveAdapter, 'codex');
+  assert.deepEqual(conversation.effectiveCapabilities, codex.capabilities);
+  assert.equal(conversation.fallbackNotice.from, 'codex-app-server');
+  assert.equal(conversation.fallbackNotice.to, 'codex');
+  assert.equal(conversation.fallbackNotice.reason, 'probe_not_run');
+  assert.equal(conversation.fallbackNotice.boundary, 'before_provider_request');
+
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+
+  assert.equal(spawnCount, 0);
+  assert.equal(startCalls.length, 1);
+  assert.equal(startCalls[0].conversationId, conversation.id);
 });
 
 test('conversation manager validates model update capability', async () => {

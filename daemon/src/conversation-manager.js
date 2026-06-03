@@ -88,14 +88,16 @@ class ConversationManager {
   createConversation(payload, device) {
     const input = normalizeConversationCreate(payload);
     const workspace = this.workspaces.getAuthorized(input.workspaceId, device);
-    const adapter = this.getAdapter(input.adapter);
+    const selection = this.resolveAdapterSelection(input.adapter);
+    const adapter = selection.requestedAdapter;
+    const effectiveAdapter = selection.effectiveAdapter;
     const conversation = {
       id: `conv_${crypto.randomUUID()}`,
       workspaceId: workspace.id,
       workspacePath: workspace.path,
       adapter: input.adapter,
       requestedAdapter: input.adapter,
-      effectiveAdapter: input.adapter,
+      effectiveAdapter: selection.effectiveAdapterName,
       model: input.model,
       permissionMode: input.permissionMode,
       requestedPermissionMode: input.permissionMode,
@@ -118,9 +120,9 @@ class ConversationManager {
       idleExpiresAt: addMs(this.now(), this.idleTtlMs).toISOString(),
       createdAt: this.now().toISOString(),
       updatedAt: this.now().toISOString(),
-      capabilities: adapter.capabilities || {},
-      effectiveCapabilities: adapter.capabilities || {},
-      fallbackNotice: null,
+      capabilities: capabilitiesForAdapter(adapter),
+      effectiveCapabilities: capabilitiesForAdapter(effectiveAdapter),
+      fallbackNotice: selection.fallbackNotice,
       providerSession: null,
       handle: null,
       messageIdempotency: new Map(),
@@ -154,7 +156,7 @@ class ConversationManager {
   async updateModel(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const input = normalizeConversationModelUpdate(payload);
-    const activeHandle = conversation.adapter === 'claude' && conversation.handle && typeof conversation.handle.setModel === 'function';
+    const activeHandle = effectiveAdapterName(conversation) === 'claude' && conversation.handle && typeof conversation.handle.setModel === 'function';
     if (!activeHandle && activeStateBlocksModelUpdate(conversation)) {
       throw conflict('conversation is active; wait for the current turn before changing model');
     }
@@ -165,7 +167,7 @@ class ConversationManager {
       if (!activeHandle && activeStateBlocksModelUpdate(conversation)) {
         throw conflict('conversation is active; wait for the current turn before changing model');
       }
-      const adapter = this.getAdapter(conversation.adapter);
+      const adapter = this.getAdapter(effectiveAdapterName(conversation));
       const capability = await modelCapabilityFor(adapter);
       assertRequestedModelAllowed(input.model, capability);
       if ((conversation.model || null) === input.model) return publicConversation(conversation);
@@ -277,7 +279,7 @@ class ConversationManager {
     const conversation = this.requireConversation(conversationId, device);
     const input = normalizePermissionModeUpdate(payload);
     if ((conversation.permissionMode || 'default') === input.permissionMode) return publicConversation(conversation);
-    if (conversation.adapter === 'claude' && conversation.handle && typeof conversation.handle.setPermissionMode === 'function') {
+    if (effectiveAdapterName(conversation) === 'claude' && conversation.handle && typeof conversation.handle.setPermissionMode === 'function') {
       await conversation.handle.setPermissionMode(input.permissionMode);
     }
     conversation.permissionMode = input.permissionMode;
@@ -294,7 +296,7 @@ class ConversationManager {
   async controlConversation(conversationId, payload, device) {
     const conversation = this.requireConversation(conversationId, device);
     const input = normalizeConversationControl(payload);
-    if (conversation.adapter !== 'claude' || !conversation.handle) throw conflict('conversation is not controlled by an active Claude session');
+    if (effectiveAdapterName(conversation) !== 'claude' || !conversation.handle) throw conflict('conversation is not controlled by an active Claude session');
     const handle = conversation.handle;
     let result;
     switch (input.action) {
@@ -463,7 +465,8 @@ class ConversationManager {
   }
 
   async attachmentCapabilitiesForConversation(conversation) {
-    const adapter = this.getAdapter(conversation.adapter);
+    const adapterName = effectiveAdapterName(conversation);
+    const adapter = this.getAdapter(adapterName);
     const modelCapability = await modelCapabilityFor(adapter);
     const status = adapter.capability || {};
     const rawCapabilities = status.capabilities || (typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : (adapter.capabilities || {}));
@@ -476,9 +479,9 @@ class ConversationManager {
     const effectiveModel = models.find((model) => model.id === effectiveModelId) || models.find((model) => model.id === selectedModel) || null;
     return {
       capabilityVersion: capabilityVersionForNormalizedInput({
-        adapterId: conversation.adapter,
+        adapterId: adapterName,
         attachments,
-        cliPath: status.cliPath || status.path || adapter.cliPath || adapter.path || adapter.name || status.command || adapter.command || conversation.adapter,
+        cliPath: status.cliPath || status.path || adapter.cliPath || adapter.path || adapter.name || status.command || adapter.command || adapterName,
         cliVersion: status.cliVersion || status.version || adapter.cliVersion || adapter.version || null,
         models: models.map((model) => modelCapabilityHashInput(model, attachments)),
         selectedModelId: selectedModel
@@ -795,7 +798,8 @@ class ConversationManager {
 
   async ensureStarted(conversation) {
     if (conversation.handle) return conversation.handle;
-    const adapter = this.getAdapter(conversation.adapter);
+    const adapterName = effectiveAdapterName(conversation);
+    const adapter = this.getAdapter(adapterName);
     conversation.handle = await adapter.startConversation({
       conversationId: conversation.id,
       workspacePath: conversation.workspacePath,
@@ -804,7 +808,7 @@ class ConversationManager {
       model: conversation.model,
       requestedToolPolicy: conversation.requestedToolPolicy,
       claudeOptions: conversation.claudeOptions,
-      initialTaskProgress: conversation.adapter === 'claude'
+      initialTaskProgress: adapterName === 'claude'
         ? buildClaudeTaskProgressSeed(this.eventStore.list(conversation.id, 0))
         : null,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
@@ -885,6 +889,57 @@ class ConversationManager {
     return adapter;
   }
 
+  resolveAdapterSelection(requestedAdapterName) {
+    const requestedAdapter = this.adapters.get(requestedAdapterName);
+    if (requestedAdapterName !== 'codex-app-server') {
+      if (!requestedAdapter) throw notFound(`conversation adapter not found: ${requestedAdapterName}`);
+      return {
+        requestedAdapterName,
+        requestedAdapter,
+        effectiveAdapterName: requestedAdapterName,
+        effectiveAdapter: requestedAdapter,
+        fallbackNotice: null
+      };
+    }
+
+    const requestedStatus = codexAppServerSelectionStatus(requestedAdapter);
+    if (requestedAdapter && requestedStatus.selectable) {
+      return {
+        requestedAdapterName,
+        requestedAdapter,
+        effectiveAdapterName: requestedAdapterName,
+        effectiveAdapter: requestedAdapter,
+        fallbackNotice: null
+      };
+    }
+
+    const codexAdapter = this.adapters.get('codex');
+    if (!codexAdapter) {
+      if (!requestedAdapter) throw notFound(`conversation adapter not found: ${requestedAdapterName}`);
+      return {
+        requestedAdapterName,
+        requestedAdapter,
+        effectiveAdapterName: requestedAdapterName,
+        effectiveAdapter: requestedAdapter,
+        fallbackNotice: null
+      };
+    }
+
+    return {
+      requestedAdapterName,
+      requestedAdapter: requestedAdapter || missingAdapterCapabilities(),
+      effectiveAdapterName: 'codex',
+      effectiveAdapter: codexAdapter,
+      fallbackNotice: {
+        from: requestedAdapterName,
+        to: 'codex',
+        reason: requestedStatus.unavailableReason || 'adapter_not_configured',
+        boundary: 'before_provider_request',
+        at: this.now().toISOString()
+      }
+    };
+  }
+
   touch(conversation) {
     conversation.updatedAt = this.now().toISOString();
     this.persistConversation(conversation);
@@ -912,9 +967,40 @@ function activeStateBlocksModelUpdate(conversation) {
   ].includes(conversation.status) || Boolean(conversation.sendLock);
 }
 
+function effectiveAdapterName(conversation) {
+  return conversation.effectiveAdapter || conversation.adapter;
+}
+
+function capabilitiesForAdapter(adapter) {
+  if (!adapter) return {};
+  if (typeof adapter.getCapabilities === 'function') return adapter.getCapabilities() || {};
+  return adapter.capabilities || {};
+}
+
+function codexAppServerSelectionStatus(adapter) {
+  if (!adapter) return { selectable: false, unavailableReason: 'adapter_not_configured' };
+  if (typeof adapter.detectCapabilities === 'function') {
+    const status = adapter.detectCapabilities() || {};
+    return {
+      selectable: status.selectable === true || status.available === true,
+      unavailableReason: status.unavailableReason || (status.status === 'unavailable' ? 'unavailable' : null)
+    };
+  }
+  return {
+    selectable: adapter.selectable === true,
+    unavailableReason: adapter.unavailableReason || 'unavailable'
+  };
+}
+
+function missingAdapterCapabilities() {
+  return {
+    capabilities: {}
+  };
+}
+
 function normalizeConversationEventsForReplay(events, conversation, eventStore) {
   const normalized = events.map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
-  if (conversation.adapter !== 'claude' || normalized.length === 0) return normalized;
+  if (effectiveAdapterName(conversation) !== 'claude' || normalized.length === 0) return normalized;
   const firstSeq = Number(normalized[0]?.seq || 0);
   const seed = buildClaudeTaskProgressSeed(
     eventStore.list(conversation.id, 0).filter((event) => Number(event.seq || 0) < firstSeq)
@@ -923,7 +1009,7 @@ function normalizeConversationEventsForReplay(events, conversation, eventStore) 
 }
 
 function normalizeLegacyConversationEventForReplay(event, conversation) {
-  if (conversation.adapter !== 'codex') return event;
+  if (effectiveAdapterName(conversation) !== 'codex') return event;
   if (!event || event.type !== conversationEventTypes.SYSTEM_NOTICE) return event;
   if (event.noticeKind !== 'codex_unknown_event') return event;
   const mapped = mapCodexEvent(event.raw, { workspacePath: conversation.workspacePath });
@@ -1112,7 +1198,7 @@ function assignAttachmentScratchLifetimes(conversation, files) {
 }
 
 function attachmentScratchLifetime(conversation, file) {
-  if (conversation.adapter === 'codex' && file.kind === 'image' && file.handling === 'native') return 'turn';
+  if (effectiveAdapterName(conversation) === 'codex' && file.kind === 'image' && file.handling === 'native') return 'turn';
   return 'send_time';
 }
 
@@ -1148,7 +1234,7 @@ function validateAttachmentHandling(capabilities, files) {
 }
 
 function validateAdapterAttachmentLimits(conversation, files) {
-  if (conversation.adapter !== 'claude') return;
+  if (effectiveAdapterName(conversation) !== 'claude') return;
   for (const file of files) {
     if (file.kind === 'image' && file.handling === 'native' && file.sizeBytes > claudeMaxNativeImageBytes) {
       throw attachmentError(413, 'ATTACHMENT_LIMIT_EXCEEDED', 'Claude image attachment exceeds 5 MB limit', {
@@ -1492,7 +1578,7 @@ function publicConversation(conversation) {
 }
 
 function adapterApprovalCapability(conversation) {
-  const capabilities = conversation.capabilities || {};
+  const capabilities = conversation.effectiveCapabilities || conversation.capabilities || {};
   return capabilities.approval || {};
 }
 
