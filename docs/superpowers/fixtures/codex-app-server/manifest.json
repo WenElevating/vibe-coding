@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "status": "not_run",
+  "vibeCodingRepo": "D:\\AiProject\\vibe-coding",
+  "codexSourceCheckout": "D:\\GithubProject\\codex",
+  "codexSourceCommit": null,
+  "codexBinary": null,
+  "transportTested": null,
+  "startedAt": null,
+  "completedAt": null,
+  "gates": {
+    "initializeWithin10s": "unknown",
+    "tenSequentialTurns": "unknown",
+    "threeApprovalRoundTrips": "unknown",
+    "approvalLatencyP95Under2s": "unknown",
+    "cancellationCleanupWithinDeadline": "unknown",
+    "largeOutputNoPipeBlock": "unknown",
+    "noOrphanProcesses": "unknown",
+    "sideEffectFreeProbeCreatesNoThread": "unknown",
+    "sessionScopeFieldIdentified": "unknown",
+    "projectTrustBehaviorKnown": "unknown",
+    "userInputRequestBehaviorKnown": "unknown"
+  },
+  "samples": [],
+  "notes": []
+}
