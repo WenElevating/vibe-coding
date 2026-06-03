@@ -252,6 +252,58 @@ test('Codex app-server availability sanitizes unavailable reasons', () => {
   assert.equal(status.unavailableReason.includes('Alice'), false);
 });
 
+test('Codex app-server JSONL transport resolves responses and emits notifications', async () => {
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerJsonlTransport } = require('../daemon/src/codex-app-server-transport');
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const written = [];
+  stdin.on('data', (chunk) => written.push(chunk.toString('utf8')));
+  const transport = new CodexAppServerJsonlTransport({ stdin, stdout, requestTimeoutMs: 1000 });
+  const notifications = [];
+  transport.on('notification', (message) => notifications.push(message));
+  const pending = transport.sendRequest('model/list', { limit: 1 });
+  const request = JSON.parse(written.join('').trim());
+  assert.equal(request.method, 'model/list');
+  assert.equal(request.params.limit, 1);
+  stdout.write(`${JSON.stringify({ method: 'thread/status/changed', params: { status: 'running' } })}\n`);
+  stdout.write(`${JSON.stringify({ id: request.id, result: { data: [] } })}\n`);
+  assert.deepEqual(await pending, { data: [] });
+  assert.equal(notifications[0].method, 'thread/status/changed');
+  transport.close();
+});
+
+test('Codex app-server JSONL transport rejects pending requests on close', async () => {
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerJsonlTransport } = require('../daemon/src/codex-app-server-transport');
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const transport = new CodexAppServerJsonlTransport({ stdin, stdout, requestTimeoutMs: 1000 });
+  const pending = transport.sendRequest('thread/start', {});
+  stdout.emit('close');
+  await assert.rejects(pending, /transport closed/);
+});
+
+test('Codex app-server JSONL transport emits server requests and writes results', async () => {
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerJsonlTransport } = require('../daemon/src/codex-app-server-transport');
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const written = [];
+  stdin.on('data', (chunk) => written.push(chunk.toString('utf8')));
+  const transport = new CodexAppServerJsonlTransport({ stdin, stdout, requestTimeoutMs: 1000 });
+  const serverRequests = [];
+  transport.on('serverRequest', (message) => {
+    serverRequests.push(message);
+    transport.sendResult(message.id, { decision: 'decline' });
+  });
+  stdout.write(`${JSON.stringify({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: { itemId: 'item_1' } })}\n`);
+  assert.equal(serverRequests.length, 1);
+  const response = JSON.parse(written.join('').trim());
+  assert.deepEqual(response, { id: 'approval-1', result: { decision: 'decline' } });
+  transport.close();
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
