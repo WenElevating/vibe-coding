@@ -5880,6 +5880,24 @@ test('Codex app-server approval requests map to mobile contract and JSON-RPC res
     { id: 61, result: { decision: 'cancel' } }
   );
 
+  const commandWithoutDecisionMetadata = mapCodexAppServerApprovalRequest({
+    id: 62,
+    method: 'item/commandExecution/requestApproval',
+    params: {
+      itemId: 'item_cmd_no_decisions',
+      command: 'npm test'
+    }
+  });
+  assert.equal(commandWithoutDecisionMetadata.event.approvalOptions.supportsSessionScope, false);
+  assert.equal(commandWithoutDecisionMetadata.event.approvalOptions.supportsCancel, false);
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      commandWithoutDecisionMetadata.context,
+      normalizeApprovalDecision({ decision: 'cancel' })
+    ),
+    { id: 62, result: { decision: 'decline' } }
+  );
+
   const permissionsRequest = mapCodexAppServerApprovalRequest({
     id: 'req_permissions',
     method: 'item/permissions/requestApproval',

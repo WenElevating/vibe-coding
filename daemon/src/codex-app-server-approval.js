@@ -58,8 +58,8 @@ function mapCommandApproval(requestId, params) {
     summary: command || reason || 'Command approval requested',
     approvalOptions: compactObject({
       kind: 'command',
-      supportsSessionScope: decisionAvailable(decisionNames, 'acceptForSession', true),
-      supportsCancel: decisionAvailable(decisionNames, 'cancel', true),
+      supportsSessionScope: decisionAvailable(decisionNames, 'acceptForSession', false),
+      supportsCancel: decisionAvailable(decisionNames, 'cancel', false),
       denyBehavior: decisionAvailable(decisionNames, 'decline', true) ? 'continue' : 'interrupt',
       command,
       cwd,
@@ -94,8 +94,8 @@ function mapFileChangeApproval(requestId, params) {
     summary: reason || 'File change approval requested',
     approvalOptions: compactObject({
       kind: 'file_change',
-      supportsSessionScope: decisionAvailable(decisionNames, 'acceptForSession', true),
-      supportsCancel: decisionAvailable(decisionNames, 'cancel', true),
+      supportsSessionScope: decisionAvailable(decisionNames, 'acceptForSession', false),
+      supportsCancel: decisionAvailable(decisionNames, 'cancel', false),
       denyBehavior: decisionAvailable(decisionNames, 'decline', true) ? 'continue' : 'interrupt',
       reason
     })
@@ -155,10 +155,10 @@ function buildDecisionResult(context, approval) {
     return 'accept';
   }
   if (approval.decision === 'cancel') {
-    return decisionAvailable(decisions, 'cancel', true) ? 'cancel' : 'decline';
+    return decisionAvailable(decisions, 'cancel', false) ? 'cancel' : 'decline';
   }
   const interrupt = approval.interrupt === true;
-  if (interrupt && decisionAvailable(decisions, 'cancel', true)) return 'cancel';
+  if (interrupt && decisionAvailable(decisions, 'cancel', false)) return 'cancel';
   if (decisionAvailable(decisions, 'decline', true)) return 'decline';
   return 'cancel';
 }
