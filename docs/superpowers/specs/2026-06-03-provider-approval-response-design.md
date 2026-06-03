@@ -58,7 +58,8 @@ provider's native protocol.
 ## Selected Approach
 
 Use a provider-neutral approval response model in mobile and daemon APIs, then
-map it to provider-native decisions in each adapter.
+map it to provider-native decisions inside each adapter. Mobile must not send
+provider-native decision names or objects.
 
 This is preferred over a UI-only fix because the current two-button/string
 contract cannot represent the behavior the UI is supposed to show. It is also
@@ -85,8 +86,12 @@ Default choices:
 - `3. No, tell the assistant what to change` maps to deny with interrupt.
 
 For providers that only support one-time allow or deny, the second option is
-omitted and numbering remains compact. Skip maps to cancel when the provider has
-a native cancel decision. Otherwise it maps to deny with interrupt.
+omitted and numbering remains compact.
+
+Skip is shown only when the approval request advertises a native cancel
+decision. If cancel is not available, the skip action is hidden instead of being
+remapped to denial. This keeps one visible action from having different
+provider-dependent behavior.
 
 ## Data Model
 
@@ -96,11 +101,16 @@ Add a mobile/domain approval response value object:
 ApprovalResponse
   decision: allow | deny | cancel
   scope: once | session
-  providerDecision: optional string or object
   updatedInput: optional object
   updatedPermissions: optional list<object>
   interrupt: optional bool
 ```
+
+`ApprovalResponse` is mobile-facing and provider-neutral. Mobile sets user
+intent only. It never sets Codex-specific values such as `acceptForSession`,
+Claude SDK behavior names, or provider-native policy amendment objects. Provider
+native decisions are computed in daemon adapter code after the response is
+validated against request metadata.
 
 Add approval request metadata to conversation events and blocking items:
 
@@ -109,16 +119,28 @@ ApprovalRequestOptions
   kind: command | file_change | permissions | generic
   availableDecisions: list<string>
   supportsSessionScope: bool
+  supportsCancel: bool
+  denyBehavior: interrupt | continue
   command: optional string
   cwd: optional string
   reason: optional string
-  proposedExecpolicyAmendment: optional list<string>
+  proposedExecPolicyAmendment: optional list<string>
   proposedPermissions: optional object
-  rawProviderRequest: optional object
 ```
 
 The daemon API remains backward-compatible by accepting a string decision or the
 new object shape. New mobile code should send the object shape.
+
+`ApprovalRequestOptions` is a sanitized presentation contract. It must contain
+only fields mobile needs to render and submit an approval. It must not include
+raw provider payloads, environment blocks, full process invocation metadata,
+credentials, or unredacted diagnostic data.
+
+Provider raw requests may be held in daemon memory while the approval is
+pending. If diagnostics need raw provider data, the daemon should expose a
+separate redacted diagnostic artifact with an allowlist per provider. Raw
+provider payloads are not part of the mobile API and are not persisted in normal
+conversation events.
 
 ## Daemon Mapping
 
@@ -131,7 +153,10 @@ Claude mapping:
 - `allow` + `once` maps to SDK behavior `allow`.
 - `allow` + `session` maps to SDK behavior `allow` with
   `updatedPermissions` when the request includes provider suggestions.
-- `deny` maps to SDK behavior `deny`, defaulting `interrupt` to true.
+- `deny` maps to SDK behavior `deny`. The default interrupt behavior comes from
+  approval request metadata. Interactive "No, tell the assistant what to
+  change" prompts use `interrupt: true`; silent or batch denial flows may use
+  `interrupt: false` if the provider request explicitly allows continuing.
 - `cancel` maps to deny with interrupt unless Claude exposes a more precise
   cancellation behavior for the specific request.
 
@@ -155,6 +180,11 @@ Future Codex app-server mapping:
 - `cancel` maps to `cancel`.
 - Permission approval maps to `PermissionsRequestApprovalResponse` with
   `scope: "turn"` or `scope: "session"`.
+
+Codex generated bindings use the spelling `proposedExecpolicyAmendment` for the
+provider wire field. The daemon and mobile presentation model use
+`proposedExecPolicyAmendment` to keep project-facing JSON casing consistent.
+Adapter mapping owns the spelling conversion.
 
 ## Adapter Capability Contract
 
@@ -193,27 +223,54 @@ Stage 3: Codex app-server adapter
 - Handle server requests for command, file-change, and permissions approvals.
 - Convert app-server events into the existing conversation event projection.
 - Keep `codex exec --json` as a fallback until app-server behavior is validated.
+- Do not start Stage 3 until its blockers are resolved.
+
+## Stage 3 Blockers
+
+Codex app-server integration is not only an approval mapping task. It must not
+begin as production implementation until these blockers have explicit answers:
+
+- Lifecycle ownership: how the daemon starts, reuses, monitors, and stops
+  app-server processes per user/session/workspace.
+- Transport choice: whether the daemon uses stdio, websocket, or the local
+  app-server daemon/proxy path, and how reconnect/resume works.
+- Authentication and authorization: how websocket tokens or local control
+  sockets are protected on the LAN/mobile control surface.
+- Event contract coverage: how app-server thread, turn, item, command output,
+  diff, file change, and completion notifications map into existing
+  conversation events.
+- Test harness: a fake JSON-RPC app-server transport must exist before using
+  the real CLI in regression tests.
+- Security review: provider raw request redaction and permission escalation
+  behavior must be reviewed before any app-server approval callback is exposed
+  to mobile.
 
 ## Testing
 
 - Daemon tests for approval payload normalization and adapter mapping.
+- Daemon API compatibility tests for legacy `{ decision: "allow" }` and
+  `{ decision: "deny" }` requests from older mobile clients.
 - Mobile model tests for backward-compatible string and object parsing.
 - Workbench widget tests for:
   - one-time approval only
   - session option visible
   - session option hidden
-  - skip/cancel behavior
+  - skip/cancel visible only when native cancel is available
   - missing approval id disabled state
+- Stage 2 integration tests for daemon to adapter to mobile approval flow,
+  because Claude session permission behavior depends on the full response path.
 - Codex app-server adapter tests with a fake JSON-RPC transport before using the
   real CLI.
 - Existing architecture import checks for mobile.
 
 ## Risks
 
-- Codex app-server is a deeper integration than `exec --json`; it may require
-  lifecycle, transport, and authentication handling beyond approval events.
+- Codex app-server is a deeper integration than `exec --json`. Lifecycle,
+  transport, authentication, event mapping, test harness, and security review
+  are Stage 3 blockers, not routine implementation risks.
 - Provider-native permission payloads can drift. Keep raw provider request data
-  available for diagnostics, but keep public mobile state provider-neutral.
+  available only in daemon memory or redacted diagnostics, and keep public
+  mobile state provider-neutral.
 - Showing a session option without a provider guarantee is a security bug. The
   UI must be capability-gated.
 - The existing dirty UI work should be reconciled before implementation begins
