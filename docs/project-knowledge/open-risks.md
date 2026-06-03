@@ -32,14 +32,19 @@
 
 - Level: medium
 - Impact: Codex mobile approval can be implemented through app-server, but a
-  production migration still needs daemon lifecycle, transport, auth/session,
-  capability listing, and project-trust behavior work.
+  production default-route migration still needs conservative rollout and real
+  resume/image/file-approval smoke evidence.
 - Evidence: `daemon/src/codex-app-server-bridge.js` and
-  `scripts/run-tests.js` validate protocol/request/event parity; local Codex
-  source shows `exec` rejects responsive approval requests while app-server
-  defines them.
-- Mitigation: implement a fake-transport adapter-handle integration test before
-  replacing `codex exec --json`; then smoke test against real `codex
-  app-server`.
-- Related: `docs/codex-app-server-replacement-validation.md`
+  `daemon/src/codex-app-server-conversation-adapter.js` validate
+  protocol/request/event parity, fallback boundaries, lifecycle cleanup,
+  approval timeout behavior, and structured provider session persistence.
+  `docs/superpowers/fixtures/codex-app-server/smoke-report-2026-06-03.md`
+  records real stdio smoke against installed `codex app-server`.
+- Mitigation: keep `codex-app-server` behind
+  `CODEX_APP_SERVER_ENABLED=1`, `CODEX_APP_SERVER_EXPERIMENTAL_API=1`,
+  stdio transport, and `CODEX_APP_SERVER_ROLLOUT_PERCENT>0`; keep
+  `thread/start` and `thread/resume` read-only, and require real
+  resume/rejoin plus remaining approval/attachment smoke before making it the
+  default `codex` route.
+- Related: `docs/superpowers/specs/2026-06-03-codex-app-server-adapter-design.md`
 - Last verified: 2026-06-03

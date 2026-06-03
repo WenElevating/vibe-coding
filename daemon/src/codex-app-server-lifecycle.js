@@ -35,6 +35,9 @@ class CodexAppServerLifecycle {
     this.processTreeTerminator = processTreeTerminator === undefined
       ? (customSpawn ? null : defaultProcessTreeTerminator)
       : processTreeTerminator;
+    this.metrics = {
+      orphanProcessCleanupCount: 0
+    };
     this.handles = new Set();
   }
 
@@ -135,7 +138,12 @@ class CodexAppServerProcessHandle {
         signal,
         processTreePids: this.processTreePids
       });
-      if (result === true) return true;
+      if (result === true) {
+        if (force || this.processTreePids.length > 1) {
+          this.lifecycle.metrics.orphanProcessCleanupCount += 1;
+        }
+        return true;
+      }
     }
     if (typeof this.child.kill === 'function') {
       return this.child.kill(signal);

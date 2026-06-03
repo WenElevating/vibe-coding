@@ -2,7 +2,7 @@
 
 - Date: 2026-06-03
 - Operator: Codex
-- vibe-coding commit: 2c8c6d6d9e9b29a845d48176573eeb1ee274568e
+- vibe-coding commit: 8c0546ed1e11eff40375e5e0ed077ca2a64e7d4e
 - Codex source commit: 3389fa554e953d07a12a34f5681aae46f17958f8
 - Codex binary: D:\nodejs\codex.cmd
 - Codex version: codex-cli 0.136.0
@@ -60,9 +60,10 @@ behavior from a live model.
 - Capabilities to expose for command approval: approval callbacks, request-level `availableDecisions`, and cancel only when the current request includes `cancel`.
 - Capabilities to lower or omit: session-scoped approval remains unavailable for command approvals until a real request includes `acceptForSession` or an equivalent stable request-level marker.
 - Product mitigation applied in bridge: app-server `thread/start` and `thread/resume` should use read-only sandbox, because elevated `workspace-write` at thread start persists project trust. Elevated workspace write remains a turn-level setting.
-- App-server selectable: still no for default rollout. Phase 1 transport and approval gates now pass, but production enablement still requires the Phase 2 adapter lifecycle, approval timeout/concurrency/idempotency behavior, metrics, attachment conversion, and kill-switch wiring.
+- Approval timeout policy: daemon-side approval TTL fail-closes by resolving the pending app-server request with the safest mapped denial. For observed command approvals with `cancel` but no `decline`, this sends native `cancel`; otherwise deny maps to `decline` when available.
+- App-server selectable: still no for default rollout. The production adapter lifecycle, approval timeout/idempotency behavior, fallback boundary, metrics, attachment conversion, and kill-switch wiring now exist in daemon code, but selection still requires explicit feature, experimental API, stdio transport, and rollout-percent gates.
 
 ## Follow-up
 
-- Implement the production `codex-app-server` conversation path using stdio, side-effect-safe thread startup, and request-level approval capability mapping.
-- Keep regression coverage that app-server bridge does not request workspace-write at thread start and does not expose session-scoped approval without `acceptForSession`.
+- Run a real resume/rejoin smoke with a persisted app-server `threadId` before making `codex-app-server` the default Codex route.
+- Keep regression coverage that app-server bridge does not request workspace-write at thread start and does not expose session-scoped command/file approval without request-level `acceptForSession`.

@@ -388,6 +388,7 @@ test('Codex app-server lifecycle can terminate a Windows process tree before dir
     { pid: 9876, force: true, signal: 'SIGKILL' }
   ]);
   assert.deepEqual(signals, []);
+  assert.equal(lifecycle.metrics.orphanProcessCleanupCount, 1);
 });
 
 function createConversationManagerForTest({ adapters } = {}) {
@@ -2589,17 +2590,22 @@ test('codex-app-server falls back to codex before provider side effects when una
   assert.equal(spawnCount, 0);
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].conversationId, conversation.id);
+  assert.equal(appServer.detectCapabilities().diagnostics.metrics.fallback_before_first_request_count, 1);
 });
 
 test('codex-app-server falls back to codex when initialize fails before side effects', async () => {
   const appServerError = new Error('initialize failed');
   appServerError.codexAppServerFallbackAllowed = true;
+  let fallbackCount = 0;
   const appServer = {
     getCapabilities() {
       return { longLivedProcess: true, waitingApproval: true };
     },
     detectCapabilities() {
       return { selectable: true, effectiveCapabilities: this.getCapabilities() };
+    },
+    recordFallbackBeforeFirstRequest() {
+      fallbackCount += 1;
     },
     async startConversation() {
       throw appServerError;
@@ -2633,6 +2639,7 @@ test('codex-app-server falls back to codex when initialize fails before side eff
   assert.equal(updated.fallbackNotice.reason, 'initialize failed');
   assert.equal(updated.fallbackNotice.boundary, 'before_provider_request');
   assert.equal(startCalls.length, 1);
+  assert.equal(fallbackCount, 1);
   const events = manager.eventStore.list(conversation.id, 0);
   assert.equal(events.some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE && event.noticeKind === 'adapter_fallback'), true);
 });
@@ -6262,6 +6269,11 @@ test('Codex app-server approval requests map to mobile contract and JSON-RPC res
   });
   assert.equal(commandWithoutDecisionMetadata.event.approvalOptions.supportsSessionScope, false);
   assert.equal(commandWithoutDecisionMetadata.event.approvalOptions.supportsCancel, false);
+  assert.equal(
+    normalizeApprovalOptions(commandWithoutDecisionMetadata.event.approvalOptions, CODEX_APP_SERVER_APPROVAL_CAPABILITY)
+      .supportsSessionScope,
+    false
+  );
   assert.deepEqual(
     buildCodexAppServerApprovalResponse(
       commandWithoutDecisionMetadata.context,

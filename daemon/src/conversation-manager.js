@@ -808,6 +808,9 @@ class ConversationManager {
       conversation.handle = await this.startConversationWithAdapter(conversation, adapterName, adapter);
     } catch (error) {
       if (!canFallbackFromAppServerStart(conversation, adapterName, error) || !this.adapters.has('codex')) throw error;
+      if (adapter && typeof adapter.recordFallbackBeforeFirstRequest === 'function') {
+        adapter.recordFallbackBeforeFirstRequest();
+      }
       const fallbackAdapter = this.getAdapter('codex');
       conversation.effectiveAdapter = 'codex';
       conversation.effectiveCapabilities = capabilitiesForAdapter(fallbackAdapter);
@@ -952,6 +955,9 @@ class ConversationManager {
         effectiveAdapter: requestedAdapter,
         fallbackNotice: null
       };
+    }
+    if (requestedAdapter && typeof requestedAdapter.recordFallbackBeforeFirstRequest === 'function') {
+      requestedAdapter.recordFallbackBeforeFirstRequest();
     }
 
     return {

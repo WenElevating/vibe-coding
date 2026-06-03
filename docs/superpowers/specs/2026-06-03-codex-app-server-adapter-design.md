@@ -718,10 +718,13 @@ CODEX_APP_SERVER_ROLLOUT_PERCENT=0
 CODEX_APP_SERVER_MAX_PROCESSES=<bounded integer>
 ```
 
-Defaults should keep app-server disabled until Phase 1 is complete. Operators
-must be able to disable selection immediately without changing mobile code.
-When disabled, `codex-app-server` may appear as installed/unselectable for
-diagnostics, but normal mobile selection should hide or disable it.
+Defaults keep app-server disabled even after Phase 1. Selection requires all
+of: `CODEX_APP_SERVER_ENABLED=1`, `CODEX_APP_SERVER_EXPERIMENTAL_API=1`,
+`CODEX_APP_SERVER_TRANSPORT=auto|stdio`, and
+`CODEX_APP_SERVER_ROLLOUT_PERCENT>0`. Operators can disable selection
+immediately without changing mobile code. When disabled, `codex-app-server` may
+appear as installed/unselectable for diagnostics, but normal mobile selection
+should hide or disable it.
 
 ## Diagnostics And Metrics
 
@@ -746,24 +749,33 @@ provider payloads, credentials, environment blocks, or unredacted local paths.
 ## Open Questions For Phase 1
 
 - Does stdio app-server on Windows behave cleanly enough for long-lived daemon
-  use, including shutdown and stderr handling? Close from Phase 1 Windows
-  stdio smoke logs plus child-process cleanup evidence.
+  use, including shutdown and stderr handling? Closed by Phase 1 stdio smoke:
+  10 sequential turns, approval round trips, cancellation, large output, and
+  child-process cleanup passed.
 - Which app-server response or generated schema should be used as the minimum
-  version/capability gate? Close from Phase 1 initialize/model-list responses
-  and generated schema inspection for the tested Codex commit.
+  version/capability gate? Closed for first rollout by initialize plus
+  `model/list`; selection is still controlled by explicit experimental and
+  rollout flags rather than implicit adapter listing probes.
 - Is stable API sufficient for command approval, file approval, permissions
-  approval, image input, model selection, and cancellation? Close from Phase 1
-  captured request/response samples and generated stable schema.
+  approval, image input, model selection, and cancellation? Partially closed:
+  command approval, model list, turn start/completion, and cancellation are
+  verified; file-change approval, permissions approval, and native image input
+  remain regression-covered by schema/bridge tests but need real smoke before
+  default rollout.
 - What exact app-server message sequence represents a successful completed
-  turn? Close from Phase 1 completed-turn transcript fixture.
-- What exact message sequence represents an interrupted turn?
-  Close from Phase 1 interrupt/cancel transcript fixture.
+  turn? Closed by `2026-06-03-stdio-basic-turn.json` and
+  `2026-06-03-stdio-sequential-turns.json`.
+- What exact message sequence represents an interrupted turn? Closed by
+  `2026-06-03-stdio-cancellation.json`.
 - What happens when app-server requests approval and the client disconnects?
-  Close from Phase 1 disconnect-during-approval smoke or an upstream source
-  citation if smoke cannot reproduce it safely.
+  Closed for daemon behavior by fake-transport regression: transport close
+  cancels visible blocking approval and emits `run.error`. A real disconnect
+  smoke remains a pre-default-rollout hardening task.
 - Does app-server preserve enough thread/session metadata to make
-  `cliSessionId` a reliable resume token? Close from Phase 1 resume/rejoin
-  smoke using a persisted app-server `threadId`.
+  `cliSessionId` a reliable resume token? Partially closed by structured
+  `providerSession` persistence and resume-failure cleanup tests. A real
+  resume/rejoin smoke with a persisted app-server `threadId` is still required
+  before merging this path into the default `codex` adapter id.
 
 ## Completion Criteria
 

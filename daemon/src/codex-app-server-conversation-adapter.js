@@ -30,13 +30,17 @@ class CodexAppServerConversationAdapter {
     this.availability = availability || buildCodexAppServerAvailability({ enabled: false });
     this.capabilities = this.availability.effectiveCapabilities || {};
     this.metrics = {
+      probeSuccess: 0,
+      probeFailure: 0,
       spawnFailure: 0,
       initializeLatencyMs: null,
+      fallbackBeforeFirstRequestCount: 0,
       approvalRequestedCount: 0,
       approvalTimeoutCount: 0,
       approvalRoundTripLatencyMs: [],
       transportCloseCount: 0,
-      runErrorAfterTurnStartedCount: 0
+      runErrorAfterTurnStartedCount: 0,
+      orphanProcessCleanupCount: 0
     };
   }
 
@@ -48,13 +52,17 @@ class CodexAppServerConversationAdapter {
       ...this.availability,
       capabilities: this.availability.effectiveCapabilities || {},
       diagnostics: {
-        metrics: snapshotMetrics(this.metrics)
+        metrics: snapshotMetrics(this.metrics, this.lifecycle)
       }
     };
   }
 
   getCapabilities() {
     return this.availability.effectiveCapabilities || {};
+  }
+
+  recordFallbackBeforeFirstRequest() {
+    this.metrics.fallbackBeforeFirstRequestCount += 1;
   }
 
   async startConversation({ conversationId, workspacePath, permissionMode = 'default', sessionId, model, onEvent } = {}) {
@@ -399,17 +407,44 @@ function stringValue(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function snapshotMetrics(metrics) {
+function snapshotMetrics(metrics, lifecycle = null) {
+  const lifecycleMetrics = lifecycle && lifecycle.metrics && typeof lifecycle.metrics === 'object'
+    ? lifecycle.metrics
+    : {};
+  const orphanProcessCleanupCount = Number(metrics.orphanProcessCleanupCount || 0) +
+    Number(lifecycleMetrics.orphanProcessCleanupCount || 0);
+  const spawnFailure = Number(metrics.spawnFailure || 0);
+  const initializeLatencyMs = Number.isFinite(metrics.initializeLatencyMs) ? metrics.initializeLatencyMs : null;
+  const fallbackBeforeFirstRequestCount = Number(metrics.fallbackBeforeFirstRequestCount || 0);
+  const approvalRequestedCount = Number(metrics.approvalRequestedCount || 0);
+  const approvalTimeoutCount = Number(metrics.approvalTimeoutCount || 0);
+  const approvalRoundTripLatencyMs = Array.isArray(metrics.approvalRoundTripLatencyMs)
+    ? metrics.approvalRoundTripLatencyMs.slice(-20).filter(Number.isFinite)
+    : [];
+  const transportCloseCount = Number(metrics.transportCloseCount || 0);
+  const runErrorAfterTurnStartedCount = Number(metrics.runErrorAfterTurnStartedCount || 0);
   return {
-    spawnFailure: Number(metrics.spawnFailure || 0),
-    initializeLatencyMs: Number.isFinite(metrics.initializeLatencyMs) ? metrics.initializeLatencyMs : null,
-    approvalRequestedCount: Number(metrics.approvalRequestedCount || 0),
-    approvalTimeoutCount: Number(metrics.approvalTimeoutCount || 0),
-    approvalRoundTripLatencyMs: Array.isArray(metrics.approvalRoundTripLatencyMs)
-      ? metrics.approvalRoundTripLatencyMs.slice(-20).filter(Number.isFinite)
-      : [],
-    transportCloseCount: Number(metrics.transportCloseCount || 0),
-    runErrorAfterTurnStartedCount: Number(metrics.runErrorAfterTurnStartedCount || 0)
+    app_server_probe_success: Number(metrics.probeSuccess || 0),
+    app_server_probe_failure: Number(metrics.probeFailure || 0),
+    app_server_spawn_failure: spawnFailure,
+    app_server_initialize_latency: initializeLatencyMs,
+    fallback_before_first_request_count: fallbackBeforeFirstRequestCount,
+    approval_requested_count: approvalRequestedCount,
+    approval_timeout_count: approvalTimeoutCount,
+    approval_round_trip_latency: approvalRoundTripLatencyMs,
+    transport_close_count: transportCloseCount,
+    run_error_after_side_effect_boundary_count: runErrorAfterTurnStartedCount,
+    run_error_after_turn_started_count: runErrorAfterTurnStartedCount,
+    orphan_process_cleanup_count: orphanProcessCleanupCount,
+    spawnFailure,
+    initializeLatencyMs,
+    fallbackBeforeFirstRequestCount,
+    approvalRequestedCount,
+    approvalTimeoutCount,
+    approvalRoundTripLatencyMs,
+    transportCloseCount,
+    runErrorAfterTurnStartedCount,
+    orphanProcessCleanupCount
   };
 }
 
