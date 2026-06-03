@@ -27,3 +27,19 @@
 - Impact: intentional docs under `docs/` do not appear in normal `git status`.
 - Evidence: `.gitignore` ignores `docs/`.
 - Mitigation: use `git add -f` for intentional docs commits.
+
+## Risk: Codex App-Server Migration Is Not A Drop-In Adapter Swap
+
+- Level: medium
+- Impact: Codex mobile approval can be implemented through app-server, but a
+  production migration still needs daemon lifecycle, transport, auth/session,
+  capability listing, and project-trust behavior work.
+- Evidence: `daemon/src/codex-app-server-bridge.js` and
+  `scripts/run-tests.js` validate protocol/request/event parity; local Codex
+  source shows `exec` rejects responsive approval requests while app-server
+  defines them.
+- Mitigation: implement a fake-transport adapter-handle integration test before
+  replacing `codex exec --json`; then smoke test against real `codex
+  app-server`.
+- Related: `docs/codex-app-server-replacement-validation.md`
+- Last verified: 2026-06-03

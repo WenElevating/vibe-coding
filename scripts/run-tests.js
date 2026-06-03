@@ -5442,6 +5442,465 @@ test('Codex command timeout config is explicit and configurable', () => {
   assert.deepEqual(defaultArgs.slice(0, 3), ['--ask-for-approval', 'on-request', 'exec']);
 });
 
+test('Codex app-server approval requests map to mobile contract and JSON-RPC responses', () => {
+  const {
+    CODEX_APP_SERVER_APPROVAL_CAPABILITY,
+    buildCodexAppServerApprovalResponse,
+    mapCodexAppServerApprovalRequest
+  } = require('../daemon/src/codex-app-server-approval');
+  const {
+    normalizeApprovalDecision,
+    normalizeApprovalOptions
+  } = require('../daemon/src/conversation-protocol');
+
+  const commandRequest = mapCodexAppServerApprovalRequest({
+    id: 61,
+    method: 'item/commandExecution/requestApproval',
+    params: {
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      itemId: 'item_cmd',
+      approvalId: 'approval_cmd',
+      startedAtMs: 1710000000000,
+      reason: 'Need to run tests',
+      command: 'npm test',
+      cwd: 'D:\\Repo',
+      additionalPermissions: { network: { enabled: true } },
+      availableDecisions: ['accept', 'acceptForSession', 'decline', 'cancel']
+    }
+  });
+
+  assert.equal(commandRequest.event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(commandRequest.event.approvalId, 'approval_cmd');
+  assert.equal(commandRequest.event.summary, 'npm test');
+  assert.equal(Object.prototype.hasOwnProperty.call(commandRequest.event.approvalOptions, 'rawProviderRequest'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(commandRequest.event.approvalOptions, 'availableDecisions'), false);
+  assert.deepEqual(
+    normalizeApprovalOptions(commandRequest.event.approvalOptions, CODEX_APP_SERVER_APPROVAL_CAPABILITY),
+    {
+      kind: 'command',
+      supportsSessionScope: true,
+      supportsCancel: true,
+      denyBehavior: 'continue',
+      command: 'npm test',
+      cwd: 'D:\\Repo',
+      reason: 'Need to run tests',
+      proposedPermissions: { network: { enabled: true } }
+    }
+  );
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      commandRequest.context,
+      normalizeApprovalDecision({ decision: 'allow', scope: 'session' })
+    ),
+    { id: 61, result: { decision: 'acceptForSession' } }
+  );
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      commandRequest.context,
+      normalizeApprovalDecision({ decision: 'deny', interrupt: false })
+    ),
+    { id: 61, result: { decision: 'decline' } }
+  );
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      commandRequest.context,
+      normalizeApprovalDecision({ decision: 'deny', interrupt: true })
+    ),
+    { id: 61, result: { decision: 'cancel' } }
+  );
+
+  const permissionsRequest = mapCodexAppServerApprovalRequest({
+    id: 'req_permissions',
+    method: 'item/permissions/requestApproval',
+    params: {
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      itemId: 'perm_1',
+      environmentId: 'local',
+      startedAtMs: 1710000000001,
+      cwd: 'D:\\Repo',
+      reason: 'Need workspace write access',
+      permissions: {
+        fileSystem: { write: ['D:\\Repo'] },
+        network: { enabled: true }
+      }
+    }
+  });
+
+  assert.equal(permissionsRequest.event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permissionsRequest.event.approvalId, 'perm_1');
+  assert.deepEqual(
+    normalizeApprovalOptions(permissionsRequest.event.approvalOptions, CODEX_APP_SERVER_APPROVAL_CAPABILITY),
+    {
+      kind: 'permissions',
+      supportsSessionScope: true,
+      supportsCancel: false,
+      denyBehavior: 'continue',
+      cwd: 'D:\\Repo',
+      reason: 'Need workspace write access',
+      proposedPermissions: {
+        fileSystem: { write: ['D:\\Repo'] },
+        network: { enabled: true }
+      }
+    }
+  );
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      permissionsRequest.context,
+      normalizeApprovalDecision({ decision: 'allow', scope: 'session' })
+    ),
+    {
+      id: 'req_permissions',
+      result: {
+        permissions: {
+          fileSystem: { write: ['D:\\Repo'] },
+          network: { enabled: true }
+        },
+        scope: 'session'
+      }
+    }
+  );
+  assert.deepEqual(
+    buildCodexAppServerApprovalResponse(
+      permissionsRequest.context,
+      normalizeApprovalDecision({ decision: 'deny', interrupt: false })
+    ),
+    { id: 'req_permissions', result: { permissions: {}, scope: 'turn' } }
+  );
+});
+
+test('Codex app-server bridge covers current exec adapter launch and event contract', () => {
+  const {
+    buildCodexAppServerThreadResumeRequest,
+    buildCodexAppServerThreadStartRequest,
+    buildCodexAppServerTurnInterruptRequest,
+    buildCodexAppServerTurnStartRequest,
+    mapCodexAppServerNotification
+  } = require('../daemon/src/codex-app-server-bridge');
+
+  const threadStart = buildCodexAppServerThreadStartRequest({
+    requestId: 1,
+    workspacePath: 'D:\\Repo',
+    permissionMode: 'auto',
+    model: 'gpt-5.5',
+    toolTimeoutSec: 900
+  });
+  assert.deepEqual(threadStart, {
+    id: 1,
+    method: 'thread/start',
+    params: {
+      cwd: 'D:\\Repo',
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      sandbox: 'workspace-write',
+      config: { tool_timeout_sec: 900 },
+      model: 'gpt-5.5'
+    }
+  });
+
+  const threadResume = buildCodexAppServerThreadResumeRequest({
+    requestId: 2,
+    threadId: 'thread_1',
+    workspacePath: 'D:\\Repo',
+    permissionMode: 'default',
+    model: 'gpt-5.5',
+    toolTimeoutSec: 900
+  });
+  assert.deepEqual(threadResume, {
+    id: 2,
+    method: 'thread/resume',
+    params: {
+      threadId: 'thread_1',
+      cwd: 'D:\\Repo',
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+      sandbox: 'workspace-write',
+      config: { tool_timeout_sec: 900 },
+      model: 'gpt-5.5'
+    }
+  });
+
+  const turnStart = buildCodexAppServerTurnStartRequest({
+    requestId: 3,
+    threadId: 'thread_1',
+    clientUserMessageId: 'client_msg_1',
+    workspacePath: 'D:\\Repo',
+    permissionMode: 'default',
+    model: 'gpt-5.5',
+    message: {
+      text: 'Inspect this.',
+      attachments: [
+        { kind: 'image', handling: 'native', scratchPath: 'D:\\scratch\\a.png', mimeType: 'image/png', name: 'a.png' },
+        { kind: 'textDocument', handling: 'text_extract', text: 'alpha', mimeType: 'text/plain', name: 'a.txt' }
+      ]
+    }
+  });
+  assert.equal(turnStart.method, 'turn/start');
+  assert.equal(turnStart.params.threadId, 'thread_1');
+  assert.equal(turnStart.params.clientUserMessageId, 'client_msg_1');
+  assert.equal(turnStart.params.cwd, 'D:\\Repo');
+  assert.equal(turnStart.params.approvalPolicy, 'on-request');
+  assert.equal(turnStart.params.approvalsReviewer, 'user');
+  assert.equal(turnStart.params.model, 'gpt-5.5');
+  assert.deepEqual(turnStart.params.sandboxPolicy, {
+    type: 'workspaceWrite',
+    writableRoots: ['D:\\Repo'],
+    networkAccess: false,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false
+  });
+  assert.equal(turnStart.params.input[0].type, 'text');
+  assert.match(turnStart.params.input[0].text, /^Inspect this\./);
+  assert.match(turnStart.params.input[0].text, /<attachment name="a.txt" mime="text\/plain">/);
+  assert.deepEqual(turnStart.params.input[0].text_elements, []);
+  assert.deepEqual(turnStart.params.input[1], { type: 'localImage', path: 'D:\\scratch\\a.png' });
+
+  assert.deepEqual(
+    buildCodexAppServerTurnInterruptRequest({ requestId: 4, threadId: 'thread_1', turnId: 'turn_1' }),
+    {
+      id: 4,
+      method: 'turn/interrupt',
+      params: { threadId: 'thread_1', turnId: 'turn_1' }
+    }
+  );
+
+  const threadNotice = mapCodexAppServerNotification({
+    method: 'thread/started',
+    params: { thread: { id: 'thread_1' } }
+  });
+  assert.equal(threadNotice.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(threadNotice.sessionId, 'thread_1');
+  assert.equal(threadNotice.visible, false);
+
+  const turnStarted = mapCodexAppServerNotification({
+    method: 'turn/started',
+    params: { threadId: 'thread_1', turnId: 'turn_1' }
+  });
+  assert.equal(turnStarted.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(turnStarted.noticeKind, 'codex_turn_started');
+
+  const assistant = mapCodexAppServerNotification({
+    method: 'item/completed',
+    params: {
+      item: { id: 'msg_1', type: 'agentMessage', text: 'hello', phase: null, memoryCitation: null },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      completedAtMs: 1710000000000
+    }
+  });
+  assert.equal(assistant.type, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.equal(assistant.text, 'hello');
+
+  const commandStarted = mapCodexAppServerNotification({
+    method: 'item/started',
+    params: {
+      item: {
+        id: 'cmd_1',
+        type: 'commandExecution',
+        command: 'dir',
+        cwd: 'D:\\Repo',
+        processId: null,
+        source: 'exec',
+        status: 'inProgress',
+        commandActions: [],
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null
+      },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      startedAtMs: 1710000000000
+    }
+  });
+  assert.equal(commandStarted.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(commandStarted.toolUseId, 'cmd_1');
+
+  const commandDelta = mapCodexAppServerNotification({
+    method: 'item/commandExecution/outputDelta',
+    params: {
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      itemId: 'cmd_1',
+      delta: 'partial output'
+    }
+  });
+  assert.deepEqual({
+    type: commandDelta.type,
+    toolUseId: commandDelta.toolUseId,
+    toolName: commandDelta.toolName,
+    text: commandDelta.text
+  }, {
+    type: conversationEventTypes.TOOL_DELTA,
+    toolUseId: 'cmd_1',
+    toolName: 'command_execution',
+    text: 'partial output'
+  });
+
+  const commandCompleted = mapCodexAppServerNotification({
+    method: 'item/completed',
+    params: {
+      item: {
+        id: 'cmd_1',
+        type: 'commandExecution',
+        command: 'dir',
+        cwd: 'D:\\Repo',
+        processId: null,
+        source: 'exec',
+        status: 'completed',
+        commandActions: [],
+        aggregatedOutput: 'done',
+        exitCode: 0,
+        durationMs: 12
+      },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      completedAtMs: 1710000000012
+    }
+  });
+  assert.equal(commandCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(commandCompleted.text, 'done');
+  assert.equal(commandCompleted.exitCode, 0);
+
+  const declined = mapCodexAppServerNotification({
+    method: 'item/completed',
+    params: {
+      item: {
+        id: 'cmd_2',
+        type: 'commandExecution',
+        command: 'write',
+        cwd: 'D:\\Repo',
+        processId: null,
+        source: 'exec',
+        status: 'declined',
+        commandActions: [],
+        aggregatedOutput: 'rejected',
+        exitCode: null,
+        durationMs: 1
+      },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      completedAtMs: 1710000000013
+    }
+  });
+  assert.equal(declined.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(declined.noticeKind, 'codex_policy_blocked');
+
+  const fileChange = mapCodexAppServerNotification({
+    method: 'item/completed',
+    params: {
+      item: {
+        id: 'file_1',
+        type: 'fileChange',
+        status: 'completed',
+        changes: [{ path: 'D:\\Repo\\src\\a.js', kind: 'add', diff: '+hello' }]
+      },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      completedAtMs: 1710000000014
+    }
+  }, { workspacePath: 'D:\\Repo' });
+  assert.equal(fileChange.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(fileChange.noticeKind, 'codex_file_change');
+  assert.equal(fileChange.changes[0].path, 'src/a.js');
+
+  const mcpCompleted = mapCodexAppServerNotification({
+    method: 'item/completed',
+    params: {
+      item: {
+        id: 'mcp_1',
+        type: 'mcpToolCall',
+        server: 'codegraph',
+        tool: 'codegraph_search',
+        status: 'completed',
+        arguments: { query: 'mapCodexEvent' },
+        pluginId: null,
+        result: { content: [{ type: 'text', text: 'found' }] },
+        error: null,
+        durationMs: 10
+      },
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      completedAtMs: 1710000000015
+    }
+  });
+  assert.equal(mcpCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(mcpCompleted.toolName, 'codegraph.codegraph_search');
+  assert.equal(mcpCompleted.text, 'found');
+
+  const plan = mapCodexAppServerNotification({
+    method: 'turn/plan/updated',
+    params: {
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      explanation: null,
+      plan: [
+        { step: 'Inspect repo', status: 'completed' },
+        { step: 'Run tests', status: 'inProgress' },
+        { step: 'Summarize', status: 'pending' }
+      ]
+    }
+  });
+  assert.equal(plan.type, conversationEventTypes.TASK_PROGRESS_UPDATED);
+  assert.equal(plan.taskId, 'turn_1');
+  assert.deepEqual(plan.items.map((item) => item.status), ['completed', 'in_progress', 'pending']);
+
+  const failed = mapCodexAppServerNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread_1',
+      turn: {
+        id: 'turn_1',
+        items: [],
+        itemsView: 'full',
+        status: 'failed',
+        error: { message: 'bad model', codexErrorInfo: null, additionalDetails: null },
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1000
+      }
+    }
+  });
+  assert.equal(failed.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(failed.message, 'bad model');
+
+  const interrupted = mapCodexAppServerNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread_1',
+      turn: {
+        id: 'turn_cancelled',
+        items: [],
+        itemsView: 'full',
+        status: 'interrupted',
+        error: null,
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1000
+      }
+    }
+  });
+  assert.equal(interrupted.type, conversationEventTypes.CONVERSATION_CANCELLED);
+
+  const completed = mapCodexAppServerNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread_1',
+      turn: {
+        id: 'turn_2',
+        items: [],
+        itemsView: 'full',
+        status: 'completed',
+        error: null,
+        startedAt: 1,
+        completedAt: 2,
+        durationMs: 1000
+      }
+    }
+  });
+  assert.equal(completed.type, conversationEventTypes.CONVERSATION_COMPLETED);
+});
+
 test('Codex capability detection allows slow Windows npm shim startup', () => {
   const adapter = new CodexConversationAdapter({
     cliResolverOptions: { platform: 'linux' },
