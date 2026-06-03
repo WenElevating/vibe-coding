@@ -2571,6 +2571,91 @@ test('codex-app-server falls back to codex before provider side effects when una
   assert.equal(startCalls[0].conversationId, conversation.id);
 });
 
+test('codex-app-server falls back to codex when initialize fails before side effects', async () => {
+  const appServerError = new Error('initialize failed');
+  appServerError.codexAppServerFallbackAllowed = true;
+  const appServer = {
+    getCapabilities() {
+      return { longLivedProcess: true, waitingApproval: true };
+    },
+    detectCapabilities() {
+      return { selectable: true, effectiveCapabilities: this.getCapabilities() };
+    },
+    async startConversation() {
+      throw appServerError;
+    }
+  };
+  const startCalls = [];
+  const codex = {
+    capabilities: { resume: true, waitingApproval: true },
+    async startConversation(input) {
+      startCalls.push(input);
+      return {
+        async sendUserMessage() {},
+        async dispose() {}
+      };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([
+      ['codex', codex],
+      ['codex-app-server', appServer]
+    ])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex-app-server' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+  const updated = manager.getConversation(conversation.id, device);
+
+  assert.equal(updated.adapter, 'codex-app-server');
+  assert.equal(updated.requestedAdapter, 'codex-app-server');
+  assert.equal(updated.effectiveAdapter, 'codex');
+  assert.equal(updated.fallbackNotice.reason, 'initialize failed');
+  assert.equal(updated.fallbackNotice.boundary, 'before_provider_request');
+  assert.equal(startCalls.length, 1);
+  const events = manager.eventStore.list(conversation.id, 0);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE && event.noticeKind === 'adapter_fallback'), true);
+});
+
+test('codex-app-server does not fall back after side-effect boundary failure', async () => {
+  const appServerError = new Error('thread/start failed after boundary');
+  appServerError.codexAppServerFallbackAllowed = false;
+  const appServer = {
+    getCapabilities() {
+      return { longLivedProcess: true, waitingApproval: true };
+    },
+    detectCapabilities() {
+      return { selectable: true, effectiveCapabilities: this.getCapabilities() };
+    },
+    async startConversation() {
+      throw appServerError;
+    }
+  };
+  let codexStarted = false;
+  const codex = {
+    capabilities: { resume: true },
+    async startConversation() {
+      codexStarted = true;
+      return { async sendUserMessage() {} };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([
+      ['codex', codex],
+      ['codex-app-server', appServer]
+    ])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex-app-server' }, device);
+
+  await assert.rejects(
+    () => manager.sendMessage(conversation.id, { text: 'hello' }, device),
+    /thread\/start failed after boundary/
+  );
+  const updated = manager.getConversation(conversation.id, device);
+  assert.equal(updated.effectiveAdapter, 'codex-app-server');
+  assert.equal(codexStarted, false);
+});
+
 test('Codex app-server conversation adapter runs stdio thread and turn lifecycle', async () => {
   const { EventEmitter } = require('node:events');
   const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');

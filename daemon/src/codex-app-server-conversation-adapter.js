@@ -76,6 +76,7 @@ class CodexAppServerConversationAdapter {
       processHandle = this.lifecycle.spawn();
     } catch (error) {
       this.metrics.spawnFailure += 1;
+      error.codexAppServerFallbackAllowed = true;
       throw error;
     }
     const conversationHandle = new CodexAppServerConversationHandle({
@@ -93,6 +94,7 @@ class CodexAppServerConversationAdapter {
       return conversationHandle;
     } catch (error) {
       await conversationHandle.dispose();
+      error.codexAppServerFallbackAllowed = conversationHandle.sideEffectBoundaryCrossed !== true;
       throw error;
     }
   }
@@ -120,6 +122,7 @@ class CodexAppServerConversationHandle {
     this.closed = false;
     this.initialized = false;
     this.turnHadRunError = false;
+    this.sideEffectBoundaryCrossed = false;
     this._bindTransport();
   }
 
@@ -153,6 +156,7 @@ class CodexAppServerConversationHandle {
         model: this.model,
         toolTimeoutSec: this.adapter.toolTimeoutSec
       });
+    this.sideEffectBoundaryCrossed = true;
     const response = await this.transport.sendRequest(threadRequest.method, threadRequest.params);
     const threadId = stringValue(response?.thread?.id) || this.sessionId;
     if (!threadId) throw new Error(`${threadRequest.method} did not return thread.id`);

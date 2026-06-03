@@ -804,7 +804,33 @@ class ConversationManager {
     if (conversation.handle) return conversation.handle;
     const adapterName = effectiveAdapterName(conversation);
     const adapter = this.getAdapter(adapterName);
-    conversation.handle = await adapter.startConversation({
+    try {
+      conversation.handle = await this.startConversationWithAdapter(conversation, adapterName, adapter);
+    } catch (error) {
+      if (!canFallbackFromAppServerStart(conversation, adapterName, error) || !this.adapters.has('codex')) throw error;
+      const fallbackAdapter = this.getAdapter('codex');
+      conversation.effectiveAdapter = 'codex';
+      conversation.effectiveCapabilities = capabilitiesForAdapter(fallbackAdapter);
+      conversation.fallbackNotice = {
+        from: 'codex-app-server',
+        to: 'codex',
+        reason: error.message || 'app_server_start_failed',
+        boundary: 'before_provider_request',
+        at: this.now().toISOString()
+      };
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.SYSTEM_NOTICE, {
+        noticeKind: 'adapter_fallback',
+        visible: false,
+        ...conversation.fallbackNotice
+      });
+      conversation.handle = await this.startConversationWithAdapter(conversation, 'codex', fallbackAdapter);
+    }
+    return conversation.handle;
+  }
+
+  async startConversationWithAdapter(conversation, adapterName, adapter) {
+    return adapter.startConversation({
       conversationId: conversation.id,
       workspacePath: conversation.workspacePath,
       permissionMode: conversation.permissionMode,
@@ -817,7 +843,6 @@ class ConversationManager {
         : null,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
-    return conversation.handle;
   }
 
   setBlockingItem(conversation, blockingItem, status, event) {
@@ -973,6 +998,13 @@ function activeStateBlocksModelUpdate(conversation) {
 
 function effectiveAdapterName(conversation) {
   return conversation.effectiveAdapter || conversation.adapter;
+}
+
+function canFallbackFromAppServerStart(conversation, adapterName, error) {
+  return adapterName === 'codex-app-server' &&
+    conversation.requestedAdapter === 'codex-app-server' &&
+    conversation.effectiveAdapter === 'codex-app-server' &&
+    error?.codexAppServerFallbackAllowed === true;
 }
 
 function capabilitiesForAdapter(adapter) {
