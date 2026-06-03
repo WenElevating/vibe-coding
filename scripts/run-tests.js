@@ -304,6 +304,58 @@ test('Codex app-server JSONL transport emits server requests and writes results'
   transport.close();
 });
 
+test('Codex app-server lifecycle enforces max process limit', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const children = [];
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    spawnAppServer: () => {
+      const child = new EventEmitter();
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 1234 + children.length;
+      child.kill = () => true;
+      children.push(child);
+      return child;
+    }
+  });
+  const first = lifecycle.spawn();
+  assert.equal(first.pid, 1234);
+  assert.throws(() => lifecycle.spawn(), /maximum Codex app-server process limit reached/);
+  first.child.emit('exit', 0, null);
+  const second = lifecycle.spawn();
+  assert.equal(second.pid, 1235);
+  await second.shutdown();
+});
+
+test('Codex app-server lifecycle escalates shutdown after grace timeout', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const signals = [];
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = 4321;
+  child.kill = (signal) => {
+    signals.push(signal || 'SIGTERM');
+    if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+    return true;
+  };
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    gracefulShutdownMs: 5,
+    spawnAppServer: () => child
+  });
+  const handle = lifecycle.spawn();
+  await handle.shutdown();
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
