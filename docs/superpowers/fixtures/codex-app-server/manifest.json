@@ -8,7 +8,7 @@
   "codexVersion": "codex-cli 0.136.0",
   "transportTested": "stdio",
   "startedAt": "2026-06-03T13:11:25.240Z",
-  "completedAt": "2026-06-03T13:57:03.648Z",
+  "completedAt": "2026-06-03T14:08:58.962Z",
   "gates": {
     "initializeWithin10s": "pass",
     "tenSequentialTurns": "pass",
@@ -16,7 +16,7 @@
     "approvalLatencyP95Under2s": "blocked",
     "cancellationCleanupWithinDeadline": "pass",
     "largeOutputNoPipeBlock": "pass",
-    "noOrphanProcesses": "blocked",
+    "noOrphanProcesses": "pass",
     "sideEffectFreeProbeCreatesNoThread": "pass",
     "sessionScopeFieldIdentified": "blocked",
     "projectTrustBehaviorKnown": "blocked",
@@ -48,7 +48,7 @@
       "transport": "stdio",
       "scenario": "cancellation",
       "result": "pass",
-      "note": "thread/shellCommand started a long shell turn, turn/interrupt resolved, and turn/completed reported interrupted."
+      "note": "thread/shellCommand started a long shell turn, turn/interrupt resolved, turn/completed reported interrupted, and captured Windows descendants had zero survivors after cleanup."
     },
     {
       "path": "samples/2026-06-03-stdio-large-output.json",
@@ -63,7 +63,7 @@
     "The basic stdio sample proved initialize, initialized, model/list, thread/list, thread/start, turn/start, streamed notifications, and turn/completed.",
     "Non-blocking notifications arrived while the turn was active, including configWarning, remoteControl/status/changed, mcpServer/startupStatus/updated, thread/status/changed, thread/tokenUsage/updated, and account/rateLimits/updated.",
     "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
-    "The smoke runner now records child pid and exit signal; direct app-server child cleanup passed for the new scenarios, but descendant process-tree orphan checks remain blocked.",
+    "The smoke runner now records child pid, exit signal, and Windows process-tree descendants; the measured cancellation sample captured 12 descendants and zero survivors after cleanup.",
     "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior."
   ]
 }

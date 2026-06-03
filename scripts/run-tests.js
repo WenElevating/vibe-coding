@@ -356,6 +356,40 @@ test('Codex app-server lifecycle escalates shutdown after grace timeout', async 
   assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
 });
 
+test('Codex app-server lifecycle can terminate a Windows process tree before direct child kill', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const terminations = [];
+  const signals = [];
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = 9876;
+  child.kill = (signal) => {
+    signals.push(signal || 'SIGTERM');
+    return true;
+  };
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    gracefulShutdownMs: 5,
+    spawnAppServer: () => child,
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      if (options.force) setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
+  const handle = lifecycle.spawn();
+  await handle.shutdown();
+  assert.deepEqual(terminations, [
+    { pid: 9876, force: false, signal: 'SIGTERM' },
+    { pid: 9876, force: true, signal: 'SIGKILL' }
+  ]);
+  assert.deepEqual(signals, []);
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');

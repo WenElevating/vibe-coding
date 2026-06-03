@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const fixtureRoot = path.join(repoRoot, 'docs', 'superpowers', 'fixtures', 'codex-app-server');
@@ -29,6 +29,8 @@ let initializedAt = null;
 let completedAt = null;
 let childPid = null;
 let childExit = null;
+let descendantsBeforeCleanup = [];
+let descendantsAfterCleanup = [];
 
 function redact(value) {
   if (typeof value === 'string') {
@@ -186,12 +188,86 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function listDescendantProcesses(rootPid) {
+  if (!rootPid) return [];
+  if (process.platform !== 'win32') return [];
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$items = Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine',
+    '$items | ConvertTo-Json -Compress'
+  ].join('; ');
+  const result = spawnSync('powershell', ['-NoProfile', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 10000,
+  });
+  if (result.status !== 0 || !result.stdout.trim()) {
+    return [];
+  }
+  let processes;
+  try {
+    processes = JSON.parse(result.stdout);
+  } catch {
+    return [];
+  }
+  const all = Array.isArray(processes) ? processes : [processes];
+  const byParent = new Map();
+  for (const processInfo of all) {
+    const parent = Number(processInfo.ParentProcessId);
+    if (!byParent.has(parent)) byParent.set(parent, []);
+    byParent.get(parent).push(processInfo);
+  }
+  const descendants = [];
+  const queue = [...(byParent.get(Number(rootPid)) || [])];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    descendants.push({
+      pid: Number(current.ProcessId),
+      parentPid: Number(current.ParentProcessId),
+      name: current.Name || null,
+      commandLine: current.CommandLine || null,
+    });
+    queue.push(...(byParent.get(Number(current.ProcessId)) || []));
+  }
+  return redact(descendants);
+}
+
+function pidExists(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function terminateProcessTree(pid, { force = false } = {}) {
+  if (!pid || process.platform !== 'win32') return false;
+  const args = ['/PID', String(pid), '/T'];
+  if (force) args.push('/F');
+  const result = spawnSync('taskkill', args, {
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+  return result.status === 0;
+}
+
+function terminateCapturedDescendants(processes) {
+  if (process.platform !== 'win32' || !Array.isArray(processes)) return;
+  for (const processInfo of [...processes].reverse()) {
+    terminateProcessTree(processInfo.pid, { force: true });
+  }
+}
+
 function stopChild(timeout = 5000) {
   if (!child || childExit) return Promise.resolve(childExit);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       if (child && !child.killed) {
-        child.kill('SIGKILL');
+        if (!terminateProcessTree(childPid, { force: true })) {
+          child.kill('SIGKILL');
+        }
       }
       resolve(childExit || { code: null, signal: 'timeout-kill' });
     }, timeout);
@@ -200,7 +276,9 @@ function stopChild(timeout = 5000) {
       childExit = { code, signal };
       resolve(childExit);
     });
-    child.kill();
+    if (!terminateProcessTree(childPid, { force: false })) {
+      child.kill();
+    }
   });
 }
 
@@ -353,7 +431,14 @@ async function run() {
 
   const scenarioResult = await runScenario(threadId);
   const threadListAfter = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
+  descendantsBeforeCleanup = listDescendantProcesses(childPid);
   await stopChild();
+  terminateCapturedDescendants(descendantsBeforeCleanup);
+  await wait(1000);
+  descendantsAfterCleanup = descendantsBeforeCleanup.map((processInfo) => ({
+    ...processInfo,
+    aliveAfterCleanup: pidExists(processInfo.pid),
+  }));
   completedAt = new Date();
 
   const sample = {
@@ -364,6 +449,11 @@ async function run() {
     codexJs,
     childPid,
     childExit,
+    processTree: {
+      descendantsBeforeCleanup,
+      descendantsAfterCleanup,
+      orphanedDescendantsAfterCleanup: descendantsAfterCleanup.filter((processInfo) => processInfo.aliveAfterCleanup),
+    },
     cwd,
     initializedAt: initializedAt.toISOString(),
     completedAt: completedAt.toISOString(),
@@ -404,6 +494,10 @@ run()
       codexJs,
       childPid,
       childExit,
+      processTree: {
+        descendantsBeforeCleanup,
+        descendantsAfterCleanup,
+      },
       cwd,
       error: error.message,
       approvals,

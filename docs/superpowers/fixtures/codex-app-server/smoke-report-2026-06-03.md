@@ -33,7 +33,7 @@ schema inspection only.
 | approval p95 latency under 2s | blocked | No approval request was emitted, so latency cannot be measured. |
 | cancellation cleanup deadline | pass | `samples/2026-06-03-stdio-cancellation.json` used `thread/shellCommand` to start a long-running shell turn, sent `turn/interrupt`, received a successful response, and observed `turn/completed` with status `interrupted`; the app-server child exited via SIGTERM during cleanup. |
 | large output no pipe block | pass | `samples/2026-06-03-stdio-large-output.json` completed a `thread/shellCommand` command that printed 1200 numbered lines without JSONL parse errors, request timeouts, or pipe deadlock. |
-| no orphan processes | blocked | Samples record owned child pids 20216, 64332, 54444, 58664, and 78052 exiting via SIGTERM, but descendant process-tree orphan checks were not measured. |
+| no orphan processes | pass | `samples/2026-06-03-stdio-cancellation.json` captured 12 Windows descendant processes before cleanup and zero survivors after process-tree cleanup. |
 | side-effect-free probe creates no thread | pass | `model/list` and `thread/list` completed before any `thread/start`; no `thread/started` appeared before the explicit `thread/start`. |
 | session scope field identified | blocked | No approval request was emitted, so `availableDecisions` was not observed. |
 | project trust behavior known | blocked | `thread/start` succeeded, but project trust side effects were not isolated or proven. |
@@ -52,11 +52,10 @@ schema inspection only.
 - Transport selected for Phase 2: stdio-first.
 - Capabilities to expose: initialize, model/list probe, thread/start, turn/start, turn/interrupt, streamed non-blocking notifications, turn/completed, and stdio operation across 10 consecutive turns.
 - Capabilities to keep adapter-internal only for smoke: `thread/shellCommand`, because official docs state it runs outside the sandbox and should only be exposed for explicit user-initiated commands.
-- Capabilities to lower or omit: approval callbacks, session-scoped approval, descendant orphan cleanup guarantee, and project-trust mitigation remain unavailable until dedicated smoke gates pass.
+- Capabilities to lower or omit: approval callbacks, session-scoped approval, and project-trust mitigation remain unavailable until dedicated smoke gates pass.
 - App-server selectable: no. Keep behind feature flag until blocked gates are resolved.
 
 ## Follow-up
 
 - Add a dedicated approval trigger that produces `item/commandExecution/requestApproval`, then capture `availableDecisions`.
-- Add descendant process-tree tracking so no-orphan status is measurable beyond the direct child process.
 - Isolate project trust behavior in a throwaway workspace and document whether `thread/start` mutates persisted trust state.

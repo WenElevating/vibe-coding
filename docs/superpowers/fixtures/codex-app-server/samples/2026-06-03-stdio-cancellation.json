@@ -4,14 +4,177 @@
   "scenario": "cancellation",
   "codexBin": "D:\\nodejs\\codex.cmd",
   "codexJs": "D:\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js",
-  "childPid": 58664,
+  "childPid": 64436,
   "childExit": {
     "code": null,
     "signal": "SIGTERM"
   },
+  "processTree": {
+    "descendantsBeforeCleanup": [
+      {
+        "pid": 71560,
+        "parentPid": 64436,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4"
+      },
+      {
+        "pid": 64044,
+        "parentPid": 64436,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server"
+      },
+      {
+        "pid": 75664,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\trace-server.js"
+      },
+      {
+        "pid": 81120,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\memory-server.js"
+      },
+      {
+        "pid": 49776,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\state-server.js"
+      },
+      {
+        "pid": 93452,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\code-intel-server.js"
+      },
+      {
+        "pid": 34176,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\team-server.js"
+      },
+      {
+        "pid": 70056,
+        "parentPid": 64044,
+        "name": "git.exe",
+        "commandLine": "\"git\" clone --depth 1 https://github.com/openai/plugins.git <USER_HOME>\\.codex\\.tmp\\plugins-clone-BPwYgk"
+      },
+      {
+        "pid": 33204,
+        "parentPid": 70056,
+        "name": "git.exe",
+        "commandLine": "git.exe clone --depth 1 https://github.com/openai/plugins.git <USER_HOME>\\.codex\\.tmp\\plugins-clone-BPwYgk"
+      },
+      {
+        "pid": 74164,
+        "parentPid": 33204,
+        "name": "git.exe",
+        "commandLine": "git remote-https origin https://github.com/openai/plugins.git"
+      },
+      {
+        "pid": 83256,
+        "parentPid": 33204,
+        "name": "git.exe",
+        "commandLine": "git --shallow-file C:/Users/W2830/.codex/.tmp/plugins-clone-BPwYgk/.git/shallow.lock index-pack --stdin --fix-thin \"--keep=fetch-pack 33204 on wmm\""
+      },
+      {
+        "pid": 21196,
+        "parentPid": 74164,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https origin https://github.com/openai/plugins.git"
+      }
+    ],
+    "descendantsAfterCleanup": [
+      {
+        "pid": 71560,
+        "parentPid": 64436,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 64044,
+        "parentPid": 64436,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 75664,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\trace-server.js",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 81120,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\memory-server.js",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 49776,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\state-server.js",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 93452,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\code-intel-server.js",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 34176,
+        "parentPid": 64044,
+        "name": "node.exe",
+        "commandLine": "\"D:\\nodejs\\node.exe\" D:\\nvm\\v24.11.1\\node_modules\\oh-my-codex\\dist\\mcp\\team-server.js",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 70056,
+        "parentPid": 64044,
+        "name": "git.exe",
+        "commandLine": "\"git\" clone --depth 1 https://github.com/openai/plugins.git <USER_HOME>\\.codex\\.tmp\\plugins-clone-BPwYgk",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 33204,
+        "parentPid": 70056,
+        "name": "git.exe",
+        "commandLine": "git.exe clone --depth 1 https://github.com/openai/plugins.git <USER_HOME>\\.codex\\.tmp\\plugins-clone-BPwYgk",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 74164,
+        "parentPid": 33204,
+        "name": "git.exe",
+        "commandLine": "git remote-https origin https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 83256,
+        "parentPid": 33204,
+        "name": "git.exe",
+        "commandLine": "git --shallow-file C:/Users/W2830/.codex/.tmp/plugins-clone-BPwYgk/.git/shallow.lock index-pack --stdin --fix-thin \"--keep=fetch-pack 33204 on wmm\"",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 21196,
+        "parentPid": 74164,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https origin https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      }
+    ],
+    "orphanedDescendantsAfterCleanup": []
+  },
   "cwd": "<WORKSPACE>",
-  "initializedAt": "2026-06-03T13:56:08.236Z",
-  "completedAt": "2026-06-03T13:56:19.854Z",
+  "initializedAt": "2026-06-03T14:08:30.558Z",
+  "completedAt": "2026-06-03T14:08:58.962Z",
   "initialize": {
     "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
     "codexHome": "<USER_HOME>\\.codex",
@@ -27,18 +190,18 @@
   },
   "threadStart": {
     "thread": {
-      "id": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-      "sessionId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+      "id": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+      "sessionId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
       "forkedFromId": null,
       "preview": "",
       "ephemeral": false,
       "modelProvider": "8yes_codex",
-      "createdAt": 1780494973,
-      "updatedAt": 1780494973,
+      "createdAt": 1780495715,
+      "updatedAt": 1780495715,
       "status": {
         "type": "idle"
       },
-      "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-56-13-019e8dc5-2710-7751-bd8b-a4c662af5d37.jsonl",
+      "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-08-35-019e8dd0-7a08-7df0-b5a4-f06b68848f37.jsonl",
       "cwd": "<WORKSPACE>",
       "cliVersion": "0.136.0",
       "source": "vscode",
@@ -75,14 +238,14 @@
       "turnStarted": {
         "method": "turn/started",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "turn": {
-            "id": "019e8dc5-3b18-7653-bf82-58406c08a196",
+            "id": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
             "items": [],
             "itemsView": "notLoaded",
             "status": "inProgress",
             "error": null,
-            "startedAt": 1780494973,
+            "startedAt": 1780495715,
             "completedAt": null,
             "durationMs": null
           }
@@ -92,16 +255,16 @@
       "turnCompleted": {
         "method": "turn/completed",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "turn": {
-            "id": "019e8dc5-3b18-7653-bf82-58406c08a196",
+            "id": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
             "items": [],
             "itemsView": "notLoaded",
             "status": "interrupted",
             "error": null,
-            "startedAt": 1780494973,
-            "completedAt": 1780494979,
-            "durationMs": 5990
+            "startedAt": 1780495715,
+            "completedAt": 1780495721,
+            "durationMs": 5853
           }
         }
       }
@@ -113,7 +276,7 @@
   },
   "messages": [
     {
-      "at": "2026-06-03T13:56:08.236Z",
+      "at": "2026-06-03T14:08:30.558Z",
       "direction": "client_to_server",
       "message": {
         "method": "initialize",
@@ -132,7 +295,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.537Z",
+      "at": "2026-06-03T14:08:30.709Z",
       "direction": "server_to_client",
       "message": {
         "id": 1,
@@ -145,7 +308,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.537Z",
+      "at": "2026-06-03T14:08:30.709Z",
       "direction": "client_to_server",
       "message": {
         "method": "initialized",
@@ -153,7 +316,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.537Z",
+      "at": "2026-06-03T14:08:30.709Z",
       "direction": "client_to_server",
       "message": {
         "method": "model/list",
@@ -165,7 +328,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.537Z",
+      "at": "2026-06-03T14:08:30.709Z",
       "direction": "server_to_client",
       "message": {
         "method": "configWarning",
@@ -176,7 +339,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.537Z",
+      "at": "2026-06-03T14:08:30.709Z",
       "direction": "server_to_client",
       "message": {
         "method": "remoteControl/status/changed",
@@ -189,7 +352,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.549Z",
+      "at": "2026-06-03T14:08:30.710Z",
       "direction": "server_to_client",
       "message": {
         "id": 2,
@@ -419,7 +582,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.549Z",
+      "at": "2026-06-03T14:08:30.710Z",
       "direction": "client_to_server",
       "message": {
         "method": "thread/list",
@@ -431,7 +594,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.574Z",
+      "at": "2026-06-03T14:08:30.714Z",
       "direction": "server_to_client",
       "message": {
         "id": 3,
@@ -559,7 +722,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:08.575Z",
+      "at": "2026-06-03T14:08:30.715Z",
       "direction": "client_to_server",
       "message": {
         "method": "thread/start",
@@ -573,24 +736,24 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.719Z",
+      "at": "2026-06-03T14:08:35.793Z",
       "direction": "server_to_client",
       "message": {
         "id": 4,
         "result": {
           "thread": {
-            "id": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-            "sessionId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+            "id": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+            "sessionId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
             "forkedFromId": null,
             "preview": "",
             "ephemeral": false,
             "modelProvider": "8yes_codex",
-            "createdAt": 1780494973,
-            "updatedAt": 1780494973,
+            "createdAt": 1780495715,
+            "updatedAt": 1780495715,
             "status": {
               "type": "idle"
             },
-            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-56-13-019e8dc5-2710-7751-bd8b-a4c662af5d37.jsonl",
+            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-08-35-019e8dd0-7a08-7df0-b5a4-f06b68848f37.jsonl",
             "cwd": "<WORKSPACE>",
             "cliVersion": "0.136.0",
             "source": "vscode",
@@ -624,24 +787,24 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.719Z",
+      "at": "2026-06-03T14:08:35.793Z",
       "direction": "server_to_client",
       "message": {
         "method": "thread/started",
         "params": {
           "thread": {
-            "id": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-            "sessionId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+            "id": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+            "sessionId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
             "forkedFromId": null,
             "preview": "",
             "ephemeral": false,
             "modelProvider": "8yes_codex",
-            "createdAt": 1780494973,
-            "updatedAt": 1780494973,
+            "createdAt": 1780495715,
+            "updatedAt": 1780495715,
             "status": {
               "type": "idle"
             },
-            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-56-13-019e8dc5-2710-7751-bd8b-a4c662af5d37.jsonl",
+            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-08-35-019e8dd0-7a08-7df0-b5a4-f06b68848f37.jsonl",
             "cwd": "<WORKSPACE>",
             "cliVersion": "0.136.0",
             "source": "vscode",
@@ -656,42 +819,30 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.720Z",
-      "direction": "client_to_server",
-      "message": {
-        "method": "thread/shellCommand",
-        "id": 5,
-        "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-          "command": "powershell -NoProfile -Command \"Start-Sleep -Seconds 20\""
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.793Z",
       "direction": "server_to_client",
       "message": {
         "method": "warning",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "message": "Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml."
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
-      "direction": "server_to_client",
+      "at": "2026-06-03T14:08:35.794Z",
+      "direction": "client_to_server",
       "message": {
-        "method": "mcpServer/startupStatus/updated",
+        "method": "thread/shellCommand",
+        "id": 5,
         "params": {
-          "name": "omx_code_intel",
-          "status": "starting",
-          "error": null
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+          "command": "powershell -NoProfile -Command \"Start-Sleep -Seconds 20\""
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.795Z",
       "direction": "server_to_client",
       "message": {
         "method": "mcpServer/startupStatus/updated",
@@ -703,19 +854,31 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.795Z",
       "direction": "server_to_client",
       "message": {
         "method": "mcpServer/startupStatus/updated",
         "params": {
-          "name": "omx_state",
+          "name": "omx_code_intel",
           "status": "starting",
           "error": null
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.795Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_team_run",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:35.795Z",
       "direction": "server_to_client",
       "message": {
         "method": "mcpServer/startupStatus/updated",
@@ -727,7 +890,19 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.795Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_state",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:35.795Z",
       "direction": "server_to_client",
       "message": {
         "method": "mcpServer/startupStatus/updated",
@@ -739,19 +914,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:13.721Z",
-      "direction": "server_to_client",
-      "message": {
-        "method": "mcpServer/startupStatus/updated",
-        "params": {
-          "name": "omx_team_run",
-          "status": "starting",
-          "error": null
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:13.721Z",
+      "at": "2026-06-03T14:08:35.795Z",
       "direction": "server_to_client",
       "message": {
         "id": 5,
@@ -759,55 +922,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:14.138Z",
-      "direction": "server_to_client",
-      "message": {
-        "method": "mcpServer/startupStatus/updated",
-        "params": {
-          "name": "omx_state",
-          "status": "ready",
-          "error": null
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:14.138Z",
-      "direction": "server_to_client",
-      "message": {
-        "method": "mcpServer/startupStatus/updated",
-        "params": {
-          "name": "omx_code_intel",
-          "status": "ready",
-          "error": null
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:14.146Z",
-      "direction": "server_to_client",
-      "message": {
-        "method": "mcpServer/startupStatus/updated",
-        "params": {
-          "name": "omx_team_run",
-          "status": "ready",
-          "error": null
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:14.205Z",
-      "direction": "server_to_client",
-      "message": {
-        "method": "mcpServer/startupStatus/updated",
-        "params": {
-          "name": "omx_memory",
-          "status": "ready",
-          "error": null
-        }
-      }
-    },
-    {
-      "at": "2026-06-03T13:56:14.288Z",
+      "at": "2026-06-03T14:08:36.068Z",
       "direction": "server_to_client",
       "message": {
         "method": "mcpServer/startupStatus/updated",
@@ -819,12 +934,72 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.126Z",
+      "at": "2026-06-03T14:08:36.111Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_memory",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:36.199Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_state",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:36.207Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_code_intel",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:36.268Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_team_run",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:40.559Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "openaiDeveloperDocs",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:08:41.063Z",
       "direction": "server_to_client",
       "message": {
         "method": "thread/status/changed",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "status": {
             "type": "active",
             "activeFlags": []
@@ -833,19 +1008,19 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.126Z",
+      "at": "2026-06-03T14:08:41.063Z",
       "direction": "server_to_client",
       "message": {
         "method": "turn/started",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "turn": {
-            "id": "019e8dc5-3b18-7653-bf82-58406c08a196",
+            "id": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
             "items": [],
             "itemsView": "notLoaded",
             "status": "inProgress",
             "error": null,
-            "startedAt": 1780494973,
+            "startedAt": 1780495715,
             "completedAt": null,
             "durationMs": null
           }
@@ -853,14 +1028,14 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.126Z",
+      "at": "2026-06-03T14:08:41.063Z",
       "direction": "server_to_client",
       "message": {
         "method": "item/started",
         "params": {
           "item": {
             "type": "commandExecution",
-            "id": "9fefeb72-102f-4305-818b-c438c3de8605",
+            "id": "4a1b4858-2238-4be5-9429-35f9e3409f6a",
             "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'powershell -NoProfile -Command \"Start-Sleep -Seconds 20\"'",
             "cwd": "<WORKSPACE>",
             "processId": null,
@@ -876,33 +1051,33 @@
             "exitCode": null,
             "durationMs": null
           },
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-          "turnId": "019e8dc5-3b18-7653-bf82-58406c08a196",
-          "startedAtMs": 1780494979125
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+          "turnId": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
+          "startedAtMs": 1780495721063
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:19.697Z",
+      "at": "2026-06-03T14:08:41.634Z",
       "direction": "client_to_server",
       "message": {
         "method": "turn/interrupt",
         "id": 6,
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-          "turnId": "019e8dc5-3b18-7653-bf82-58406c08a196"
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+          "turnId": "019e8dd0-8dd3-7572-9894-a321d42cefbd"
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:19.708Z",
+      "at": "2026-06-03T14:08:41.644Z",
       "direction": "server_to_client",
       "message": {
         "method": "item/completed",
         "params": {
           "item": {
             "type": "commandExecution",
-            "id": "9fefeb72-102f-4305-818b-c438c3de8605",
+            "id": "4a1b4858-2238-4be5-9429-35f9e3409f6a",
             "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'powershell -NoProfile -Command \"Start-Sleep -Seconds 20\"'",
             "cwd": "<WORKSPACE>",
             "processId": null,
@@ -918,14 +1093,14 @@
             "exitCode": -1,
             "durationMs": 0
           },
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
-          "turnId": "019e8dc5-3b18-7653-bf82-58406c08a196",
-          "completedAtMs": 1780494979707
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
+          "turnId": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
+          "completedAtMs": 1780495721644
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:19.714Z",
+      "at": "2026-06-03T14:08:41.650Z",
       "direction": "server_to_client",
       "message": {
         "id": 6,
@@ -933,12 +1108,12 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.714Z",
+      "at": "2026-06-03T14:08:41.651Z",
       "direction": "server_to_client",
       "message": {
         "method": "thread/status/changed",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "status": {
             "type": "idle"
           }
@@ -946,27 +1121,27 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.714Z",
+      "at": "2026-06-03T14:08:41.651Z",
       "direction": "server_to_client",
       "message": {
         "method": "turn/completed",
         "params": {
-          "threadId": "019e8dc5-2710-7751-bd8b-a4c662af5d37",
+          "threadId": "019e8dd0-7a08-7df0-b5a4-f06b68848f37",
           "turn": {
-            "id": "019e8dc5-3b18-7653-bf82-58406c08a196",
+            "id": "019e8dd0-8dd3-7572-9894-a321d42cefbd",
             "items": [],
             "itemsView": "notLoaded",
             "status": "interrupted",
             "error": null,
-            "startedAt": 1780494973,
-            "completedAt": 1780494979,
-            "durationMs": 5990
+            "startedAt": 1780495715,
+            "completedAt": 1780495721,
+            "durationMs": 5853
           }
         }
       }
     },
     {
-      "at": "2026-06-03T13:56:19.822Z",
+      "at": "2026-06-03T14:08:41.759Z",
       "direction": "client_to_server",
       "message": {
         "method": "thread/list",
@@ -978,7 +1153,7 @@
       }
     },
     {
-      "at": "2026-06-03T13:56:19.837Z",
+      "at": "2026-06-03T14:08:41.772Z",
       "direction": "server_to_client",
       "message": {
         "id": 7,
@@ -1106,5 +1281,5 @@
       }
     }
   ],
-  "stderr": "\u001b[2m2026-06-03T13:56:08.511339Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_app_server\u001b[0m\u001b[2m:\u001b[0m Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml.\n"
+  "stderr": "\u001b[2m2026-06-03T14:08:30.706010Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_app_server\u001b[0m\u001b[2m:\u001b[0m Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml.\n"
 }
