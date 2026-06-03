@@ -18,6 +18,13 @@ const cwd = process.env.CODEX_SMOKE_CWD || repoRoot;
 const timeoutMs = Number(process.env.CODEX_APP_SERVER_SMOKE_TIMEOUT_MS || 120000);
 const dateStamp = new Date().toISOString().slice(0, 10);
 const scenario = process.env.CODEX_APP_SERVER_SMOKE_SCENARIO || 'basic-turn';
+const isolatedProjectTrust = scenario === 'project-trust';
+const scenarioCodexHome = isolatedProjectTrust
+  ? fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-home-'))
+  : null;
+const scenarioWorkspace = isolatedProjectTrust
+  ? fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-workspace-'))
+  : cwd;
 
 let nextId = 1;
 const messages = [];
@@ -34,10 +41,15 @@ let descendantsAfterCleanup = [];
 
 function redact(value) {
   if (typeof value === 'string') {
-    return value
+    let redacted = value
+      .replace(/[A-Za-z]:\\\\users\\\\[^\\\s'")]+/ig, '<USER_PATH>')
+      .replace(/[A-Za-z]:\\users\\[^\\\s'"]+/ig, '<USER_PATH>')
       .replaceAll(os.homedir(), '<USER_HOME>')
       .replaceAll(repoRoot, '<WORKSPACE>')
-      .replaceAll(cwd, '<WORKSPACE>');
+      .replaceAll(cwd, '<WORKSPACE>')
+      .replaceAll(scenarioWorkspace, '<SMOKE_WORKSPACE>');
+    if (scenarioCodexHome) redacted = redacted.replaceAll(scenarioCodexHome, '<SMOKE_CODEX_HOME>');
+    return redacted;
   }
   if (Array.isArray(value)) {
     return value.map(redact);
@@ -363,6 +375,51 @@ async function runLargeOutputScenario(threadId) {
   };
 }
 
+function readConfigToml() {
+  if (!scenarioCodexHome) return null;
+  const configPath = path.join(scenarioCodexHome, 'config.toml');
+  try {
+    return fs.readFileSync(configPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function runProjectTrustScenario() {
+  const beforeConfig = readConfigToml();
+  const readOnlyThreadStart = await request('thread/start', {
+    cwd: scenarioWorkspace,
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    serviceName: 'vibe_coding_smoke_project_trust',
+  }, 30000);
+  const afterReadOnlyConfig = readConfigToml();
+  const workspaceWriteThreadStart = await request('thread/start', {
+    cwd: scenarioWorkspace,
+    approvalPolicy: 'never',
+    sandbox: 'workspace-write',
+    serviceName: 'vibe_coding_smoke_project_trust',
+  }, 30000);
+  const afterWorkspaceWriteConfig = readConfigToml();
+  return {
+    turns: [],
+    projectTrust: redact({
+      codexHome: scenarioCodexHome,
+      workspace: scenarioWorkspace,
+      beforeConfig,
+      readOnlyThreadStart,
+      afterReadOnlyConfig,
+      workspaceWriteThreadStart,
+      afterWorkspaceWriteConfig,
+      readOnlyPersistedTrust: typeof afterReadOnlyConfig === 'string' && afterReadOnlyConfig.includes('trust_level = "trusted"'),
+      workspaceWritePersistedTrust: typeof afterWorkspaceWriteConfig === 'string' && afterWorkspaceWriteConfig.includes('trust_level = "trusted"'),
+      workspaceMentionedAfterReadOnly: typeof afterReadOnlyConfig === 'string' && afterReadOnlyConfig.toLowerCase().includes(scenarioWorkspace.toLowerCase()),
+      workspaceMentionedAfterWorkspaceWrite: typeof afterWorkspaceWriteConfig === 'string' && afterWorkspaceWriteConfig.toLowerCase().includes(scenarioWorkspace.toLowerCase()),
+    })
+  };
+}
+
 async function runScenario(threadId) {
   if (scenario === 'sequential-turns') return runSequentialTurnsScenario(threadId);
   if (scenario === 'cancellation') return runCancellationScenario(threadId);
@@ -375,7 +432,8 @@ async function run() {
   const command = codexJs ? nodeBin : codexBin;
   const args = codexJs ? [codexJs, 'app-server'] : ['app-server'];
   child = spawn(command, args, {
-    cwd,
+    cwd: scenarioWorkspace,
+    env: isolatedProjectTrust ? { ...process.env, CODEX_HOME: scenarioCodexHome } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -418,19 +476,27 @@ async function run() {
   }, 10000);
   notification('initialized', {});
 
-  const modelList = await request('model/list', { limit: 20, includeHidden: false }, 30000);
-  const threadListBefore = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
-  const threadStart = await request('thread/start', {
-    cwd,
-    approvalPolicy: 'never',
-    sandbox: 'read-only',
-    serviceName: 'vibe_coding_smoke',
-  }, 30000);
-  const threadId = threadStart.thread && threadStart.thread.id;
-  if (!threadId) throw new Error('thread/start did not return thread.id');
-
-  const scenarioResult = await runScenario(threadId);
-  const threadListAfter = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
+  let modelList = null;
+  let threadListBefore = null;
+  let threadStart = null;
+  let threadListAfter = null;
+  let scenarioResult;
+  if (scenario === 'project-trust') {
+    scenarioResult = await runProjectTrustScenario();
+  } else {
+    modelList = await request('model/list', { limit: 20, includeHidden: false }, 30000);
+    threadListBefore = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
+    threadStart = await request('thread/start', {
+      cwd,
+      approvalPolicy: 'never',
+      sandbox: 'read-only',
+      serviceName: 'vibe_coding_smoke',
+    }, 30000);
+    const threadId = threadStart.thread && threadStart.thread.id;
+    if (!threadId) throw new Error('thread/start did not return thread.id');
+    scenarioResult = await runScenario(threadId);
+    threadListAfter = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
+  }
   descendantsBeforeCleanup = listDescendantProcesses(childPid);
   await stopChild();
   terminateCapturedDescendants(descendantsBeforeCleanup);
@@ -454,24 +520,25 @@ async function run() {
       descendantsAfterCleanup,
       orphanedDescendantsAfterCleanup: descendantsAfterCleanup.filter((processInfo) => processInfo.aliveAfterCleanup),
     },
-    cwd,
+    cwd: scenarioWorkspace,
+    codexHome: scenarioCodexHome,
     initializedAt: initializedAt.toISOString(),
     completedAt: completedAt.toISOString(),
     initialize,
     modelListSummary: {
-      count: Array.isArray(modelList.data) ? modelList.data.length : null,
-      defaultModel: Array.isArray(modelList.data)
+      count: Array.isArray(modelList?.data) ? modelList.data.length : null,
+      defaultModel: Array.isArray(modelList?.data)
         ? (modelList.data.find((item) => item.isDefault) || modelList.data[0] || {}).id || null
         : null,
     },
     threadListBeforeSummary: {
-      count: Array.isArray(threadListBefore.data) ? threadListBefore.data.length : null,
+      count: Array.isArray(threadListBefore?.data) ? threadListBefore.data.length : null,
     },
     threadStart,
     ...scenarioResult,
     approvals,
     threadListAfterSummary: {
-      count: Array.isArray(threadListAfter.data) ? threadListAfter.data.length : null,
+      count: Array.isArray(threadListAfter?.data) ? threadListAfter.data.length : null,
     },
     messages,
     stderr: stderrChunks.join('').slice(-12000),

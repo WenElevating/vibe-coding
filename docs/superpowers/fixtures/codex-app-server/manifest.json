@@ -8,7 +8,7 @@
   "codexVersion": "codex-cli 0.136.0",
   "transportTested": "stdio",
   "startedAt": "2026-06-03T13:11:25.240Z",
-  "completedAt": "2026-06-03T14:08:58.962Z",
+  "completedAt": "2026-06-03T14:16:49.855Z",
   "gates": {
     "initializeWithin10s": "pass",
     "tenSequentialTurns": "pass",
@@ -19,7 +19,7 @@
     "noOrphanProcesses": "pass",
     "sideEffectFreeProbeCreatesNoThread": "pass",
     "sessionScopeFieldIdentified": "blocked",
-    "projectTrustBehaviorKnown": "blocked",
+    "projectTrustBehaviorKnown": "pass",
     "userInputRequestBehaviorKnown": "pass"
   },
   "samples": [
@@ -56,6 +56,13 @@
       "scenario": "large-output",
       "result": "pass",
       "note": "thread/shellCommand completed a 1200-line command output without JSONL pipe blockage."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-project-trust.json",
+      "transport": "stdio",
+      "scenario": "project-trust",
+      "result": "pass",
+      "note": "Isolated CODEX_HOME showed read-only thread/start did not persist trust, while workspace-write thread/start persisted trust_level=trusted for the workspace."
     }
   ],
   "notes": [
@@ -64,6 +71,7 @@
     "Non-blocking notifications arrived while the turn was active, including configWarning, remoteControl/status/changed, mcpServer/startupStatus/updated, thread/status/changed, thread/tokenUsage/updated, and account/rateLimits/updated.",
     "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
     "The smoke runner now records child pid, exit signal, and Windows process-tree descendants; the measured cancellation sample captured 12 descendants and zero survivors after cleanup.",
-    "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior."
+    "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior.",
+    "Project trust behavior is known but not mitigated for product defaulting: workspace-write thread/start can persist trust_level=trusted, so app-server must remain gated unless elevated sandbox starts are blocked or explicitly opted in with audit visibility."
   ]
 }

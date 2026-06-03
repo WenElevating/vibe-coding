@@ -17,6 +17,7 @@ $env:CODEX_APP_SERVER_SMOKE_SCENARIO='command-approval'; node scripts\codex-app-
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='sequential-turns'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='180000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='cancellation'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='large-output'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='project-trust'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 ```
 
 The smoke uses the installed Codex CLI and starts `codex app-server` with its
@@ -36,7 +37,7 @@ schema inspection only.
 | no orphan processes | pass | `samples/2026-06-03-stdio-cancellation.json` captured 12 Windows descendant processes before cleanup and zero survivors after process-tree cleanup. |
 | side-effect-free probe creates no thread | pass | `model/list` and `thread/list` completed before any `thread/start`; no `thread/started` appeared before the explicit `thread/start`. |
 | session scope field identified | blocked | No approval request was emitted, so `availableDecisions` was not observed. |
-| project trust behavior known | blocked | `thread/start` succeeded, but project trust side effects were not isolated or proven. |
+| project trust behavior known | pass | `samples/2026-06-03-stdio-project-trust.json` used isolated `CODEX_HOME`: read-only `thread/start` left config absent, while workspace-write `thread/start` persisted `trust_level = "trusted"` for the temp workspace. |
 | user-input request behavior known | pass | The basic and command scenarios completed without `item/tool/requestUserInput`. |
 
 ## Captured Samples
@@ -46,16 +47,18 @@ schema inspection only.
 - `samples/2026-06-03-stdio-sequential-turns.json`
 - `samples/2026-06-03-stdio-cancellation.json`
 - `samples/2026-06-03-stdio-large-output.json`
+- `samples/2026-06-03-stdio-project-trust.json`
 
 ## Decisions
 
 - Transport selected for Phase 2: stdio-first.
 - Capabilities to expose: initialize, model/list probe, thread/start, turn/start, turn/interrupt, streamed non-blocking notifications, turn/completed, and stdio operation across 10 consecutive turns.
 - Capabilities to keep adapter-internal only for smoke: `thread/shellCommand`, because official docs state it runs outside the sandbox and should only be exposed for explicit user-initiated commands.
-- Capabilities to lower or omit: approval callbacks, session-scoped approval, and project-trust mitigation remain unavailable until dedicated smoke gates pass.
+- Capabilities to lower or omit: approval callbacks and session-scoped approval remain unavailable until dedicated smoke gates pass.
+- Product default gate: app-server must still remain non-default/non-selectable unless elevated `thread/start` sandbox modes are blocked or exposed only through explicit opt-in with audit-visible project-trust notice.
 - App-server selectable: no. Keep behind feature flag until blocked gates are resolved.
 
 ## Follow-up
 
 - Add a dedicated approval trigger that produces `item/commandExecution/requestApproval`, then capture `availableDecisions`.
-- Isolate project trust behavior in a throwaway workspace and document whether `thread/start` mutates persisted trust state.
+- Add the product-side project-trust mitigation before allowing app-server to start with workspace-write or danger-full-access settings.

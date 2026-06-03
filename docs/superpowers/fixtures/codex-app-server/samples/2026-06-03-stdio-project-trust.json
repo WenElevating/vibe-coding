@@ -1,0 +1,457 @@
+{
+  "schemaVersion": 1,
+  "transport": "stdio",
+  "scenario": "project-trust",
+  "codexBin": "D:\\nodejs\\codex.cmd",
+  "codexJs": "D:\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js",
+  "childPid": 76564,
+  "childExit": {
+    "code": null,
+    "signal": "SIGTERM"
+  },
+  "processTree": {
+    "descendantsBeforeCleanup": [
+      {
+        "pid": 57184,
+        "parentPid": 76564,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4"
+      },
+      {
+        "pid": 65624,
+        "parentPid": 76564,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server"
+      },
+      {
+        "pid": 75296,
+        "parentPid": 65624,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 89612,
+        "parentPid": 75296,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 19036,
+        "parentPid": 89612,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      },
+      {
+        "pid": 78804,
+        "parentPid": 19036,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      }
+    ],
+    "descendantsAfterCleanup": [
+      {
+        "pid": 57184,
+        "parentPid": 76564,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 65624,
+        "parentPid": 76564,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 75296,
+        "parentPid": 65624,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 89612,
+        "parentPid": 75296,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 19036,
+        "parentPid": 89612,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 78804,
+        "parentPid": 19036,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      }
+    ],
+    "orphanedDescendantsAfterCleanup": []
+  },
+  "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+  "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh",
+  "initializedAt": "2026-06-03T14:16:39.647Z",
+  "completedAt": "2026-06-03T14:16:49.855Z",
+  "initialize": {
+    "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+    "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh",
+    "platformFamily": "windows",
+    "platformOs": "windows"
+  },
+  "modelListSummary": {
+    "count": null,
+    "defaultModel": null
+  },
+  "threadListBeforeSummary": {
+    "count": null
+  },
+  "threadStart": null,
+  "turns": [],
+  "projectTrust": {
+    "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh",
+    "workspace": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+    "beforeConfig": null,
+    "readOnlyThreadStart": {
+      "thread": {
+        "id": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+        "sessionId": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+        "forkedFromId": null,
+        "preview": "",
+        "ephemeral": false,
+        "modelProvider": "openai",
+        "createdAt": 1780496199,
+        "updatedAt": 1780496199,
+        "status": {
+          "type": "idle"
+        },
+        "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0b0-7f91-873f-88c7ecc3374a.jsonl",
+        "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+        "cliVersion": "0.136.0",
+        "source": "vscode",
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      },
+      "model": "gpt-5.5",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+      "runtimeWorkspaceRoots": [
+        "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "never",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": null
+    },
+    "afterReadOnlyConfig": null,
+    "workspaceWriteThreadStart": {
+      "thread": {
+        "id": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+        "sessionId": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+        "forkedFromId": null,
+        "preview": "",
+        "ephemeral": false,
+        "modelProvider": "openai",
+        "createdAt": 1780496199,
+        "updatedAt": 1780496199,
+        "status": {
+          "type": "idle"
+        },
+        "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0f6-73d0-87fc-834d81854055.jsonl",
+        "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+        "cliVersion": "0.136.0",
+        "source": "vscode",
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      },
+      "model": "gpt-5.5",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+      "runtimeWorkspaceRoots": [
+        "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "never",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": null
+    },
+    "afterWorkspaceWriteConfig": "[projects.'<USER_PATH>\\appdata\\local\\temp\\codex-app-server-workspace-oqsm7y']\ntrust_level = \"trusted\"\n",
+    "readOnlyPersistedTrust": false,
+    "workspaceWritePersistedTrust": true,
+    "workspaceMentionedAfterReadOnly": false,
+    "workspaceMentionedAfterWorkspaceWrite": true
+  },
+  "approvals": [],
+  "threadListAfterSummary": {
+    "count": null
+  },
+  "messages": [
+    {
+      "at": "2026-06-03T14:16:39.647Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialize",
+        "id": 1,
+        "params": {
+          "clientInfo": {
+            "name": "vibe_coding_smoke",
+            "title": "vibe-coding smoke",
+            "version": "0.1.0"
+          },
+          "capabilities": {
+            "experimentalApi": true,
+            "requestAttestation": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.849Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 1,
+        "result": {
+          "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+          "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.849Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.850Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/start",
+        "id": 2,
+        "params": {
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+          "approvalPolicy": "never",
+          "sandbox": "read-only",
+          "serviceName": "vibe_coding_smoke_project_trust"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.850Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "wmm",
+          "installationId": "060406fd-e026-45bb-9cb2-210951e949fe",
+          "environmentId": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.916Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 2,
+        "result": {
+          "thread": {
+            "id": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+            "sessionId": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "createdAt": 1780496199,
+            "updatedAt": 1780496199,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0b0-7f91-873f-88c7ecc3374a.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          },
+          "model": "gpt-5.5",
+          "modelProvider": "openai",
+          "serviceTier": null,
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+          "runtimeWorkspaceRoots": [
+            "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.916Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/start",
+        "id": 3,
+        "params": {
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+          "approvalPolicy": "never",
+          "sandbox": "workspace-write",
+          "serviceName": "vibe_coding_smoke_project_trust"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.916Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+            "sessionId": "019e8dd7-f0b0-7f91-873f-88c7ecc3374a",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "createdAt": 1780496199,
+            "updatedAt": 1780496199,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0b0-7f91-873f-88c7ecc3374a.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.930Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 3,
+        "result": {
+          "thread": {
+            "id": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+            "sessionId": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "createdAt": 1780496199,
+            "updatedAt": 1780496199,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0f6-73d0-87fc-834d81854055.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          },
+          "model": "gpt-5.5",
+          "modelProvider": "openai",
+          "serviceTier": null,
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+          "runtimeWorkspaceRoots": [
+            "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T14:16:39.930Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+            "sessionId": "019e8dd7-f0f6-73d0-87fc-834d81854055",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "createdAt": 1780496199,
+            "updatedAt": 1780496199,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pYt2Dh\\sessions\\2026\\06\\03\\rollout-2026-06-03T22-16-39-019e8dd7-f0f6-73d0-87fc-834d81854055.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-oQSM7Y",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          }
+        }
+      }
+    }
+  ],
+  "stderr": "WARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir \"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\\" (codex_home: AbsolutePathBuf(\"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\codex-app-server-home-pYt2Dh\"))\n"
+}
