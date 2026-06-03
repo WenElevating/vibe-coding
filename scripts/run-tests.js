@@ -391,6 +391,28 @@ test('Codex app-server lifecycle can terminate a Windows process tree before dir
   assert.equal(lifecycle.metrics.orphanProcessCleanupCount, 1);
 });
 
+test('Codex app-server lifecycle rejects pending requests on child spawn error', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = null;
+  child.kill = () => false;
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    spawnAppServer: () => child
+  });
+  const handle = lifecycle.spawn();
+  const pending = handle.transport.sendRequest('initialize', {});
+  child.emit('error', Object.assign(new Error('spawn codex ENOENT'), { code: 'ENOENT' }));
+  await assert.rejects(pending, /spawn codex ENOENT/);
+  assert.equal(handle.exited, true);
+  assert.equal(lifecycle.handles.size, 0);
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -816,38 +838,55 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
   }
 });
 
-test('createApp exposes codex-app-server only behind explicit feature flag', async () => {
+test('createApp exposes codex-app-server by default behind probe gate and kill switch', async () => {
   const appDbPath = tempConversationDbPath('app-server-listing-');
-  const disabled = createApp({ port: 0, appDbPath });
+  const defaultApp = createApp({ port: 0, appDbPath, codexAppServerProbe: false });
   try {
-    const adapters = await disabled.adapterRegistry.listCapabilities();
-    assert.equal(adapters.some((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server'), false);
+    const adapters = await defaultApp.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, false);
+    assert.equal(appServer.unavailableReason, 'probe_not_run');
+    assert.equal(defaultApp.conversations.adapters.has('codex-app-server'), true);
   } finally {
-    disabled.appSqliteStore.close();
+    defaultApp.appSqliteStore.close();
     fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
   }
 
-  const enabledDbPath = tempConversationDbPath('app-server-listing-enabled-');
-  const enabled = createApp({ port: 0, appDbPath: enabledDbPath, codexAppServerEnabled: true });
+  const disabledDbPath = tempConversationDbPath('app-server-listing-disabled-');
+  const disabled = createApp({ port: 0, appDbPath: disabledDbPath, codexAppServerEnabled: false });
   try {
-    const adapters = await enabled.adapterRegistry.listCapabilities();
+    const adapters = await disabled.adapterRegistry.listCapabilities();
+    assert.equal(adapters.some((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server'), false);
+    assert.equal(disabled.conversations.adapters.has('codex-app-server'), false);
+  } finally {
+    disabled.appSqliteStore.close();
+    fs.rmSync(path.dirname(disabledDbPath), { recursive: true, force: true });
+  }
+
+  const experimentalDisabledDbPath = tempConversationDbPath('app-server-listing-experimental-disabled-');
+  const experimentalDisabled = createApp({
+    port: 0,
+    appDbPath: experimentalDisabledDbPath,
+    codexAppServerExperimentalApi: false
+  });
+  try {
+    const adapters = await experimentalDisabled.adapterRegistry.listCapabilities();
     const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
     assert.ok(appServer);
     assert.equal(appServer.selectable, false);
     assert.equal(appServer.unavailableReason, 'experimental_api_disabled');
     assert.equal(appServer.effectiveCapabilities.approval.mobileCallbacks, false);
-    assert.equal(enabled.conversations.adapters.has('codex-app-server'), true);
   } finally {
-    enabled.appSqliteStore.close();
-    fs.rmSync(path.dirname(enabledDbPath), { recursive: true, force: true });
+    experimentalDisabled.appSqliteStore.close();
+    fs.rmSync(path.dirname(experimentalDisabledDbPath), { recursive: true, force: true });
   }
 
   const rolloutDisabledDbPath = tempConversationDbPath('app-server-listing-rollout-disabled-');
   const rolloutDisabled = createApp({
     port: 0,
     appDbPath: rolloutDisabledDbPath,
-    codexAppServerEnabled: true,
-    codexAppServerExperimentalApi: true,
+    codexAppServerRolloutPercent: 0,
     codexAppServerTransport: 'stdio'
   });
   try {
@@ -865,9 +904,6 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
   const selectable = createApp({
     port: 0,
     appDbPath: selectableDbPath,
-    codexAppServerEnabled: true,
-    codexAppServerExperimentalApi: true,
-    codexAppServerRolloutPercent: 100,
     codexAppServerTransport: 'stdio',
     codexAppServerProbe: false
   });
@@ -888,9 +924,6 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
   const probed = createApp({
     port: 0,
     appDbPath: probedDbPath,
-    codexAppServerEnabled: true,
-    codexAppServerExperimentalApi: true,
-    codexAppServerRolloutPercent: 100,
     codexAppServerTransport: 'stdio',
     codexAppServerProbe: async () => {
       probeCalls.push('probe');

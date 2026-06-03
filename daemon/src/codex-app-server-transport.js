@@ -19,6 +19,7 @@ class CodexAppServerJsonlTransport extends EventEmitter {
     this.rl = readline.createInterface({ input: stdout });
     this.rl.on('line', (line) => this._handleLine(line));
     this.rl.on('close', () => this._close(new Error('Codex app-server transport closed')));
+    stdin.on('error', (error) => this._close(error));
     stdout.on('close', () => this._close(new Error('Codex app-server transport closed')));
     stdout.on('error', (error) => this._close(error));
     if (stderr && typeof stderr.on === 'function') {
@@ -73,6 +74,10 @@ class CodexAppServerJsonlTransport extends EventEmitter {
   close() {
     this._close(new Error('Codex app-server transport closed'));
     if (this.rl) this.rl.close();
+  }
+
+  fail(error) {
+    this._close(error instanceof Error ? error : new Error(String(error || 'Codex app-server transport failed')));
   }
 
   _write(message) {

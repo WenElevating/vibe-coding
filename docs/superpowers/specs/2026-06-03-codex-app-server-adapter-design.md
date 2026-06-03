@@ -708,23 +708,25 @@ Fallback:
 
 ## Rollout And Kill Switches
 
-The adapter must be guarded by daemon-side flags:
+The adapter is discoverable by default, but selection still depends on the
+side-effect-free probe:
 
 ```text
-CODEX_APP_SERVER_ENABLED=false
+CODEX_APP_SERVER_ENABLED=true
 CODEX_APP_SERVER_TRANSPORT=auto|stdio|ws|off
-CODEX_APP_SERVER_EXPERIMENTAL_API=false
-CODEX_APP_SERVER_ROLLOUT_PERCENT=0
+CODEX_APP_SERVER_EXPERIMENTAL_API=true
+CODEX_APP_SERVER_ROLLOUT_PERCENT=100
 CODEX_APP_SERVER_MAX_PROCESSES=<bounded integer>
 ```
 
-Defaults keep app-server disabled even after Phase 1. Selection requires all
-of: `CODEX_APP_SERVER_ENABLED=1`, `CODEX_APP_SERVER_EXPERIMENTAL_API=1`,
-`CODEX_APP_SERVER_TRANSPORT=auto|stdio`, and
-`CODEX_APP_SERVER_ROLLOUT_PERCENT>0`. Operators can disable selection
-immediately without changing mobile code. When disabled, `codex-app-server` may
-appear as installed/unselectable for diagnostics, but normal mobile selection
-should hide or disable it.
+Defaults let the daemon register `codex-app-server`, run the lightweight stdio
+probe, and mark the adapter selectable only if initialize plus the probe request
+complete without creating app-server thread state. Operators can disable the
+adapter immediately without changing mobile code by setting
+`CODEX_APP_SERVER_ENABLED=0`, `CODEX_APP_SERVER_TRANSPORT=off`, or
+`CODEX_APP_SERVER_ROLLOUT_PERCENT=0`. This default does not make app-server the
+default `codex` route; users or clients still explicitly select
+`codex-app-server` until the future merge path is approved.
 
 ## Diagnostics And Metrics
 

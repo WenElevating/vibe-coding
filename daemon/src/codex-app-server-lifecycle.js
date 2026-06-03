@@ -95,6 +95,12 @@ class CodexAppServerProcessHandle {
       this.exit = { code, signal };
       this.transport.close();
     });
+    child.once('error', (error) => {
+      this.exited = true;
+      this.exit = { error };
+      this.transport.fail(error);
+      this.lifecycle.handles.delete(this);
+    });
   }
 
   shutdown() {

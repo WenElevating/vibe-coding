@@ -40,6 +40,7 @@ const { AsrModelAsset } = require('./asr-model-asset');
 const { AppUpdateService } = require('./app-update-service');
 const { NotificationHub } = require('./notification-hub');
 const { createWindowsSleepInhibitor } = require('./windows-sleep-inhibitor');
+const { resolveCliInvocation } = require('./cli-resolver');
 
 function loadOrCreateSecrets(dbPath) {
   const secretsPath = path.join(path.dirname(dbPath), '.daemon-secrets.json');
@@ -65,10 +66,10 @@ function createApp({
   codexCommand = process.env.CODEX_COMMAND || 'codex',
   codexToolTimeoutSec = process.env.CODEX_TOOL_TIMEOUT_SEC,
   codexEnabled = process.env.CODEX_ENABLED === '1',
-  codexAppServerEnabled = process.env.CODEX_APP_SERVER_ENABLED === '1',
+  codexAppServerEnabled = parseBooleanEnv(process.env.CODEX_APP_SERVER_ENABLED, true),
   codexAppServerTransport = process.env.CODEX_APP_SERVER_TRANSPORT || 'auto',
-  codexAppServerExperimentalApi = process.env.CODEX_APP_SERVER_EXPERIMENTAL_API === '1',
-  codexAppServerRolloutPercent = process.env.CODEX_APP_SERVER_ROLLOUT_PERCENT || '0',
+  codexAppServerExperimentalApi = parseBooleanEnv(process.env.CODEX_APP_SERVER_EXPERIMENTAL_API, true),
+  codexAppServerRolloutPercent = process.env.CODEX_APP_SERVER_ROLLOUT_PERCENT || '100',
   codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
   codexAppServerProbe = undefined,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
@@ -102,10 +103,9 @@ function createApp({
   });
   const codexAppServerAvailabilityState = { current: codexAppServerRuntime.availability };
   const codexAppServerMetrics = createCodexAppServerMetrics();
-  const codexAppServerLifecycle = codexAppServerEnabled ? new CodexAppServerLifecycle({
+  const codexAppServerLifecycle = codexAppServerEnabled ? createCodexAppServerLifecycle({
+    codexCommand,
     maxProcesses: codexAppServerMaxProcesses,
-    command: codexCommand,
-    args: ['app-server'],
     metrics: codexAppServerMetrics
   }) : null;
   if (codexAppServerEnabled) {
@@ -183,10 +183,9 @@ function createConversationAdapters({ claudeCommand, codexCommand, codexToolTime
   if (codexAppServerEnabled) {
     const runtime = codexAppServerRuntime || buildCodexAppServerRuntimeConfig({ enabled: true });
     const availabilityState = codexAppServerAvailabilityState || { current: runtime.availability };
-    const lifecycle = codexAppServerLifecycle || new CodexAppServerLifecycle({
+    const lifecycle = codexAppServerLifecycle || createCodexAppServerLifecycle({
+      codexCommand,
       maxProcesses: codexAppServerMaxProcesses,
-      command: codexCommand,
-      args: ['app-server'],
       metrics: codexAppServerMetrics || null
     });
     adapters.set('codex-app-server', new CodexAppServerConversationAdapter({
@@ -216,7 +215,17 @@ function createCodexAppServerMetrics() {
   };
 }
 
-function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto', experimentalApi = false, rolloutPercent = 0 } = {}) {
+function createCodexAppServerLifecycle({ codexCommand = 'codex', maxProcesses = null, metrics = null } = {}) {
+  const invocation = resolveCliInvocation(codexCommand || 'codex');
+  return new CodexAppServerLifecycle({
+    maxProcesses,
+    command: invocation.command,
+    args: [...(invocation.argsPrefix || []), 'app-server'],
+    metrics
+  });
+}
+
+function buildCodexAppServerRuntimeConfig({ enabled = true, transport = 'auto', experimentalApi = true, rolloutPercent = 100 } = {}) {
   const normalizedTransport = String(transport || 'auto').trim().toLowerCase();
   const transportSupported = normalizedTransport === 'auto' || normalizedTransport === 'stdio';
   const rollout = normalizeRolloutPercent(rolloutPercent);
@@ -325,6 +334,14 @@ function normalizeRolloutPercent(value) {
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   if (numeric >= 100) return 100;
   return Math.floor(numeric);
+}
+
+function parseBooleanEnv(value, defaultValue = false) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return defaultValue;
 }
 
 function notImplementedConversationAdapter(label) {
