@@ -34,11 +34,16 @@ void main() {
     final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
+    expect(viewModel.expandToolDetails, isFalse);
+
     viewModel.setStreamOutput(true);
     expect(viewModel.streamOutput, isTrue);
 
     viewModel.setExpandThinking(true);
     expect(viewModel.expandThinking, isTrue);
+
+    viewModel.setExpandToolDetails(true);
+    expect(viewModel.expandToolDetails, isTrue);
 
     viewModel.setStreamOutput(true);
     expect(viewModel.streamOutput, isTrue);

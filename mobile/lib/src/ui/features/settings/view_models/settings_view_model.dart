@@ -41,7 +41,7 @@ class SettingsViewModel extends ChangeNotifier {
   CodeDiagnosticsSummary? _diagnostics;
   GitStatusSummary? _gitStatus;
   int _extensionsCount;
-  Object? _permissionModeSaveError;
+  Object? _codingPreferenceSaveError;
 
   WorkspaceSummary? get selectedWorkspace =>
       _workspaceRepository.selectedWorkspace;
@@ -49,6 +49,7 @@ class SettingsViewModel extends ChangeNotifier {
   String get permissionMode => _codingPreferencesRepository.permissionMode;
   bool get keepConversationEventsInBackground =>
       _codingPreferencesRepository.keepConversationEventsInBackground;
+  bool get expandToolDetails => _codingPreferencesRepository.expandToolDetails;
   DaemonConnectionConfig get connectionConfig => _connectionConfig;
   DaemonHealth get health => _health;
   CodeDiagnosticsSummary? get diagnostics => _diagnostics;
@@ -57,7 +58,7 @@ class SettingsViewModel extends ChangeNotifier {
   bool get loading =>
       _workspaceRepository.loading || _codingPreferencesRepository.loading;
   Object? get error =>
-      _permissionModeSaveError ??
+      _codingPreferenceSaveError ??
       _workspaceRepository.error ??
       _codingPreferencesRepository.error;
 
@@ -85,12 +86,12 @@ class SettingsViewModel extends ChangeNotifier {
       );
       await _codingPreferencesRepository.setPermissionMode(normalized);
       await _syncActiveConversationPermissionMode(normalized);
-      if (_permissionModeSaveError != null) {
-        _permissionModeSaveError = null;
+      if (_codingPreferenceSaveError != null) {
+        _codingPreferenceSaveError = null;
         notifyListeners();
       }
     } catch (error) {
-      _permissionModeSaveError = error;
+      _codingPreferenceSaveError = error;
       notifyListeners();
     }
   }
@@ -99,12 +100,25 @@ class SettingsViewModel extends ChangeNotifier {
     try {
       await _codingPreferencesRepository
           .setKeepConversationEventsInBackground(value);
-      if (_permissionModeSaveError != null) {
-        _permissionModeSaveError = null;
+      if (_codingPreferenceSaveError != null) {
+        _codingPreferenceSaveError = null;
         notifyListeners();
       }
     } catch (error) {
-      _permissionModeSaveError = error;
+      _codingPreferenceSaveError = error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setExpandToolDetails(bool value) async {
+    try {
+      await _codingPreferencesRepository.setExpandToolDetails(value);
+      if (_codingPreferenceSaveError != null) {
+        _codingPreferenceSaveError = null;
+        notifyListeners();
+      }
+    } catch (error) {
+      _codingPreferenceSaveError = error;
       notifyListeners();
     }
   }

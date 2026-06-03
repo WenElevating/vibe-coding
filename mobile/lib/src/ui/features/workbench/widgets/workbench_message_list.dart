@@ -22,6 +22,7 @@ class WorkbenchMessageList extends StatelessWidget {
     required this.pendingStartedAt,
     required this.pendingActions,
     required this.expandThinking,
+    required this.expandToolDetails,
     required this.useReverseTranscript,
     required this.loadingOlderConversationEvents,
     required this.showPendingDuringInitialConversationLoad,
@@ -45,6 +46,7 @@ class WorkbenchMessageList extends StatelessWidget {
   final DateTime? pendingStartedAt;
   final List<String> pendingActions;
   final bool expandThinking;
+  final bool expandToolDetails;
   final bool useReverseTranscript;
   final bool loadingOlderConversationEvents;
   final bool showPendingDuringInitialConversationLoad;
@@ -97,6 +99,7 @@ class WorkbenchMessageList extends StatelessWidget {
               child: WorkbenchMessageCard(
                 message: message,
                 expandThinking: expandThinking,
+                expandToolDetails: expandToolDetails,
                 onSuggestion: onSuggestion,
                 onApproval: (decision) => onApproval(message.event!, decision),
               ),

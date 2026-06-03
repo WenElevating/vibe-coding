@@ -8,24 +8,29 @@ import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
 
 class CommandEventCard extends StatelessWidget {
-  const CommandEventCard({super.key, required this.message});
+  const CommandEventCard(
+      {super.key, required this.message, this.expandByDefault = false});
   final WorkbenchMessage message;
+  final bool expandByDefault;
 
   @override
-  Widget build(BuildContext context) => _ToolLogFoldout(message: message);
+  Widget build(BuildContext context) =>
+      _ToolLogFoldout(message: message, expandByDefault: expandByDefault);
 }
 
 class SubAgentCallCard extends StatefulWidget {
-  const SubAgentCallCard({super.key, required this.message});
+  const SubAgentCallCard(
+      {super.key, required this.message, this.expandByDefault = false});
 
   final WorkbenchMessage message;
+  final bool expandByDefault;
 
   @override
   State<SubAgentCallCard> createState() => SubAgentCallCardState();
 }
 
 class SubAgentCallCardState extends State<SubAgentCallCard> {
-  late bool _expanded = _subAgentDefaultExpanded(widget.message);
+  late bool _expanded = widget.expandByDefault;
 
   @override
   void didUpdateWidget(covariant SubAgentCallCard oldWidget) {
@@ -34,7 +39,9 @@ class SubAgentCallCardState extends State<SubAgentCallCard> {
         oldWidget.message.title != widget.message.title ||
         oldWidget.message.completed != widget.message.completed ||
         oldWidget.message.isError != widget.message.isError) {
-      _expanded = _subAgentDefaultExpanded(widget.message);
+      _expanded = widget.expandByDefault;
+    } else if (oldWidget.expandByDefault != widget.expandByDefault) {
+      _expanded = widget.expandByDefault;
     }
   }
 
@@ -184,9 +191,6 @@ bool isSubAgentCommand(WorkbenchMessage message) {
   return tool == 'agent' || tool == 'subagent' || title == 'agent';
 }
 
-bool _subAgentDefaultExpanded(WorkbenchMessage message) =>
-    !message.completed || message.isError;
-
 String _subAgentTitle(WorkbenchMessage message) {
   final input = _messageInputMap(message);
   final subject = input == null
@@ -275,22 +279,25 @@ String _normalizeToolIdentity(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '').trim();
 
 class _ToolLogFoldout extends StatefulWidget {
-  const _ToolLogFoldout({required this.message});
+  const _ToolLogFoldout({required this.message, required this.expandByDefault});
   final WorkbenchMessage message;
+  final bool expandByDefault;
 
   @override
   State<_ToolLogFoldout> createState() => _ToolLogFoldoutState();
 }
 
 class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
-  bool _expanded = true;
+  late bool _expanded = widget.expandByDefault;
 
   @override
   void didUpdateWidget(covariant _ToolLogFoldout oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.message.body != widget.message.body ||
         oldWidget.message.title != widget.message.title) {
-      _expanded = true;
+      _expanded = widget.expandByDefault;
+    } else if (oldWidget.expandByDefault != widget.expandByDefault) {
+      _expanded = widget.expandByDefault;
     }
   }
 
@@ -656,30 +663,32 @@ class _CommandDetailSheet extends StatelessWidget {
 }
 
 @visibleForTesting
-Widget buildCompletedCommandCardPreview() => MaterialApp(
-    locale: theme.zhHansCnLocale,
-    supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
-    localizationsDelegates: theme.appLocalizationsDelegates,
-    theme: ThemeData(
-        brightness: Brightness.dark,
-        fontFamily: 'Segoe UI',
-        fontFamilyFallback: theme.appFontFallback,
-        useMaterial3: true),
-    home: Scaffold(
-        backgroundColor: theme.bg,
-        body: Padding(
-            padding: const EdgeInsets.all(16),
-            child: CommandEventCard(
-                message: const WorkbenchMessage(
-                    'command',
-                    'cwd resolved · permissions checked',
-                    'npm run lint && npm test',
-                    runId: 'run_1',
-                    completed: true,
-                    duration: Duration(milliseconds: 2100))))));
+Widget buildCompletedCommandCardPreview({bool expandToolDetails = false}) =>
+    MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+        localizationsDelegates: theme.appLocalizationsDelegates,
+        theme: ThemeData(
+            brightness: Brightness.dark,
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: theme.appFontFallback,
+            useMaterial3: true),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: CommandEventCard(
+                    expandByDefault: expandToolDetails,
+                    message: const WorkbenchMessage(
+                        'command',
+                        'cwd resolved · permissions checked',
+                        'npm run lint && npm test',
+                        runId: 'run_1',
+                        completed: true,
+                        duration: Duration(milliseconds: 2100))))));
 
 @visibleForTesting
-Widget buildConversationCommandCardPreview() {
+Widget buildConversationCommandCardPreview({bool expandToolDetails = false}) {
   final startedAt = DateTime.parse('2026-05-03T00:00:01.000Z');
   final completedAt = DateTime.parse('2026-05-03T00:00:03.000Z');
   final message = workbenchMessageFromConversation(ConversationMessage(
@@ -704,11 +713,12 @@ Widget buildConversationCommandCardPreview() {
           backgroundColor: theme.bg,
           body: Padding(
               padding: const EdgeInsets.all(16),
-              child: CommandEventCard(message: message))));
+              child: CommandEventCard(
+                  message: message, expandByDefault: expandToolDetails))));
 }
 
 @visibleForTesting
-Widget buildSubAgentCallCardPreview() {
+Widget buildSubAgentCallCardPreview({bool expandToolDetails = false}) {
   final event = AgentEvent(
       type: 'raw.output',
       seq: 2,
@@ -738,6 +748,7 @@ Widget buildSubAgentCallCardPreview() {
           body: Padding(
               padding: const EdgeInsets.all(16),
               child: SubAgentCallCard(
+                  expandByDefault: expandToolDetails,
                   message: WorkbenchMessage('command', 'Run command', 'Agent',
                       event: event,
                       runId: 'conversation',
@@ -746,7 +757,7 @@ Widget buildSubAgentCallCardPreview() {
 }
 
 @visibleForTesting
-Widget buildLargeOutputCommandCardPreview() {
+Widget buildLargeOutputCommandCardPreview({bool expandToolDetails = false}) {
   final largeOutput =
       List<String>.generate(205, (index) => 'line $index').join('\n');
   final message = workbenchMessageFromConversation(ConversationMessage(
@@ -768,7 +779,8 @@ Widget buildLargeOutputCommandCardPreview() {
           backgroundColor: theme.bg,
           body: Padding(
               padding: const EdgeInsets.all(16),
-              child: CommandEventCard(message: message))));
+              child: CommandEventCard(
+                  message: message, expandByDefault: expandToolDetails))));
 }
 
 String? _formatCommandDuration(Duration? duration) {

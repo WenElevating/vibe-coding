@@ -24,4 +24,20 @@ void main() {
       'default',
     );
   });
+
+  test('tool detail expansion defaults false and persists changes', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final store = CodingPreferencesStore();
+
+    expect(await store.loadExpandToolDetails(), isFalse);
+
+    await store.saveExpandToolDetails(true);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool(CodingPreferencesStore.expandToolDetailsStorageKey),
+      isTrue,
+    );
+    expect(await store.loadExpandToolDetails(), isTrue);
+  });
 }

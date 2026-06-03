@@ -11,6 +11,7 @@ class CodingPage extends StatelessWidget {
     required this.workbenchKey,
     required this.streamOutput,
     required this.expandThinking,
+    this.expandToolDetails = false,
     required this.permissionMode,
   });
 
@@ -21,6 +22,7 @@ class CodingPage extends StatelessWidget {
   final GlobalKey<CodingWorkbenchPageState> workbenchKey;
   final bool streamOutput;
   final bool expandThinking;
+  final bool expandToolDetails;
   final String permissionMode;
 
   @override
@@ -32,6 +34,7 @@ class CodingPage extends StatelessWidget {
       openSessionListRequest: openSessionListRequest,
       streamOutput: streamOutput,
       expandThinking: expandThinking,
+      expandToolDetails: expandToolDetails,
       permissionMode: permissionMode,
       dependencies: workbenchDependencies,
     );

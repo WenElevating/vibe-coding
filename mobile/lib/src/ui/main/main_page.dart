@@ -272,6 +272,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         return;
       }
       viewModel.setPermissionMode(repository.permissionMode);
+      viewModel.setExpandToolDetails(repository.expandToolDetails);
     } catch (error) {
       if (!mounted) return;
       _repositories.recordDiagnosticEvent(
@@ -311,6 +312,9 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       widget.pageDependencies.codingPreferencesRepository.permissionMode,
     );
     _viewModel?.setPermissionMode(permissionMode);
+    _viewModel?.setExpandToolDetails(
+      widget.pageDependencies.codingPreferencesRepository.expandToolDetails,
+    );
   }
 
   void _createRepositoryBackedViewModels(DaemonInitialData data) {
@@ -577,6 +581,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       openSessionListRequest: viewModel.openSessionListRequest,
       streamOutput: viewModel.streamOutput,
       expandThinking: viewModel.expandThinking,
+      expandToolDetails: viewModel.expandToolDetails,
       permissionMode: viewModel.permissionMode,
     );
   }

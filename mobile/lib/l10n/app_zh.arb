@@ -18,6 +18,8 @@
   "settingsStreamOutputSubtitle": "关闭时只显示最终回复，避免 delta 与完整消息重复。",
   "settingsExpandThinkingTitle": "显示思考过程",
   "settingsExpandThinkingSubtitle": "开启后默认展开模型 thinking；关闭时折叠显示。",
+  "settingsExpandToolDetailsTitle": "显示工具调用详情",
+  "settingsExpandToolDetailsSubtitle": "开启后默认展开工具输入和输出；关闭时每条工具调用保持折叠，可手动展开。",
   "settingsKeepSessionLiveInBackgroundTitle": "后台保持会话实时连接",
   "settingsKeepSessionLiveInBackgroundSubtitle": "应用在后台时继续接收当前会话事件，用于审批通知。",
   "settingsPermissionModeTitle": "权限模式",

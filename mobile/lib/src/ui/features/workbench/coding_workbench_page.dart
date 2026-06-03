@@ -18,6 +18,7 @@ import 'attachments/attachment_picker.dart';
 import 'controllers/slash_command_menu_controller.dart';
 import 'dialogs/asr_model_download_dialog.dart';
 import 'dialogs/voice_input_error_dialog.dart';
+import 'messages/approval_event_card.dart';
 import 'sheets/model_picker_sheet.dart';
 import 'views/workbench_conversation_route.dart';
 import 'views/workbench_session_route.dart';
@@ -39,6 +40,7 @@ class CodingWorkbenchPage extends StatefulWidget {
     required this.openSessionListRequest,
     required this.streamOutput,
     required this.expandThinking,
+    this.expandToolDetails = false,
     required this.permissionMode,
     required this.dependencies,
     this.speechInputService,
@@ -48,6 +50,7 @@ class CodingWorkbenchPage extends StatefulWidget {
   final int openSessionListRequest;
   final bool streamOutput;
   final bool expandThinking;
+  final bool expandToolDetails;
   final String permissionMode;
   final SpeechInputService? speechInputService;
   final WorkbenchDependencies dependencies;
@@ -1687,6 +1690,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final adapter = _workbenchViewModel.selectedAdapter;
     final modelLabel = _selectedModelLabel();
     final pendingQuestionId = _workbenchViewModel.pendingQuestionId;
+    final pendingApproval = _pendingApprovalMessage();
     final pendingQuestionCanSendAttachments =
         pendingQuestionId == null || pendingQuestionId.isEmpty;
     final canSend = adapter != null &&
@@ -1713,7 +1717,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       draftAttachments: _workbenchViewModel.draftAttachments,
       slashCommands: _visibleSlashCommands,
       promptController: _prompt,
-      messageList: _buildMessageList(adapter, l10n),
+      messageList:
+          _buildMessageList(adapter, l10n, hiddenApproval: pendingApproval),
+      approvalPrompt: pendingApproval == null
+          ? null
+          : ApprovalComposerPrompt(
+              message: pendingApproval,
+              onApproval: (decision) {
+                final event = pendingApproval.event;
+                if (event != null) {
+                  unawaited(_respondApproval(event, decision));
+                }
+              },
+            ),
       onBack: () => _navigatorKey.currentState
           ?.popUntil((route) => route.settings.name == _routeSessions),
       onSlashCommandSelected: _insertSlashCommand,
@@ -1738,11 +1754,27 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         null => null,
       };
 
-  Widget _buildMessageList(String? adapter, AppLocalizations l10n) {
+  WorkbenchMessage? _pendingApprovalMessage() {
+    for (final message in _messages.reversed) {
+      if (message.role == 'approval') return message;
+    }
+    return null;
+  }
+
+  Widget _buildMessageList(
+    String? adapter,
+    AppLocalizations l10n, {
+    WorkbenchMessage? hiddenApproval,
+  }) {
     _syncTranscriptUnderflow();
+    final messages = hiddenApproval == null
+        ? _messages
+        : _messages
+            .where((message) => !identical(message, hiddenApproval))
+            .toList(growable: false);
     return WorkbenchMessageList(
       controller: _scrollController,
-      messages: _messages,
+      messages: messages,
       adapter: adapter,
       runId: _activeRunId,
       eventCount: _conversationEvents.length,
@@ -1754,6 +1786,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _workbenchViewModel.effectiveConversationStatus, _conversationEvents),
       pendingActions: _recentActionSummaries,
       expandThinking: widget.expandThinking,
+      expandToolDetails: widget.expandToolDetails,
       useReverseTranscript: _useReverseTranscript,
       loadingOlderConversationEvents: _loadingInitialConversationEvents,
       showPendingDuringInitialConversationLoad:

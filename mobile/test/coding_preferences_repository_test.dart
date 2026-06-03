@@ -30,6 +30,7 @@ void main() {
 
     expect(repository.permissionMode, 'default');
     expect(repository.keepConversationEventsInBackground, isFalse);
+    expect(repository.expandToolDetails, isFalse);
   });
 
   test(
@@ -46,6 +47,20 @@ void main() {
 
     expect(repository.permissionMode, 'auto');
     expect(repository.keepConversationEventsInBackground, isFalse);
+    expect(repository.expandToolDetails, isFalse);
+  });
+
+  test('load restores persisted tool detail expansion preference', () async {
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{
+        CodingPreferencesRepository.expandToolDetailsStorageKey: true,
+      },
+    );
+    final repository = CodingPreferencesRepository();
+
+    await repository.load();
+
+    expect(repository.expandToolDetails, isTrue);
   });
 
   test('load treats unknown persisted permission mode as default', () async {
@@ -121,6 +136,31 @@ void main() {
         CodingPreferencesRepository
             .keepConversationEventsInBackgroundStorageKey,
       ),
+      isFalse,
+    );
+  });
+
+  test('setExpandToolDetails persists value and notifies', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = CodingPreferencesRepository();
+    var notifications = 0;
+    repository.addListener(() => notifications++);
+
+    await repository.setExpandToolDetails(true);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(repository.expandToolDetails, isTrue);
+    expect(
+      prefs.getBool(CodingPreferencesRepository.expandToolDetailsStorageKey),
+      isTrue,
+    );
+    expect(notifications, greaterThanOrEqualTo(1));
+
+    await repository.setExpandToolDetails(false);
+
+    expect(repository.expandToolDetails, isFalse);
+    expect(
+      prefs.getBool(CodingPreferencesRepository.expandToolDetailsStorageKey),
       isFalse,
     );
   });

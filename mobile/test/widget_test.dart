@@ -1283,6 +1283,9 @@ class _LifecycleConversationRepository implements ConversationRepository {
   String? sentText;
   String? answeredQuestionId;
   String? answeredText;
+  String? approvalConversationId;
+  String? approvalId;
+  String? approvalDecision;
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -1373,8 +1376,18 @@ class _LifecycleConversationRepository implements ConversationRepository {
     String conversationId,
     String approvalId,
     String decision,
-  ) async =>
-      throw UnimplementedError();
+  ) async {
+    approvalConversationId = conversationId;
+    this.approvalId = approvalId;
+    approvalDecision = decision;
+    return _conversationSummary(
+      id: conversationId,
+      workspaceId: 'workspace_1',
+      status: 'idle',
+      sessionBinding: 'confirmed',
+      userMessageCount: 1,
+    );
+  }
 
   @override
   Future<ConversationSummary> sendConversationMessage(
@@ -1645,14 +1658,21 @@ class _SnapshotCachedRunRepository extends CachedRunRepository {
 }
 
 class _WidgetCodingPreferencesRepository extends CodingPreferencesRepository {
-  _WidgetCodingPreferencesRepository({required String permissionMode})
-      : _permissionMode =
+  _WidgetCodingPreferencesRepository({
+    required String permissionMode,
+    bool expandToolDetails = false,
+  })  : _expandToolDetails = expandToolDetails,
+        _permissionMode =
             CodingPreferencesRepository.normalizePermissionMode(permissionMode);
 
   String _permissionMode;
+  bool _expandToolDetails;
 
   @override
   String get permissionMode => _permissionMode;
+
+  @override
+  bool get expandToolDetails => _expandToolDetails;
 
   @override
   bool get loading => false;
@@ -1667,6 +1687,12 @@ class _WidgetCodingPreferencesRepository extends CodingPreferencesRepository {
   Future<void> setPermissionMode(String value) async {
     _permissionMode =
         CodingPreferencesRepository.normalizePermissionMode(value);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setExpandToolDetails(bool value) async {
+    _expandToolDetails = value;
     notifyListeners();
   }
 }
@@ -2063,6 +2089,38 @@ void main() {
         'auto');
   });
 
+  testWidgets('settings tool detail expansion preference is persisted',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+
+    await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
+    await _pumpNavigationFrame(tester);
+
+    await tester.tap(find.text('Settings').last);
+    await _pumpNavigationFrame(tester);
+
+    expect(find.text('Show tool call details'), findsOneWidget);
+    final row = find.ancestor(
+      of: find.text('Show tool call details'),
+      matching: find.byType(Row),
+    );
+    await tester.tap(
+      find.descendant(of: row.first, matching: find.byType(Switch)),
+    );
+    await _pumpNavigationFrame(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool(CodingPreferencesStore.expandToolDetailsStorageKey),
+      isTrue,
+    );
+  });
+
   testWidgets('settings shows active daemon address and proxy mode',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
@@ -2114,7 +2172,11 @@ void main() {
     await tester.pumpWidget(
         _LocalizedSettingsPageApp(appUpdateViewModel: appUpdateViewModel));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.scrollUntilVisible(
+      find.text('About'),
+      80,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('About'), findsOneWidget);
@@ -2586,9 +2648,10 @@ void main() {
 
     expect(find.text('Daemon address'), findsOneWidget);
     expect(find.text('127.0.0.1:4317'), findsOneWidget);
-    await tester.drag(
-      find.byType(Scrollable).first,
-      const Offset(0, -420),
+    await tester.scrollUntilVisible(
+      find.text('About'),
+      80,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
     expect(find.text('About'), findsOneWidget);
@@ -3421,6 +3484,107 @@ void main() {
 
     expect(find.text('latest visible sentinel'), findsOneWidget);
     expect(find.text('message 0'), findsNothing);
+  });
+
+  testWidgets('pending approval replaces the conversation composer',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const approvalTarget =
+        r'D:\AiProject\vibe-coding\python_concurrency_learn.py';
+    final repository = _LifecycleConversationRepository(
+      events: <ConversationEvent>[
+        ConversationEvent.fromJson(const <String, Object?>{
+          'seq': 1,
+          'conversationId': 'conv_approval_prompt',
+          'type': 'user.message',
+          'createdAt': '2026-05-16T00:00:00.000Z',
+          'text': 'Update the Python notes'
+        }),
+        ConversationEvent.fromJson(const <String, Object?>{
+          'seq': 2,
+          'conversationId': 'conv_approval_prompt',
+          'type': 'approval.requested',
+          'createdAt': '2026-05-16T00:00:01.000Z',
+          'approvalId': 'approval_prompt_1',
+          'toolName': 'Write',
+          'summary': approvalTarget,
+          'input': {'file_path': approvalTarget}
+        }),
+      ],
+    );
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_approval_prompt',
+        workspaceId: 'workspace_1',
+        status: 'waiting_approval',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Approval prompt task',
+        capabilities: capabilities,
+        blockingItem: const ConversationBlockingItem(
+          type: 'approval_request',
+          approvalId: 'approval_prompt_1',
+          toolName: 'Write',
+          summary: approvalTarget,
+          input: {'file_path': approvalTarget},
+        ),
+      ),
+    ];
+
+    Future<void> pumpUntilApprovalPrompt() async {
+      for (var attempt = 0;
+          attempt < 20 &&
+              find
+                  .byKey(const ValueKey('workbench-approval-composer'))
+                  .evaluate()
+                  .isEmpty;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilApprovalResponse() async {
+      for (var attempt = 0;
+          attempt < 20 && repository.approvalDecision == null;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: conversations,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approval prompt task'));
+    await pumpUntilApprovalPrompt();
+
+    expect(find.byKey(const ValueKey('workbench-approval-composer')),
+        findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Needs approval'), findsOneWidget);
+    expect(find.textContaining('python_concurrency_learn.py'), findsOneWidget);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-approve-button')));
+    await pumpUntilApprovalResponse();
+
+    expect(repository.approvalConversationId, 'conv_approval_prompt');
+    expect(repository.approvalId, 'approval_prompt_1');
+    expect(repository.approvalDecision, 'allow');
   });
 
   testWidgets(
@@ -6597,21 +6761,29 @@ void main() {
     expect(find.text('选择当前'), findsNothing);
   });
 
-  testWidgets('completed command card shows duration and success status icon',
+  testWidgets('completed command card collapses details by default',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildCompletedCommandCardPreview());
     await tester.pumpAndSettle();
 
     expect(find.text('npm run lint && npm test'), findsWidgets);
+    expect(find.textContaining('执行 1 条命令'), findsNothing);
+    expect(find.textContaining('cwd resolved'), findsNothing);
+    expect(find.textContaining('2.1s'), findsNothing);
+    expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
+
+    await tester.tap(find.text('npm run lint && npm test').first);
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('执行 1 条命令'), findsOneWidget);
     expect(find.textContaining('cwd resolved'), findsOneWidget);
     expect(find.textContaining('2.1s'), findsOneWidget);
-    expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
   testWidgets('command output opens a full detail sheet',
       (WidgetTester tester) async {
-    await tester.pumpWidget(buildConversationCommandCardPreview());
+    await tester.pumpWidget(
+        buildConversationCommandCardPreview(expandToolDetails: true));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('hello from intro').first);
@@ -6650,7 +6822,8 @@ void main() {
                         duration: Duration(milliseconds: 2550)),
                     onApproval: (_) {},
                     onSuggestion: (_) {},
-                    expandThinking: false)))));
+                    expandThinking: false,
+                    expandToolDetails: true)))));
     await tester.pumpAndSettle();
 
     expect(
@@ -6681,7 +6854,8 @@ void main() {
   testWidgets(
       'large command output defaults to two-line preview and opens details',
       (WidgetTester tester) async {
-    await tester.pumpWidget(buildLargeOutputCommandCardPreview());
+    await tester.pumpWidget(
+        buildLargeOutputCommandCardPreview(expandToolDetails: true));
     await tester.pumpAndSettle();
 
     expect(
@@ -7671,7 +7845,8 @@ diff --git a/lib/main.dart b/lib/main.dart
 
   testWidgets('conversation command card shows output and duration',
       (WidgetTester tester) async {
-    await tester.pumpWidget(buildConversationCommandCardPreview());
+    await tester.pumpWidget(
+        buildConversationCommandCardPreview(expandToolDetails: true));
     await tester.pumpAndSettle();
 
     expect(find.text('python intro.py'), findsWidgets);
@@ -7694,6 +7869,40 @@ diff --git a/lib/main.dart b/lib/main.dart
     await tester.pumpAndSettle();
 
     expect(find.text('No blocking issues found.'), findsOneWidget);
+  });
+
+  testWidgets('question card uses compact Codex-style prompt row',
+      (WidgetTester tester) async {
+    String? selected;
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: const WorkbenchMessage(
+                        'question', 'Needs your direction', '请选择修复范围',
+                        suggestions: <String>['全部修复', '仅关键问题']),
+                    onApproval: (_) {},
+                    onSuggestion: (value) => selected = value,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ASK'), findsOneWidget);
+    expect(find.byIcon(Icons.tune_rounded), findsNothing);
+    expect(find.text('需要你补充方向'), findsOneWidget);
+    expect(find.text('请选择修复范围'), findsOneWidget);
+
+    await tester.tap(find.text('仅关键问题'));
+    await tester.pump();
+
+    expect(selected, '仅关键问题');
   });
 
   testWidgets('task progress card shows desktop-style rows and statuses',

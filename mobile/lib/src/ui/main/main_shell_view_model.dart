@@ -6,6 +6,7 @@ class MainShellViewModel extends ChangeNotifier {
   int _activeTab = 0;
   bool _streamOutput = false;
   bool _expandThinking = false;
+  bool _expandToolDetails = false;
   String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _openSessionListRequest = 0;
@@ -14,6 +15,7 @@ class MainShellViewModel extends ChangeNotifier {
   int get activeTab => _activeTab;
   bool get streamOutput => _streamOutput;
   bool get expandThinking => _expandThinking;
+  bool get expandToolDetails => _expandToolDetails;
   String get permissionMode => _permissionMode;
   bool get codingSessionListOpen => _codingSessionListOpen;
   int get openSessionListRequest => _openSessionListRequest;
@@ -49,6 +51,12 @@ class MainShellViewModel extends ChangeNotifier {
   void setExpandThinking(bool value) {
     if (_expandThinking == value) return;
     _expandThinking = value;
+    notifyListeners();
+  }
+
+  void setExpandToolDetails(bool value) {
+    if (_expandToolDetails == value) return;
+    _expandToolDetails = value;
     notifyListeners();
   }
 

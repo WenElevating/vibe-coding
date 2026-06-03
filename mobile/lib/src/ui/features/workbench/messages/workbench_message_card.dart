@@ -19,11 +19,13 @@ class WorkbenchMessageCard extends StatelessWidget {
       required this.message,
       required this.onApproval,
       required this.onSuggestion,
-      required this.expandThinking});
+      required this.expandThinking,
+      this.expandToolDetails = false});
   final WorkbenchMessage message;
   final ValueChanged<String> onApproval;
   final ValueChanged<String> onSuggestion;
   final bool expandThinking;
+  final bool expandToolDetails;
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
@@ -36,9 +38,13 @@ class WorkbenchMessageCard extends StatelessWidget {
       return TaskProgressCard(message: message);
     }
     if (isCommand && isSubAgentCommand(message)) {
-      return SubAgentCallCard(message: message);
+      return SubAgentCallCard(
+          message: message, expandByDefault: expandToolDetails);
     }
-    if (isCommand) return CommandEventCard(message: message);
+    if (isCommand) {
+      return CommandEventCard(
+          message: message, expandByDefault: expandToolDetails);
+    }
     if (isDiff) return DiffEventCard(message: message);
     if (isFileChange) return FileChangeEventCard(message: message);
     if (message.role == 'thinking') {

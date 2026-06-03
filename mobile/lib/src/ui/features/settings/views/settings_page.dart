@@ -83,6 +83,12 @@ class SettingsPage extends StatelessWidget {
                   value: expandThinking,
                   onChanged: onExpandThinkingChanged),
               SettingsSwitchRow(
+                  title: l10n.settingsExpandToolDetailsTitle,
+                  subtitle: l10n.settingsExpandToolDetailsSubtitle,
+                  value: viewModel.expandToolDetails,
+                  onChanged: (value) =>
+                      unawaited(viewModel.setExpandToolDetails(value))),
+              SettingsSwitchRow(
                   title: l10n.settingsKeepSessionLiveInBackgroundTitle,
                   subtitle: l10n.settingsKeepSessionLiveInBackgroundSubtitle,
                   value: viewModel.keepConversationEventsInBackground,
