@@ -56,6 +56,7 @@ import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/messages/approval_event_card.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -3575,16 +3576,67 @@ void main() {
     expect(find.byKey(const ValueKey('workbench-approval-composer')),
         findsOneWidget);
     expect(find.byType(TextField), findsNothing);
-    expect(find.text('Needs approval'), findsOneWidget);
+    expect(find.text('Allow this tool request?'), findsOneWidget);
     expect(find.textContaining('python_concurrency_learn.py'), findsOneWidget);
 
     await tester
-        .tap(find.byKey(const ValueKey('workbench-approval-approve-button')));
+        .tap(find.byKey(const ValueKey('workbench-approval-submit-button')));
     await pumpUntilApprovalResponse();
 
     expect(repository.approvalConversationId, 'conv_approval_prompt');
     expect(repository.approvalId, 'approval_prompt_1');
     expect(repository.approvalDecision, 'allow');
+  });
+
+  testWidgets('approval composer uses compact Codex-style approval panel',
+      (WidgetTester tester) async {
+    final event = AgentEvent(
+      type: 'approval.requested',
+      seq: 1,
+      runId: 'run_approval_prompt',
+      createdAt: DateTime.parse('2026-05-16T00:00:01.000Z'),
+      approvalId: 'approval_prompt_1',
+      name: 'Write',
+      raw: const <String, Object?>{'toolName': 'Write'},
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      localeResolutionCallback: (locale, supportedLocales) =>
+          resolveSupportedLocale(locale, supportedLocales),
+      theme: theme.buildAppTheme(),
+      home: Scaffold(
+        backgroundColor: theme.bg,
+        body: ApprovalComposerPrompt(
+          message: WorkbenchMessage(
+            'approval',
+            'Needs approval',
+            r'D:\AiProject\vibe-coding\python_concurrency_learn.py',
+            event: event,
+          ),
+          onApproval: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workbench-approval-choice-panel')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-approval-question')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-approval-command-preview')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-approval-option-allow')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-approval-option-deny')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-approval-submit-button')),
+        findsOneWidget);
+    expect(find.text('Allow this tool request?'), findsOneWidget);
+    expect(find.textContaining('Write'), findsOneWidget);
+    expect(find.textContaining('python_concurrency_learn.py'), findsOneWidget);
   });
 
   testWidgets(
@@ -7849,6 +7901,10 @@ diff --git a/lib/main.dart b/lib/main.dart
         buildConversationCommandCardPreview(expandToolDetails: true));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('workbench-tool-foldout-row')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-tool-foldout-expanded')),
+        findsOneWidget);
     expect(find.text('python intro.py'), findsWidgets);
     expect(find.textContaining('执行 1 条命令'), findsOneWidget);
     expect(find.text('hello from intro'), findsOneWidget);

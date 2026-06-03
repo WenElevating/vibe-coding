@@ -438,6 +438,11 @@
     }
   },
   "workbenchApprovalMissingId": "daemon did not provide approvalId, so mobile cannot process it.",
+  "workbenchApprovalPromptQuestion": "Allow this tool request?",
+  "workbenchApprovalPromptAllowOption": "Allow",
+  "workbenchApprovalPromptDenyOption": "No, tell the agent how to adjust",
+  "workbenchApprovalPromptSkip": "Skip",
+  "workbenchApprovalPromptSubmit": "Submit",
   "workbenchQuestionTitle": "Needs your direction",
   "workbenchCommandDetailTitle": "Command details",
   "workbenchOutputDetailTitle": "Output details",

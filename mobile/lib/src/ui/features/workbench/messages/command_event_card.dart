@@ -311,11 +311,12 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
+              key: const ValueKey('workbench-tool-foldout-row'),
               behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _expanded = !_expanded),
-              child: Padding(
+              child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 1, vertical: 5),
                   child: Row(children: [
                     _ToolKindBadge(kind: _toolKindLabel(message)),
                     const SizedBox(width: 8),
@@ -341,8 +342,13 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                         size: 17),
                   ]))),
           if (_expanded)
-            Padding(
-                padding: const EdgeInsets.fromLTRB(2, 6, 0, 4),
+            Container(
+                key: const ValueKey('workbench-tool-foldout-expanded'),
+                padding: const EdgeInsets.fromLTRB(1, 8, 0, 4),
+                decoration: BoxDecoration(
+                    border: Border(
+                        top: BorderSide(
+                            color: Colors.white.withValues(alpha: .052)))),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -380,14 +386,15 @@ class _ToolKindBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-      constraints: const BoxConstraints(minWidth: 38),
+      height: 24,
+      constraints: const BoxConstraints(minWidth: 42),
       alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-          color: _toolKindColor(kind).withValues(alpha: .105),
-          borderRadius: BorderRadius.circular(7),
+          color: const Color(0xFF121419),
+          borderRadius: BorderRadius.circular(8),
           border:
-              Border.all(color: _toolKindColor(kind).withValues(alpha: .18))),
+              Border.all(color: _toolKindColor(kind).withValues(alpha: .14))),
       child: Text(kind,
           style: TextStyle(
               color: _toolKindColor(kind),
@@ -433,10 +440,10 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 8),
                         decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: .018),
+                            color: const Color(0xFF121316),
                             borderRadius: BorderRadius.circular(9),
                             border: Border.all(
-                                color: Colors.white.withValues(alpha: .045))),
+                                color: Colors.white.withValues(alpha: .052))),
                         child: Row(children: [
                           Expanded(
                               child: Text(widget.text,
