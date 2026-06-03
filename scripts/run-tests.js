@@ -353,12 +353,37 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   });
   assert.deepEqual(normalizeApprovalDecision({ decision: 'deny' }), { decision: 'deny', interrupt: true });
   assert.deepEqual(normalizeApprovalDecision({ decision: 'deny', interrupt: false }), { decision: 'deny', interrupt: false });
+  assert.deepEqual(normalizeApprovalDecision('allow'), {
+    decision: 'allow',
+    scope: 'once'
+  });
+  assert.deepEqual(normalizeApprovalDecision({ decision: 'allow' }), {
+    decision: 'allow',
+    scope: 'once'
+  });
+  assert.deepEqual(normalizeApprovalDecision({
+    decision: 'allow',
+    scope: 'session',
+    updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
+  }), {
+    decision: 'allow',
+    scope: 'session',
+    updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
+  });
+  assert.deepEqual(normalizeApprovalDecision({ decision: 'deny', scope: 'session' }), {
+    decision: 'deny',
+    interrupt: true
+  });
+  assert.deepEqual(normalizeApprovalDecision({ decision: 'cancel', scope: 'session' }), {
+    decision: 'cancel'
+  });
   assert.deepEqual(normalizeApprovalDecision({
     decision: 'allow',
     updatedInput: { command: 'npm test' },
     updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
   }), {
     decision: 'allow',
+    scope: 'once',
     updatedInput: { command: 'npm test' },
     updatedPermissions: [{ tool: 'Bash', rule: 'allow' }]
   });
@@ -374,6 +399,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.equal(normalizeMessagePayload({ text: ' hello ' }).text, 'hello');
   assert.equal(normalizeQuestionResponse({ questionId: 'q1', text: ' answer ' }).text, 'answer');
   assert.equal(normalizeApprovalDecision({ decision: 'allow' }).decision, 'allow');
+  assert.throws(() => normalizeApprovalDecision({ decision: 'allow', scope: 'forever' }), /scope must be once or session/);
   assert.throws(() => normalizeConversationCreate({ workspaceId: '', adapter: 'claude' }), /workspaceId is required/);
   assert.throws(() => normalizeConversationCreate({ workspaceId: 'default', adapter: 'unknown' }), /unsupported adapter/);
   assert.throws(() => normalizeConversationCreate({ workspaceId: 'default', resumePolicy: { type: 'sideways' } }), /resumePolicy.type is invalid/);
@@ -381,7 +407,7 @@ test('conversation protocol validates statuses and blocking payloads', () => {
   assert.throws(() => normalizeMessagePayload({ text: '' }), /text or attachments are required/);
   assert.equal(normalizeMessagePayload({ text: '', attachments: [{ name: 'a.txt' }] }).attachments.length, 1);
   assert.throws(() => normalizeQuestionResponse({ questionId: 'q1', text: '' }), /text is required/);
-  assert.throws(() => normalizeApprovalDecision({ decision: 'maybe' }), /decision must be allow or deny/);
+  assert.throws(() => normalizeApprovalDecision({ decision: 'maybe' }), /decision must be allow, deny, or cancel/);
 });
 
 test('conversation event store appends and replays ordered events', () => {
@@ -1646,7 +1672,19 @@ test('conversation manager handles input and approval blocking states', async ()
     dispose() {}
   };
   const adapter = {
-    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true, resume: true, partialOutput: true },
+    capabilities: {
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+      approval: {
+        mobileCallbacks: true,
+        scopes: ['once', 'session'],
+        supportsCancel: false,
+        denyBehaviors: ['interrupt', 'continue']
+      }
+    },
     async startConversation({ onEvent }) { adapter.onEvent = onEvent; return fakeHandle; }
   };
   const manager = new ConversationManager({
@@ -1696,17 +1734,41 @@ test('conversation manager handles input and approval blocking states', async ()
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
   assert.deepEqual(fakeHandle.sent, ['hello', 'A']);
 
-  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap1', toolName: 'Bash', toolUseId: 'toolu_1', input: { command: 'dir' }, summary: 'List files' });
+  adapter.onEvent({
+    type: 'approval.requested',
+    approvalId: 'ap1',
+    toolName: 'Bash',
+    toolUseId: 'toolu_1',
+    input: { command: 'dir' },
+    summary: 'List files',
+    approvalOptions: {
+      kind: 'command',
+      supportsSessionScope: true,
+      supportsCancel: true,
+      denyBehavior: 'continue',
+      command: 'dir',
+      rawProviderRequest: { env: { SECRET: 'nope' } }
+    }
+  });
   const waitingApproval = manager.getConversation(conversation.id, device);
   assert.equal(waitingApproval.status, 'waiting_approval');
   assert.equal(waitingApproval.blockingItem.toolUseId, 'toolu_1');
+  assert.deepEqual(waitingApproval.blockingItem.approvalOptions, {
+    kind: 'command',
+    supportsSessionScope: true,
+    supportsCancel: false,
+    denyBehavior: 'continue',
+    command: 'dir'
+  });
   await assert.rejects(() => manager.respondApproval(conversation.id, 'bad', { decision: 'allow' }, device), /approvalId does not match/);
   await manager.respondApproval(conversation.id, 'ap1', { decision: 'allow' }, device);
   assert.equal(manager.getConversation(conversation.id, device).status, 'running');
-  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap1', decision: { decision: 'allow' } }]);
+  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap1', decision: { decision: 'allow', scope: 'once' } }]);
   const resolvedApproval = manager.listEvents(conversation.id, 0, device)
     .find((event) => event.type === 'approval.resolved');
   assert.equal(resolvedApproval.toolUseId, 'toolu_1');
+  assert.equal(resolvedApproval.scope, 'once');
+  assert.equal(resolvedApproval.approvalOptions.rawProviderRequest, undefined);
 
   adapter.onEvent({ type: 'system.notice', text: 'Claude retry 1/3', noticeKind: 'retry' });
   const events = manager.listEvents(conversation.id, 0, device);
@@ -1775,7 +1837,7 @@ test('conversation manager queues concurrent blocking approvals', async () => {
   current = manager.getConversation(conversation.id, device);
   assert.equal(current.status, 'waiting_approval');
   assert.equal(current.blockingItem.approvalId, 'ap_web_2');
-  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap_web_1', decision: { decision: 'allow' } }]);
+  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap_web_1', decision: { decision: 'allow', scope: 'once' } }]);
   assert.deepEqual(
     eventStore.list(conversation.id, 0)
       .filter((event) => event.type === 'approval.requested')

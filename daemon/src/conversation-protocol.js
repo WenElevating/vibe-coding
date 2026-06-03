@@ -120,10 +120,16 @@ function normalizeQuestionResponse(payload) {
 }
 
 function normalizeApprovalDecision(payload) {
-  if (!payload || typeof payload !== 'object') throw badRequest('payload must be an object');
+  if (typeof payload === 'string') payload = { decision: payload };
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw badRequest('payload must be an object');
   const decision = stringValue(payload.decision).trim();
-  if (!['allow', 'deny'].includes(decision)) throw badRequest('decision must be allow or deny');
+  if (!['allow', 'deny', 'cancel'].includes(decision)) throw badRequest('decision must be allow, deny, or cancel');
   const normalized = { decision };
+  if (decision === 'allow') {
+    const scope = stringValue(payload.scope || 'once').trim();
+    if (!['once', 'session'].includes(scope)) throw badRequest('scope must be once or session');
+    normalized.scope = scope;
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'updatedInput')) {
     if (!plainObject(payload.updatedInput)) throw badRequest('updatedInput must be an object');
     normalized.updatedInput = payload.updatedInput;
@@ -136,10 +142,40 @@ function normalizeApprovalDecision(payload) {
     normalized.interrupt = Object.prototype.hasOwnProperty.call(payload, 'interrupt')
       ? payload.interrupt === true
       : true;
+  } else if (decision === 'cancel') {
+    if (Object.prototype.hasOwnProperty.call(payload, 'interrupt')) normalized.interrupt = payload.interrupt === true;
   } else if (Object.prototype.hasOwnProperty.call(payload, 'interrupt')) {
     normalized.interrupt = payload.interrupt === true;
   }
   return normalized;
+}
+
+function normalizeApprovalOptions(input = {}, adapterApproval = {}) {
+  const options = plainObject(input) ? input : {};
+  const adapter = plainObject(adapterApproval) ? adapterApproval : {};
+  const adapterScopes = Array.isArray(adapter.scopes) ? adapter.scopes : [];
+  const adapterDenyBehaviors = Array.isArray(adapter.denyBehaviors) ? adapter.denyBehaviors : [];
+  const supportsSessionScope =
+    options.supportsSessionScope === true && adapterScopes.includes('session');
+  const supportsCancel = options.supportsCancel === true && adapter.supportsCancel === true;
+  const requestedDenyBehavior = options.denyBehavior === 'continue' ? 'continue' : 'interrupt';
+  const denyBehavior = requestedDenyBehavior === 'continue' && adapterDenyBehaviors.includes('continue')
+    ? 'continue'
+    : 'interrupt';
+  const result = {
+    kind: ['command', 'file_change', 'permissions', 'generic'].includes(options.kind) ? options.kind : 'generic',
+    supportsSessionScope,
+    supportsCancel,
+    denyBehavior
+  };
+  for (const key of ['command', 'cwd', 'reason']) {
+    if (typeof options[key] === 'string' && options[key].trim()) result[key] = options[key].trim();
+  }
+  if (Array.isArray(options.proposedExecPolicyAmendment)) {
+    result.proposedExecPolicyAmendment = options.proposedExecPolicyAmendment.map(String).filter(Boolean);
+  }
+  if (plainObject(options.proposedPermissions)) result.proposedPermissions = options.proposedPermissions;
+  return result;
 }
 
 function normalizePermissionModeUpdate(payload) {
@@ -329,6 +365,7 @@ module.exports = {
   normalizeMessagePayload,
   normalizeQuestionResponse,
   normalizeApprovalDecision,
+  normalizeApprovalOptions,
   isConversationActiveStatus,
   isConversationReusableStatus,
   isConversationTerminalStatus

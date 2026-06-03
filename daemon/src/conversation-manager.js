@@ -14,7 +14,8 @@ const {
   normalizeConversationControl,
   normalizeMessagePayload,
   normalizeQuestionResponse,
-  normalizeApprovalDecision
+  normalizeApprovalDecision,
+  normalizeApprovalOptions
 } = require('./conversation-protocol');
 const { readMultipartConversationMessage } = require('./multipart-message-reader');
 const { AttachmentScratchStore } = require('./attachment-scratch-store');
@@ -558,7 +559,12 @@ class ConversationManager {
     }
     if (conversation.blockingItem.approvalId !== approvalId) throw conflict('approvalId does not match pending approval request');
     const { type: _blockingType, ...blockingPayload } = conversation.blockingItem;
-    const resolved = { ...blockingPayload, decision: decision.decision };
+    const resolved = {
+      ...blockingPayload,
+      decision: decision.decision,
+      ...(decision.scope ? { scope: decision.scope } : {}),
+      ...(Object.prototype.hasOwnProperty.call(decision, 'interrupt') ? { interrupt: decision.interrupt } : {})
+    };
     conversation.status = conversationStatuses.RUNNING;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
@@ -654,14 +660,19 @@ class ConversationManager {
       return;
     }
     if (event.type === conversationEventTypes.APPROVAL_REQUESTED) {
+      const approvalOptions = normalizeApprovalOptions(
+        event.approvalOptions,
+        adapterApprovalCapability(conversation)
+      );
       this.setBlockingItem(conversation, {
         type: 'approval_request',
         approvalId: event.approvalId,
         toolName: event.toolName || null,
         toolUseId: event.toolUseId || null,
         input: event.input || {},
-        summary: event.summary || summarizeToolInput(event.toolName, event.input)
-      }, conversationStatuses.WAITING_APPROVAL, event);
+        summary: event.summary || summarizeToolInput(event.toolName, event.input),
+        approvalOptions
+      }, conversationStatuses.WAITING_APPROVAL, { ...event, approvalOptions });
       return;
     }
     if (event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED) {
@@ -1464,6 +1475,11 @@ function publicConversation(conversation) {
     notices: Array.isArray(conversation.notices) ? conversation.notices : [],
     protocolVersion: conversation.protocolVersion || 1
   };
+}
+
+function adapterApprovalCapability(conversation) {
+  const capabilities = conversation.capabilities || {};
+  return capabilities.approval || {};
 }
 
 function addMs(date, ms) {

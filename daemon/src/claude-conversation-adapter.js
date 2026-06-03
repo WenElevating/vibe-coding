@@ -30,6 +30,12 @@ class ClaudeConversationAdapter {
       waitingApproval: true,
       resume: true,
       partialOutput: true,
+      approval: {
+        mobileCallbacks: true,
+        scopes: ['once', 'session'],
+        supportsCancel: false,
+        denyBehaviors: ['interrupt', 'continue']
+      },
       attachments: {
         image: 'native',
         textDocument: 'text_extract',

@@ -46,6 +46,12 @@ class CodexConversationAdapter {
       toolEvents: true,
       approvalPolicy: 'cli-policy',
       mobileApprovalCallbacks: false,
+      approval: {
+        mobileCallbacks: false,
+        scopes: [],
+        supportsCancel: false,
+        denyBehaviors: []
+      },
       attachments: {
         image: 'unsupported',
         textDocument: 'text_extract',
@@ -799,6 +805,12 @@ function unavailableCapability(command, error) {
     capabilities: {
       approvalPolicy: 'cli-policy',
       mobileApprovalCallbacks: false,
+      approval: {
+        mobileCallbacks: false,
+        scopes: [],
+        supportsCancel: false,
+        denyBehaviors: []
+      },
       attachments: {
         image: 'unsupported',
         textDocument: 'text_extract',
