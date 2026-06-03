@@ -2431,6 +2431,35 @@ test('conversation public shape exposes requested and effective adapter fields',
   assert.equal(conversation.providerSession, null);
 });
 
+test('Codex app-server conversation adapter rejects sends before selectable probe', async () => {
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  let spawnCount = 0;
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: {
+      selectable: false,
+      unavailableReason: 'probe_not_run',
+      effectiveCapabilities: { longLivedProcess: false, waitingApproval: false }
+    },
+    lifecycle: {
+      spawn() {
+        spawnCount += 1;
+        throw new Error('must not spawn');
+      }
+    }
+  });
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([['codex-app-server', adapter]])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex-app-server' }, device);
+  assert.equal(conversation.adapter, 'codex-app-server');
+  assert.equal(conversation.effectiveAdapter, 'codex-app-server');
+  await assert.rejects(
+    () => manager.sendMessage(conversation.id, { text: 'hello' }, device),
+    /Codex app-server adapter is not selectable: probe_not_run/
+  );
+  assert.equal(spawnCount, 0);
+});
+
 test('conversation manager validates model update capability', async () => {
   const codex = {
     capabilities: { resume: true },

@@ -1,6 +1,6 @@
 'use strict';
 
-const supportedConversationAdapters = Object.freeze(['claude', 'codex', 'opencode']);
+const supportedConversationAdapters = Object.freeze(['claude', 'codex', 'codex-app-server', 'opencode']);
 
 const conversationStatuses = Object.freeze({
   IDLE: 'idle',
