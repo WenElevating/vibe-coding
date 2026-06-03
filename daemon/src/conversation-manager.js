@@ -94,6 +94,8 @@ class ConversationManager {
       workspaceId: workspace.id,
       workspacePath: workspace.path,
       adapter: input.adapter,
+      requestedAdapter: input.adapter,
+      effectiveAdapter: input.adapter,
       model: input.model,
       permissionMode: input.permissionMode,
       requestedPermissionMode: input.permissionMode,
@@ -117,6 +119,9 @@ class ConversationManager {
       createdAt: this.now().toISOString(),
       updatedAt: this.now().toISOString(),
       capabilities: adapter.capabilities || {},
+      effectiveCapabilities: adapter.capabilities || {},
+      fallbackNotice: null,
+      providerSession: null,
       handle: null,
       messageIdempotency: new Map(),
       messageInFlightIds: new Set(),
@@ -1449,10 +1454,16 @@ function sameAttachments(left, right) {
 }
 
 function publicConversation(conversation) {
+  const requestedAdapter = conversation.requestedAdapter || conversation.adapter;
+  const effectiveAdapter = conversation.effectiveAdapter || conversation.adapter;
+  const capabilities = conversation.capabilities || {};
+  const effectiveCapabilities = conversation.effectiveCapabilities || capabilities;
   return {
     id: conversation.id,
     workspaceId: conversation.workspaceId,
     adapter: conversation.adapter,
+    requestedAdapter,
+    effectiveAdapter,
     model: conversation.model || null,
     status: conversation.status,
     cliSessionId: conversation.cliSessionId || null,
@@ -1463,7 +1474,10 @@ function publicConversation(conversation) {
     idleExpiresAt: conversation.idleExpiresAt || null,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
-    capabilities: conversation.capabilities || {},
+    capabilities,
+    effectiveCapabilities,
+    fallbackNotice: conversation.fallbackNotice || null,
+    providerSession: conversation.providerSession || null,
     requestedPermissionMode: conversation.requestedPermissionMode || conversation.permissionMode || 'default',
     effectivePermissionMode: conversation.effectivePermissionMode || conversation.permissionMode || 'default',
     requestedTools: Array.isArray(conversation.requestedTools) ? conversation.requestedTools : [],

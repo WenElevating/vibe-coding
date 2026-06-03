@@ -2374,6 +2374,17 @@ test('conversation manager passes selected model into adapter startup', async ()
   assert.equal(startCalls[0].model, 'gpt-5.5');
 });
 
+test('conversation public shape exposes requested and effective adapter fields', () => {
+  const { manager, device } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  assert.equal(conversation.adapter, 'codex');
+  assert.equal(conversation.requestedAdapter, 'codex');
+  assert.equal(conversation.effectiveAdapter, 'codex');
+  assert.deepEqual(conversation.effectiveCapabilities, conversation.capabilities);
+  assert.equal(conversation.fallbackNotice, null);
+  assert.equal(conversation.providerSession, null);
+});
+
 test('conversation manager validates model update capability', async () => {
   const codex = {
     capabilities: { resume: true },
