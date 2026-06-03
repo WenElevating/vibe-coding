@@ -1,4 +1,5 @@
 import '../../models/protocol.dart' hide AttachmentHandling, AttachmentKind;
+import '../models/approval_response.dart';
 import '../models/attachment_types.dart';
 
 class ConversationMessageAttachment {
@@ -104,7 +105,7 @@ abstract class ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   );
 
   Future<ConversationSummary> cancelConversation(String conversationId);

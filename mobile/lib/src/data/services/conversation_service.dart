@@ -1,3 +1,4 @@
+import '../../domain/models/approval_response.dart';
 import '../../models/protocol.dart';
 
 class ConversationServiceMessageAttachment {
@@ -98,7 +99,7 @@ abstract class ConversationService {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   );
 
   Future<ConversationSummary> cancelConversation(String conversationId);

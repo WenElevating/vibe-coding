@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/run_detail/run_detail_state.dart';
 
@@ -89,6 +90,33 @@ void main() {
     expect(question.suggestions, const <String>['A']);
     expect(approval.approvalId, 'ap1');
     expect(approval.summary, 'dir scripts');
+  });
+
+  test('ConversationEvent parses sanitized approval request options', () {
+    final event = ConversationEvent.fromJson(const <String, Object?>{
+      'seq': 2,
+      'conversationId': 'conv_1',
+      'type': 'approval.requested',
+      'createdAt': '2026-05-03T00:00:01.000Z',
+      'approvalId': 'ap1',
+      'toolName': 'Bash',
+      'summary': 'npm test',
+      'input': {'command': 'npm test'},
+      'approvalOptions': {
+        'kind': 'command',
+        'supportsSessionScope': true,
+        'supportsCancel': false,
+        'denyBehavior': 'interrupt',
+        'command': 'npm test',
+        'extraProviderField': {'env': 'ignored by typed parser'},
+      },
+    });
+
+    expect(event.approvalOptions.kind, ApprovalRequestKind.command);
+    expect(event.approvalOptions.supportsSessionScope, isTrue);
+    expect(event.approvalOptions.supportsCancel, isFalse);
+    expect(event.approvalOptions.denyBehavior, ApprovalDenyBehavior.interrupt);
+    expect(event.approvalOptions.command, 'npm test');
   });
 
   test('ConversationEvent parses tool correlation fields', () {

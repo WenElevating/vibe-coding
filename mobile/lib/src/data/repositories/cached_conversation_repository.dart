@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../domain/repositories/conversation_repository.dart';
+import '../../domain/models/approval_response.dart';
 import '../../models/protocol.dart';
 import '../services/conversation_event_cache_store.dart';
 import 'bootstrap_hydration.dart';
@@ -271,14 +272,14 @@ class CachedConversationRepository extends ChangeNotifier
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async {
     _startMutation();
     try {
       final conversation = await _delegate.respondConversationApproval(
         conversationId,
         approvalId,
-        decision,
+        response,
       );
       _upsert(conversation);
       return conversation;

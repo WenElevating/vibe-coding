@@ -11,6 +11,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/command_catalog_reposit
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/auth_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
@@ -607,7 +608,7 @@ class _UnusedRepository extends WorkspaceRepository
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) =>
       throw UnimplementedError();
 

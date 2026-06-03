@@ -1,3 +1,4 @@
+import 'approval_models.dart';
 import 'attachment_models.dart';
 
 bool conversationEventCompletesTurn(ConversationEvent event) {
@@ -42,6 +43,7 @@ class ConversationBlockingItem {
     this.summary,
     this.suggestions = const <String>[],
     this.input = const <String, Object?>{},
+    this.approvalOptions = const ApprovalRequestOptions(),
     this.multiSelect = false,
     this.createdAt,
     this.expiresAt,
@@ -56,6 +58,7 @@ class ConversationBlockingItem {
   final String? summary;
   final List<String> suggestions;
   final Map<String, Object?> input;
+  final ApprovalRequestOptions approvalOptions;
   final bool multiSelect;
   final String? createdAt;
   final String? expiresAt;
@@ -74,6 +77,8 @@ class ConversationBlockingItem {
                 .map((item) => item.toString())
                 .toList(),
         input: _objectMap(json['input']),
+        approvalOptions:
+            ApprovalRequestOptions.fromJson(json['approvalOptions']),
         multiSelect: json['multiSelect'] as bool? ?? false,
         createdAt: json['createdAt'] as String?,
         expiresAt: json['expiresAt'] as String?,
@@ -177,6 +182,7 @@ class ConversationEvent {
     this.summary,
     this.suggestions = const <String>[],
     this.input = const <String, Object?>{},
+    this.approvalOptions = const ApprovalRequestOptions(),
     this.exitCode,
     this.isError = false,
     this.durationMs,
@@ -202,6 +208,7 @@ class ConversationEvent {
   final String? summary;
   final List<String> suggestions;
   final Map<String, Object?> input;
+  final ApprovalRequestOptions approvalOptions;
   final int? exitCode;
   final bool isError;
   final int? durationMs;
@@ -237,6 +244,8 @@ class ConversationEvent {
                 .map((item) => item.toString())
                 .toList(),
         input: _objectMap(json['input']),
+        approvalOptions:
+            ApprovalRequestOptions.fromJson(json['approvalOptions']),
         exitCode: json['exitCode'] as int?,
         isError: json['isError'] as bool? ?? false,
         durationMs: json['durationMs'] as int?,

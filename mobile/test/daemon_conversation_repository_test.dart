@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/services/notification_service.dart';
+import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
@@ -110,6 +111,50 @@ void main() {
     expect(page.hasMoreBefore, isFalse);
   });
 
+  test('respondConversationApproval sends structured approval response',
+      () async {
+    late Map<String, Object?> body;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path,
+            '/api/conversations/conv_1/approvals/approval_1/respond');
+        body = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'conversation': <String, Object?>{
+              'id': 'conv_1',
+              'workspaceId': 'workspace_1',
+              'adapter': 'claude',
+              'status': 'running',
+              'createdAt': '2026-06-03T00:00:00.000Z',
+              'updatedAt': '2026-06-03T00:00:01.000Z',
+              'capabilities': <String, Object?>{},
+            },
+          }),
+          200,
+        );
+      }),
+    );
+    final repository = DaemonConversationRepository(
+      client: client,
+      notificationService: _FakeNotificationService(),
+    );
+    addTearDown(client.close);
+
+    await repository.respondConversationApproval(
+      'conv_1',
+      'approval_1',
+      ApprovalResponse.allow(scope: ApprovalScope.session),
+    );
+
+    expect(body, const <String, Object?>{
+      'decision': 'allow',
+      'scope': 'session',
+    });
+  });
+
   test('conversation mutation errors map daemon details to repository errors',
       () async {
     final client = DaemonClient(
@@ -138,7 +183,11 @@ void main() {
           .answerConversationQuestion('conv_1', 'question_1', 'yes')
           .then((_) {}),
       () => repository
-          .respondConversationApproval('conv_1', 'approval_1', 'approve')
+          .respondConversationApproval(
+            'conv_1',
+            'approval_1',
+            ApprovalResponse.allow(),
+          )
           .then((_) {}),
       () => repository.cancelConversation('conv_1').then((_) {}),
     ];

@@ -6,6 +6,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_rep
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
@@ -326,7 +327,7 @@ void main() {
       await viewModel.respondConversationApproval(
         conversationId: 'c1',
         approvalId: 'ap1',
-        decision: 'allow',
+        response: ApprovalResponse.allow(),
       );
 
       expect(
@@ -637,7 +638,7 @@ class _FakeCachedConversationRepository extends CachedConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async {
     respondedApprovalIds.add(approvalId);
     return _conversation(id: conversationId, workspaceId: 'w1');

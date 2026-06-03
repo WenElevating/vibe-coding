@@ -1,4 +1,5 @@
 import '../../domain/repositories/conversation_repository.dart';
+import '../../domain/models/approval_response.dart';
 import '../../models/protocol.dart';
 import '../../services/daemon_client.dart';
 import '../services/conversation_service.dart';
@@ -124,13 +125,13 @@ class DaemonConversationRepository implements ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async {
     try {
       return await _client.respondConversationApproval(
         conversationId,
         approvalId,
-        decision,
+        response,
       );
     } on DaemonClientException catch (error) {
       throw _toRepositoryException(error);

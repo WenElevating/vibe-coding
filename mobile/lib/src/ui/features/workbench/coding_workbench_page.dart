@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
+import '../../../domain/models/approval_response.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
@@ -1484,7 +1485,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             await _workbenchViewModel.respondConversationApproval(
           conversationId: conversationId,
           approvalId: approvalId,
-          decision: decision,
+          response: decision == 'allow'
+              ? ApprovalResponse.allow()
+              : ApprovalResponse.deny(),
         );
         _workbenchViewModel.updateActiveConversation(conversation,
             notify: false);

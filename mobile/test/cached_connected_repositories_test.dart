@@ -5,6 +5,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/cached_adapter_reposito
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/services/conversation_event_cache_store.dart';
+import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/adapter_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
@@ -1087,7 +1088,7 @@ class _FakeConversationRepository implements ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async =>
       _conversation(id: conversationId, status: 'running');
 

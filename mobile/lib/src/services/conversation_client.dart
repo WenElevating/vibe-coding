@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../data/services/conversation_service.dart';
+import '../domain/models/approval_response.dart';
 import '../models/protocol.dart';
 import 'daemon_client.dart';
 
@@ -142,16 +143,14 @@ class ConversationClient {
   Future<ConversationSummary> respondApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async {
-    final response = await _post(
+    final decoded = await _post(
       '/api/conversations/$conversationId/approvals/$approvalId/respond',
-      <String, Object?>{
-        'decision': decision,
-      },
+      response.toJson(),
     );
     return ConversationSummary.fromJson(
-      response['conversation'] as Map<String, Object?>,
+      decoded['conversation'] as Map<String, Object?>,
     );
   }
 

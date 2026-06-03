@@ -8,6 +8,7 @@ import '../data/services/auth_service.dart';
 import '../data/services/conversation_service.dart';
 import '../data/services/run_service.dart';
 import '../data/services/workspace_service.dart';
+import '../domain/models/approval_response.dart';
 import '../models/protocol.dart';
 import 'asr_model_client.dart';
 import '../domain/models/daemon_connection_config.dart';
@@ -656,13 +657,13 @@ class DaemonClient
   }
 
   @override
-  Future<ConversationSummary> respondConversationApproval(
-      String conversationId, String approvalId, String decision) async {
-    final response = await _post(
+  Future<ConversationSummary> respondConversationApproval(String conversationId,
+      String approvalId, ApprovalResponse response) async {
+    final decoded = await _post(
         '/api/conversations/$conversationId/approvals/$approvalId/respond',
-        <String, Object?>{'decision': decision});
+        response.toJson());
     return ConversationSummary.fromJson(
-        response['conversation'] as Map<String, Object?>);
+        decoded['conversation'] as Map<String, Object?>);
   }
 
   @override

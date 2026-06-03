@@ -25,6 +25,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/daemon_workspace_reposi
 import 'package:lan_ai_cli_control/src/data/repositories/slash_command_catalog_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
     as data_repositories;
+import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/models/connected_app_session.dart';
 import 'package:lan_ai_cli_control/src/domain/models/daemon_initial_data.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/app_update_repository.dart';
@@ -1075,7 +1076,7 @@ class _LazyConversationRepository implements ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async =>
       throw UnimplementedError();
 
@@ -1376,11 +1377,11 @@ class _LifecycleConversationRepository implements ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async {
     approvalConversationId = conversationId;
     this.approvalId = approvalId;
-    approvalDecision = decision;
+    approvalDecision = response.legacyDecision;
     return _conversationSummary(
       id: conversationId,
       workspaceId: 'workspace_1',
@@ -1504,7 +1505,7 @@ class _NewSessionConversationRepository implements ConversationRepository {
   Future<ConversationSummary> respondConversationApproval(
     String conversationId,
     String approvalId,
-    String decision,
+    ApprovalResponse response,
   ) async =>
       throw UnimplementedError();
 
