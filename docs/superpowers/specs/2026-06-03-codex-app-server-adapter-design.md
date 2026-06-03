@@ -758,10 +758,10 @@ provider payloads, credentials, environment blocks, or unredacted local paths.
   rollout flags rather than implicit adapter listing probes.
 - Is stable API sufficient for command approval, file approval, permissions
   approval, image input, model selection, and cancellation? Partially closed:
-  command approval, model list, turn start/completion, and cancellation are
-  verified; file-change approval, permissions approval, and native image input
-  remain regression-covered by schema/bridge tests but need real smoke before
-  default rollout.
+  command approval, model list, turn start/completion, cancellation, and native
+  image input are verified; file-change approval and permissions approval remain
+  regression-covered by schema/bridge tests but need real server-request smoke
+  before default rollout.
 - What exact app-server message sequence represents a successful completed
   turn? Closed by `2026-06-03-stdio-basic-turn.json` and
   `2026-06-03-stdio-sequential-turns.json`.
@@ -772,10 +772,10 @@ provider payloads, credentials, environment blocks, or unredacted local paths.
   cancels visible blocking approval and emits `run.error`. A real disconnect
   smoke remains a pre-default-rollout hardening task.
 - Does app-server preserve enough thread/session metadata to make
-  `cliSessionId` a reliable resume token? Partially closed by structured
-  `providerSession` persistence and resume-failure cleanup tests. A real
-  resume/rejoin smoke with a persisted app-server `threadId` is still required
-  before merging this path into the default `codex` adapter id.
+  `cliSessionId` a reliable resume token? Closed for the standalone adapter by
+  `2026-06-03-stdio-resume-rejoin.json`, structured `providerSession`
+  persistence, and resume-failure cleanup tests. Re-check this before merging
+  the standalone route into the default `codex` adapter id.
 
 ## Completion Criteria
 

@@ -18,6 +18,8 @@ $env:CODEX_APP_SERVER_SMOKE_SCENARIO='sequential-turns'; $env:CODEX_APP_SERVER_S
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='cancellation'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='large-output'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='project-trust'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='resume-rejoin'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='image-input'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 ```
 
 The smoke uses the installed Codex CLI and starts `codex app-server` with its
@@ -42,6 +44,8 @@ behavior from a live model.
 | session scope field identified | pass | `samples/2026-06-03-stdio-command-approval.json` confirmed request-level `availableDecisions` as the authoritative field. Observed command decisions were `accept`, `acceptWithExecpolicyAmendment`, and `cancel`; `acceptForSession` was not present, so session scope must remain disabled for command approvals. |
 | project trust behavior known | pass | `samples/2026-06-03-stdio-project-trust.json` used isolated `CODEX_HOME`: read-only `thread/start` left config absent, while workspace-write `thread/start` persisted `trust_level = "trusted"` for the temp workspace. |
 | user-input request behavior known | pass | The basic and command scenarios completed without `item/tool/requestUserInput`. |
+| resume/rejoin with persisted threadId | pass | `samples/2026-06-03-stdio-resume-rejoin.json` created a thread, completed a turn, terminated the app-server process, initialized a fresh stdio app-server process, resumed the same `threadId`, and completed a second turn. |
+| native image input | pass | `samples/2026-06-03-stdio-image-input.json` sent a local 1x1 PNG as `localImage`; the mock Responses payload contained `input_image` and the turn completed. |
 
 ## Captured Samples
 
@@ -51,6 +55,8 @@ behavior from a live model.
 - `samples/2026-06-03-stdio-cancellation.json`
 - `samples/2026-06-03-stdio-large-output.json`
 - `samples/2026-06-03-stdio-project-trust.json`
+- `samples/2026-06-03-stdio-resume-rejoin.json`
+- `samples/2026-06-03-stdio-image-input.json`
 
 ## Decisions
 
@@ -62,8 +68,11 @@ behavior from a live model.
 - Product mitigation applied in bridge: app-server `thread/start` and `thread/resume` should use read-only sandbox, because elevated `workspace-write` at thread start persists project trust. Elevated workspace write remains a turn-level setting.
 - Approval timeout policy: daemon-side approval TTL fail-closes by resolving the pending app-server request with the safest mapped denial. For observed command approvals with `cancel` but no `decline`, this sends native `cancel`; otherwise deny maps to `decline` when available.
 - App-server selectable: still no for default rollout. The production adapter lifecycle, approval timeout/idempotency behavior, fallback boundary, metrics, attachment conversion, and kill-switch wiring now exist in daemon code, but selection still requires explicit feature, experimental API, stdio transport, and rollout-percent gates.
+- Real resume/rejoin: app-server `threadId` is viable as the compatibility `cliSessionId` for the tested installed Codex version when paired with structured `providerSession` metadata.
+- Native image input: app-server accepts `localImage` turn input; mobile/daemon should keep existing MIME/size validation and reject PDFs before `thread/start`/`turn/start`.
+- Permissions approval: current installed Codex did not produce `item/permissions/requestApproval` from the smoke runner's mock provider path, despite matching the upstream test shape closely. Keep permissions approval regression-covered by mapper tests and do not treat it as default-route evidence until a real server request fixture is captured.
 
 ## Follow-up
 
-- Run a real resume/rejoin smoke with a persisted app-server `threadId` before making `codex-app-server` the default Codex route.
 - Keep regression coverage that app-server bridge does not request workspace-write at thread start and does not expose session-scoped command/file approval without request-level `acceptForSession`.
+- Capture real file-change and permissions approval fixtures before merging `codex-app-server` into the default `codex` route.

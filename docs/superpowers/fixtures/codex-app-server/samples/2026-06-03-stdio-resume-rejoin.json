@@ -1,0 +1,1597 @@
+{
+  "schemaVersion": 1,
+  "transport": "stdio",
+  "scenario": "resume-rejoin",
+  "codexBin": "D:\\nodejs\\codex.cmd",
+  "codexJs": "D:\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js",
+  "mockModelServerUrl": "http://127.0.0.1:53200",
+  "childPid": 85864,
+  "childExit": {
+    "code": null,
+    "signal": "SIGTERM"
+  },
+  "processTree": {
+    "descendantsBeforeCleanup": [
+      {
+        "pid": 27836,
+        "parentPid": 85864,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4"
+      },
+      {
+        "pid": 56840,
+        "parentPid": 85864,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server"
+      },
+      {
+        "pid": 93960,
+        "parentPid": 56840,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 46044,
+        "parentPid": 93960,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 14112,
+        "parentPid": 46044,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      },
+      {
+        "pid": 23364,
+        "parentPid": 14112,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      }
+    ],
+    "descendantsAfterCleanup": [
+      {
+        "pid": 27836,
+        "parentPid": 85864,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 56840,
+        "parentPid": 85864,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 93960,
+        "parentPid": 56840,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 46044,
+        "parentPid": 93960,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 14112,
+        "parentPid": 46044,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 23364,
+        "parentPid": 14112,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      }
+    ],
+    "orphanedDescendantsAfterCleanup": []
+  },
+  "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+  "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR",
+  "initializedAt": "2026-06-03T15:21:20.553Z",
+  "completedAt": "2026-06-03T15:21:42.561Z",
+  "initialize": {
+    "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+    "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR",
+    "platformFamily": "windows",
+    "platformOs": "windows"
+  },
+  "modelListSummary": {
+    "count": 5,
+    "defaultModel": "gpt-5.5"
+  },
+  "threadListBeforeSummary": {
+    "count": 0
+  },
+  "threadStart": {
+    "thread": {
+      "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+      "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+      "forkedFromId": null,
+      "preview": "",
+      "ephemeral": false,
+      "modelProvider": "mock_provider",
+      "createdAt": 1780500080,
+      "updatedAt": 1780500080,
+      "status": {
+        "type": "idle"
+      },
+      "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+      "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+      "cliVersion": "0.136.0",
+      "source": "vscode",
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "turns": []
+    },
+    "model": "mock-model",
+    "modelProvider": "mock_provider",
+    "serviceTier": null,
+    "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+    "runtimeWorkspaceRoots": [
+      "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "never",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": null,
+    "reasoningEffort": null
+  },
+  "turns": [
+    {
+      "turnStart": {
+        "turn": {
+          "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": null,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "turnCompleted": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500080,
+            "completedAt": 1780500080,
+            "durationMs": 21
+          }
+        }
+      }
+    },
+    {
+      "turnStart": {
+        "turn": {
+          "id": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": null,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "turnCompleted": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500091,
+            "completedAt": 1780500092,
+            "durationMs": 17
+          }
+        }
+      }
+    }
+  ],
+  "resumeRejoin": {
+    "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+    "restart": {
+      "pid": 48404,
+      "descendantsBeforeCleanup": [
+        {
+          "pid": 62636,
+          "parentPid": 48404,
+          "name": "conhost.exe",
+          "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4"
+        },
+        {
+          "pid": 47820,
+          "parentPid": 48404,
+          "name": "codex.exe",
+          "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server"
+        },
+        {
+          "pid": 17964,
+          "parentPid": 47820,
+          "name": "git.exe",
+          "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD"
+        },
+        {
+          "pid": 69996,
+          "parentPid": 17964,
+          "name": "git.exe",
+          "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD"
+        },
+        {
+          "pid": 30820,
+          "parentPid": 69996,
+          "name": "git.exe",
+          "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+        },
+        {
+          "pid": 67192,
+          "parentPid": 30820,
+          "name": "git-remote-https.exe",
+          "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+        }
+      ],
+      "exit": {
+        "code": null,
+        "signal": "SIGTERM"
+      },
+      "descendantsAfterCleanup": [
+        {
+          "pid": 62636,
+          "parentPid": 48404,
+          "name": "conhost.exe",
+          "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4",
+          "aliveAfterCleanup": false
+        },
+        {
+          "pid": 47820,
+          "parentPid": 48404,
+          "name": "codex.exe",
+          "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server",
+          "aliveAfterCleanup": false
+        },
+        {
+          "pid": 17964,
+          "parentPid": 47820,
+          "name": "git.exe",
+          "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD",
+          "aliveAfterCleanup": false
+        },
+        {
+          "pid": 69996,
+          "parentPid": 17964,
+          "name": "git.exe",
+          "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD",
+          "aliveAfterCleanup": false
+        },
+        {
+          "pid": 30820,
+          "parentPid": 69996,
+          "name": "git.exe",
+          "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+          "aliveAfterCleanup": false
+        },
+        {
+          "pid": 67192,
+          "parentPid": 30820,
+          "name": "git-remote-https.exe",
+          "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+          "aliveAfterCleanup": false
+        }
+      ],
+      "reinitialized": {
+        "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+        "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+      }
+    },
+    "resume": {
+      "thread": {
+        "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+        "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+        "forkedFromId": null,
+        "preview": "Reply with exactly: app-server resume rejoin smoke 1",
+        "ephemeral": false,
+        "modelProvider": "mock_provider",
+        "createdAt": 1780500080,
+        "updatedAt": 1780500080,
+        "status": {
+          "type": "idle"
+        },
+        "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+        "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+        "cliVersion": "0.136.0",
+        "source": "vscode",
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": [
+          {
+            "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "item-1",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Reply with exactly: app-server resume rejoin smoke 1",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "item-2",
+                "text": "resume-rejoin turn 1 done",
+                "phase": null,
+                "memoryCitation": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500080,
+            "completedAt": 1780500080,
+            "durationMs": 21
+          }
+        ]
+      },
+      "model": "mock-model",
+      "modelProvider": "mock_provider",
+      "serviceTier": null,
+      "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+      "runtimeWorkspaceRoots": [
+        "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "never",
+      "approvalsReviewer": "user",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": null,
+      "initialTurnsPage": null
+    }
+  },
+  "approvals": [],
+  "approvalSummary": {
+    "count": 0,
+    "availableDecisions": [],
+    "responseLatencyMs": [],
+    "resolvedLatencyMs": [],
+    "sawAcceptForSession": false
+  },
+  "modelRequests": [
+    {
+      "at": "2026-06-03T15:21:20.953Z",
+      "url": "/v1/responses",
+      "includesFunctionOutput": false,
+      "inputItemTypes": [
+        "message",
+        "message",
+        "message"
+      ],
+      "inputSummary": [
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        }
+      ]
+    },
+    {
+      "at": "2026-06-03T15:21:32.011Z",
+      "url": "/v1/responses",
+      "includesFunctionOutput": false,
+      "inputItemTypes": [
+        "message",
+        "message",
+        "message",
+        "message",
+        "message"
+      ],
+      "inputSummary": [
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "output_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        }
+      ]
+    }
+  ],
+  "threadListAfterSummary": {
+    "count": 1
+  },
+  "messages": [
+    {
+      "at": "2026-06-03T15:21:20.554Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialize",
+        "id": 1,
+        "params": {
+          "clientInfo": {
+            "name": "vibe_coding_smoke",
+            "title": "vibe-coding smoke",
+            "version": "0.1.0"
+          },
+          "capabilities": {
+            "experimentalApi": true,
+            "requestAttestation": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.848Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 1,
+        "result": {
+          "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+          "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.848Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "wmm",
+          "installationId": "f7390ef8-b507-4eba-9a80-f6884c33c69a",
+          "environmentId": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.848Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.848Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "model/list",
+        "id": 2,
+        "params": {
+          "limit": 20,
+          "includeHidden": false
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.851Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 2,
+        "result": {
+          "data": [
+            {
+              "id": "gpt-5.5",
+              "model": "gpt-5.5",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": {
+                "message": "GPT-5.5 is now available in Codex. It's our strongest agentic coding model yet, built to reason through large codebases, check assumptions with tools, and keep going until the work is done.\n\nLearn more: https://openai.com/index/introducing-gpt-5-5/\n\n"
+              },
+              "displayName": "GPT-5.5",
+              "description": "Frontier model for complex coding, research, and real-world work.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": true
+            },
+            {
+              "id": "gpt-5.4",
+              "model": "gpt-5.4",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "gpt-5.4",
+              "description": "Strong model for everyday coding.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.4-mini",
+              "model": "gpt-5.4-mini",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "GPT-5.4-Mini",
+              "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "model": "gpt-5.3-codex",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.3-codex",
+              "description": "Coding-optimized model.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.2",
+              "model": "gpt-5.2",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.2",
+              "description": "Optimized for professional work and long-running agents.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Maximizes reasoning depth for complex or ambiguous problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": false,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.851Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 3,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.853Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 3,
+        "result": {
+          "data": [],
+          "nextCursor": null,
+          "backwardsCursor": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.853Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/start",
+        "id": 4,
+        "params": {
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+          "approvalPolicy": "never",
+          "sandbox": "read-only",
+          "serviceName": "vibe_coding_smoke"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.935Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 4,
+        "result": {
+          "thread": {
+            "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "mock_provider",
+            "createdAt": 1780500080,
+            "updatedAt": 1780500080,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          },
+          "model": "mock-model",
+          "modelProvider": "mock_provider",
+          "serviceTier": null,
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+          "runtimeWorkspaceRoots": [
+            "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.936Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "mock_provider",
+            "createdAt": 1780500080,
+            "updatedAt": 1780500080,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.936Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "turn/start",
+        "id": 5,
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "input": [
+            {
+              "type": "text",
+              "text": "Reply with exactly: app-server resume rejoin smoke 1",
+              "text_elements": []
+            }
+          ],
+          "approvalPolicy": "never",
+          "sandboxPolicy": {
+            "type": "readOnly",
+            "networkAccess": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.936Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 5,
+        "result": {
+          "turn": {
+            "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.938Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "warning",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "message": "Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.942Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.942Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1780500080,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.945Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "1dbb16f0-349d-4a5d-ac63-e9fd4bee57ed",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server resume rejoin smoke 1",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "startedAtMs": 1780500080945
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.945Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "1dbb16f0-349d-4a5d-ac63-e9fd4bee57ed",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server resume rejoin smoke 1",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "completedAtMs": 1780500080945
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.957Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-resume-rejoin-1",
+            "text": "resume-rejoin turn 1 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "startedAtMs": 1780500080958
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.957Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-resume-rejoin-1",
+            "text": "resume-rejoin turn 1 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "completedAtMs": 1780500080958
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.959Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.959Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.960Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:20.960Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500080,
+            "completedAt": 1780500080,
+            "durationMs": 21
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.776Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialize",
+        "id": 6,
+        "params": {
+          "clientInfo": {
+            "name": "vibe_coding_smoke",
+            "title": "vibe-coding smoke",
+            "version": "0.1.0"
+          },
+          "capabilities": {
+            "experimentalApi": true,
+            "requestAttestation": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.913Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 6,
+        "result": {
+          "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+          "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.914Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "wmm",
+          "installationId": "f7390ef8-b507-4eba-9a80-f6884c33c69a",
+          "environmentId": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.914Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.914Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/resume",
+        "id": 7,
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+          "approvalPolicy": "never",
+          "sandbox": "read-only",
+          "serviceName": "vibe_coding_smoke_resume"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.995Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.995Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 7,
+        "result": {
+          "thread": {
+            "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+            "forkedFromId": null,
+            "preview": "Reply with exactly: app-server resume rejoin smoke 1",
+            "ephemeral": false,
+            "modelProvider": "mock_provider",
+            "createdAt": 1780500080,
+            "updatedAt": 1780500080,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": [
+              {
+                "id": "019e8e13-2929-70e2-b8b8-cede86da1329",
+                "items": [
+                  {
+                    "type": "userMessage",
+                    "id": "item-1",
+                    "clientId": null,
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Reply with exactly: app-server resume rejoin smoke 1",
+                        "text_elements": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "agentMessage",
+                    "id": "item-2",
+                    "text": "resume-rejoin turn 1 done",
+                    "phase": null,
+                    "memoryCitation": null
+                  }
+                ],
+                "itemsView": "full",
+                "status": "completed",
+                "error": null,
+                "startedAt": 1780500080,
+                "completedAt": 1780500080,
+                "durationMs": 21
+              }
+            ]
+          },
+          "model": "mock-model",
+          "modelProvider": "mock_provider",
+          "serviceTier": null,
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+          "runtimeWorkspaceRoots": [
+            "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "initialTurnsPage": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.996Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-2929-70e2-b8b8-cede86da1329",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.996Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/goal/cleared",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.996Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "turn/start",
+        "id": 8,
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "input": [
+            {
+              "type": "text",
+              "text": "Reply with exactly: app-server resume rejoin smoke 2",
+              "text_elements": []
+            }
+          ],
+          "approvalPolicy": "never",
+          "sandboxPolicy": {
+            "type": "readOnly",
+            "networkAccess": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.996Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 8,
+        "result": {
+          "turn": {
+            "id": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:31.998Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "warning",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "message": "Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.000Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.000Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1780500091,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.002Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "f7ac3ec4-d8d2-4a23-84b9-453b3e4ac450",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server resume rejoin smoke 2",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "startedAtMs": 1780500092003
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.002Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "f7ac3ec4-d8d2-4a23-84b9-453b3e4ac450",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server resume rejoin smoke 2",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "completedAtMs": 1780500092003
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.013Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-resume-rejoin-2",
+            "text": "resume-rejoin turn 2 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "startedAtMs": 1780500092014
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.013Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-resume-rejoin-2",
+            "text": "resume-rejoin turn 2 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "completedAtMs": 1780500092014
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.016Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turnId": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.016Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.016Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.016Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+          "turn": {
+            "id": "019e8e13-545d-74a3-8367-a837e05e6bcd",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500091,
+            "completedAt": 1780500092,
+            "durationMs": 17
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.111Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 9,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:21:32.113Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 9,
+        "result": {
+          "data": [
+            {
+              "id": "019e8e13-28dd-7c01-999d-a25969c9584d",
+              "sessionId": "019e8e13-28dd-7c01-999d-a25969c9584d",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server resume rejoin smoke 1",
+              "ephemeral": false,
+              "modelProvider": "mock_provider",
+              "createdAt": 1780500080,
+              "updatedAt": 1780500092,
+              "status": {
+                "type": "idle"
+              },
+              "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-AgFojR\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-21-20-019e8e13-28dd-7c01-999d-a25969c9584d.jsonl",
+              "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-VRm5H3",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": null,
+          "backwardsCursor": "2026-06-03T15:21:19.999Z"
+        }
+      }
+    }
+  ],
+  "stderr": "WARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir \"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\\" (codex_home: AbsolutePathBuf(\"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\codex-app-server-home-AgFojR\"))\nWARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir \"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\\" (codex_home: AbsolutePathBuf(\"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\codex-app-server-home-AgFojR\"))\n"
+}

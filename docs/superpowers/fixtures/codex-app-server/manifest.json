@@ -20,7 +20,9 @@
     "sideEffectFreeProbeCreatesNoThread": "pass",
     "sessionScopeFieldIdentified": "pass",
     "projectTrustBehaviorKnown": "pass",
-    "userInputRequestBehaviorKnown": "pass"
+    "userInputRequestBehaviorKnown": "pass",
+    "resumeRejoinWithPersistedThreadId": "pass",
+    "nativeImageInput": "pass"
   },
   "samples": [
     {
@@ -63,6 +65,20 @@
       "scenario": "project-trust",
       "result": "pass",
       "note": "Isolated CODEX_HOME showed read-only thread/start did not persist trust, while workspace-write thread/start persisted trust_level=trusted for the workspace."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-resume-rejoin.json",
+      "transport": "stdio",
+      "scenario": "resume-rejoin",
+      "result": "pass",
+      "note": "Isolated CODEX_HOME plus mock Responses created a thread, completed a turn, stopped the app-server process, started a fresh stdio app-server process, resumed the same threadId, and completed a second turn."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-image-input.json",
+      "transport": "stdio",
+      "scenario": "image-input",
+      "result": "pass",
+      "note": "A local 1x1 PNG was sent as app-server localImage input and reached the mock Responses payload as input_image before turn/completed."
     }
   ],
   "notes": [

@@ -1,0 +1,953 @@
+{
+  "schemaVersion": 1,
+  "transport": "stdio",
+  "scenario": "image-input",
+  "codexBin": "D:\\nodejs\\codex.cmd",
+  "codexJs": "D:\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js",
+  "mockModelServerUrl": "http://127.0.0.1:53156",
+  "childPid": 47752,
+  "childExit": {
+    "code": null,
+    "signal": "SIGTERM"
+  },
+  "processTree": {
+    "descendantsBeforeCleanup": [
+      {
+        "pid": 6468,
+        "parentPid": 47752,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4"
+      },
+      {
+        "pid": 83928,
+        "parentPid": 47752,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server"
+      },
+      {
+        "pid": 3412,
+        "parentPid": 83928,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 28876,
+        "parentPid": 3412,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD"
+      },
+      {
+        "pid": 79572,
+        "parentPid": 28876,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      },
+      {
+        "pid": 40516,
+        "parentPid": 79572,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git"
+      }
+    ],
+    "descendantsAfterCleanup": [
+      {
+        "pid": 6468,
+        "parentPid": 47752,
+        "name": "conhost.exe",
+        "commandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0x4",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 83928,
+        "parentPid": 47752,
+        "name": "codex.exe",
+        "commandLine": "D:\\nvm\\v24.11.1\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe app-server",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 3412,
+        "parentPid": 83928,
+        "name": "git.exe",
+        "commandLine": "\"git\" ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 28876,
+        "parentPid": 3412,
+        "name": "git.exe",
+        "commandLine": "git.exe ls-remote https://github.com/openai/plugins.git HEAD",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 79572,
+        "parentPid": 28876,
+        "name": "git.exe",
+        "commandLine": "git remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      },
+      {
+        "pid": 40516,
+        "parentPid": 79572,
+        "name": "git-remote-https.exe",
+        "commandLine": "git-remote-https https://github.com/openai/plugins.git https://github.com/openai/plugins.git",
+        "aliveAfterCleanup": false
+      }
+    ],
+    "orphanedDescendantsAfterCleanup": []
+  },
+  "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+  "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz",
+  "initializedAt": "2026-06-03T15:20:34.143Z",
+  "completedAt": "2026-06-03T15:20:45.028Z",
+  "initialize": {
+    "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+    "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz",
+    "platformFamily": "windows",
+    "platformOs": "windows"
+  },
+  "modelListSummary": {
+    "count": 5,
+    "defaultModel": "gpt-5.5"
+  },
+  "threadListBeforeSummary": {
+    "count": 0
+  },
+  "threadStart": {
+    "thread": {
+      "id": "019e8e12-7353-70f2-93f3-d172534e3b03",
+      "sessionId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+      "forkedFromId": null,
+      "preview": "",
+      "ephemeral": false,
+      "modelProvider": "mock_provider",
+      "createdAt": 1780500034,
+      "updatedAt": 1780500034,
+      "status": {
+        "type": "idle"
+      },
+      "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-20-34-019e8e12-7353-70f2-93f3-d172534e3b03.jsonl",
+      "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+      "cliVersion": "0.136.0",
+      "source": "vscode",
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "turns": []
+    },
+    "model": "mock-model",
+    "modelProvider": "mock_provider",
+    "serviceTier": null,
+    "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+    "runtimeWorkspaceRoots": [
+      "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "never",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": null,
+    "reasoningEffort": null
+  },
+  "turns": [
+    {
+      "turnStart": {
+        "turn": {
+          "id": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": null,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "turnCompleted": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turn": {
+            "id": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500034,
+            "completedAt": 1780500034,
+            "durationMs": 32
+          }
+        }
+      }
+    }
+  ],
+  "imageInput": {
+    "imagePath": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei\\app-server-smoke-image.png",
+    "localImageSent": true
+  },
+  "approvals": [],
+  "approvalSummary": {
+    "count": 0,
+    "availableDecisions": [],
+    "responseLatencyMs": [],
+    "resolvedLatencyMs": [],
+    "sawAcceptForSession": false
+  },
+  "modelRequests": [
+    {
+      "at": "2026-06-03T15:20:34.482Z",
+      "url": "/v1/responses",
+      "includesFunctionOutput": false,
+      "inputItemTypes": [
+        "message",
+        "message",
+        "message"
+      ],
+      "inputSummary": [
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text"
+          ]
+        },
+        {
+          "type": "message",
+          "contentTypes": [
+            "input_text",
+            "input_text",
+            "input_image",
+            "input_text"
+          ]
+        }
+      ]
+    }
+  ],
+  "threadListAfterSummary": {
+    "count": 1
+  },
+  "messages": [
+    {
+      "at": "2026-06-03T15:20:34.143Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialize",
+        "id": 1,
+        "params": {
+          "clientInfo": {
+            "name": "vibe_coding_smoke",
+            "title": "vibe-coding smoke",
+            "version": "0.1.0"
+          },
+          "capabilities": {
+            "experimentalApi": true,
+            "requestAttestation": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.378Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 1,
+        "result": {
+          "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+          "codexHome": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.378Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.378Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "model/list",
+        "id": 2,
+        "params": {
+          "limit": 20,
+          "includeHidden": false
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.379Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "wmm",
+          "installationId": "2a458d7d-39ee-45c3-90b6-3c761f009338",
+          "environmentId": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.380Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 2,
+        "result": {
+          "data": [
+            {
+              "id": "gpt-5.5",
+              "model": "gpt-5.5",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": {
+                "message": "GPT-5.5 is now available in Codex. It's our strongest agentic coding model yet, built to reason through large codebases, check assumptions with tools, and keep going until the work is done.\n\nLearn more: https://openai.com/index/introducing-gpt-5-5/\n\n"
+              },
+              "displayName": "GPT-5.5",
+              "description": "Frontier model for complex coding, research, and real-world work.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": true
+            },
+            {
+              "id": "gpt-5.4",
+              "model": "gpt-5.4",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "gpt-5.4",
+              "description": "Strong model for everyday coding.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.4-mini",
+              "model": "gpt-5.4-mini",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "GPT-5.4-Mini",
+              "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "model": "gpt-5.3-codex",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.3-codex",
+              "description": "Coding-optimized model.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.2",
+              "model": "gpt-5.2",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.2",
+              "description": "Optimized for professional work and long-running agents.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Maximizes reasoning depth for complex or ambiguous problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": false,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.380Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 3,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.381Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 3,
+        "result": {
+          "data": [],
+          "nextCursor": null,
+          "backwardsCursor": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.381Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/start",
+        "id": 4,
+        "params": {
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+          "approvalPolicy": "never",
+          "sandbox": "read-only",
+          "serviceName": "vibe_coding_smoke"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.453Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 4,
+        "result": {
+          "thread": {
+            "id": "019e8e12-7353-70f2-93f3-d172534e3b03",
+            "sessionId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "mock_provider",
+            "createdAt": 1780500034,
+            "updatedAt": 1780500034,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-20-34-019e8e12-7353-70f2-93f3-d172534e3b03.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          },
+          "model": "mock-model",
+          "modelProvider": "mock_provider",
+          "serviceTier": null,
+          "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+          "runtimeWorkspaceRoots": [
+            "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.453Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019e8e12-7353-70f2-93f3-d172534e3b03",
+            "sessionId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "mock_provider",
+            "createdAt": 1780500034,
+            "updatedAt": 1780500034,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-20-34-019e8e12-7353-70f2-93f3-d172534e3b03.jsonl",
+            "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.454Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "turn/start",
+        "id": 5,
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "input": [
+            {
+              "type": "text",
+              "text": "Reply with exactly: app-server image input ok",
+              "text_elements": []
+            },
+            {
+              "type": "localImage",
+              "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei\\app-server-smoke-image.png"
+            }
+          ],
+          "approvalPolicy": "never",
+          "sandboxPolicy": {
+            "type": "readOnly",
+            "networkAccess": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.455Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 5,
+        "result": {
+          "turn": {
+            "id": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.456Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "warning",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "message": "Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.460Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.460Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turn": {
+            "id": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1780500034,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.472Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "ac33a291-6b4c-44a6-9388-32fae042eb02",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server image input ok",
+                "text_elements": []
+              },
+              {
+                "type": "localImage",
+                "detail": null,
+                "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei\\app-server-smoke-image.png"
+              }
+            ]
+          },
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turnId": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "startedAtMs": 1780500034472
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.472Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "ac33a291-6b4c-44a6-9388-32fae042eb02",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly: app-server image input ok",
+                "text_elements": []
+              },
+              {
+                "type": "localImage",
+                "detail": null,
+                "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei\\app-server-smoke-image.png"
+              }
+            ]
+          },
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turnId": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "completedAtMs": 1780500034472
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.485Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-image-input-1",
+            "text": "image-input turn 1 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turnId": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "startedAtMs": 1780500034486
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.485Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-direct-image-input-1",
+            "text": "image-input turn 1 done",
+            "phase": null,
+            "memoryCitation": null
+          },
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turnId": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "completedAtMs": 1780500034486
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.488Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turnId": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.488Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.488Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.488Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+          "turn": {
+            "id": "019e8e12-7397-76b3-8ce7-5d2e0e90d596",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780500034,
+            "completedAt": 1780500034,
+            "durationMs": 32
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.567Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 6,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T15:20:34.568Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 6,
+        "result": {
+          "data": [
+            {
+              "id": "019e8e12-7353-70f2-93f3-d172534e3b03",
+              "sessionId": "019e8e12-7353-70f2-93f3-d172534e3b03",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server image input ok",
+              "ephemeral": false,
+              "modelProvider": "mock_provider",
+              "createdAt": 1780500034,
+              "updatedAt": 1780500034,
+              "status": {
+                "type": "idle"
+              },
+              "path": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-home-pAFqCz\\sessions\\2026\\06\\03\\rollout-2026-06-03T23-20-34-019e8e12-7353-70f2-93f3-d172534e3b03.jsonl",
+              "cwd": "<USER_PATH>\\AppData\\Local\\Temp\\codex-app-server-workspace-I3G5ei",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": null,
+          "backwardsCursor": "2026-06-03T15:20:33.999Z"
+        }
+      }
+    }
+  ],
+  "stderr": "WARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir \"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\\" (codex_home: AbsolutePathBuf(\"<USER_PATH>\\\\AppData\\\\Local\\\\Temp\\\\codex-app-server-home-pAFqCz\"))\n"
+}

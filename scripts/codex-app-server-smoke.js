@@ -19,7 +19,10 @@ const cwd = process.env.CODEX_SMOKE_CWD || repoRoot;
 const timeoutMs = Number(process.env.CODEX_APP_SERVER_SMOKE_TIMEOUT_MS || 120000);
 const dateStamp = new Date().toISOString().slice(0, 10);
 const scenario = process.env.CODEX_APP_SERVER_SMOKE_SCENARIO || 'basic-turn';
-const usesMockModelServer = scenario === 'command-approval';
+const usesMockModelServer = scenario === 'command-approval' ||
+  scenario === 'resume-rejoin' ||
+  scenario === 'image-input' ||
+  scenario === 'permissions-approval';
 const isolatedProjectTrust = scenario === 'project-trust';
 const usesIsolatedCodexHome = isolatedProjectTrust || usesMockModelServer;
 const scenarioCodexHome = usesIsolatedCodexHome
@@ -158,6 +161,24 @@ function handleServerRequest(message) {
     const response = {
       id: message.id,
       result: { decision },
+    };
+    record('client_to_server_request_response', response);
+    child.stdin.write(`${JSON.stringify(response)}\n`);
+    return;
+  }
+  if (method === 'item/permissions/requestApproval') {
+    approvals.push(redact({
+      method,
+      id: message.id,
+      decision: 'deny',
+      params: message.params,
+    }));
+    const response = {
+      id: message.id,
+      result: {
+        permissions: {},
+        scope: 'turn',
+      },
     };
     record('client_to_server_request_response', response);
     child.stdin.write(`${JSON.stringify(response)}\n`);
@@ -303,6 +324,23 @@ function shellCommandSse(index) {
   ]);
 }
 
+function requestPermissionsSse(index) {
+  const responseId = `resp-permissions-${index + 1}`;
+  const args = JSON.stringify({
+    reason: 'Select a workspace root',
+    permissions: {
+      file_system: {
+        write: ['.', '../shared'],
+      },
+    },
+  });
+  return sse([
+    evResponseCreated(responseId),
+    evFunctionCall(`call-permissions-${index + 1}`, 'request_permissions', args),
+    evCompleted(responseId),
+  ]);
+}
+
 function finalAssistantSse(index) {
   const responseId = `resp-approval-final-${index + 1}`;
   return sse([
@@ -312,10 +350,31 @@ function finalAssistantSse(index) {
   ]);
 }
 
+function directAssistantSse(index) {
+  const responseId = `resp-direct-${scenario}-${index + 1}`;
+  return sse([
+    evResponseCreated(responseId),
+    evAssistantMessage(`msg-direct-${scenario}-${index + 1}`, `${scenario} turn ${index + 1} done`),
+    evCompleted(responseId),
+  ]);
+}
+
 function requestIncludesFunctionOutput(body) {
   const input = Array.isArray(body?.input) ? body.input : [];
   const last = input[input.length - 1];
   return Boolean(last && last.type === 'function_call_output');
+}
+
+function summarizeModelInput(input) {
+  if (!Array.isArray(input)) return null;
+  return input.map((item) => {
+    if (!item || typeof item !== 'object') return { type: null };
+    const summary = { type: item.type || null };
+    if (Array.isArray(item.content)) {
+      summary.contentTypes = item.content.map((content) => content?.type || null);
+    }
+    return summary;
+  });
 }
 
 function startMockModelServer() {
@@ -340,10 +399,16 @@ function startMockModelServer() {
         url: req.url,
         includesFunctionOutput: requestIncludesFunctionOutput(body),
         inputItemTypes: Array.isArray(body?.input) ? body.input.map((item) => item?.type || null) : null,
+        inputSummary: summarizeModelInput(body?.input),
       }));
       const isFollowup = requestIncludesFunctionOutput(body);
       const currentIndex = isFollowup ? Math.max(0, turnIndex - 1) : turnIndex++;
-      const bodyText = isFollowup ? finalAssistantSse(currentIndex) : shellCommandSse(currentIndex);
+      let bodyText = directAssistantSse(currentIndex);
+      if (scenario === 'command-approval') {
+        bodyText = isFollowup ? finalAssistantSse(currentIndex) : shellCommandSse(currentIndex);
+      } else if (scenario === 'permissions-approval') {
+        bodyText = isFollowup ? directAssistantSse(currentIndex) : requestPermissionsSse(currentIndex);
+      }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -373,9 +438,10 @@ function stopMockModelServer() {
 function writeMockModelConfig(serverUrl) {
   if (!scenarioCodexHome) throw new Error('mock model config requires isolated CODEX_HOME');
   fs.mkdirSync(scenarioCodexHome, { recursive: true });
+  const approvalPolicy = scenario === 'permissions-approval' ? 'untrusted' : 'on-request';
   const configToml = [
     'model = "mock-model"',
-    'approval_policy = "on-request"',
+    `approval_policy = "${approvalPolicy}"`,
     'sandbox_mode = "read-only"',
     'model_provider = "mock_provider"',
     '',
@@ -386,6 +452,11 @@ function writeMockModelConfig(serverUrl) {
     'request_max_retries = 0',
     'stream_max_retries = 0',
     '',
+    ...(scenario === 'permissions-approval' ? [
+      '[features]',
+      'request_permissions_tool = true',
+      '',
+    ] : []),
   ].join('\n');
   fs.writeFileSync(path.join(scenarioCodexHome, 'config.toml'), configToml, 'utf8');
 }
@@ -488,11 +559,17 @@ function turnPromptForScenario(name, index = 0) {
   if (name === 'command-approval') {
     return 'Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke';
   }
+  if (name === 'permissions-approval') {
+    return 'Request write access to a temporary workspace root, then reply with exactly: app-server permissions approval ok';
+  }
   if (name === 'sequential-turns') {
     return `Reply with exactly: app-server sequential smoke ${index + 1}`;
   }
   if (name === 'large-output') {
     return 'Run a local shell command that prints exactly 1200 short numbered lines, then reply with exactly: app-server large output ok';
+  }
+  if (name === 'resume-rejoin') {
+    return `Reply with exactly: app-server resume rejoin smoke ${index + 1}`;
   }
   if (name === 'cancellation') {
     return 'Begin a long answer counting from 1 to 100000 with one number per line. Do not summarize.';
@@ -526,6 +603,17 @@ async function runBasicScenario(threadId) {
       turns.push(await startTurnAndWait(threadId, 'command-approval', index));
     }
     return { turns };
+  }
+  if (scenario === 'permissions-approval') {
+    const result = {
+      turns: [await startTurnAndWait(threadId, 'permissions-approval', 0)]
+    };
+    if (!approvals.some((approval) => approval.method === 'item/permissions/requestApproval')) {
+      throw new Error('permissions-approval smoke completed without item/permissions/requestApproval');
+    }
+    return {
+      ...result
+    };
   }
   return {
     turns: [await startTurnAndWait(threadId, scenario, 0)]
@@ -569,6 +657,133 @@ async function runLargeOutputScenario(threadId) {
   }, timeoutMs);
   return {
     turns: [{ shellCommand, turnCompleted }]
+  };
+}
+
+async function runImageInputScenario(threadId) {
+  const imagePath = path.join(scenarioWorkspace, 'app-server-smoke-image.png');
+  const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  fs.writeFileSync(imagePath, Buffer.from(transparentPng, 'base64'));
+  const turnStart = await request('turn/start', {
+    threadId,
+    input: [
+      {
+        type: 'text',
+        text: 'Reply with exactly: app-server image input ok',
+        text_elements: [],
+      },
+      {
+        type: 'localImage',
+        path: imagePath,
+      }
+    ],
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'readOnly', networkAccess: false },
+  }, 30000);
+  const turnId = turnStart.turn && turnStart.turn.id;
+  if (!turnId) throw new Error('turn/start did not return turn.id');
+  const turnCompleted = await waitForNotification('turn/completed', (message) => {
+    return message.params && message.params.turn && message.params.turn.id === turnId;
+  }, timeoutMs);
+  return {
+    turns: [{ turnStart, turnCompleted }],
+    imageInput: {
+      imagePath: redact(imagePath),
+      localImageSent: true,
+    }
+  };
+}
+
+async function initializeConnection() {
+  initializedAt = initializedAt || new Date();
+  const initialize = await request('initialize', {
+    clientInfo: {
+      name: 'vibe_coding_smoke',
+      title: 'vibe-coding smoke',
+      version: '0.1.0',
+    },
+    capabilities: {
+      experimentalApi: true,
+      requestAttestation: false,
+    },
+  }, 10000);
+  notification('initialized', {});
+  return initialize;
+}
+
+function startChildProcess() {
+  const command = codexJs ? nodeBin : codexBin;
+  const args = codexJs ? [codexJs, 'app-server'] : ['app-server'];
+  child = spawn(command, args, {
+    cwd: scenarioWorkspace,
+    env: usesIsolatedCodexHome ? { ...process.env, CODEX_HOME: scenarioCodexHome } : process.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  childPid = child.pid || null;
+
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderrChunks.push(redact(chunk));
+  });
+
+  const rl = readline.createInterface({ input: child.stdout });
+  rl.on('line', (line) => {
+    if (!line.trim()) return;
+    try {
+      handleMessage(JSON.parse(line));
+    } catch (error) {
+      record('server_parse_error', { line, error: error.message });
+    }
+  });
+
+  child.once('exit', (code, signal) => {
+    childExit = { code, signal };
+    for (const [id, entry] of pending.entries()) {
+      entry.reject(new Error(`app-server exited before ${entry.method} response: code=${code} signal=${signal}`));
+      pending.delete(id);
+    }
+  });
+}
+
+async function restartChildProcess() {
+  const previousChild = {
+    pid: childPid,
+    descendantsBeforeCleanup: listDescendantProcesses(childPid),
+  };
+  previousChild.exit = await stopChild();
+  terminateCapturedDescendants(previousChild.descendantsBeforeCleanup);
+  await wait(1000);
+  previousChild.descendantsAfterCleanup = previousChild.descendantsBeforeCleanup.map((processInfo) => ({
+    ...processInfo,
+    aliveAfterCleanup: pidExists(processInfo.pid),
+  }));
+  child = null;
+  childExit = null;
+  childPid = null;
+  startChildProcess();
+  previousChild.reinitialized = await initializeConnection();
+  return previousChild;
+}
+
+async function runResumeRejoinScenario(threadId) {
+  const firstTurn = await startTurnAndWait(threadId, 'resume-rejoin', 0);
+  const restart = await restartChildProcess();
+  const resume = await request('thread/resume', {
+    threadId,
+    cwd: scenarioWorkspace,
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    serviceName: 'vibe_coding_smoke_resume',
+  }, 30000);
+  const secondTurn = await startTurnAndWait(threadId, 'resume-rejoin', 1);
+  return {
+    turns: [firstTurn, secondTurn],
+    resumeRejoin: {
+      threadId,
+      restart,
+      resume,
+    }
   };
 }
 
@@ -621,6 +836,8 @@ async function runScenario(threadId) {
   if (scenario === 'sequential-turns') return runSequentialTurnsScenario(threadId);
   if (scenario === 'cancellation') return runCancellationScenario(threadId);
   if (scenario === 'large-output') return runLargeOutputScenario(threadId);
+  if (scenario === 'resume-rejoin') return runResumeRejoinScenario(threadId);
+  if (scenario === 'image-input') return runImageInputScenario(threadId);
   return runBasicScenario(threadId);
 }
 
@@ -630,52 +847,9 @@ async function run() {
     const serverUrl = await startMockModelServer();
     writeMockModelConfig(serverUrl);
   }
-  const command = codexJs ? nodeBin : codexBin;
-  const args = codexJs ? [codexJs, 'app-server'] : ['app-server'];
-  child = spawn(command, args, {
-    cwd: scenarioWorkspace,
-    env: usesIsolatedCodexHome ? { ...process.env, CODEX_HOME: scenarioCodexHome } : process.env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  childPid = child.pid || null;
+  startChildProcess();
 
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => {
-    stderrChunks.push(redact(chunk));
-  });
-
-  const rl = readline.createInterface({ input: child.stdout });
-  rl.on('line', (line) => {
-    if (!line.trim()) return;
-    try {
-      handleMessage(JSON.parse(line));
-    } catch (error) {
-      record('server_parse_error', { line, error: error.message });
-    }
-  });
-
-  child.once('exit', (code, signal) => {
-    childExit = { code, signal };
-    for (const [id, entry] of pending.entries()) {
-      entry.reject(new Error(`app-server exited before ${entry.method} response: code=${code} signal=${signal}`));
-      pending.delete(id);
-    }
-  });
-
-  initializedAt = new Date();
-  const initialize = await request('initialize', {
-    clientInfo: {
-      name: 'vibe_coding_smoke',
-      title: 'vibe-coding smoke',
-      version: '0.1.0',
-    },
-    capabilities: {
-      experimentalApi: true,
-      requestAttestation: false,
-    },
-  }, 10000);
-  notification('initialized', {});
+  const initialize = await initializeConnection();
 
   let modelList = null;
   let threadListBefore = null;
