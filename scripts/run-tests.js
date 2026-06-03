@@ -5963,7 +5963,7 @@ test('Codex app-server bridge covers current exec adapter launch and event contr
       cwd: 'D:\\Repo',
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
-      sandbox: 'workspace-write',
+      sandbox: 'read-only',
       config: { tool_timeout_sec: 900 },
       model: 'gpt-5.5'
     }
@@ -5985,7 +5985,7 @@ test('Codex app-server bridge covers current exec adapter launch and event contr
       cwd: 'D:\\Repo',
       approvalPolicy: 'on-request',
       approvalsReviewer: 'user',
-      sandbox: 'workspace-write',
+      sandbox: 'read-only',
       config: { tool_timeout_sec: 900 },
       model: 'gpt-5.5'
     }

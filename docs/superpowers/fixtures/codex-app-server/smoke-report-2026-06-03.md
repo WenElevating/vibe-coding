@@ -55,10 +55,10 @@ schema inspection only.
 - Capabilities to expose: initialize, model/list probe, thread/start, turn/start, turn/interrupt, streamed non-blocking notifications, turn/completed, and stdio operation across 10 consecutive turns.
 - Capabilities to keep adapter-internal only for smoke: `thread/shellCommand`, because official docs state it runs outside the sandbox and should only be exposed for explicit user-initiated commands.
 - Capabilities to lower or omit: approval callbacks and session-scoped approval remain unavailable until dedicated smoke gates pass.
-- Product default gate: app-server must still remain non-default/non-selectable unless elevated `thread/start` sandbox modes are blocked or exposed only through explicit opt-in with audit-visible project-trust notice.
+- Product mitigation applied in bridge: app-server `thread/start` and `thread/resume` should use read-only sandbox, because elevated `workspace-write` at thread start persists project trust. Elevated workspace write remains a turn-level setting.
 - App-server selectable: no. Keep behind feature flag until blocked gates are resolved.
 
 ## Follow-up
 
 - Add a dedicated approval trigger that produces `item/commandExecution/requestApproval`, then capture `availableDecisions`.
-- Add the product-side project-trust mitigation before allowing app-server to start with workspace-write or danger-full-access settings.
+- Keep regression coverage that app-server bridge does not request workspace-write at thread start.

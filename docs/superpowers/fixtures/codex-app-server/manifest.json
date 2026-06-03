@@ -72,6 +72,6 @@
     "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
     "The smoke runner now records child pid, exit signal, and Windows process-tree descendants; the measured cancellation sample captured 12 descendants and zero survivors after cleanup.",
     "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior.",
-    "Project trust behavior is known but not mitigated for product defaulting: workspace-write thread/start can persist trust_level=trusted, so app-server must remain gated unless elevated sandbox starts are blocked or explicitly opted in with audit visibility."
+    "Project trust behavior is known: workspace-write thread/start can persist trust_level=trusted. The bridge mitigation is to start/resume threads as read-only and keep elevated workspace-write policy on turn/start rather than thread/start."
   ]
 }

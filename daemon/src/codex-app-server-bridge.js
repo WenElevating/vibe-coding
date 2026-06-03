@@ -22,7 +22,7 @@ function buildCodexAppServerThreadStartRequest({
       cwd: optionalString(workspacePath),
       approvalPolicy: approvalPolicy(permissionMode),
       approvalsReviewer: 'user',
-      sandbox: 'workspace-write',
+      sandbox: 'read-only',
       config: buildCodexAppServerConfig(toolTimeoutSec),
       model: optionalString(model)
     })
@@ -45,7 +45,7 @@ function buildCodexAppServerThreadResumeRequest({
       cwd: optionalString(workspacePath),
       approvalPolicy: approvalPolicy(permissionMode),
       approvalsReviewer: 'user',
-      sandbox: 'workspace-write',
+      sandbox: 'read-only',
       config: buildCodexAppServerConfig(toolTimeoutSec),
       model: optionalString(model)
     })
