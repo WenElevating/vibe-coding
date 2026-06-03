@@ -182,6 +182,10 @@ function waitForNotification(method, predicate = () => true, timeout = timeoutMs
   });
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function stopChild(timeout = 5000) {
   if (!child || childExit) return Promise.resolve(childExit);
   return new Promise((resolve) => {
@@ -198,6 +202,94 @@ function stopChild(timeout = 5000) {
     });
     child.kill();
   });
+}
+
+function turnPromptForScenario(name, index = 0) {
+  if (name === 'command-approval') {
+    return 'Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke';
+  }
+  if (name === 'sequential-turns') {
+    return `Reply with exactly: app-server sequential smoke ${index + 1}`;
+  }
+  if (name === 'large-output') {
+    return 'Run a local shell command that prints exactly 1200 short numbered lines, then reply with exactly: app-server large output ok';
+  }
+  if (name === 'cancellation') {
+    return 'Begin a long answer counting from 1 to 100000 with one number per line. Do not summarize.';
+  }
+  return 'Reply with exactly: app-server smoke ok';
+}
+
+async function startTurnAndWait(threadId, name, index = 0) {
+  const turnStart = await request('turn/start', {
+    threadId,
+    input: [{
+      type: 'text',
+      text: turnPromptForScenario(name, index),
+      text_elements: [],
+    }],
+    approvalPolicy: name === 'command-approval' ? 'on-request' : 'never',
+    sandboxPolicy: { type: 'readOnly', networkAccess: false },
+  }, 30000);
+  const turnId = turnStart.turn && turnStart.turn.id;
+  if (!turnId) throw new Error('turn/start did not return turn.id');
+  const turnCompleted = await waitForNotification('turn/completed', (message) => {
+    return message.params && message.params.turn && message.params.turn.id === turnId;
+  }, timeoutMs);
+  return { turnStart, turnCompleted };
+}
+
+async function runBasicScenario(threadId) {
+  return {
+    turns: [await startTurnAndWait(threadId, scenario, 0)]
+  };
+}
+
+async function runSequentialTurnsScenario(threadId) {
+  const turns = [];
+  for (let index = 0; index < 10; index += 1) {
+    turns.push(await startTurnAndWait(threadId, 'sequential-turns', index));
+  }
+  return { turns };
+}
+
+async function runCancellationScenario(threadId) {
+  const command = process.platform === 'win32'
+    ? 'powershell -NoProfile -Command "Start-Sleep -Seconds 20"'
+    : 'sleep 20';
+  const shellCommand = await request('thread/shellCommand', { threadId, command }, 10000);
+  const turnStarted = await waitForNotification('turn/started', (message) => {
+    return message.params && message.params.threadId === threadId;
+  }, 10000);
+  const turnId = turnStarted.params.turn && turnStarted.params.turn.id;
+  if (!turnId) throw new Error('turn/started did not include turn.id');
+  await wait(Number(process.env.CODEX_APP_SERVER_SMOKE_INTERRUPT_DELAY_MS || 500));
+  const interrupt = await request('turn/interrupt', { threadId, turnId }, 10000);
+  const turnCompleted = await waitForNotification('turn/completed', (message) => {
+    return message.params && message.params.turn && message.params.turn.id === turnId;
+  }, timeoutMs);
+  return {
+    turns: [{ shellCommand, turnStarted, interrupt, turnCompleted }]
+  };
+}
+
+async function runLargeOutputScenario(threadId) {
+  const js = 'for (let i = 1; i <= 1200; i++) console.log(`app-server-large-output-${i}`)';
+  const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(js)}`;
+  const shellCommand = await request('thread/shellCommand', { threadId, command }, 10000);
+  const turnCompleted = await waitForNotification('turn/completed', (message) => {
+    return message.params && message.params.threadId === threadId;
+  }, timeoutMs);
+  return {
+    turns: [{ shellCommand, turnCompleted }]
+  };
+}
+
+async function runScenario(threadId) {
+  if (scenario === 'sequential-turns') return runSequentialTurnsScenario(threadId);
+  if (scenario === 'cancellation') return runCancellationScenario(threadId);
+  if (scenario === 'large-output') return runLargeOutputScenario(threadId);
+  return runBasicScenario(threadId);
 }
 
 async function run() {
@@ -259,23 +351,7 @@ async function run() {
   const threadId = threadStart.thread && threadStart.thread.id;
   if (!threadId) throw new Error('thread/start did not return thread.id');
 
-  const turnStart = await request('turn/start', {
-    threadId,
-    input: [{
-      type: 'text',
-      text: scenario === 'command-approval'
-        ? 'Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke'
-        : 'Reply with exactly: app-server smoke ok',
-      text_elements: [],
-    }],
-    approvalPolicy: scenario === 'command-approval' ? 'on-request' : 'never',
-    sandboxPolicy: { type: 'readOnly', networkAccess: false },
-  }, 30000);
-  const turnId = turnStart.turn && turnStart.turn.id;
-  if (!turnId) throw new Error('turn/start did not return turn.id');
-  const turnCompleted = await waitForNotification('turn/completed', (message) => {
-    return message.params && message.params.turn && message.params.turn.id === turnId;
-  }, timeoutMs);
+  const scenarioResult = await runScenario(threadId);
   const threadListAfter = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
   await stopChild();
   completedAt = new Date();
@@ -302,8 +378,7 @@ async function run() {
       count: Array.isArray(threadListBefore.data) ? threadListBefore.data.length : null,
     },
     threadStart,
-    turnStart,
-    turnCompleted,
+    ...scenarioResult,
     approvals,
     threadListAfterSummary: {
       count: Array.isArray(threadListAfter.data) ? threadListAfter.data.length : null,
@@ -319,7 +394,7 @@ async function run() {
 
 run()
   .catch((error) => {
-    const failedPath = path.join(samplesDir, `${dateStamp}-stdio-basic-turn-failed.json`);
+    const failedPath = path.join(samplesDir, `${dateStamp}-stdio-${scenario}-failed.json`);
     fs.mkdirSync(samplesDir, { recursive: true });
     fs.writeFileSync(failedPath, `${JSON.stringify(redact({
       schemaVersion: 1,

@@ -14,6 +14,9 @@
 ```powershell
 node scripts\codex-app-server-smoke.js
 $env:CODEX_APP_SERVER_SMOKE_SCENARIO='command-approval'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='sequential-turns'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='180000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='cancellation'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
+$env:CODEX_APP_SERVER_SMOKE_SCENARIO='large-output'; $env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS='120000'; node scripts\codex-app-server-smoke.js; Remove-Item Env:CODEX_APP_SERVER_SMOKE_SCENARIO; Remove-Item Env:CODEX_APP_SERVER_SMOKE_TIMEOUT_MS
 ```
 
 The smoke uses the installed Codex CLI and starts `codex app-server` with its
@@ -25,12 +28,12 @@ schema inspection only.
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | initialize within 10s | pass | `samples/2026-06-03-stdio-basic-turn.json` initialized at 2026-06-03T13:06:14.848Z and received the initialize response before subsequent requests. |
-| 10 sequential turns | blocked | Only single-turn stdio smoke was run. |
+| 10 sequential turns | pass | `samples/2026-06-03-stdio-sequential-turns.json` completed 10 consecutive turns on one stdio app-server child; all 10 `turn/completed` statuses were `completed`. |
 | 3 approval round trips | blocked | `samples/2026-06-03-stdio-command-approval.json` completed command execution but did not emit `item/commandExecution/requestApproval`. |
 | approval p95 latency under 2s | blocked | No approval request was emitted, so latency cannot be measured. |
-| cancellation cleanup deadline | blocked | Not yet exercised. |
-| large output no pipe block | blocked | Not yet exercised. |
-| no orphan processes | blocked | Samples record owned child pids 20216 and 64332 exiting via SIGTERM, but descendant process-tree orphan checks were not measured. |
+| cancellation cleanup deadline | pass | `samples/2026-06-03-stdio-cancellation.json` used `thread/shellCommand` to start a long-running shell turn, sent `turn/interrupt`, received a successful response, and observed `turn/completed` with status `interrupted`; the app-server child exited via SIGTERM during cleanup. |
+| large output no pipe block | pass | `samples/2026-06-03-stdio-large-output.json` completed a `thread/shellCommand` command that printed 1200 numbered lines without JSONL parse errors, request timeouts, or pipe deadlock. |
+| no orphan processes | blocked | Samples record owned child pids 20216, 64332, 54444, 58664, and 78052 exiting via SIGTERM, but descendant process-tree orphan checks were not measured. |
 | side-effect-free probe creates no thread | pass | `model/list` and `thread/list` completed before any `thread/start`; no `thread/started` appeared before the explicit `thread/start`. |
 | session scope field identified | blocked | No approval request was emitted, so `availableDecisions` was not observed. |
 | project trust behavior known | blocked | `thread/start` succeeded, but project trust side effects were not isolated or proven. |
@@ -40,16 +43,20 @@ schema inspection only.
 
 - `samples/2026-06-03-stdio-basic-turn.json`
 - `samples/2026-06-03-stdio-command-approval.json`
+- `samples/2026-06-03-stdio-sequential-turns.json`
+- `samples/2026-06-03-stdio-cancellation.json`
+- `samples/2026-06-03-stdio-large-output.json`
 
 ## Decisions
 
 - Transport selected for Phase 2: stdio-first.
-- Capabilities to expose: initialize, model/list probe, thread/start, turn/start, streamed non-blocking notifications, turn/completed.
-- Capabilities to lower or omit: approval callbacks, session-scoped approval, cancellation, large-output guarantees, and cleanup guarantees remain unavailable until dedicated smoke gates pass.
+- Capabilities to expose: initialize, model/list probe, thread/start, turn/start, turn/interrupt, streamed non-blocking notifications, turn/completed, and stdio operation across 10 consecutive turns.
+- Capabilities to keep adapter-internal only for smoke: `thread/shellCommand`, because official docs state it runs outside the sandbox and should only be exposed for explicit user-initiated commands.
+- Capabilities to lower or omit: approval callbacks, session-scoped approval, descendant orphan cleanup guarantee, and project-trust mitigation remain unavailable until dedicated smoke gates pass.
 - App-server selectable: no. Keep behind feature flag until blocked gates are resolved.
 
 ## Follow-up
 
 - Add a dedicated approval trigger that produces `item/commandExecution/requestApproval`, then capture `availableDecisions`.
-- Add cancellation and large-output stdio tests.
 - Add descendant process-tree tracking so no-orphan status is measurable beyond the direct child process.
+- Isolate project trust behavior in a throwaway workspace and document whether `thread/start` mutates persisted trust state.

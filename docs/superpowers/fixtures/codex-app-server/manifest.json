@@ -8,14 +8,14 @@
   "codexVersion": "codex-cli 0.136.0",
   "transportTested": "stdio",
   "startedAt": "2026-06-03T13:11:25.240Z",
-  "completedAt": "2026-06-03T13:12:31.690Z",
+  "completedAt": "2026-06-03T13:57:03.648Z",
   "gates": {
     "initializeWithin10s": "pass",
-    "tenSequentialTurns": "blocked",
+    "tenSequentialTurns": "pass",
     "threeApprovalRoundTrips": "blocked",
     "approvalLatencyP95Under2s": "blocked",
-    "cancellationCleanupWithinDeadline": "blocked",
-    "largeOutputNoPipeBlock": "blocked",
+    "cancellationCleanupWithinDeadline": "pass",
+    "largeOutputNoPipeBlock": "pass",
     "noOrphanProcesses": "blocked",
     "sideEffectFreeProbeCreatesNoThread": "pass",
     "sessionScopeFieldIdentified": "blocked",
@@ -35,6 +35,27 @@
       "scenario": "command-approval",
       "result": "blocked",
       "note": "Command execution completed, but no item/commandExecution/requestApproval server request was emitted."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-sequential-turns.json",
+      "transport": "stdio",
+      "scenario": "sequential-turns",
+      "result": "pass",
+      "note": "Ten consecutive turns completed on one stdio app-server process."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-cancellation.json",
+      "transport": "stdio",
+      "scenario": "cancellation",
+      "result": "pass",
+      "note": "thread/shellCommand started a long shell turn, turn/interrupt resolved, and turn/completed reported interrupted."
+    },
+    {
+      "path": "samples/2026-06-03-stdio-large-output.json",
+      "transport": "stdio",
+      "scenario": "large-output",
+      "result": "pass",
+      "note": "thread/shellCommand completed a 1200-line command output without JSONL pipe blockage."
     }
   ],
   "notes": [
@@ -42,6 +63,7 @@
     "The basic stdio sample proved initialize, initialized, model/list, thread/list, thread/start, turn/start, streamed notifications, and turn/completed.",
     "Non-blocking notifications arrived while the turn was active, including configWarning, remoteControl/status/changed, mcpServer/startupStatus/updated, thread/status/changed, thread/tokenUsage/updated, and account/rateLimits/updated.",
     "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
-    "The smoke runner now records child pid and exit signal; descendant process-tree orphan checks remain blocked."
+    "The smoke runner now records child pid and exit signal; direct app-server child cleanup passed for the new scenarios, but descendant process-tree orphan checks remain blocked.",
+    "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior."
   ]
 }
