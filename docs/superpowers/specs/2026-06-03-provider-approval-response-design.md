@@ -100,7 +100,7 @@ Add a mobile/domain approval response value object:
 ```text
 ApprovalResponse
   decision: allow | deny | cancel
-  scope: once | session
+  scope?: once | session
   updatedInput: optional object
   updatedPermissions: optional list<object>
   interrupt: optional bool
@@ -112,12 +112,15 @@ Claude SDK behavior names, or provider-native policy amendment objects. Provider
 native decisions are computed in daemon adapter code after the response is
 validated against request metadata.
 
+`scope` is meaningful only when `decision` is `allow`. If an allow response
+omits `scope`, the daemon treats it as `once` for backward compatibility. The
+daemon ignores and does not validate `scope` for `deny` or `cancel`.
+
 Add approval request metadata to conversation events and blocking items:
 
 ```text
 ApprovalRequestOptions
   kind: command | file_change | permissions | generic
-  availableDecisions: list<string>
   supportsSessionScope: bool
   supportsCancel: bool
   denyBehavior: interrupt | continue
@@ -135,6 +138,12 @@ new object shape. New mobile code should send the object shape.
 only fields mobile needs to render and submit an approval. It must not include
 raw provider payloads, environment blocks, full process invocation metadata,
 credentials, or unredacted diagnostic data.
+
+Provider-native decision lists, such as Codex `acceptForSession` or `cancel`,
+remain daemon/adapter-internal. The daemon derives the semantic booleans
+`supportsSessionScope` and `supportsCancel` from provider-native data before it
+builds mobile-facing events. Mobile renders from those semantic fields, not from
+provider names.
 
 Provider raw requests may be held in daemon memory while the approval is
 pending. If diagnostics need raw provider data, the daemon should expose a
@@ -171,8 +180,8 @@ Current Codex CLI mapping:
 Future Codex app-server mapping:
 
 - `allow` + `once` maps to `accept`.
-- `allow` + `session` maps to `acceptForSession` when that decision appears in
-  `availableDecisions`.
+- `allow` + `session` maps to `acceptForSession` only when the adapter's
+  provider-native request state has confirmed session approval support.
 - Provider-specific exec policy choices map to
   `acceptWithExecpolicyAmendment`.
 - Network policy choices map to `applyNetworkPolicyAmendment`.
@@ -195,11 +204,13 @@ approval:
   mobileCallbacks: bool
   responseShape: string | object
   scopes: list<once | session>
-  nativeDecisions: list<string>
+  supportsCancel: bool
+  denyBehaviors: list<interrupt | continue>
 ```
 
 This replaces ambiguous UI inference from `waitingApproval` alone. A provider
 can support waiting for approval but still only offer one-time decisions.
+Provider-native decision names stay out of the mobile capability contract.
 
 ## Implementation Stages
 
@@ -257,8 +268,15 @@ begin as production implementation until these blockers have explicit answers:
   - session option hidden
   - skip/cancel visible only when native cancel is available
   - missing approval id disabled state
-- Stage 2 integration tests for daemon to adapter to mobile approval flow,
-  because Claude session permission behavior depends on the full response path.
+- Stage 2 integration tests for Claude session approval:
+  - session allow with provider suggestions passes `updatedPermissions`
+    through daemon to adapter.
+  - session allow without provider suggestions does not crash and degrades to a
+    one-time allow.
+  - deny with `interrupt: true` and deny with `interrupt: false` both map
+    correctly through daemon to adapter.
+- Protocol compatibility tests that older mobile-shaped parsers ignore added
+  approval request option fields when connected to a newer daemon.
 - Codex app-server adapter tests with a fake JSON-RPC transport before using the
   real CLI.
 - Existing architecture import checks for mobile.
@@ -273,6 +291,9 @@ begin as production implementation until these blockers have explicit answers:
   mobile state provider-neutral.
 - Showing a session option without a provider guarantee is a security bug. The
   UI must be capability-gated.
+- Older mobile clients may connect to a newer daemon and receive approval events
+  with extra option fields. The mobile JSON models must ignore unknown fields,
+  and protocol compatibility tests should cover this shape.
 - The existing dirty UI work should be reconciled before implementation begins
   so the final patch does not mix visual cleanup with protocol changes.
 
