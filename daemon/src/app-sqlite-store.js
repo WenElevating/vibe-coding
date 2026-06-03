@@ -29,6 +29,8 @@ class AppSqliteStore {
         workspace_id TEXT NOT NULL,
         workspace_path TEXT NOT NULL,
         adapter TEXT NOT NULL,
+        requested_adapter TEXT,
+        effective_adapter TEXT,
         model TEXT,
         permission_mode TEXT NOT NULL,
         device_id TEXT NOT NULL,
@@ -42,6 +44,9 @@ class AppSqliteStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         capabilities_json TEXT NOT NULL DEFAULT '{}',
+        effective_capabilities_json TEXT NOT NULL DEFAULT '{}',
+        fallback_notice_json TEXT,
+        provider_session_json TEXT,
         requested_tool_policy_json TEXT NOT NULL DEFAULT '{}',
         resume_policy_json TEXT NOT NULL DEFAULT '{"type":"fresh"}',
         system_prompt_policy_json TEXT NOT NULL DEFAULT '{"type":"none"}',
@@ -130,6 +135,11 @@ class AppSqliteStore {
     ensureColumn(this.db, 'conversations', 'title', 'TEXT');
     ensureColumn(this.db, 'conversations', 'user_message_count', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn(this.db, 'conversations', 'model', 'TEXT');
+    ensureColumn(this.db, 'conversations', 'requested_adapter', 'TEXT');
+    ensureColumn(this.db, 'conversations', 'effective_adapter', 'TEXT');
+    ensureColumn(this.db, 'conversations', 'effective_capabilities_json', "TEXT NOT NULL DEFAULT '{}'");
+    ensureColumn(this.db, 'conversations', 'fallback_notice_json', 'TEXT');
+    ensureColumn(this.db, 'conversations', 'provider_session_json', 'TEXT');
     ensureColumn(this.db, 'conversations', 'requested_tool_policy_json', "TEXT NOT NULL DEFAULT '{}'");
     ensureColumn(this.db, 'conversations', 'resume_policy_json', "TEXT NOT NULL DEFAULT '{\"type\":\"fresh\"}'");
     ensureColumn(this.db, 'conversations', 'system_prompt_policy_json', "TEXT NOT NULL DEFAULT '{\"type\":\"none\"}'");
@@ -213,17 +223,21 @@ class AppSqliteStore {
     const row = serializeConversation(conversation);
     this.db.prepare(`
       INSERT INTO conversations (
-        id, workspace_id, workspace_path, adapter, model, permission_mode, device_id,
+        id, workspace_id, workspace_path, adapter, requested_adapter, effective_adapter,
+        model, permission_mode, device_id,
         status, cli_session_id, session_binding, title, user_message_count,
         blocking_item_json, idle_expires_at,
-        created_at, updated_at, capabilities_json,
+        created_at, updated_at, capabilities_json, effective_capabilities_json,
+        fallback_notice_json, provider_session_json,
         requested_tool_policy_json, resume_policy_json, system_prompt_policy_json,
         claude_options_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         workspace_path = excluded.workspace_path,
         adapter = excluded.adapter,
+        requested_adapter = excluded.requested_adapter,
+        effective_adapter = excluded.effective_adapter,
         model = excluded.model,
         permission_mode = excluded.permission_mode,
         device_id = excluded.device_id,
@@ -237,6 +251,9 @@ class AppSqliteStore {
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
         capabilities_json = excluded.capabilities_json,
+        effective_capabilities_json = excluded.effective_capabilities_json,
+        fallback_notice_json = excluded.fallback_notice_json,
+        provider_session_json = excluded.provider_session_json,
         requested_tool_policy_json = excluded.requested_tool_policy_json,
         resume_policy_json = excluded.resume_policy_json,
         system_prompt_policy_json = excluded.system_prompt_policy_json,
@@ -246,6 +263,8 @@ class AppSqliteStore {
       row.workspace_id,
       row.workspace_path,
       row.adapter,
+      row.requested_adapter,
+      row.effective_adapter,
       row.model,
       row.permission_mode,
       row.device_id,
@@ -259,6 +278,9 @@ class AppSqliteStore {
       row.created_at,
       row.updated_at,
       row.capabilities_json,
+      row.effective_capabilities_json,
+      row.fallback_notice_json,
+      row.provider_session_json,
       row.requested_tool_policy_json,
       row.resume_policy_json,
       row.system_prompt_policy_json,
@@ -672,6 +694,8 @@ function serializeConversation(conversation) {
     workspace_id: conversation.workspaceId,
     workspace_path: conversation.workspacePath,
     adapter: conversation.adapter,
+    requested_adapter: conversation.requestedAdapter || conversation.adapter,
+    effective_adapter: conversation.effectiveAdapter || conversation.adapter,
     model: conversation.model || null,
     permission_mode: conversation.permissionMode,
     device_id: conversation.deviceId,
@@ -685,6 +709,9 @@ function serializeConversation(conversation) {
     created_at: conversation.createdAt,
     updated_at: conversation.updatedAt,
     capabilities_json: JSON.stringify(conversation.capabilities || {}),
+    effective_capabilities_json: JSON.stringify(conversation.effectiveCapabilities || conversation.capabilities || {}),
+    fallback_notice_json: conversation.fallbackNotice ? JSON.stringify(conversation.fallbackNotice) : null,
+    provider_session_json: conversation.providerSession ? JSON.stringify(conversation.providerSession) : null,
     requested_tool_policy_json: JSON.stringify(conversation.requestedToolPolicy || { tools: [], allowedTools: [], disallowedTools: [] }),
     resume_policy_json: JSON.stringify(conversation.resumePolicy || { type: 'fresh' }),
     system_prompt_policy_json: JSON.stringify(conversation.systemPromptPolicy || { type: 'none' }),
@@ -699,6 +726,8 @@ function deserializeConversation(row) {
     workspaceId: row.workspace_id,
     workspacePath: row.workspace_path,
     adapter: row.adapter,
+    requestedAdapter: row.requested_adapter || row.adapter,
+    effectiveAdapter: row.effective_adapter || row.adapter,
     model: row.model || null,
     permissionMode: row.permission_mode,
     deviceId: row.device_id,
@@ -712,6 +741,9 @@ function deserializeConversation(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     capabilities: parseJson(row.capabilities_json, {}),
+    effectiveCapabilities: parseJson(row.effective_capabilities_json, parseJson(row.capabilities_json, {})),
+    fallbackNotice: parseJson(row.fallback_notice_json, null),
+    providerSession: parseJson(row.provider_session_json, null),
     requestedToolPolicy: parseJson(row.requested_tool_policy_json, { tools: [], allowedTools: [], disallowedTools: [] }),
     resumePolicy: parseJson(row.resume_policy_json, { type: 'fresh' }),
     systemPromptPolicy: parseJson(row.system_prompt_policy_json, { type: 'none' }),

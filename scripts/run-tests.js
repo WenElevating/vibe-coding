@@ -1808,6 +1808,52 @@ test('app SQLite store persists session binding and user message count', () => {
   sqlite.close();
 });
 
+test('app SQLite store persists requested and effective adapter metadata', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-adapter-metadata-') });
+  sqlite.saveConversation({
+    id: 'conv_adapter_meta',
+    workspaceId: 'default',
+    workspacePath: process.cwd(),
+    adapter: 'codex-app-server',
+    requestedAdapter: 'codex-app-server',
+    effectiveAdapter: 'codex',
+    effectiveCapabilities: { resume: true, waitingApproval: false },
+    fallbackNotice: { reason: 'probe_failed', at: '2026-06-03T00:00:00.000Z' },
+    providerSession: {
+      provider: 'codex-app-server',
+      threadId: 'thread_1',
+      protocolVersion: '0.136.0',
+      cwd: process.cwd(),
+      model: 'gpt-5.5',
+      sandboxProfile: 'read-only',
+      createdAt: '2026-06-03T00:00:00.000Z'
+    },
+    permissionMode: 'default',
+    deviceId: 'device_1',
+    status: 'idle',
+    cliSessionId: 'thread_1',
+    sessionBinding: 'confirmed',
+    userMessageCount: 1,
+    blockingItem: null,
+    idleExpiresAt: null,
+    createdAt: '2026-06-03T00:00:00.000Z',
+    updatedAt: '2026-06-03T00:00:01.000Z',
+    model: 'gpt-5.5',
+    capabilities: { resume: false, waitingApproval: true },
+    handle: null
+  });
+
+  const loaded = sqlite.loadConversations()[0];
+  assert.equal(loaded.requestedAdapter, 'codex-app-server');
+  assert.equal(loaded.effectiveAdapter, 'codex');
+  assert.deepEqual(loaded.effectiveCapabilities, { resume: true, waitingApproval: false });
+  assert.deepEqual(loaded.fallbackNotice, { reason: 'probe_failed', at: '2026-06-03T00:00:00.000Z' });
+  assert.equal(loaded.providerSession.threadId, 'thread_1');
+  assert.equal(loaded.providerSession.provider, 'codex-app-server');
+  sqlite.close();
+});
+
 test('app SQLite store restores legacy user-message conversations as interrupted', () => {
   const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
