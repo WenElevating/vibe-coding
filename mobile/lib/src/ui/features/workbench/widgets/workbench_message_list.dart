@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../domain/models/approval_response.dart';
 import '../../../../models/protocol.dart';
 import '../messages/pending_sentinel.dart';
 import '../messages/workbench_message_card.dart';
@@ -53,7 +54,8 @@ class WorkbenchMessageList extends StatelessWidget {
   final bool showStatus;
   final bool showError;
   final bool showPending;
-  final Future<void> Function(AgentEvent event, String decision) onApproval;
+  final Future<void> Function(AgentEvent event, ApprovalResponse response)
+      onApproval;
   final ValueChanged<String> onSuggestion;
   final bool Function(ScrollNotification notification) onScrollNotification;
 

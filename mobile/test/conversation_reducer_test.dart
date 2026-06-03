@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/conversation_reducer.dart';
 
@@ -1111,6 +1112,34 @@ void main() {
         hasLength(1));
     expect(resolved.messages.where((message) => message.role == 'approval'),
         isEmpty);
+  });
+
+  test('approval requested message preserves approval options', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-06-03T00:00:00.000Z',
+        'approvalId': 'ap1',
+        'toolName': 'Bash',
+        'summary': 'npm test',
+        'input': {'command': 'npm test'},
+        'approvalOptions': {
+          'kind': 'command',
+          'supportsSessionScope': true,
+          'supportsCancel': true,
+          'denyBehavior': 'interrupt',
+          'command': 'npm test',
+        },
+      }),
+    ]);
+
+    final approval = state.messages.single;
+    expect(approval.approvalOptions.kind, ApprovalRequestKind.command);
+    expect(approval.approvalOptions.supportsSessionScope, isTrue);
+    expect(approval.approvalOptions.supportsCancel, isTrue);
+    expect(approval.approvalOptions.command, 'npm test');
   });
 
   test('ConversationViewState removes cancelled approval requests', () {

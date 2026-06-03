@@ -1,3 +1,4 @@
+import '../../../data/models/approval_models.dart';
 import '../../../models/protocol.dart';
 
 class ConversationMessage {
@@ -23,6 +24,7 @@ class ConversationMessage {
     this.exitCode,
     this.isError = false,
     this.suggestions = const <String>[],
+    this.approvalOptions = const ApprovalRequestOptions(),
     this.attachments = const <CommittedAttachment>[],
     this.clientMessageId,
     this.fileChanges = const <ConversationFileChange>[],
@@ -49,6 +51,7 @@ class ConversationMessage {
   final int? exitCode;
   final bool isError;
   final List<String> suggestions;
+  final ApprovalRequestOptions approvalOptions;
   final List<CommittedAttachment> attachments;
   final String? clientMessageId;
   final List<ConversationFileChange> fileChanges;
@@ -266,6 +269,7 @@ class ConversationViewState {
             toolName: event.toolName,
             summary: event.summary,
             input: event.input,
+            approvalOptions: event.approvalOptions,
           ));
           nextStatus = 'waiting_approval';
           break;

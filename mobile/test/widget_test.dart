@@ -22,6 +22,7 @@ import 'package:lan_ai_cli_control/src/data/repositories/daemon_adapter_reposito
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/daemon_workspace_repository.dart';
+import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/slash_command_catalog_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/workspace_repository.dart'
     as data_repositories;
@@ -64,6 +65,56 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/daemon_connection_controller.dart';
 
 void _noopString(String _) {}
+
+void _noopApproval(ApprovalResponse _) {}
+
+Widget _approvalComposerHarness({
+  required ApprovalRequestOptions approvalOptions,
+  required ValueChanged<ApprovalResponse> onApproval,
+}) {
+  final event = AgentEvent(
+    type: 'approval.requested',
+    seq: 1,
+    runId: 'run_approval_prompt',
+    createdAt: DateTime.parse('2026-05-16T00:00:01.000Z'),
+    approvalId: 'approval_prompt_1',
+    name: 'Bash',
+    raw: <String, Object?>{
+      'toolName': 'Bash',
+      'approvalOptions': <String, Object?>{
+        'kind': approvalOptions.kind == ApprovalRequestKind.fileChange
+            ? 'file_change'
+            : approvalOptions.kind.name,
+        'supportsSessionScope': approvalOptions.supportsSessionScope,
+        'supportsCancel': approvalOptions.supportsCancel,
+        'denyBehavior':
+            approvalOptions.denyBehavior == ApprovalDenyBehavior.continueTurn
+                ? 'continue'
+                : 'interrupt',
+        if (approvalOptions.command != null) 'command': approvalOptions.command,
+      },
+    },
+  );
+  return MaterialApp(
+    locale: const Locale('en', 'US'),
+    supportedLocales: appSupportedLocales,
+    localizationsDelegates: appLocalizationsDelegates,
+    theme: theme.buildAppTheme(),
+    home: Scaffold(
+      backgroundColor: theme.bg,
+      body: ApprovalComposerPrompt(
+        message: WorkbenchMessage(
+          'approval',
+          'Needs approval',
+          'npm test',
+          event: event,
+          approvalOptions: approvalOptions,
+        ),
+        onApproval: onApproval,
+      ),
+    ),
+  );
+}
 
 Future<void> _pumpNavigationFrame(WidgetTester tester) async {
   await tester.pump();
@@ -3629,7 +3680,7 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-approval-command-preview')),
         findsOneWidget);
-    expect(find.byKey(const ValueKey('workbench-approval-option-allow')),
+    expect(find.byKey(const ValueKey('workbench-approval-option-allow-once')),
         findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-approval-option-deny')),
         findsOneWidget);
@@ -3638,6 +3689,46 @@ void main() {
     expect(find.text('Allow this tool request?'), findsOneWidget);
     expect(find.textContaining('Write'), findsOneWidget);
     expect(find.textContaining('python_concurrency_learn.py'), findsOneWidget);
+  });
+
+  testWidgets('approval composer shows session option when supported',
+      (WidgetTester tester) async {
+    final approvals = <ApprovalResponse>[];
+    await tester.pumpWidget(_approvalComposerHarness(
+      approvalOptions: const ApprovalRequestOptions(
+        kind: ApprovalRequestKind.command,
+        supportsSessionScope: true,
+        supportsCancel: false,
+        denyBehavior: ApprovalDenyBehavior.interrupt,
+        command: 'npm test',
+      ),
+      onApproval: approvals.add,
+    ));
+
+    expect(find.text('Allow once'), findsOneWidget);
+    expect(find.text('Allow for this session'), findsOneWidget);
+    expect(find.text('No, tell the agent how to adjust'), findsOneWidget);
+    expect(find.text('Skip'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-option-session')));
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-submit-button')));
+    expect(approvals.single.decision, ApprovalDecision.allow);
+    expect(approvals.single.scope, ApprovalScope.session);
+  });
+
+  testWidgets('approval composer shows cancel only when supported',
+      (WidgetTester tester) async {
+    final approvals = <ApprovalResponse>[];
+    await tester.pumpWidget(_approvalComposerHarness(
+      approvalOptions: const ApprovalRequestOptions(supportsCancel: true),
+      onApproval: approvals.add,
+    ));
+
+    expect(find.text('Skip'), findsOneWidget);
+    await tester.tap(find.text('Skip'));
+    expect(approvals.single.decision, ApprovalDecision.cancel);
   });
 
   testWidgets(
@@ -7051,7 +7142,7 @@ void main() {
                               diff:
                                   '@@ -1,3 +1,3 @@\n-  old expectation\n+  new expectation')
                         ]),
-                    onApproval: _noopString,
+                    onApproval: _noopApproval,
                     onSuggestion: _noopString,
                     expandThinking: false)))));
     await tester.pumpAndSettle();
@@ -7091,7 +7182,7 @@ diff --git a/lib/main.dart b/lib/main.dart
  }
 ''')
                         ]),
-                    onApproval: _noopString,
+                    onApproval: _noopApproval,
                     onSuggestion: _noopString,
                     expandThinking: false)))));
     await tester.pumpAndSettle();
@@ -7132,7 +7223,7 @@ diff --git a/lib/main.dart b/lib/main.dart
                                   kind: 'update',
                                   diff: diff.toString())
                             ]),
-                        onApproval: _noopString,
+                        onApproval: _noopApproval,
                         onSuggestion: _noopString,
                         expandThinking: false))))));
     await tester.pumpAndSettle();
@@ -7176,7 +7267,7 @@ diff --git a/lib/main.dart b/lib/main.dart
                               kind: 'update',
                               diff: '@@ -1 +1 @@\n-old\n+new'),
                         ]),
-                    onApproval: _noopString,
+                    onApproval: _noopApproval,
                     onSuggestion: _noopString,
                     expandThinking: false)))));
     await tester.pumpAndSettle();
@@ -7209,7 +7300,7 @@ diff --git a/lib/main.dart b/lib/main.dart
                 padding: const EdgeInsets.all(16),
                 child: WorkbenchMessageCard(
                     message: message,
-                    onApproval: _noopString,
+                    onApproval: _noopApproval,
                     onSuggestion: _noopString,
                     expandThinking: false)))));
     await tester.pumpAndSettle();

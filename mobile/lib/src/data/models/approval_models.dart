@@ -43,6 +43,27 @@ class ApprovalRequestOptions {
     );
   }
 
+  Map<String, Object?> toJson() => <String, Object?>{
+        'kind': switch (kind) {
+          ApprovalRequestKind.command => 'command',
+          ApprovalRequestKind.fileChange => 'file_change',
+          ApprovalRequestKind.permissions => 'permissions',
+          ApprovalRequestKind.generic => 'generic',
+        },
+        'supportsSessionScope': supportsSessionScope,
+        'supportsCancel': supportsCancel,
+        'denyBehavior': denyBehavior == ApprovalDenyBehavior.continueTurn
+            ? 'continue'
+            : 'interrupt',
+        if (command != null) 'command': command,
+        if (cwd != null) 'cwd': cwd,
+        if (reason != null) 'reason': reason,
+        if (proposedExecPolicyAmendment.isNotEmpty)
+          'proposedExecPolicyAmendment': proposedExecPolicyAmendment,
+        if (proposedPermissions.isNotEmpty)
+          'proposedPermissions': proposedPermissions,
+      };
+
   static ApprovalRequestKind _kind(Object? value) => switch (value) {
         'command' => ApprovalRequestKind.command,
         'file_change' => ApprovalRequestKind.fileChange,

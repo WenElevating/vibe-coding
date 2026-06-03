@@ -1475,7 +1475,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _goToConversation();
   }
 
-  Future<void> _respondApproval(AgentEvent event, String decision) async {
+  Future<void> _respondApproval(
+    AgentEvent event,
+    ApprovalResponse response,
+  ) async {
     final approvalId = event.approvalId;
     if (approvalId == null || approvalId.isEmpty) return;
     try {
@@ -1485,20 +1488,19 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             await _workbenchViewModel.respondConversationApproval(
           conversationId: conversationId,
           approvalId: approvalId,
-          response: decision == 'allow'
-              ? ApprovalResponse.allow()
-              : ApprovalResponse.deny(),
+          response: response,
         );
         _workbenchViewModel.updateActiveConversation(conversation,
             notify: false);
       } else {
         await _workbenchViewModel.respondRunApproval(
           approvalId: approvalId,
-          decision: decision,
+          decision: response.legacyDecision,
         );
       }
       setState(() {
-        _workbenchViewModel.applyApprovalResponse(event, decision,
+        _workbenchViewModel.applyApprovalResponse(
+            event, response.legacyDecision,
             notify: false);
       });
       final conversation = _activeConversation;
@@ -1726,10 +1728,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           ? null
           : ApprovalComposerPrompt(
               message: pendingApproval,
-              onApproval: (decision) {
+              onApproval: (response) {
                 final event = pendingApproval.event;
                 if (event != null) {
-                  unawaited(_respondApproval(event, decision));
+                  unawaited(_respondApproval(event, response));
                 }
               },
             ),

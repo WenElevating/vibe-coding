@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../l10n/app_localizations.dart';
+import '../../../../data/models/approval_models.dart';
+import '../../../../domain/models/approval_response.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../workbench_messages.dart';
@@ -46,7 +48,7 @@ class ApprovalEventCard extends StatelessWidget {
   const ApprovalEventCard(
       {super.key, required this.message, required this.onApproval});
   final WorkbenchMessage message;
-  final ValueChanged<String> onApproval;
+  final ValueChanged<ApprovalResponse> onApproval;
 
   @override
   Widget build(BuildContext context) {
@@ -80,13 +82,14 @@ class ApprovalEventCard extends StatelessWidget {
             Row(children: [
               Expanded(
                   child: ApprovalActionButton(l10n.workbenchRejectAction,
-                      color: theme.red, onTap: () => onApproval('deny'))),
+                      color: theme.red,
+                      onTap: () => onApproval(ApprovalResponse.deny()))),
               const SizedBox(width: 10),
               Expanded(
                   child: ApprovalActionButton(l10n.workbenchApproveAction,
                       color: theme.text,
                       primary: true,
-                      onTap: () => onApproval('allow'))),
+                      onTap: () => onApproval(ApprovalResponse.allow()))),
             ])
         ]));
   }
@@ -102,19 +105,28 @@ class ApprovalComposerPrompt extends StatefulWidget {
       {super.key, required this.message, required this.onApproval});
 
   final WorkbenchMessage message;
-  final ValueChanged<String> onApproval;
+  final ValueChanged<ApprovalResponse> onApproval;
 
   @override
   State<ApprovalComposerPrompt> createState() => _ApprovalComposerPromptState();
 }
 
-enum _ApprovalChoice { allow, deny }
+enum _ApprovalChoice { allowOnce, allowSession, deny }
 
 class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
-  _ApprovalChoice _selected = _ApprovalChoice.allow;
+  _ApprovalChoice _selected = _ApprovalChoice.allowOnce;
 
-  String get _selectedDecision =>
-      _selected == _ApprovalChoice.allow ? 'allow' : 'deny';
+  ApprovalRequestOptions get _options => widget.message.approvalOptions;
+
+  ApprovalResponse get _selectedResponse => switch (_selected) {
+        _ApprovalChoice.allowOnce =>
+          ApprovalResponse.allow(scope: ApprovalScope.once),
+        _ApprovalChoice.allowSession =>
+          ApprovalResponse.allow(scope: ApprovalScope.session),
+        _ApprovalChoice.deny => ApprovalResponse.deny(
+            interrupt: _options.denyBehavior == ApprovalDenyBehavior.interrupt,
+          ),
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -171,17 +183,29 @@ class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
                   else
                     Column(children: [
                       _ApprovalOptionRow(
-                          key:
-                              const ValueKey('workbench-approval-option-allow'),
+                          key: const ValueKey(
+                              'workbench-approval-option-allow-once'),
                           index: 1,
-                          text: l10n.workbenchApprovalPromptAllowOption,
-                          selected: _selected == _ApprovalChoice.allow,
+                          text: l10n.workbenchApprovalPromptAllowOnceOption,
+                          selected: _selected == _ApprovalChoice.allowOnce,
                           onTap: () => setState(
-                              () => _selected = _ApprovalChoice.allow)),
+                              () => _selected = _ApprovalChoice.allowOnce)),
+                      if (_options.supportsSessionScope) ...[
+                        const SizedBox(height: 3),
+                        _ApprovalOptionRow(
+                            key: const ValueKey(
+                                'workbench-approval-option-session'),
+                            index: 2,
+                            text:
+                                l10n.workbenchApprovalPromptAllowSessionOption,
+                            selected: _selected == _ApprovalChoice.allowSession,
+                            onTap: () => setState(() =>
+                                _selected = _ApprovalChoice.allowSession)),
+                      ],
                       const SizedBox(height: 3),
                       _ApprovalOptionRow(
                           key: const ValueKey('workbench-approval-option-deny'),
-                          index: 2,
+                          index: _options.supportsSessionScope ? 3 : 2,
                           text: l10n.workbenchApprovalPromptDenyOption,
                           selected: _selected == _ApprovalChoice.deny,
                           onTap: () =>
@@ -189,19 +213,23 @@ class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
                       const SizedBox(height: 8),
                       Row(children: [
                         const Spacer(),
-                        KeyedSubtree(
-                            key: const ValueKey(
-                                'workbench-approval-deny-button'),
-                            child: TextButton(
-                                onPressed: () => widget.onApproval('deny'),
-                                style: TextButton.styleFrom(
-                                    foregroundColor: theme.muted,
-                                    textStyle: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0)),
-                                child: Text(l10n.workbenchApprovalPromptSkip))),
-                        const SizedBox(width: 8),
+                        if (_options.supportsCancel) ...[
+                          KeyedSubtree(
+                              key: const ValueKey(
+                                  'workbench-approval-cancel-button'),
+                              child: TextButton(
+                                  onPressed: () => widget
+                                      .onApproval(ApprovalResponse.cancel()),
+                                  style: TextButton.styleFrom(
+                                      foregroundColor: theme.muted,
+                                      textStyle: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0)),
+                                  child:
+                                      Text(l10n.workbenchApprovalPromptSkip))),
+                          const SizedBox(width: 8),
+                        ],
                         KeyedSubtree(
                             key: const ValueKey(
                                 'workbench-approval-approve-button'),
@@ -210,7 +238,7 @@ class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
                                     'workbench-approval-submit-button'),
                                 text: l10n.workbenchApprovalPromptSubmit,
                                 onTap: () =>
-                                    widget.onApproval(_selectedDecision))),
+                                    widget.onApproval(_selectedResponse))),
                       ])
                     ])
                 ]))));

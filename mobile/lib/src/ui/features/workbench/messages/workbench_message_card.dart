@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../l10n/app_localizations.dart';
+import '../../../../domain/models/approval_response.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../workbench_messages.dart';
 import 'approval_event_card.dart';
@@ -22,7 +23,7 @@ class WorkbenchMessageCard extends StatelessWidget {
       required this.expandThinking,
       this.expandToolDetails = false});
   final WorkbenchMessage message;
-  final ValueChanged<String> onApproval;
+  final ValueChanged<ApprovalResponse> onApproval;
   final ValueChanged<String> onSuggestion;
   final bool expandThinking;
   final bool expandToolDetails;
@@ -154,7 +155,8 @@ class WorkbenchMessageCard extends StatelessWidget {
                                     AppLocalizations.of(context)
                                         .workbenchRejectAction,
                                     color: theme.red,
-                                    onTap: () => onApproval('deny'))),
+                                    onTap: () =>
+                                        onApproval(ApprovalResponse.deny()))),
                             const SizedBox(width: 10),
                             Expanded(
                                 child: ApprovalActionButton(
@@ -162,7 +164,8 @@ class WorkbenchMessageCard extends StatelessWidget {
                                         .workbenchApproveAction,
                                     color: theme.purple2,
                                     primary: true,
-                                    onTap: () => onApproval('allow'))),
+                                    onTap: () =>
+                                        onApproval(ApprovalResponse.allow()))),
                           ])
                       ]
                     ]))));

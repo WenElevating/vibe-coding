@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../../../l10n/app_localizations.dart';
+import '../../../data/models/approval_models.dart';
 import '../../../models/protocol.dart';
 import 'conversation_reducer.dart';
 
@@ -231,6 +232,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
         'source': message.source,
         'isError': message.isError,
         if (message.input.isNotEmpty) 'input': message.input,
+        if (message.role == 'approval')
+          'approvalOptions': message.approvalOptions.toJson(),
         'suggestions': message.suggestions,
         if (message.fileChanges.isNotEmpty)
           'changes': message.fileChanges
@@ -275,7 +278,9 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
     case 'approval':
       return WorkbenchMessage(
           'approval', 'Permission confirmation', message.text,
-          event: event, runId: 'conversation');
+          event: event,
+          runId: 'conversation',
+          approvalOptions: message.approvalOptions);
     case 'command':
       return WorkbenchMessage('command', 'Run command', message.text,
           event: event,
@@ -333,6 +338,9 @@ AgentEvent _agentEventFromConversation(ConversationEvent event, String runId) {
   if (event.type == 'assistant.message' && event.text != null) {
     raw['result'] = event.text;
   }
+  if (event.type == 'approval.requested') {
+    raw['approvalOptions'] = event.approvalOptions.toJson();
+  }
   return AgentEvent(
       type: type,
       seq: event.seq,
@@ -356,6 +364,7 @@ class WorkbenchMessage {
       this.completedCount,
       this.totalCount,
       this.suggestions = const <String>[],
+      this.approvalOptions = const ApprovalRequestOptions(),
       this.attachments = const <CommittedAttachment>[],
       this.clientMessageId,
       this.fileChanges = const <ConversationFileChange>[]});
@@ -372,6 +381,7 @@ class WorkbenchMessage {
   final int? completedCount;
   final int? totalCount;
   final List<String> suggestions;
+  final ApprovalRequestOptions approvalOptions;
   final List<CommittedAttachment> attachments;
   final String? clientMessageId;
   final List<ConversationFileChange> fileChanges;
@@ -403,6 +413,7 @@ class WorkbenchMessage {
           completedCount: completedCount,
           totalCount: totalCount,
           suggestions: suggestions,
+          approvalOptions: approvalOptions,
           attachments: attachments ?? this.attachments,
           clientMessageId: clientMessageId ?? this.clientMessageId,
           fileChanges: fileChanges ?? this.fileChanges);
@@ -418,7 +429,10 @@ class WorkbenchMessage {
           : '$toolName requested access: $target';
       return WorkbenchMessage(
           'approval', 'Permission confirmation', visibleText ?? body,
-          event: event, runId: event.runId);
+          event: event,
+          runId: event.runId,
+          approvalOptions:
+              ApprovalRequestOptions.fromJson(event.raw['approvalOptions']));
     }
     if (event.type == 'assistant.question') {
       final question = visibleText ?? event.text ?? toolEventBody(event);
