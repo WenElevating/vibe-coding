@@ -14,6 +14,7 @@ const { ClaudeAdapter } = require('./claude-adapter');
 const { ClaudeConversationAdapter } = require('./claude-conversation-adapter');
 const { CodexConversationAdapter } = require('./codex-conversation-adapter');
 const { createCodexAdapter } = require('./jsonline-adapter');
+const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
 const { SyntheticAdapter } = require('./synthetic-adapter');
 const { AdapterRegistry } = require('./adapter-registry');
@@ -61,6 +62,7 @@ function createApp({
   codexCommand = process.env.CODEX_COMMAND || 'codex',
   codexToolTimeoutSec = process.env.CODEX_TOOL_TIMEOUT_SEC,
   codexEnabled = process.env.CODEX_ENABLED === '1',
+  codexAppServerEnabled = process.env.CODEX_APP_SERVER_ENABLED === '1',
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -84,6 +86,7 @@ function createApp({
   const conversationEventStore = new ConversationEventStore({ persistentStore: conversationSqliteStore });
   const auditLog = new AuditLog();
   const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
+  if (codexAppServerEnabled) adapters.push(new CodexAppServerListingAdapter({ enabled: true, installed: true }));
   if (devAdapters) adapters.push(new SyntheticAdapter(), new SyntheticAdapter({ name: 'synthetic-text' }), new SyntheticAdapter({ name: 'synthetic-error' }), new SyntheticAdapter({ name: 'synthetic-slow', delayMs: 1000 }));
   const adapterRegistry = new AdapterRegistry(adapters);
   const shortcuts = new ShortcutStore();

@@ -781,6 +781,32 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
   }
 });
 
+test('createApp exposes codex-app-server only behind explicit feature flag', async () => {
+  const appDbPath = tempConversationDbPath('app-server-listing-');
+  const disabled = createApp({ port: 0, appDbPath });
+  try {
+    const adapters = await disabled.adapterRegistry.listCapabilities();
+    assert.equal(adapters.some((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server'), false);
+  } finally {
+    disabled.appSqliteStore.close();
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
+
+  const enabledDbPath = tempConversationDbPath('app-server-listing-enabled-');
+  const enabled = createApp({ port: 0, appDbPath: enabledDbPath, codexAppServerEnabled: true });
+  try {
+    const adapters = await enabled.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, false);
+    assert.equal(appServer.unavailableReason, 'probe_not_run');
+    assert.equal(appServer.effectiveCapabilities.approval.mobileCallbacks, false);
+  } finally {
+    enabled.appSqliteStore.close();
+    fs.rmSync(path.dirname(enabledDbPath), { recursive: true, force: true });
+  }
+});
+
 test('Windows sleep inhibitor starts a scoped power request process', () => {
   const { createWindowsSleepInhibitor } = require('../daemon/src/windows-sleep-inhibitor');
   const calls = [];
