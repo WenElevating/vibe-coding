@@ -1,0 +1,1557 @@
+{
+  "schemaVersion": 1,
+  "transport": "stdio",
+  "scenario": "command-approval",
+  "codexBin": "D:\\nodejs\\codex.cmd",
+  "codexJs": "D:\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js",
+  "childPid": 64332,
+  "childExit": {
+    "code": null,
+    "signal": "SIGTERM"
+  },
+  "cwd": "<WORKSPACE>",
+  "initializedAt": "2026-06-03T13:11:48.780Z",
+  "completedAt": "2026-06-03T13:12:31.690Z",
+  "initialize": {
+    "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+    "codexHome": "<USER_HOME>\\.codex",
+    "platformFamily": "windows",
+    "platformOs": "windows"
+  },
+  "modelListSummary": {
+    "count": 5,
+    "defaultModel": "gpt-5.5"
+  },
+  "threadListBeforeSummary": {
+    "count": 5
+  },
+  "threadStart": {
+    "thread": {
+      "id": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+      "sessionId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+      "forkedFromId": null,
+      "preview": "",
+      "ephemeral": false,
+      "modelProvider": "8yes_codex",
+      "createdAt": 1780492314,
+      "updatedAt": 1780492314,
+      "status": {
+        "type": "idle"
+      },
+      "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-53-019e8d9c-91cf-74e1-b0f9-7a3b21b6042a.jsonl",
+      "cwd": "<WORKSPACE>",
+      "cliVersion": "0.136.0",
+      "source": "vscode",
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "turns": []
+    },
+    "model": "gpt-5.5",
+    "modelProvider": "8yes_codex",
+    "serviceTier": "priority",
+    "cwd": "<WORKSPACE>",
+    "runtimeWorkspaceRoots": [
+      "<WORKSPACE>"
+    ],
+    "instructionSources": [
+      "<USER_HOME>\\.codex\\AGENTS.md",
+      "<WORKSPACE>\\AGENTS.md"
+    ],
+    "approvalPolicy": "never",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": null,
+    "reasoningEffort": "high"
+  },
+  "turnStart": {
+    "turn": {
+      "id": "019e8d9c-a598-74a2-ab33-11669882782e",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": null,
+      "completedAt": null,
+      "durationMs": null
+    }
+  },
+  "turnCompleted": {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+      "turn": {
+        "id": "019e8d9c-a598-74a2-ab33-11669882782e",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1780492314,
+        "completedAt": 1780492351,
+        "durationMs": 37611
+      }
+    }
+  },
+  "approvals": [],
+  "threadListAfterSummary": {
+    "count": 5
+  },
+  "messages": [
+    {
+      "at": "2026-06-03T13:11:48.780Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialize",
+        "id": 1,
+        "params": {
+          "clientInfo": {
+            "name": "vibe_coding_smoke",
+            "title": "vibe-coding smoke",
+            "version": "0.1.0"
+          },
+          "capabilities": {
+            "experimentalApi": true,
+            "requestAttestation": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.925Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 1,
+        "result": {
+          "userAgent": "vibe_coding_smoke/0.136.0 (Windows 10.0.26200; x86_64) unknown (vibe_coding_smoke; 0.1.0)",
+          "codexHome": "<USER_HOME>\\.codex",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.925Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.925Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "model/list",
+        "id": 2,
+        "params": {
+          "limit": 20,
+          "includeHidden": false
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.925Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "configWarning",
+        "params": {
+          "summary": "Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml.",
+          "details": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.925Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "wmm",
+          "installationId": "78c91903-c0b7-4820-b29b-4448488916d6",
+          "environmentId": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.926Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 2,
+        "result": {
+          "data": [
+            {
+              "id": "gpt-5.5",
+              "model": "gpt-5.5",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": {
+                "message": "GPT-5.5 is now available in Codex. It's our strongest agentic coding model yet, built to reason through large codebases, check assumptions with tools, and keep going until the work is done.\n\nLearn more: https://openai.com/index/introducing-gpt-5-5/\n\n"
+              },
+              "displayName": "GPT-5.5",
+              "description": "Frontier model for complex coding, research, and real-world work.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": true
+            },
+            {
+              "id": "gpt-5.4",
+              "model": "gpt-5.4",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "gpt-5.4",
+              "description": "Strong model for everyday coding.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [
+                "fast"
+              ],
+              "serviceTiers": [
+                {
+                  "id": "priority",
+                  "name": "Fast",
+                  "description": "1.5x speed, increased usage"
+                }
+              ],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.4-mini",
+              "model": "gpt-5.4-mini",
+              "upgrade": null,
+              "upgradeInfo": null,
+              "availabilityNux": null,
+              "displayName": "GPT-5.4-Mini",
+              "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "model": "gpt-5.3-codex",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.3-codex",
+              "description": "Coding-optimized model.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Fast responses with lighter reasoning"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Balances speed and reasoning depth for everyday tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Greater reasoning depth for complex problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning depth for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": true,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            },
+            {
+              "id": "gpt-5.2",
+              "model": "gpt-5.2",
+              "upgrade": "gpt-5.4",
+              "upgradeInfo": {
+                "model": "gpt-5.4",
+                "upgradeCopy": null,
+                "modelLink": null,
+                "migrationMarkdown": "Introducing GPT-5.4\n\nCodex just got an upgrade with GPT-5.4, our most capable model for professional work. It outperforms prior models while being more token efficient, with notable improvements on long-running tasks, tool calling, computer use, and frontend development.\n\nLearn more: https://openai.com/index/introducing-gpt-5-4\n\nYou can always keep using GPT-5.3-Codex if you prefer.\n"
+              },
+              "availabilityNux": null,
+              "displayName": "gpt-5.2",
+              "description": "Optimized for professional work and long-running agents.",
+              "hidden": false,
+              "supportedReasoningEfforts": [
+                {
+                  "reasoningEffort": "low",
+                  "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+                },
+                {
+                  "reasoningEffort": "medium",
+                  "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+                },
+                {
+                  "reasoningEffort": "high",
+                  "description": "Maximizes reasoning depth for complex or ambiguous problems"
+                },
+                {
+                  "reasoningEffort": "xhigh",
+                  "description": "Extra high reasoning for complex problems"
+                }
+              ],
+              "defaultReasoningEffort": "medium",
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "supportsPersonality": false,
+              "additionalSpeedTiers": [],
+              "serviceTiers": [],
+              "defaultServiceTier": null,
+              "isDefault": false
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.927Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 3,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.931Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 3,
+        "result": {
+          "data": [
+            {
+              "id": "019e8d9c-35e6-7651-a0f3-c639fff83ad2",
+              "sessionId": "019e8d9c-35e6-7651-a0f3-c639fff83ad2",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server smoke ok",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780492285,
+              "updatedAt": 1780492302,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-30-019e8d9c-35e6-7651-a0f3-c639fff83ad2.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d99-9528-72c3-b262-b9671dc563ad",
+              "sessionId": "019e8d99-9528-72c3-b262-b9671dc563ad",
+              "forkedFromId": null,
+              "preview": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780492113,
+              "updatedAt": 1780492150,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-08-38-019e8d99-9528-72c3-b262-b9671dc563ad.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d97-797a-78d1-b406-6407fde434a2",
+              "sessionId": "019e8d97-797a-78d1-b406-6407fde434a2",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server smoke ok",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780491975,
+              "updatedAt": 1780491991,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-06-20-019e8d97-797a-78d1-b406-6407fde434a2.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d49-9d50-7fe3-811a-15d6f0ded4a1",
+              "sessionId": "019e8d49-9d50-7fe3-811a-15d6f0ded4a1",
+              "forkedFromId": null,
+              "preview": "拉取一下最新的代码",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780486872,
+              "updatedAt": 1780492284,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T19-41-12-019e8d49-9d50-7fe3-811a-15d6f0ded4a1.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "cli",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": {
+                "sha": "4960ca51bb6735dfe11dad7d7e3593773e98d3d6",
+                "branch": "master",
+                "originUrl": "https://github.com/WenElevating/vibe-coding.git"
+              },
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8ac5-73de-7f60-af20-16891b7a6d81",
+              "sessionId": "019e8ac5-73de-7f60-af20-16891b7a6d81",
+              "forkedFromId": null,
+              "preview": "$impeccable 这是codex桌面版的风格，我希望增加一个设置项，默认就像这样折叠详细的工具调用信息，除非用户主动开启就显示详细的工具调用信息，可以展开的[Image #1]",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780444656,
+              "updatedAt": 1780448192,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T07-57-36-019e8ac5-73de-7f60-af20-16891b7a6d81.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "cli",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": {
+                "sha": "551e8b3a94a3f1222f70202df3f873a63b66aabc",
+                "branch": "master",
+                "originUrl": "https://github.com/WenElevating/vibe-coding.git"
+              },
+              "name": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": "2026-06-02T23:57:36.606Z",
+          "backwardsCursor": "2026-06-03T13:11:24.999Z"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:48.931Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/start",
+        "id": 4,
+        "params": {
+          "cwd": "<WORKSPACE>",
+          "approvalPolicy": "never",
+          "sandbox": "read-only",
+          "serviceName": "vibe_coding_smoke"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.006Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 4,
+        "result": {
+          "thread": {
+            "id": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+            "sessionId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "8yes_codex",
+            "createdAt": 1780492314,
+            "updatedAt": 1780492314,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-53-019e8d9c-91cf-74e1-b0f9-7a3b21b6042a.jsonl",
+            "cwd": "<WORKSPACE>",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          },
+          "model": "gpt-5.5",
+          "modelProvider": "8yes_codex",
+          "serviceTier": "priority",
+          "cwd": "<WORKSPACE>",
+          "runtimeWorkspaceRoots": [
+            "<WORKSPACE>"
+          ],
+          "instructionSources": [
+            "<USER_HOME>\\.codex\\AGENTS.md",
+            "<WORKSPACE>\\AGENTS.md"
+          ],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "high"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.006Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+            "sessionId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+            "forkedFromId": null,
+            "preview": "",
+            "ephemeral": false,
+            "modelProvider": "8yes_codex",
+            "createdAt": 1780492314,
+            "updatedAt": 1780492314,
+            "status": {
+              "type": "idle"
+            },
+            "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-53-019e8d9c-91cf-74e1-b0f9-7a3b21b6042a.jsonl",
+            "cwd": "<WORKSPACE>",
+            "cliVersion": "0.136.0",
+            "source": "vscode",
+            "threadSource": null,
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "turns": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.006Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "turn/start",
+        "id": 5,
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "input": [
+            {
+              "type": "text",
+              "text": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+              "text_elements": []
+            }
+          ],
+          "approvalPolicy": "on-request",
+          "sandboxPolicy": {
+            "type": "readOnly",
+            "networkAccess": false
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "warning",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "message": "Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml."
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_team_run",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "openaiDeveloperDocs",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_code_intel",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_trace",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_memory",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.007Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_state",
+          "status": "starting",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.008Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 5,
+        "result": {
+          "turn": {
+            "id": "019e8d9c-a598-74a2-ab33-11669882782e",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.010Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/settings/updated",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "threadSettings": {
+            "cwd": "<WORKSPACE>",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "model": "gpt-5.5",
+            "modelProvider": "8yes_codex",
+            "serviceTier": "priority",
+            "effort": "high",
+            "summary": null,
+            "collaborationMode": {
+              "mode": "default",
+              "settings": {
+                "model": "gpt-5.5",
+                "reasoning_effort": "high",
+                "developer_instructions": null
+              }
+            },
+            "personality": "pragmatic"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.261Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_trace",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.334Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_team_run",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.358Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_code_intel",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.383Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_memory",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:54.443Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "omx_state",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:59.228Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:11:59.228Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turn": {
+            "id": "019e8d9c-a598-74a2-ab33-11669882782e",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1780492314,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:07.041Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "name": "openaiDeveloperDocs",
+          "status": "ready",
+          "error": null
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:07.052Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "warning",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "message": "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest."
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:07.059Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "2e1269bb-c820-435c-9ba5-2a3bd119caf9",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492327059
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:07.059Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "2e1269bb-c820-435c-9ba5-2a3bd119caf9",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492327059
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:11.770Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "reasoning",
+            "id": "rs_07d846082803b6f6016a20282d6bd4819487268b7fb01459f8",
+            "summary": [],
+            "content": []
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492331769
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:12.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "reasoning",
+            "id": "rs_07d846082803b6f6016a20282d6bd4819487268b7fb01459f8",
+            "summary": [],
+            "content": []
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492332922
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:13.721Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "call_wpMKSvL5VMIc9cYJPhakzcTE",
+            "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'echo app-server-approval-smoke'",
+            "cwd": "<WORKSPACE>",
+            "processId": null,
+            "source": "agent",
+            "status": "inProgress",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "echo app-server-approval-smoke"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492333332
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:13.879Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "call_wpMKSvL5VMIc9cYJPhakzcTE",
+            "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'echo app-server-approval-smoke'",
+            "cwd": "<WORKSPACE>",
+            "processId": null,
+            "source": "agent",
+            "status": "failed",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "echo app-server-approval-smoke"
+              }
+            ],
+            "aggregatedOutput": "execution error: Io(Custom { kind: Other, error: \"windows sandbox: spawn setup refresh\" })",
+            "exitCode": -1,
+            "durationMs": 0
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492333877
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:13.883Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:13.883Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:22.801Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "reasoning",
+            "id": "rs_06c8cd27f3588d1f016a20283793f48196a1f976d6abfe83a4",
+            "summary": [],
+            "content": []
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492342801
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:22.801Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "reasoning",
+            "id": "rs_06c8cd27f3588d1f016a20283793f48196a1f976d6abfe83a4",
+            "summary": [],
+            "content": []
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492342801
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.023Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "call_DWyNtj0ixNREurP0w7do1sfa",
+            "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'echo app-server-approval-smoke'",
+            "cwd": "<WORKSPACE>",
+            "processId": null,
+            "source": "agent",
+            "status": "inProgress",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "echo app-server-approval-smoke"
+              }
+            ],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492344019
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.382Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/commandExecution/outputDelta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "call_DWyNtj0ixNREurP0w7do1sfa",
+          "delta": "app-server-approval-smoke"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.382Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/commandExecution/outputDelta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "call_DWyNtj0ixNREurP0w7do1sfa",
+          "delta": "\r\n"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.469Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "commandExecution",
+            "id": "call_DWyNtj0ixNREurP0w7do1sfa",
+            "command": "\"C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe\" -Command 'echo app-server-approval-smoke'",
+            "cwd": "<WORKSPACE>",
+            "processId": null,
+            "source": "agent",
+            "status": "completed",
+            "commandActions": [
+              {
+                "type": "unknown",
+                "command": "echo app-server-approval-smoke"
+              }
+            ],
+            "aggregatedOutput": "app-server-approval-smoke\r\n",
+            "exitCode": 0,
+            "durationMs": 446
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492344469
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.476Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:24.476Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+            "text": "",
+            "phase": "final_answer",
+            "memoryCitation": null
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "startedAtMs": 1780492349922
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+          "delta": "app"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+          "delta": "-server"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+          "delta": " approval"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "itemId": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+          "delta": " ok"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:29.922Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0bb0a216652ace0a016a20283f08688197afac10ec737ece42",
+            "text": "app-server approval ok",
+            "phase": "final_answer",
+            "memoryCitation": null
+          },
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "completedAtMs": 1780492349922
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.620Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turnId": "019e8d9c-a598-74a2-ab33-11669882782e",
+          "tokenUsage": "<REDACTED_SECRET>"
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.620Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "account/rateLimits/updated",
+        "params": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "primary": null,
+            "secondary": null,
+            "credits": null,
+            "planType": null,
+            "rateLimitReachedType": null
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.621Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.621Z",
+      "direction": "server_to_client",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+          "turn": {
+            "id": "019e8d9c-a598-74a2-ab33-11669882782e",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1780492314,
+            "completedAt": 1780492351,
+            "durationMs": 37611
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.653Z",
+      "direction": "client_to_server",
+      "message": {
+        "method": "thread/list",
+        "id": 6,
+        "params": {
+          "limit": 5,
+          "useStateDbOnly": true
+        }
+      }
+    },
+    {
+      "at": "2026-06-03T13:12:31.666Z",
+      "direction": "server_to_client",
+      "message": {
+        "id": 6,
+        "result": {
+          "data": [
+            {
+              "id": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+              "sessionId": "019e8d9c-91cf-74e1-b0f9-7a3b21b6042a",
+              "forkedFromId": null,
+              "preview": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780492308,
+              "updatedAt": 1780492351,
+              "status": {
+                "type": "idle"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-53-019e8d9c-91cf-74e1-b0f9-7a3b21b6042a.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d9c-35e6-7651-a0f3-c639fff83ad2",
+              "sessionId": "019e8d9c-35e6-7651-a0f3-c639fff83ad2",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server smoke ok",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780492285,
+              "updatedAt": 1780492302,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-11-30-019e8d9c-35e6-7651-a0f3-c639fff83ad2.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d99-9528-72c3-b262-b9671dc563ad",
+              "sessionId": "019e8d99-9528-72c3-b262-b9671dc563ad",
+              "forkedFromId": null,
+              "preview": "Run this exact shell command, then reply with exactly app-server approval ok: echo app-server-approval-smoke",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780492113,
+              "updatedAt": 1780492150,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-08-38-019e8d99-9528-72c3-b262-b9671dc563ad.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d97-797a-78d1-b406-6407fde434a2",
+              "sessionId": "019e8d97-797a-78d1-b406-6407fde434a2",
+              "forkedFromId": null,
+              "preview": "Reply with exactly: app-server smoke ok",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780491975,
+              "updatedAt": 1780491991,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T21-06-20-019e8d97-797a-78d1-b406-6407fde434a2.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "vscode",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "turns": []
+            },
+            {
+              "id": "019e8d49-9d50-7fe3-811a-15d6f0ded4a1",
+              "sessionId": "019e8d49-9d50-7fe3-811a-15d6f0ded4a1",
+              "forkedFromId": null,
+              "preview": "拉取一下最新的代码",
+              "ephemeral": false,
+              "modelProvider": "8yes_codex",
+              "createdAt": 1780486872,
+              "updatedAt": 1780492284,
+              "status": {
+                "type": "notLoaded"
+              },
+              "path": "<USER_HOME>\\.codex\\sessions\\2026\\06\\03\\rollout-2026-06-03T19-41-12-019e8d49-9d50-7fe3-811a-15d6f0ded4a1.jsonl",
+              "cwd": "<WORKSPACE>",
+              "cliVersion": "0.136.0",
+              "source": "cli",
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": {
+                "sha": "4960ca51bb6735dfe11dad7d7e3593773e98d3d6",
+                "branch": "master",
+                "originUrl": "https://github.com/WenElevating/vibe-coding.git"
+              },
+              "name": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": "2026-06-03T11:41:12.76Z",
+          "backwardsCursor": "2026-06-03T13:11:47.999Z"
+        }
+      }
+    }
+  ],
+  "stderr": "\u001b[2m2026-06-03T13:11:48.922750Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_app_server\u001b[0m\u001b[2m:\u001b[0m Ignored unsupported project-local config keys in <WORKSPACE>\\.codex\\config.toml: model_providers. If you want these settings to apply, manually set them in your user-level config.toml.\n\u001b[2m2026-06-03T13:12:13.877913Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::exec\u001b[0m\u001b[2m:\u001b[0m exec error: windows sandbox: spawn setup refresh\n\u001b[2m2026-06-03T13:12:13.880050Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexecution error: Io(Custom { kind: Other, error: \"windows sandbox: spawn setup refresh\" })\n"
+}

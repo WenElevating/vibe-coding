@@ -1,26 +1,47 @@
 {
   "schemaVersion": 1,
-  "status": "not_run",
+  "status": "blocked",
   "vibeCodingRepo": "D:\\AiProject\\vibe-coding",
   "codexSourceCheckout": "D:\\GithubProject\\codex",
-  "codexSourceCommit": null,
-  "codexBinary": null,
-  "transportTested": null,
-  "startedAt": null,
-  "completedAt": null,
+  "codexSourceCommit": "3389fa554e953d07a12a34f5681aae46f17958f8",
+  "codexBinary": "D:\\nodejs\\codex.cmd",
+  "codexVersion": "codex-cli 0.136.0",
+  "transportTested": "stdio",
+  "startedAt": "2026-06-03T13:11:25.240Z",
+  "completedAt": "2026-06-03T13:12:31.690Z",
   "gates": {
-    "initializeWithin10s": "unknown",
-    "tenSequentialTurns": "unknown",
-    "threeApprovalRoundTrips": "unknown",
-    "approvalLatencyP95Under2s": "unknown",
-    "cancellationCleanupWithinDeadline": "unknown",
-    "largeOutputNoPipeBlock": "unknown",
-    "noOrphanProcesses": "unknown",
-    "sideEffectFreeProbeCreatesNoThread": "unknown",
-    "sessionScopeFieldIdentified": "unknown",
-    "projectTrustBehaviorKnown": "unknown",
-    "userInputRequestBehaviorKnown": "unknown"
+    "initializeWithin10s": "pass",
+    "tenSequentialTurns": "blocked",
+    "threeApprovalRoundTrips": "blocked",
+    "approvalLatencyP95Under2s": "blocked",
+    "cancellationCleanupWithinDeadline": "blocked",
+    "largeOutputNoPipeBlock": "blocked",
+    "noOrphanProcesses": "blocked",
+    "sideEffectFreeProbeCreatesNoThread": "pass",
+    "sessionScopeFieldIdentified": "blocked",
+    "projectTrustBehaviorKnown": "blocked",
+    "userInputRequestBehaviorKnown": "pass"
   },
-  "samples": [],
-  "notes": []
+  "samples": [
+    {
+      "path": "samples/2026-06-03-stdio-basic-turn.json",
+      "transport": "stdio",
+      "scenario": "basic-turn",
+      "result": "pass"
+    },
+    {
+      "path": "samples/2026-06-03-stdio-command-approval.json",
+      "transport": "stdio",
+      "scenario": "command-approval",
+      "result": "blocked",
+      "note": "Command execution completed, but no item/commandExecution/requestApproval server request was emitted."
+    }
+  ],
+  "notes": [
+    "Official Codex app-server documentation marks stdio as the default supported transport and websocket as experimental/unsupported.",
+    "The basic stdio sample proved initialize, initialized, model/list, thread/list, thread/start, turn/start, streamed notifications, and turn/completed.",
+    "Non-blocking notifications arrived while the turn was active, including configWarning, remoteControl/status/changed, mcpServer/startupStatus/updated, thread/status/changed, thread/tokenUsage/updated, and account/rateLimits/updated.",
+    "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
+    "The smoke runner now records child pid and exit signal; descendant process-tree orphan checks remain blocked."
+  ]
 }

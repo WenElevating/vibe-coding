@@ -188,6 +188,27 @@ test('project knowledge check passes current repository seed', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('Codex app-server smoke manifest has no unknown gates after Phase 1', () => {
+  const manifestPath = path.join(
+    __dirname,
+    '..',
+    'docs',
+    'superpowers',
+    'fixtures',
+    'codex-app-server',
+    'manifest.json'
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.equal(manifest.schemaVersion, 1);
+  assert.ok(['pass', 'fail', 'blocked', 'not_run'].includes(manifest.status));
+  if (manifest.status === 'not_run') return;
+  for (const [gate, result] of Object.entries(manifest.gates || {})) {
+    assert.ok(['pass', 'fail', 'blocked'].includes(result), `${gate} has invalid result ${result}`);
+  }
+  assert.ok(Array.isArray(manifest.samples));
+  assert.ok(manifest.samples.length > 0);
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
