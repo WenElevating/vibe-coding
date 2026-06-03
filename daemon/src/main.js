@@ -15,6 +15,7 @@ const { ClaudeConversationAdapter } = require('./claude-conversation-adapter');
 const { CodexConversationAdapter } = require('./codex-conversation-adapter');
 const { CodexAppServerConversationAdapter } = require('./codex-app-server-conversation-adapter');
 const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
+const { CodexAppServerLifecycle } = require('./codex-app-server-lifecycle');
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
@@ -65,6 +66,9 @@ function createApp({
   codexToolTimeoutSec = process.env.CODEX_TOOL_TIMEOUT_SEC,
   codexEnabled = process.env.CODEX_ENABLED === '1',
   codexAppServerEnabled = process.env.CODEX_APP_SERVER_ENABLED === '1',
+  codexAppServerTransport = process.env.CODEX_APP_SERVER_TRANSPORT || 'auto',
+  codexAppServerExperimentalApi = process.env.CODEX_APP_SERVER_EXPERIMENTAL_API === '1',
+  codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -88,7 +92,12 @@ function createApp({
   const conversationEventStore = new ConversationEventStore({ persistentStore: conversationSqliteStore });
   const auditLog = new AuditLog();
   const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
-  if (codexAppServerEnabled) adapters.push(new CodexAppServerListingAdapter({ enabled: true, installed: true }));
+  const codexAppServerRuntime = buildCodexAppServerRuntimeConfig({
+    enabled: codexAppServerEnabled,
+    transport: codexAppServerTransport,
+    experimentalApi: codexAppServerExperimentalApi
+  });
+  if (codexAppServerEnabled) adapters.push(new CodexAppServerListingAdapter(codexAppServerRuntime.availability));
   if (devAdapters) adapters.push(new SyntheticAdapter(), new SyntheticAdapter({ name: 'synthetic-text' }), new SyntheticAdapter({ name: 'synthetic-error' }), new SyntheticAdapter({ name: 'synthetic-slow', delayMs: 1000 }));
   const adapterRegistry = new AdapterRegistry(adapters);
   const shortcuts = new ShortcutStore();
@@ -110,7 +119,14 @@ function createApp({
     workspaces,
     eventStore: conversationEventStore,
     auditLog,
-    adapters: conversationAdapters || createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled }),
+    adapters: conversationAdapters || createConversationAdapters({
+      claudeCommand,
+      codexCommand,
+      codexToolTimeoutSec,
+      codexAppServerEnabled,
+      codexAppServerRuntime,
+      codexAppServerMaxProcesses
+    }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
     idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
@@ -132,22 +148,68 @@ function createApp({
   return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
 }
 
-function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false }) {
+function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null }) {
   const adapters = new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
     ['codex', new CodexConversationAdapter({ command: codexCommand, toolTimeoutSec: codexToolTimeoutSec })],
     ['opencode', notImplementedConversationAdapter('OpenCode')]
   ]);
   if (codexAppServerEnabled) {
+    const runtime = codexAppServerRuntime || buildCodexAppServerRuntimeConfig({ enabled: true });
+    const availability = buildCodexAppServerAvailability(runtime.availability);
     adapters.set('codex-app-server', new CodexAppServerConversationAdapter({
-      availability: buildCodexAppServerAvailability({
-        enabled: true,
-        installed: true,
-        unavailableReason: 'probe_not_run'
-      })
+      availability,
+      lifecycle: availability.selectable ? new CodexAppServerLifecycle({
+        maxProcesses: codexAppServerMaxProcesses,
+        command: codexCommand,
+        args: ['app-server']
+      }) : null,
+      toolTimeoutSec: codexToolTimeoutSec
     }));
   }
   return adapters;
+}
+
+function buildCodexAppServerRuntimeConfig({ enabled = false, transport = 'auto', experimentalApi = false } = {}) {
+  const normalizedTransport = String(transport || 'auto').trim().toLowerCase();
+  const transportSupported = normalizedTransport === 'auto' || normalizedTransport === 'stdio';
+  const installed = enabled;
+  const protocolCompatible = installed && experimentalApi === true && transportSupported;
+  const transportHealthy = protocolCompatible;
+  let unavailableReason = 'disabled';
+  if (enabled) {
+    if (normalizedTransport === 'off') {
+      unavailableReason = 'transport_off';
+    } else if (!transportSupported) {
+      unavailableReason = 'unsupported_transport';
+    } else if (experimentalApi !== true) {
+      unavailableReason = 'experimental_api_disabled';
+    } else {
+      unavailableReason = 'probe_not_run';
+    }
+  }
+  const availability = buildCodexAppServerAvailability({
+    enabled,
+    installed,
+    protocolCompatible,
+    transportHealthy,
+    unavailableReason,
+    lastProbeAt: protocolCompatible ? new Date().toISOString() : null
+  });
+  return {
+    transport: transportSupported ? 'stdio' : normalizedTransport,
+    experimentalApi: experimentalApi === true,
+    availability: {
+      enabled,
+      installed: availability.installed,
+      protocolCompatible: availability.protocolCompatible,
+      transportHealthy: availability.transportHealthy,
+      unavailableReason: availability.unavailableReason,
+      lastProbeAt: availability.lastProbeAt
+    },
+    selectable: availability.selectable,
+    effectiveCapabilities: availability.effectiveCapabilities
+  };
 }
 
 function notImplementedConversationAdapter(label) {

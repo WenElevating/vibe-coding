@@ -833,12 +833,33 @@ test('createApp exposes codex-app-server only behind explicit feature flag', asy
     const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
     assert.ok(appServer);
     assert.equal(appServer.selectable, false);
-    assert.equal(appServer.unavailableReason, 'probe_not_run');
+    assert.equal(appServer.unavailableReason, 'experimental_api_disabled');
     assert.equal(appServer.effectiveCapabilities.approval.mobileCallbacks, false);
     assert.equal(enabled.conversations.adapters.has('codex-app-server'), true);
   } finally {
     enabled.appSqliteStore.close();
     fs.rmSync(path.dirname(enabledDbPath), { recursive: true, force: true });
+  }
+
+  const selectableDbPath = tempConversationDbPath('app-server-listing-selectable-');
+  const selectable = createApp({
+    port: 0,
+    appDbPath: selectableDbPath,
+    codexAppServerEnabled: true,
+    codexAppServerExperimentalApi: true,
+    codexAppServerTransport: 'stdio'
+  });
+  try {
+    const adapters = await selectable.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, true);
+    assert.equal(appServer.transportHealthy, true);
+    assert.equal(appServer.effectiveCapabilities.mobileApprovalCallbacks, true);
+    assert.equal(selectable.conversations.adapters.get('codex-app-server').detectCapabilities().selectable, true);
+  } finally {
+    selectable.appSqliteStore.close();
+    fs.rmSync(path.dirname(selectableDbPath), { recursive: true, force: true });
   }
 });
 
@@ -2548,6 +2569,169 @@ test('codex-app-server falls back to codex before provider side effects when una
   assert.equal(spawnCount, 0);
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].conversationId, conversation.id);
+});
+
+test('Codex app-server conversation adapter runs stdio thread and turn lifecycle', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const transport = new EventEmitter();
+  transport.requests = [];
+  transport.notifications = [];
+  transport.results = [];
+  transport.sendRequest = async (method, params) => {
+    transport.requests.push({ method, params });
+    if (method === 'initialize') return { protocolVersion: '0.1.0' };
+    if (method === 'thread/start') return { thread: { id: 'thread_app_1' } };
+    if (method === 'turn/start') return { turn: { id: 'turn_app_1' } };
+    throw new Error(`unexpected request ${method}`);
+  };
+  transport.sendNotification = (method, params) => transport.notifications.push({ method, params });
+  transport.sendResult = (id, result) => transport.results.push({ id, result });
+  transport.sendError = (id, error) => transport.results.push({ id, error });
+  const shutdowns = [];
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: {
+      selectable: true,
+      effectiveCapabilities: { longLivedProcess: true, waitingApproval: true }
+    },
+    lifecycle: {
+      spawn() {
+        return {
+          transport,
+          pid: 123,
+          shutdown: async () => {
+            shutdowns.push(true);
+            transport.emit('closed', new Error('closed'));
+          }
+        };
+      }
+    },
+    toolTimeoutSec: 900
+  });
+  const events = [];
+
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_app_lifecycle',
+    workspacePath: 'D:\\Repo',
+    permissionMode: 'default',
+    model: 'gpt-5.5',
+    onEvent: (event) => events.push(event)
+  });
+  await handle.sendUserMessage({ text: 'Inspect this.', clientMessageId: 'client_1' });
+  transport.emit('notification', {
+    method: 'item/completed',
+    params: {
+      item: { id: 'msg_1', type: 'agentMessage', text: 'done' },
+      threadId: 'thread_app_1',
+      turnId: 'turn_app_1'
+    }
+  });
+  transport.emit('notification', {
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread_app_1',
+      turn: { id: 'turn_app_1', status: 'completed' }
+    }
+  });
+
+  assert.deepEqual(transport.requests.map((request) => request.method), ['initialize', 'thread/start', 'turn/start']);
+  assert.deepEqual(transport.notifications, [{ method: 'initialized', params: {} }]);
+  assert.equal(transport.requests[1].params.sandbox, 'read-only');
+  assert.equal(transport.requests[2].params.sandboxPolicy.type, 'workspaceWrite');
+  assert.equal(transport.requests[2].params.input[0].text, 'Inspect this.');
+  assert.equal(events[0].sessionId, 'thread_app_1');
+  assert.equal(events[0].providerSession.provider, 'codex-app-server');
+  assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_MESSAGE && event.text === 'done'), true);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_COMPLETED), true);
+
+  await handle.dispose();
+  assert.equal(shutdowns.length, 1);
+});
+
+test('Codex app-server conversation adapter maps approval request and response over JSON-RPC', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const transport = new EventEmitter();
+  transport.requests = [];
+  transport.results = [];
+  transport.sendRequest = async (method, params) => {
+    transport.requests.push({ method, params });
+    if (method === 'initialize') return {};
+    if (method === 'thread/start') return { thread: { id: 'thread_app_approval' } };
+    if (method === 'turn/start') return { turn: { id: 'turn_app_approval' } };
+    throw new Error(`unexpected request ${method}`);
+  };
+  transport.sendNotification = () => {};
+  transport.sendResult = (id, result) => transport.results.push({ id, result });
+  transport.sendError = (id, error) => transport.results.push({ id, error });
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: { selectable: true, effectiveCapabilities: { waitingApproval: true } },
+    lifecycle: { spawn: () => ({ transport, shutdown: async () => {} }) }
+  });
+  const events = [];
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_app_approval',
+    workspacePath: 'D:\\Repo',
+    onEvent: (event) => events.push(event)
+  });
+  await handle.sendUserMessage('run tests');
+
+  transport.emit('serverRequest', {
+    id: 7,
+    method: 'item/commandExecution/requestApproval',
+    params: {
+      threadId: 'thread_app_approval',
+      turnId: 'turn_app_approval',
+      itemId: 'cmd_1',
+      command: 'npm test',
+      availableDecisions: ['accept', 'cancel']
+    }
+  });
+  const approval = events.find((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(approval.approvalId, 'cmd_1');
+  assert.equal(approval.approvalOptions.supportsSessionScope, false);
+  assert.equal(approval.approvalOptions.supportsCancel, true);
+
+  await handle.respondApproval('cmd_1', { decision: 'allow', scope: 'session' });
+  assert.deepEqual(transport.results, [{ id: 7, result: { decision: 'accept' } }]);
+  await handle.respondApproval('cmd_1', { decision: 'allow' });
+  assert.deepEqual(transport.results, [{ id: 7, result: { decision: 'accept' } }]);
+});
+
+test('Codex app-server conversation adapter cancels pending approval on transport close', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const transport = new EventEmitter();
+  transport.sendRequest = async (method) => {
+    if (method === 'initialize') return {};
+    if (method === 'thread/start') return { thread: { id: 'thread_app_close' } };
+    if (method === 'turn/start') return { turn: { id: 'turn_app_close' } };
+    throw new Error(`unexpected request ${method}`);
+  };
+  transport.sendNotification = () => {};
+  transport.sendResult = () => {};
+  transport.sendError = () => {};
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: { selectable: true, effectiveCapabilities: { waitingApproval: true } },
+    lifecycle: { spawn: () => ({ transport, shutdown: async () => {} }) }
+  });
+  const events = [];
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_app_close',
+    workspacePath: 'D:\\Repo',
+    onEvent: (event) => events.push(event)
+  });
+  await handle.sendUserMessage('run tests');
+  transport.emit('serverRequest', {
+    id: 8,
+    method: 'item/commandExecution/requestApproval',
+    params: { itemId: 'cmd_close', command: 'npm test', availableDecisions: ['accept', 'cancel'] }
+  });
+  transport.emit('closed', new Error('transport closed'));
+
+  assert.equal(events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED), true);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED && event.approvalId === 'cmd_close'), true);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR && /transport closed/.test(event.message)), true);
 });
 
 test('conversation manager validates model update capability', async () => {

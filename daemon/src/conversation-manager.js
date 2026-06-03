@@ -656,6 +656,10 @@ class ConversationManager {
       const persisted = this.confirmSessionBinding(conversation, event.sessionId);
       if (!persisted) return;
     }
+    if (event.providerSession && typeof event.providerSession === 'object' && !Array.isArray(event.providerSession)) {
+      conversation.providerSession = sanitizeProviderSession(event.providerSession);
+      this.persistConversation(conversation);
+    }
     if (event.type === conversationEventTypes.ASSISTANT_QUESTION) {
       this.setBlockingItem(conversation, {
         type: 'input_request',
@@ -1537,6 +1541,23 @@ function modelCapabilityHashInput(model, adapterAttachments) {
 
 function sameAttachments(left, right) {
   return left?.image === right?.image && left?.pdf === right?.pdf && left?.textDocument === right?.textDocument;
+}
+
+function sanitizeProviderSession(input) {
+  const output = {};
+  for (const key of ['provider', 'threadId', 'protocolVersion', 'cwd', 'model', 'sandboxProfile', 'createdAt']) {
+    const value = input[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) output[key] = trimmed;
+      continue;
+    }
+    if (key === 'protocolVersion' && Number.isInteger(value)) {
+      output[key] = value;
+    }
+  }
+  return output;
 }
 
 function publicConversation(conversation) {
