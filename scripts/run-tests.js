@@ -209,6 +209,49 @@ test('Codex app-server smoke manifest has no unknown gates after Phase 1', () =>
   assert.ok(manifest.samples.length > 0);
 });
 
+test('Codex app-server availability marks disabled adapter unselectable', () => {
+  const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
+  const status = buildCodexAppServerAvailability({ enabled: false });
+  assert.equal(status.installed, false);
+  assert.equal(status.protocolCompatible, false);
+  assert.equal(status.transportHealthy, false);
+  assert.equal(status.selectable, false);
+  assert.equal(status.unavailableReason, 'disabled');
+  assert.equal(status.effectiveCapabilities.approval.mobileCallbacks, false);
+});
+
+test('Codex app-server availability exposes sanitized selectable status', () => {
+  const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
+  const status = buildCodexAppServerAvailability({
+    enabled: true,
+    installed: true,
+    protocolCompatible: true,
+    transportHealthy: true,
+    lastProbeAt: '2026-06-03T00:00:00.000Z'
+  });
+  assert.equal(status.installed, true);
+  assert.equal(status.protocolCompatible, true);
+  assert.equal(status.transportHealthy, true);
+  assert.equal(status.selectable, true);
+  assert.equal(status.unavailableReason, null);
+  assert.equal(status.effectiveCapabilities.mobileApprovalCallbacks, true);
+  assert.deepEqual(status.effectiveCapabilities.approval.scopes, ['once', 'session']);
+});
+
+test('Codex app-server availability sanitizes unavailable reasons', () => {
+  const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
+  const status = buildCodexAppServerAvailability({
+    enabled: true,
+    installed: true,
+    protocolCompatible: false,
+    transportHealthy: false,
+    unavailableReason: 'Failed with sk-test-secret at C:\\Users\\Alice\\repo'
+  });
+  assert.equal(status.selectable, false);
+  assert.equal(status.unavailableReason.includes('sk-test-secret'), false);
+  assert.equal(status.unavailableReason.includes('Alice'), false);
+});
+
 function createConversationManagerForTest({ adapters } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
