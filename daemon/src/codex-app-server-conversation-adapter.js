@@ -29,6 +29,15 @@ class CodexAppServerConversationAdapter {
     this.lifecycle = lifecycle;
     this.availability = availability || buildCodexAppServerAvailability({ enabled: false });
     this.capabilities = this.availability.effectiveCapabilities || {};
+    this.metrics = {
+      spawnFailure: 0,
+      initializeLatencyMs: null,
+      approvalRequestedCount: 0,
+      approvalTimeoutCount: 0,
+      approvalRoundTripLatencyMs: [],
+      transportCloseCount: 0,
+      runErrorAfterTurnStartedCount: 0
+    };
   }
 
   detectCapabilities() {
@@ -37,7 +46,10 @@ class CodexAppServerConversationAdapter {
       available: this.availability.selectable === true,
       status: this.availability.selectable === true ? 'available' : 'unavailable',
       ...this.availability,
-      capabilities: this.availability.effectiveCapabilities || {}
+      capabilities: this.availability.effectiveCapabilities || {},
+      diagnostics: {
+        metrics: snapshotMetrics(this.metrics)
+      }
     };
   }
 
@@ -59,7 +71,13 @@ class CodexAppServerConversationAdapter {
       error.code = 'CODEX_APP_SERVER_LIFECYCLE_MISSING';
       throw error;
     }
-    const processHandle = this.lifecycle.spawn();
+    let processHandle;
+    try {
+      processHandle = this.lifecycle.spawn();
+    } catch (error) {
+      this.metrics.spawnFailure += 1;
+      throw error;
+    }
     const conversationHandle = new CodexAppServerConversationHandle({
       adapter: this,
       processHandle,
@@ -70,8 +88,13 @@ class CodexAppServerConversationAdapter {
       model,
       onEvent
     });
-    await conversationHandle.initialize();
-    return conversationHandle;
+    try {
+      await conversationHandle.initialize();
+      return conversationHandle;
+    } catch (error) {
+      await conversationHandle.dispose();
+      throw error;
+    }
   }
 }
 
@@ -96,10 +119,12 @@ class CodexAppServerConversationHandle {
     this.disposed = false;
     this.closed = false;
     this.initialized = false;
+    this.turnHadRunError = false;
     this._bindTransport();
   }
 
   async initialize() {
+    const initializeStarted = Date.now();
     await this.transport.sendRequest('initialize', {
       clientInfo: {
         name: 'vibe-coding-daemon',
@@ -111,6 +136,7 @@ class CodexAppServerConversationHandle {
         requestAttestation: false
       }
     }, { timeoutMs: this.adapter.initializeTimeoutMs });
+    this.adapter.metrics.initializeLatencyMs = Date.now() - initializeStarted;
     this.transport.sendNotification('initialized', {});
     const resuming = !!this.sessionId;
     const threadRequest = resuming
@@ -161,6 +187,7 @@ class CodexAppServerConversationHandle {
     const turnId = stringValue(response?.turn?.id);
     if (!turnId) throw new Error('turn/start did not return turn.id');
     this.activeTurnId = turnId;
+    this.turnHadRunError = false;
   }
 
   async respondApproval(approvalId, response) {
@@ -258,12 +285,13 @@ class CodexAppServerConversationHandle {
       return;
     }
     const { context, event } = approval;
+    this.adapter.metrics.approvalRequestedCount += 1;
     const timer = setTimeout(() => {
       if (!this.pendingApprovals.has(context.approvalId)) return;
       this.resolveApproval(context.approvalId, { decision: 'deny', interrupt: false }, { timedOut: true });
     }, this.adapter.approvalTimeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
-    this.pendingApprovals.set(context.approvalId, { ...context, timer });
+    this.pendingApprovals.set(context.approvalId, { ...context, timer, requestedAt: Date.now() });
     this.onEvent(event);
   }
 
@@ -286,6 +314,13 @@ class CodexAppServerConversationHandle {
     clearTimeout(context.timer);
     this.pendingApprovals.delete(approvalId);
     this.resolvedApprovals.add(approvalId);
+    if (timedOut) this.adapter.metrics.approvalTimeoutCount += 1;
+    if (context.requestedAt) {
+      this.adapter.metrics.approvalRoundTripLatencyMs.push(Date.now() - context.requestedAt);
+      if (this.adapter.metrics.approvalRoundTripLatencyMs.length > 100) {
+        this.adapter.metrics.approvalRoundTripLatencyMs.shift();
+      }
+    }
     const rpcResponse = buildCodexAppServerApprovalResponse(context, response);
     this.transport.sendResult(rpcResponse.id, rpcResponse.result);
     this.onEvent({
@@ -327,8 +362,11 @@ class CodexAppServerConversationHandle {
   handleTransportClosed(error) {
     if (this.closed) return;
     this.closed = true;
+    this.adapter.metrics.transportCloseCount += 1;
     this.cancelPendingApprovals('transport_closed');
     if (!this.disposed && this.activeTurnId) {
+      this.adapter.metrics.runErrorAfterTurnStartedCount += 1;
+      this.turnHadRunError = true;
       this.onEvent({
         type: conversationEventTypes.RUN_ERROR,
         message: error?.message || 'Codex app-server transport closed'
@@ -355,6 +393,20 @@ function plainObject(value) {
 
 function stringValue(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function snapshotMetrics(metrics) {
+  return {
+    spawnFailure: Number(metrics.spawnFailure || 0),
+    initializeLatencyMs: Number.isFinite(metrics.initializeLatencyMs) ? metrics.initializeLatencyMs : null,
+    approvalRequestedCount: Number(metrics.approvalRequestedCount || 0),
+    approvalTimeoutCount: Number(metrics.approvalTimeoutCount || 0),
+    approvalRoundTripLatencyMs: Array.isArray(metrics.approvalRoundTripLatencyMs)
+      ? metrics.approvalRoundTripLatencyMs.slice(-20).filter(Number.isFinite)
+      : [],
+    transportCloseCount: Number(metrics.transportCloseCount || 0),
+    runErrorAfterTurnStartedCount: Number(metrics.runErrorAfterTurnStartedCount || 0)
+  };
 }
 
 module.exports = {

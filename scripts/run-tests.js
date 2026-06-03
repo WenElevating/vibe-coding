@@ -2732,6 +2732,89 @@ test('Codex app-server conversation adapter cancels pending approval on transpor
   assert.equal(events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED), true);
   assert.equal(events.some((event) => event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED && event.approvalId === 'cmd_close'), true);
   assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR && /transport closed/.test(event.message)), true);
+  const diagnostics = adapter.detectCapabilities().diagnostics.metrics;
+  assert.equal(diagnostics.transportCloseCount, 1);
+  assert.equal(diagnostics.runErrorAfterTurnStartedCount, 1);
+});
+
+test('Codex app-server conversation adapter shuts down process on thread resume failure', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const transport = new EventEmitter();
+  transport.sendRequest = async (method) => {
+    if (method === 'initialize') return {};
+    if (method === 'thread/resume') throw new Error('resume token expired');
+    throw new Error(`unexpected request ${method}`);
+  };
+  transport.sendNotification = () => {};
+  const shutdowns = [];
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: { selectable: true, effectiveCapabilities: { resume: true } },
+    lifecycle: {
+      spawn: () => ({
+        transport,
+        shutdown: async () => {
+          shutdowns.push(true);
+        }
+      })
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_app_resume_fail',
+      workspacePath: 'D:\\Repo',
+      sessionId: 'thread_missing',
+      onEvent: () => {}
+    }),
+    /resume token expired/
+  );
+  assert.equal(shutdowns.length, 1);
+});
+
+test('Codex app-server conversation adapter times out pending approval fail closed', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const transport = new EventEmitter();
+  transport.results = [];
+  transport.sendRequest = async (method) => {
+    if (method === 'initialize') return {};
+    if (method === 'thread/start') return { thread: { id: 'thread_app_timeout' } };
+    if (method === 'turn/start') return { turn: { id: 'turn_app_timeout' } };
+    throw new Error(`unexpected request ${method}`);
+  };
+  transport.sendNotification = () => {};
+  transport.sendResult = (id, result) => transport.results.push({ id, result });
+  transport.sendError = (id, error) => transport.results.push({ id, error });
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: { selectable: true, effectiveCapabilities: { waitingApproval: true } },
+    approvalTimeoutMs: 5,
+    lifecycle: { spawn: () => ({ transport, shutdown: async () => {} }) }
+  });
+  const events = [];
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_app_timeout',
+    workspacePath: 'D:\\Repo',
+    onEvent: (event) => events.push(event)
+  });
+  await handle.sendUserMessage('run tests');
+  transport.emit('serverRequest', {
+    id: 9,
+    method: 'item/commandExecution/requestApproval',
+    params: {
+      itemId: 'cmd_timeout',
+      command: 'npm test',
+      availableDecisions: ['accept', 'cancel']
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert.deepEqual(transport.results, [{ id: 9, result: { decision: 'cancel' } }]);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED && event.approvalId === 'cmd_timeout' && event.timedOut === true), true);
+  const metrics = adapter.detectCapabilities().diagnostics.metrics;
+  assert.equal(metrics.approvalRequestedCount, 1);
+  assert.equal(metrics.approvalTimeoutCount, 1);
+  assert.equal(metrics.approvalRoundTripLatencyMs.length, 1);
 });
 
 test('conversation manager validates model update capability', async () => {
