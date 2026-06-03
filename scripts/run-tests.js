@@ -3663,6 +3663,16 @@ test('Claude conversation adapter preserves full AskUserQuestion context and sug
   child.stdin = {
     destroyed: false,
     write(data) {
+      if (data.includes('"initialize"')) {
+        const req = JSON.parse(data.trim());
+        setImmediate(() => {
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+            type: 'control_response',
+            response: { request_id: req.request_id, subtype: 'success', response: {} }
+          })}\n`));
+        });
+        return;
+      }
       if (!data.includes('"type":"user"')) return;
       setImmediate(() => {
         child.stdout.emit('data', Buffer.from(`${JSON.stringify({
@@ -4415,13 +4425,22 @@ test('Claude conversation adapter emits approval requests for tools', async () =
       tool_name: 'Bash',
       tool_use_id: 'toolu_2',
       input: { command: 'dir scripts' },
-      permission_suggestions: ['allow']
+      permission_suggestions: [{ tool: 'Bash', rule: 'allow' }]
     }
   })}\n`);
 
   const approval = events.find((event) => event.type === 'approval.requested');
   assert.equal(approval.approvalId, 'approval_1');
   assert.equal(approval.summary, 'dir scripts');
+  assert.deepEqual(approval.suggestions, [{ tool: 'Bash', rule: 'allow' }]);
+  assert.deepEqual(approval.approvalOptions, {
+    kind: 'command',
+    supportsSessionScope: true,
+    supportsCancel: false,
+    denyBehavior: 'interrupt',
+    command: 'dir scripts',
+    proposedPermissions: { suggestions: [{ tool: 'Bash', rule: 'allow' }] }
+  });
   await handle.respondApproval('approval_1', 'allow');
   assert.equal(stdinLines.some((line) => line.includes('approval_1') && line.includes('"behavior":"allow"')), true);
 });
@@ -4582,6 +4601,43 @@ test('Claude conversation adapter forwards updated approval input and deny inter
   const allowResponse = JSON.parse(stdinLines.at(-1)).response.response;
   assert.deepEqual(allowResponse.updatedInput, { command: 'npm test' });
   assert.deepEqual(allowResponse.updatedPermissions, [{ tool: 'Bash', rule: 'allow' }]);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_session',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      input: { command: 'npm test' },
+      permission_suggestions: [{ tool: 'Bash', rule: 'allow' }]
+    }
+  })}\n`);
+
+  await handle.respondApproval('approval_session', {
+    decision: 'allow',
+    scope: 'session'
+  });
+  const sessionResponse = JSON.parse(stdinLines.at(-1)).response.response;
+  assert.equal(sessionResponse.behavior, 'allow');
+  assert.deepEqual(sessionResponse.updatedPermissions, [{ tool: 'Bash', rule: 'allow' }]);
+
+  child.stdout.emit('data', `${JSON.stringify({
+    type: 'control_request',
+    request_id: 'approval_session_no_suggestions',
+    request: {
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      input: { command: 'npm run lint' }
+    }
+  })}\n`);
+
+  await handle.respondApproval('approval_session_no_suggestions', {
+    decision: 'allow',
+    scope: 'session'
+  });
+  const noSuggestionResponse = JSON.parse(stdinLines.at(-1)).response.response;
+  assert.equal(noSuggestionResponse.behavior, 'allow');
+  assert.equal(Object.prototype.hasOwnProperty.call(noSuggestionResponse, 'updatedPermissions'), false);
 
   child.stdout.emit('data', `${JSON.stringify({
     type: 'control_request',
@@ -11628,7 +11684,7 @@ test('android update install recovery is wired through ViewModel and app lifecyc
     'utf8'
   );
   const mainTabs = fs.readFileSync(
-    path.join(__dirname, '..', 'mobile/lib/src/ui/main_tabs_page.dart'),
+    path.join(__dirname, '..', 'mobile/lib/src/ui/main/main_page.dart'),
     'utf8'
   );
   const workflow = fs.readFileSync(

@@ -217,11 +217,21 @@ class ClaudeConversationHandle {
     const pending = this.state.pendingApprovals.get(approvalId);
     const input = pending?.input || {};
     const approval = typeof decision === 'string' ? { decision } : (decision || {});
+    const pendingPermissions = Array.isArray(pending?.permissionSuggestions)
+      ? pending.permissionSuggestions
+      : [];
+    const sessionPermissions = approval.scope === 'session' && pendingPermissions.length > 0
+      ? pendingPermissions
+      : null;
     const response = approval.decision === 'allow'
       ? {
           behavior: 'allow',
           updatedInput: approval.updatedInput || input,
-          ...(Array.isArray(approval.updatedPermissions) ? { updatedPermissions: approval.updatedPermissions } : {})
+          ...(Array.isArray(approval.updatedPermissions)
+            ? { updatedPermissions: approval.updatedPermissions }
+            : sessionPermissions
+              ? { updatedPermissions: sessionPermissions }
+              : {})
         }
       : {
           behavior: 'deny',
@@ -1273,10 +1283,17 @@ function handleControlRequest(raw, state) {
     });
     return;
   }
+  const permissionSuggestions = Array.isArray(request.permission_suggestions)
+    ? request.permission_suggestions.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+  const command = request.input && typeof request.input.command === 'string'
+    ? request.input.command
+    : undefined;
   state.pendingApprovals.set(requestId, {
     input: request.input || {},
     toolName: request.tool_name,
-    toolUseId: request.tool_use_id || null
+    toolUseId: request.tool_use_id || null,
+    permissionSuggestions
   });
   if (request.tool_use_id && request.input && typeof request.input === 'object') {
     const pendingTool = state.pendingTools.get(request.tool_use_id) || {
@@ -1295,9 +1312,17 @@ function handleControlRequest(raw, state) {
     approvalId: requestId,
     toolName: request.tool_name,
     input: request.input || {},
-    suggestions: request.permission_suggestions || [],
+    suggestions: permissionSuggestions,
     toolUseId: request.tool_use_id || null,
     summary: summarizeToolInput(request.tool_name, request.input),
+    approvalOptions: {
+      kind: request.tool_name === 'Bash' ? 'command' : 'generic',
+      supportsSessionScope: permissionSuggestions.length > 0,
+      supportsCancel: false,
+      denyBehavior: 'interrupt',
+      ...(command ? { command } : {}),
+      ...(permissionSuggestions.length > 0 ? { proposedPermissions: { suggestions: permissionSuggestions } } : {})
+    },
     raw
   });
 }
