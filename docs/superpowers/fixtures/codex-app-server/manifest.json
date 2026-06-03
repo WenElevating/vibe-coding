@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "blocked",
+  "status": "pass",
   "vibeCodingRepo": "D:\\AiProject\\vibe-coding",
   "codexSourceCheckout": "D:\\GithubProject\\codex",
   "codexSourceCommit": "3389fa554e953d07a12a34f5681aae46f17958f8",
@@ -8,17 +8,17 @@
   "codexVersion": "codex-cli 0.136.0",
   "transportTested": "stdio",
   "startedAt": "2026-06-03T13:11:25.240Z",
-  "completedAt": "2026-06-03T14:16:49.855Z",
+  "completedAt": "2026-06-03T14:35:39.513Z",
   "gates": {
     "initializeWithin10s": "pass",
     "tenSequentialTurns": "pass",
-    "threeApprovalRoundTrips": "blocked",
-    "approvalLatencyP95Under2s": "blocked",
+    "threeApprovalRoundTrips": "pass",
+    "approvalLatencyP95Under2s": "pass",
     "cancellationCleanupWithinDeadline": "pass",
     "largeOutputNoPipeBlock": "pass",
     "noOrphanProcesses": "pass",
     "sideEffectFreeProbeCreatesNoThread": "pass",
-    "sessionScopeFieldIdentified": "blocked",
+    "sessionScopeFieldIdentified": "pass",
     "projectTrustBehaviorKnown": "pass",
     "userInputRequestBehaviorKnown": "pass"
   },
@@ -33,8 +33,8 @@
       "path": "samples/2026-06-03-stdio-command-approval.json",
       "transport": "stdio",
       "scenario": "command-approval",
-      "result": "blocked",
-      "note": "Command execution completed, but no item/commandExecution/requestApproval server request was emitted."
+      "result": "pass",
+      "note": "Isolated CODEX_HOME plus a local mock Responses server produced three real item/commandExecution/requestApproval requests over stdio; all resolved and completed. availableDecisions contained accept, acceptWithExecpolicyAmendment, and cancel, but not acceptForSession."
     },
     {
       "path": "samples/2026-06-03-stdio-sequential-turns.json",
@@ -69,7 +69,8 @@
     "Official Codex app-server documentation marks stdio as the default supported transport and websocket as experimental/unsupported.",
     "The basic stdio sample proved initialize, initialized, model/list, thread/list, thread/start, turn/start, streamed notifications, and turn/completed.",
     "Non-blocking notifications arrived while the turn was active, including configWarning, remoteControl/status/changed, mcpServer/startupStatus/updated, thread/status/changed, thread/tokenUsage/updated, and account/rateLimits/updated.",
-    "Approval request capability remains blocked because the first command-approval prompt did not emit an approval request despite approvalPolicy on-request.",
+    "Approval request capability was verified with an isolated CODEX_HOME and local mock Responses SSE server patterned after upstream app-server tests, avoiding prompt-dependent model behavior while preserving the installed codex app-server stdio path.",
+    "Command approval availableDecisions is the request-level authority. The observed decisions were accept, acceptWithExecpolicyAmendment, and cancel; acceptForSession was not observed, so supportsSessionScope must remain false for command approvals.",
     "The smoke runner now records child pid, exit signal, and Windows process-tree descendants; the measured cancellation sample captured 12 descendants and zero survivors after cleanup.",
     "thread/shellCommand is suitable for smoke-only transport stress because it is explicit user-initiated command execution and runs outside the sandbox; do not expose it as adapter fallback behavior.",
     "Project trust behavior is known: workspace-write thread/start can persist trust_level=trusted. The bridge mitigation is to start/resume threads as read-only and keep elevated workspace-write policy on turn/start rather than thread/start."

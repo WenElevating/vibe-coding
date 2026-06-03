@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
+const http = require('node:http');
 const { spawn, spawnSync } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -18,11 +19,13 @@ const cwd = process.env.CODEX_SMOKE_CWD || repoRoot;
 const timeoutMs = Number(process.env.CODEX_APP_SERVER_SMOKE_TIMEOUT_MS || 120000);
 const dateStamp = new Date().toISOString().slice(0, 10);
 const scenario = process.env.CODEX_APP_SERVER_SMOKE_SCENARIO || 'basic-turn';
+const usesMockModelServer = scenario === 'command-approval';
 const isolatedProjectTrust = scenario === 'project-trust';
-const scenarioCodexHome = isolatedProjectTrust
+const usesIsolatedCodexHome = isolatedProjectTrust || usesMockModelServer;
+const scenarioCodexHome = usesIsolatedCodexHome
   ? fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-home-'))
   : null;
-const scenarioWorkspace = isolatedProjectTrust
+const scenarioWorkspace = usesIsolatedCodexHome
   ? fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-workspace-'))
   : cwd;
 
@@ -30,8 +33,11 @@ let nextId = 1;
 const messages = [];
 const stderrChunks = [];
 const approvals = [];
+const modelRequests = [];
 const pending = new Map();
 let child;
+let mockModelServer = null;
+let mockModelServerUrl = null;
 let initializedAt = null;
 let completedAt = null;
 let childPid = null;
@@ -117,16 +123,26 @@ function handleServerRequest(message) {
   const method = message.method || 'unknown';
   if (method === 'item/commandExecution/requestApproval') {
     const decision = process.env.CODEX_APP_SERVER_SMOKE_APPROVAL_DECISION || 'accept';
-    approvals.push(redact({
+    const requestedAt = new Date();
+    const approval = redact({
       method,
       id: message.id,
       decision,
       params: message.params,
-    }));
+      requestedAt: requestedAt.toISOString(),
+      respondedAt: null,
+      responseLatencyMs: null,
+      resolvedAt: null,
+      resolvedLatencyMs: null,
+    });
+    approvals.push(approval);
     const response = {
       id: message.id,
       result: { decision },
     };
+    const respondedAt = new Date();
+    approval.respondedAt = respondedAt.toISOString();
+    approval.responseLatencyMs = respondedAt.getTime() - requestedAt.getTime();
     record('client_to_server_request_response', response);
     child.stdin.write(`${JSON.stringify(response)}\n`);
     return;
@@ -160,6 +176,17 @@ function handleServerRequest(message) {
 
 function handleMessage(message) {
   record('server_to_client', message);
+  if (message.method === 'serverRequest/resolved' && message.params) {
+    const requestId = message.params.requestId ?? message.params.request_id;
+    const approval = approvals.find((item) => item.id === requestId);
+    if (approval && !approval.resolvedAt) {
+      const resolvedAt = new Date();
+      approval.resolvedAt = resolvedAt.toISOString();
+      approval.resolvedLatencyMs = approval.requestedAt
+        ? resolvedAt.getTime() - new Date(approval.requestedAt).getTime()
+        : null;
+    }
+  }
   if (message.method && message.id !== undefined) {
     handleServerRequest(message);
     return;
@@ -198,6 +225,169 @@ function waitForNotification(method, predicate = () => true, timeout = timeoutMs
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sse(events) {
+  return events.map((event) => {
+    const type = event.type;
+    if (Object.keys(event).length === 1) return `event: ${type}\n\n`;
+    return `event: ${type}\ndata: ${JSON.stringify(event)}\n\n`;
+  }).join('');
+}
+
+function evResponseCreated(id) {
+  return {
+    type: 'response.created',
+    response: { id },
+  };
+}
+
+function evCompleted(id) {
+  return {
+    type: 'response.completed',
+    response: {
+      id,
+      usage: {
+        input_tokens: 0,
+        input_tokens_details: null,
+        output_tokens: 0,
+        output_tokens_details: null,
+        total_tokens: 0,
+      },
+    },
+  };
+}
+
+function evFunctionCall(callId, name, argumentsJson) {
+  return {
+    type: 'response.output_item.done',
+    item: {
+      type: 'function_call',
+      call_id: callId,
+      name,
+      arguments: argumentsJson,
+    },
+  };
+}
+
+function evAssistantMessage(id, text) {
+  return {
+    type: 'response.output_item.done',
+    item: {
+      type: 'message',
+      role: 'assistant',
+      id,
+      content: [{ type: 'output_text', text }],
+    },
+  };
+}
+
+function shellCommandForApproval(index) {
+  if (process.platform === 'win32') {
+    return `cmd.exe /d /c echo app-server-approval-smoke-${index + 1}`;
+  }
+  return `echo app-server-approval-smoke-${index + 1}`;
+}
+
+function shellCommandSse(index) {
+  const responseId = `resp-approval-shell-${index + 1}`;
+  const args = JSON.stringify({
+    command: shellCommandForApproval(index),
+    workdir: scenarioWorkspace,
+    timeout_ms: 5000,
+  });
+  return sse([
+    evResponseCreated(responseId),
+    evFunctionCall(`call-approval-${index + 1}`, 'shell_command', args),
+    evCompleted(responseId),
+  ]);
+}
+
+function finalAssistantSse(index) {
+  const responseId = `resp-approval-final-${index + 1}`;
+  return sse([
+    evResponseCreated(responseId),
+    evAssistantMessage(`msg-approval-${index + 1}`, `approval turn ${index + 1} done`),
+    evCompleted(responseId),
+  ]);
+}
+
+function requestIncludesFunctionOutput(body) {
+  const input = Array.isArray(body?.input) ? body.input : [];
+  const last = input[input.length - 1];
+  return Boolean(last && last.type === 'function_call_output');
+}
+
+function startMockModelServer() {
+  let turnIndex = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || !/\/v1\/responses$/.test(req.url || '')) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      let body = null;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      } catch (error) {
+        body = { parseError: error.message };
+      }
+      modelRequests.push(redact({
+        at: new Date().toISOString(),
+        url: req.url,
+        includesFunctionOutput: requestIncludesFunctionOutput(body),
+        inputItemTypes: Array.isArray(body?.input) ? body.input.map((item) => item?.type || null) : null,
+      }));
+      const isFollowup = requestIncludesFunctionOutput(body);
+      const currentIndex = isFollowup ? Math.max(0, turnIndex - 1) : turnIndex++;
+      const bodyText = isFollowup ? finalAssistantSse(currentIndex) : shellCommandSse(currentIndex);
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'close',
+      });
+      res.end(bodyText);
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      mockModelServer = server;
+      mockModelServerUrl = `http://127.0.0.1:${address.port}`;
+      resolve(mockModelServerUrl);
+    });
+  });
+}
+
+function stopMockModelServer() {
+  if (!mockModelServer) return Promise.resolve();
+  return new Promise((resolve) => {
+    mockModelServer.close(() => resolve());
+  });
+}
+
+function writeMockModelConfig(serverUrl) {
+  if (!scenarioCodexHome) throw new Error('mock model config requires isolated CODEX_HOME');
+  fs.mkdirSync(scenarioCodexHome, { recursive: true });
+  const configToml = [
+    'model = "mock-model"',
+    'approval_policy = "on-request"',
+    'sandbox_mode = "read-only"',
+    'model_provider = "mock_provider"',
+    '',
+    '[model_providers.mock_provider]',
+    'name = "Mock provider for app-server smoke"',
+    `base_url = "${serverUrl}/v1"`,
+    'wire_api = "responses"',
+    'request_max_retries = 0',
+    'stream_max_retries = 0',
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(scenarioCodexHome, 'config.toml'), configToml, 'utf8');
 }
 
 function listDescendantProcesses(rootPid) {
@@ -330,6 +520,13 @@ async function startTurnAndWait(threadId, name, index = 0) {
 }
 
 async function runBasicScenario(threadId) {
+  if (scenario === 'command-approval') {
+    const turns = [];
+    for (let index = 0; index < 3; index += 1) {
+      turns.push(await startTurnAndWait(threadId, 'command-approval', index));
+    }
+    return { turns };
+  }
   return {
     turns: [await startTurnAndWait(threadId, scenario, 0)]
   };
@@ -429,11 +626,15 @@ async function runScenario(threadId) {
 
 async function run() {
   fs.mkdirSync(samplesDir, { recursive: true });
+  if (usesMockModelServer) {
+    const serverUrl = await startMockModelServer();
+    writeMockModelConfig(serverUrl);
+  }
   const command = codexJs ? nodeBin : codexBin;
   const args = codexJs ? [codexJs, 'app-server'] : ['app-server'];
   child = spawn(command, args, {
     cwd: scenarioWorkspace,
-    env: isolatedProjectTrust ? { ...process.env, CODEX_HOME: scenarioCodexHome } : process.env,
+    env: usesIsolatedCodexHome ? { ...process.env, CODEX_HOME: scenarioCodexHome } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -487,7 +688,7 @@ async function run() {
     modelList = await request('model/list', { limit: 20, includeHidden: false }, 30000);
     threadListBefore = await request('thread/list', { limit: 5, useStateDbOnly: true }, 30000);
     threadStart = await request('thread/start', {
-      cwd,
+      cwd: scenarioWorkspace,
       approvalPolicy: 'never',
       sandbox: 'read-only',
       serviceName: 'vibe_coding_smoke',
@@ -513,6 +714,7 @@ async function run() {
     scenario,
     codexBin,
     codexJs,
+    mockModelServerUrl,
     childPid,
     childExit,
     processTree: {
@@ -537,6 +739,17 @@ async function run() {
     threadStart,
     ...scenarioResult,
     approvals,
+    approvalSummary: {
+      count: approvals.length,
+      availableDecisions: approvals.map((approval) => approval.params?.availableDecisions || approval.params?.available_decisions || null),
+      responseLatencyMs: approvals.map((approval) => approval.responseLatencyMs),
+      resolvedLatencyMs: approvals.map((approval) => approval.resolvedLatencyMs),
+      sawAcceptForSession: approvals.some((approval) => {
+        const decisions = approval.params?.availableDecisions || approval.params?.available_decisions || [];
+        return Array.isArray(decisions) && decisions.includes('acceptForSession');
+      }),
+    },
+    modelRequests,
     threadListAfterSummary: {
       count: Array.isArray(threadListAfter?.data) ? threadListAfter.data.length : null,
     },
@@ -577,4 +790,5 @@ run()
   })
   .finally(() => {
     if (child && !child.killed && !childExit) child.kill();
+    stopMockModelServer();
   });

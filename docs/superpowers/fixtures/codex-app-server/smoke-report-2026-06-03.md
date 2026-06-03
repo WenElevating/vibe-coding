@@ -2,7 +2,7 @@
 
 - Date: 2026-06-03
 - Operator: Codex
-- vibe-coding commit: 3328742ee7de1dfd4c2bb842778680f8a2d8574a
+- vibe-coding commit: 2c8c6d6d9e9b29a845d48176573eeb1ee274568e
 - Codex source commit: 3389fa554e953d07a12a34f5681aae46f17958f8
 - Codex binary: D:\nodejs\codex.cmd
 - Codex version: codex-cli 0.136.0
@@ -22,7 +22,10 @@ $env:CODEX_APP_SERVER_SMOKE_SCENARIO='project-trust'; $env:CODEX_APP_SERVER_SMOK
 
 The smoke uses the installed Codex CLI and starts `codex app-server` with its
 default stdio transport. The upstream source checkout was used for protocol
-schema inspection only.
+schema inspection. The approval scenario also uses an isolated `CODEX_HOME` and
+a local mock Responses SSE server patterned after upstream app-server tests, so
+approval triggering is deterministic without building Codex or relying on prompt
+behavior from a live model.
 
 ## Gate Results
 
@@ -30,13 +33,13 @@ schema inspection only.
 | --- | --- | --- |
 | initialize within 10s | pass | `samples/2026-06-03-stdio-basic-turn.json` initialized at 2026-06-03T13:06:14.848Z and received the initialize response before subsequent requests. |
 | 10 sequential turns | pass | `samples/2026-06-03-stdio-sequential-turns.json` completed 10 consecutive turns on one stdio app-server child; all 10 `turn/completed` statuses were `completed`. |
-| 3 approval round trips | blocked | `samples/2026-06-03-stdio-command-approval.json` completed command execution but did not emit `item/commandExecution/requestApproval`. |
-| approval p95 latency under 2s | blocked | No approval request was emitted, so latency cannot be measured. |
+| 3 approval round trips | pass | `samples/2026-06-03-stdio-command-approval.json` captured three `item/commandExecution/requestApproval` requests over stdio; all three received client responses, emitted `serverRequest/resolved`, and ended with `turn/completed` status `completed`. |
+| approval p95 latency under 2s | pass | `samples/2026-06-03-stdio-command-approval.json` recorded response latencies `[0, 0, 0]` ms and resolved latencies `[0, 0, 0]` ms. |
 | cancellation cleanup deadline | pass | `samples/2026-06-03-stdio-cancellation.json` used `thread/shellCommand` to start a long-running shell turn, sent `turn/interrupt`, received a successful response, and observed `turn/completed` with status `interrupted`; the app-server child exited via SIGTERM during cleanup. |
 | large output no pipe block | pass | `samples/2026-06-03-stdio-large-output.json` completed a `thread/shellCommand` command that printed 1200 numbered lines without JSONL parse errors, request timeouts, or pipe deadlock. |
 | no orphan processes | pass | `samples/2026-06-03-stdio-cancellation.json` captured 12 Windows descendant processes before cleanup and zero survivors after process-tree cleanup. |
 | side-effect-free probe creates no thread | pass | `model/list` and `thread/list` completed before any `thread/start`; no `thread/started` appeared before the explicit `thread/start`. |
-| session scope field identified | blocked | No approval request was emitted, so `availableDecisions` was not observed. |
+| session scope field identified | pass | `samples/2026-06-03-stdio-command-approval.json` confirmed request-level `availableDecisions` as the authoritative field. Observed command decisions were `accept`, `acceptWithExecpolicyAmendment`, and `cancel`; `acceptForSession` was not present, so session scope must remain disabled for command approvals. |
 | project trust behavior known | pass | `samples/2026-06-03-stdio-project-trust.json` used isolated `CODEX_HOME`: read-only `thread/start` left config absent, while workspace-write `thread/start` persisted `trust_level = "trusted"` for the temp workspace. |
 | user-input request behavior known | pass | The basic and command scenarios completed without `item/tool/requestUserInput`. |
 
@@ -54,11 +57,12 @@ schema inspection only.
 - Transport selected for Phase 2: stdio-first.
 - Capabilities to expose: initialize, model/list probe, thread/start, turn/start, turn/interrupt, streamed non-blocking notifications, turn/completed, and stdio operation across 10 consecutive turns.
 - Capabilities to keep adapter-internal only for smoke: `thread/shellCommand`, because official docs state it runs outside the sandbox and should only be exposed for explicit user-initiated commands.
-- Capabilities to lower or omit: approval callbacks and session-scoped approval remain unavailable until dedicated smoke gates pass.
+- Capabilities to expose for command approval: approval callbacks, request-level `availableDecisions`, and cancel only when the current request includes `cancel`.
+- Capabilities to lower or omit: session-scoped approval remains unavailable for command approvals until a real request includes `acceptForSession` or an equivalent stable request-level marker.
 - Product mitigation applied in bridge: app-server `thread/start` and `thread/resume` should use read-only sandbox, because elevated `workspace-write` at thread start persists project trust. Elevated workspace write remains a turn-level setting.
-- App-server selectable: no. Keep behind feature flag until blocked gates are resolved.
+- App-server selectable: still no for default rollout. Phase 1 transport and approval gates now pass, but production enablement still requires the Phase 2 adapter lifecycle, approval timeout/concurrency/idempotency behavior, metrics, attachment conversion, and kill-switch wiring.
 
 ## Follow-up
 
-- Add a dedicated approval trigger that produces `item/commandExecution/requestApproval`, then capture `availableDecisions`.
-- Keep regression coverage that app-server bridge does not request workspace-write at thread start.
+- Implement the production `codex-app-server` conversation path using stdio, side-effect-safe thread startup, and request-level approval capability mapping.
+- Keep regression coverage that app-server bridge does not request workspace-write at thread start and does not expose session-scoped approval without `acceptForSession`.
