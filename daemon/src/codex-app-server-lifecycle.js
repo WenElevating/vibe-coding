@@ -103,8 +103,10 @@ class CodexAppServerProcessHandle {
     });
   }
 
-  shutdown() {
+  shutdown({ gracefulShutdownMs = this.gracefulShutdownMs, hardKillGraceMs = this.hardKillGraceMs } = {}) {
     if (this.exited) return Promise.resolve(this.exit);
+    const graceMs = Math.max(1, Number(gracefulShutdownMs) || this.gracefulShutdownMs);
+    const hardKillMs = Math.max(1, Number(hardKillGraceMs) || this.hardKillGraceMs);
     return new Promise((resolve) => {
       const done = (code, signal) => {
         clearTimeout(graceTimer);
@@ -123,9 +125,9 @@ class CodexAppServerProcessHandle {
           this.terminate('SIGKILL');
           hardKillTimer = setTimeout(() => {
             if (!this.exited) done(null, 'SIGKILL_TIMEOUT');
-          }, this.hardKillGraceMs);
+          }, hardKillMs);
         }
-      }, this.gracefulShutdownMs);
+      }, graceMs);
       this.child.once('exit', done);
       if (!this.terminate('SIGTERM')) {
         done(null, 'missing-kill');

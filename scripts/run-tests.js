@@ -951,6 +951,45 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
   }
 });
 
+test('Codex app-server default probe avoids slow model list request', async () => {
+  const { createCodexAppServerProbe } = require('../daemon/src/main');
+  const sent = [];
+  let shutdownOptions = null;
+  const probe = createCodexAppServerProbe({
+    shutdownGraceMs: 123,
+    lifecycle: {
+      spawn() {
+        return {
+          transport: {
+            sendRequest(method, params, options) {
+              sent.push({ kind: 'request', method, params, options });
+              return Promise.resolve({});
+            },
+            sendNotification(method, params) {
+              sent.push({ kind: 'notification', method, params });
+            }
+          },
+          async shutdown(options) {
+            shutdownOptions = options;
+          }
+        };
+      }
+    }
+  });
+
+  const availability = await probe();
+
+  assert.equal(availability.transportHealthy, true);
+  assert.deepEqual(shutdownOptions, {
+    gracefulShutdownMs: 123,
+    hardKillGraceMs: 123
+  });
+  assert.deepEqual(sent.map((message) => `${message.kind}:${message.method}`), [
+    'request:initialize',
+    'notification:initialized'
+  ]);
+});
+
 test('diagnostics include sanitized codex app-server adapter metrics', async () => {
   const dbPath = tempConversationDbPath('app-server-diagnostics-');
   const app = createApp({

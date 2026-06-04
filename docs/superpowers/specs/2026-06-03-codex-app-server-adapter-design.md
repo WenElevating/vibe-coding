@@ -720,9 +720,11 @@ CODEX_APP_SERVER_MAX_PROCESSES=<bounded integer>
 ```
 
 Defaults let the daemon register `codex-app-server`, run the lightweight stdio
-probe, and mark the adapter selectable only if initialize plus the probe request
-complete without creating app-server thread state. Operators can disable the
-adapter immediately without changing mobile code by setting
+probe, and mark the adapter selectable only if the initialize handshake
+completes without creating app-server thread state. Slow capability requests
+such as `model/list` must not block `GET /api/adapters`; they belong in later
+model/capability refresh paths with their own timeout budget. Operators can
+disable the adapter immediately without changing mobile code by setting
 `CODEX_APP_SERVER_ENABLED=0`, `CODEX_APP_SERVER_TRANSPORT=off`, or
 `CODEX_APP_SERVER_ROLLOUT_PERCENT=0`. This default does not make app-server the
 default `codex` route; users or clients still explicitly select
@@ -755,9 +757,9 @@ provider payloads, credentials, environment blocks, or unredacted local paths.
   10 sequential turns, approval round trips, cancellation, large output, and
   child-process cleanup passed.
 - Which app-server response or generated schema should be used as the minimum
-  version/capability gate? Closed for first rollout by initialize plus
-  `model/list`; selection is still controlled by explicit experimental and
-  rollout flags rather than implicit adapter listing probes.
+  version/capability gate? Closed for first rollout by the initialize handshake
+  plus repository-pinned schema review; `model/list` proved too slow for the
+  adapter-listing path and must not gate `GET /api/adapters`.
 - Is stable API sufficient for command approval, file approval, permissions
   approval, image input, model selection, and cancellation? Partially closed:
   command approval, model list, turn start/completion, cancellation, and native

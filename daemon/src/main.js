@@ -117,7 +117,15 @@ function createApp({
         : typeof codexAppServerProbe === 'function'
         ? codexAppServerProbe
         : codexAppServerRuntime.shouldProbe
-        ? createCodexAppServerProbe({ lifecycle: codexAppServerLifecycle, metrics: codexAppServerMetrics })
+        ? createCodexAppServerProbe({
+          lifecycle: createCodexAppServerLifecycle({
+            codexCommand,
+            maxProcesses: 1,
+            metrics: codexAppServerMetrics,
+            processTreeTerminator: null
+          }),
+          metrics: codexAppServerMetrics
+        })
         : null
     }));
   }
@@ -215,13 +223,14 @@ function createCodexAppServerMetrics() {
   };
 }
 
-function createCodexAppServerLifecycle({ codexCommand = 'codex', maxProcesses = null, metrics = null } = {}) {
+function createCodexAppServerLifecycle({ codexCommand = 'codex', maxProcesses = null, metrics = null, processTreeTerminator = undefined } = {}) {
   const invocation = resolveCliInvocation(codexCommand || 'codex');
   return new CodexAppServerLifecycle({
     maxProcesses,
     command: invocation.command,
     args: [...(invocation.argsPrefix || []), 'app-server'],
-    metrics
+    metrics,
+    processTreeTerminator
   });
 }
 
@@ -274,7 +283,7 @@ function buildCodexAppServerRuntimeConfig({ enabled = true, transport = 'auto', 
   };
 }
 
-function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, requestTimeoutMs = 30000, metrics = null } = {}) {
+function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, shutdownGraceMs = 250, metrics = null } = {}) {
   return async function probeCodexAppServer() {
     if (!lifecycle || typeof lifecycle.spawn !== 'function') {
       return {
@@ -302,7 +311,6 @@ function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, req
       }, { timeoutMs: initializeTimeoutMs });
       if (metrics) metrics.initializeLatencyMs = Date.now() - initializeStarted;
       handle.transport.sendNotification('initialized', {});
-      await handle.transport.sendRequest('model/list', { limit: 1, includeHidden: false }, { timeoutMs: requestTimeoutMs });
       return {
         installed: true,
         protocolCompatible: true,
@@ -323,7 +331,10 @@ function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, req
       };
     } finally {
       if (handle && typeof handle.shutdown === 'function') {
-        await handle.shutdown();
+        await handle.shutdown({
+          gracefulShutdownMs: shutdownGraceMs,
+          hardKillGraceMs: shutdownGraceMs
+        });
       }
     }
   };
@@ -390,4 +401,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp };
+module.exports = { createApp, createCodexAppServerProbe };
