@@ -217,8 +217,8 @@ Matrix lifecycle rules:
   produced with `--experimental`; their `stability` field must remain
   `experimental`.
 - Deprecated or removed official methods should stay in the matrix for one
-  release cycle as `intentionally-blocked` or `deprecated`, with the schema
-  version that removed them, before deletion.
+  release cycle as `intentionally-blocked`, with a rationale that records the
+  schema version that deprecated or removed them, before deletion.
 - Tests should fail on missing rows, duplicate method rows, invalid enum values,
   and any `risk: unknown` row that is marked mobile-accessible.
 
@@ -250,6 +250,10 @@ app-server thread or turn. For conversation startup, this means:
 - Once `thread/start` or `thread/resume` has been written to the transport,
   fallback is no longer allowed, even if the provider later returns a JSON-RPC
   error, times out, or closes before responding.
+- Once `turn/interrupt` has been written to the transport, fallback is also not
+  allowed for that cancel operation. It is side-effecting because it may alter
+  the active provider turn even if the provider never returns a success
+  response.
 
 This preserves provider identity and avoids creating a second CLI conversation
 after app-server may already have created or touched a thread.
@@ -393,6 +397,9 @@ status.
   read, metadata, settings read, and history fetch.
 - Add support for fork/archive/unarchive only after workspace authorization
   semantics are explicit.
+- If Phase 3 ends before those workspace authorization semantics are explicit,
+  fork/archive/unarchive rows must remain `planned` in the matrix with a
+  blocking rationale instead of being implemented or marked supported.
 - Avoid mobile UI work except protocol DTOs or contract fixtures needed for
   tests.
 - Acceptance tests must cover route auth, workspace authorization, response
@@ -495,7 +502,9 @@ status.
 
 ## Testing
 
-Daemon tests should cover:
+Daemon tests should cover the shared invariants below. Phase-specific
+acceptance tests live in the Phasing section and should be treated as the
+authoritative checklist for each PR slice.
 
 - Method registry generation or fixture loading.
 - Every official method appears in the capability matrix.
@@ -508,12 +517,6 @@ Daemon tests should cover:
 - High-risk methods are blocked unless explicitly allowed.
 - Raw diagnostic RPC is disabled outside development mode.
 - Sanitization redacts secrets in app-server errors and metrics.
-- Phase 3 thread/history routes enforce auth and normalize schema-backed
-  responses.
-- Phase 4 discovery routes share source services with product routes, enforce
-  read-only behavior, and test process reuse or TTL eviction.
-- Phase 5 high-risk operation routes deny by default, require approval where
-  configured, write audit records, and redact sensitive error data.
 
 Mobile tests are deferred unless daemon route DTOs change existing mobile
 contracts. Later mobile phases should add repository and ViewModel tests for
