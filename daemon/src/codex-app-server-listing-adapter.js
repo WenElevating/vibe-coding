@@ -1,6 +1,8 @@
 'use strict';
 
 const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
+const { summarizeCodexAppServerCapabilityMatrix } = require('./codex-app-server/capability-matrix');
+const { discoverConfiguredModels } = require('./model-discovery');
 
 class CodexAppServerListingAdapter {
   constructor({
@@ -12,7 +14,9 @@ class CodexAppServerListingAdapter {
     lastProbeAt = null,
     availabilityState = null,
     probe = null,
-    metrics = null
+    metrics = null,
+    modelLister = null,
+    modelDiscoveryOptions = {}
   } = {}) {
     this.name = 'codex-app-server';
     this.displayName = 'Codex App Server';
@@ -24,6 +28,9 @@ class CodexAppServerListingAdapter {
     this.lastProbeAt = lastProbeAt;
     this.availabilityState = availabilityState;
     this.probe = typeof probe === 'function' ? probe : null;
+    this.modelLister = typeof modelLister === 'function' ? modelLister : null;
+    this.modelDiscoveryOptions = modelDiscoveryOptions || {};
+    this.modelCapability = defaultModelCapability();
     this.metrics = metrics || {
       probeSuccess: 0,
       probeFailure: 0,
@@ -56,7 +63,8 @@ class CodexAppServerListingAdapter {
     return {
       ...availability,
       diagnostics: {
-        metrics: snapshotMetrics(this.metrics)
+        metrics: snapshotMetrics(this.metrics),
+        capabilityMatrix: summarizeCodexAppServerCapabilityMatrix()
       }
     };
   }
@@ -77,6 +85,15 @@ class CodexAppServerListingAdapter {
 
   getCapabilities() {
     return {};
+  }
+
+  async getModelCapability(status = null) {
+    const availability = status || buildCodexAppServerAvailability(this.currentInput());
+    const appServerModels = availability.selectable && this.modelLister
+      ? await this.modelLister().catch(() => null)
+      : null;
+    this.modelCapability = appServerModels || configuredModelCapability(this.modelDiscoveryOptions);
+    return this.modelCapability;
   }
 }
 
@@ -105,6 +122,20 @@ function shouldProbe(availability, input) {
     input.protocolCompatible === true &&
     availability.selectable !== true &&
     availability.unavailableReason === 'probe_not_run';
+}
+
+function defaultModelCapability() {
+  return { models: [], selectedModel: null, canSelectModel: true };
+}
+
+function configuredModelCapability(modelDiscoveryOptions) {
+  return {
+    ...discoverConfiguredModels({
+      ...(modelDiscoveryOptions || {}),
+      adapter: 'codex'
+    }),
+    canSelectModel: true
+  };
 }
 
 module.exports = {

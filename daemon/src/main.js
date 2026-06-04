@@ -41,6 +41,8 @@ const { AppUpdateService } = require('./app-update-service');
 const { NotificationHub } = require('./notification-hub');
 const { createWindowsSleepInhibitor } = require('./windows-sleep-inhibitor');
 const { resolveCliInvocation } = require('./cli-resolver');
+const { CodexAppServerClient } = require('./codex-app-server/client');
+const { normalizeCodexAppServerModelCapability } = require('./codex-app-server/models');
 
 function loadOrCreateSecrets(dbPath) {
   const secretsPath = path.join(path.dirname(dbPath), '.daemon-secrets.json');
@@ -72,6 +74,7 @@ function createApp({
   codexAppServerRolloutPercent = process.env.CODEX_APP_SERVER_ROLLOUT_PERCENT || '100',
   codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
   codexAppServerProbe = undefined,
+  codexAppServerModelLister = undefined,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -125,6 +128,20 @@ function createApp({
             processTreeTerminator: null
           }),
           metrics: codexAppServerMetrics
+        })
+        : null,
+      modelLister: codexAppServerModelLister === false
+        ? null
+        : typeof codexAppServerModelLister === 'function'
+        ? codexAppServerModelLister
+        : codexAppServerRuntime.shouldProbe
+        ? createCodexAppServerModelLister({
+          lifecycle: createCodexAppServerLifecycle({
+            codexCommand,
+            maxProcesses: 1,
+            metrics: codexAppServerMetrics,
+            processTreeTerminator: null
+          })
         })
         : null
     }));
@@ -298,19 +315,12 @@ function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, shu
     try {
       handle = lifecycle.spawn();
       const initializeStarted = Date.now();
-      await handle.transport.sendRequest('initialize', {
-        clientInfo: {
-          name: 'vibe-coding-daemon',
-          title: 'vibe-coding daemon',
-          version: '0.1.0'
-        },
-        capabilities: {
-          experimentalApi: true,
-          requestAttestation: false
-        }
-      }, { timeoutMs: initializeTimeoutMs });
+      const client = new CodexAppServerClient({
+        transport: handle.transport,
+        initializeTimeoutMs
+      });
+      await client.initialize();
       if (metrics) metrics.initializeLatencyMs = Date.now() - initializeStarted;
-      handle.transport.sendNotification('initialized', {});
       return {
         installed: true,
         protocolCompatible: true,
@@ -329,6 +339,31 @@ function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, shu
         unavailableReason: error.message || 'probe_failed',
         lastProbeAt: new Date().toISOString()
       };
+    } finally {
+      if (handle && typeof handle.shutdown === 'function') {
+        await handle.shutdown({
+          gracefulShutdownMs: shutdownGraceMs,
+          hardKillGraceMs: shutdownGraceMs
+        });
+      }
+    }
+  };
+}
+
+function createCodexAppServerModelLister({ lifecycle, initializeTimeoutMs = 10000, requestTimeoutMs = 10000, shutdownGraceMs = 250 } = {}) {
+  return async function listCodexAppServerModels() {
+    if (!lifecycle || typeof lifecycle.spawn !== 'function') return null;
+    let handle = null;
+    try {
+      handle = lifecycle.spawn();
+      const client = new CodexAppServerClient({
+        transport: handle.transport,
+        initializeTimeoutMs,
+        requestTimeoutMs
+      });
+      await client.initialize();
+      const response = await client.listModels({ timeoutMs: requestTimeoutMs });
+      return normalizeCodexAppServerModelCapability(response);
     } finally {
       if (handle && typeof handle.shutdown === 'function') {
         await handle.shutdown({
@@ -401,4 +436,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, createCodexAppServerProbe };
+module.exports = {
+  createApp,
+  createCodexAppServerProbe,
+  createCodexAppServerModelLister
+};

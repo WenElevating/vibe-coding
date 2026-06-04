@@ -18,6 +18,7 @@ const { WorkspaceRegistry } = require('../daemon/src/workspace');
 const { AuditLog, redact } = require('../daemon/src/audit');
 const { ClaudeAdapter, mapClaudeEvent, buildClaudeArgs, resolvePermissionMode, detectClaudeCodeInstallation } = require('../daemon/src/claude-adapter');
 const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+const { CodexAppServerListingAdapter } = require('../daemon/src/codex-app-server-listing-adapter');
 const { CodexConversationAdapter, mapCodexEvent } = require('../daemon/src/codex-conversation-adapter');
 const { ConversationManager } = require('../daemon/src/conversation-manager');
 const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -271,6 +272,8 @@ test('Codex app-server JSONL transport resolves responses and emits notification
   assert.deepEqual(await pending, { data: [] });
   assert.equal(notifications[0].method, 'thread/status/changed');
   transport.close();
+  stdin.destroy();
+  stdout.destroy();
 });
 
 test('Codex app-server JSONL transport rejects pending requests on close', async () => {
@@ -282,6 +285,8 @@ test('Codex app-server JSONL transport rejects pending requests on close', async
   const pending = transport.sendRequest('thread/start', {});
   stdout.emit('close');
   await assert.rejects(pending, /transport closed/);
+  stdin.destroy();
+  stdout.destroy();
 });
 
 test('Codex app-server JSONL transport emits server requests and writes results', async () => {
@@ -302,22 +307,152 @@ test('Codex app-server JSONL transport emits server requests and writes results'
   const response = JSON.parse(written.join('').trim());
   assert.deepEqual(response, { id: 'approval-1', result: { decision: 'decline' } });
   transport.close();
+  stdin.destroy();
+  stdout.destroy();
+});
+
+test('Codex app-server method extractor reads schema request surfaces', () => {
+  const {
+    defaultCodexAppServerSchemaDir,
+    loadCodexAppServerMethods
+  } = require('../daemon/src/codex-app-server/methods');
+  const methods = loadCodexAppServerMethods(defaultCodexAppServerSchemaDir());
+  assert.equal(methods.requests.has('initialize'), true);
+  assert.equal(methods.requests.has('thread/start'), true);
+  assert.equal(methods.requests.has('thread/resume'), true);
+  assert.equal(methods.requests.has('turn/start'), true);
+  assert.equal(methods.requests.has('turn/interrupt'), true);
+  assert.equal(methods.requests.has('model/list'), true);
+  assert.equal(methods.serverRequests.has('item/commandExecution/requestApproval'), true);
+  assert.equal(methods.serverRequests.has('item/fileChange/requestApproval'), true);
+  assert.equal(methods.notifications.has('thread/started'), true);
+  assert.equal(methods.notifications.has('turn/completed'), true);
+});
+
+test('Codex app-server capability matrix covers generated methods', () => {
+  const {
+    CODEX_APP_SERVER_CAPABILITY_MATRIX,
+    validateCodexAppServerCapabilityMatrix
+  } = require('../daemon/src/codex-app-server/capability-matrix');
+  const result = validateCodexAppServerCapabilityMatrix(CODEX_APP_SERVER_CAPABILITY_MATRIX);
+  assert.deepEqual(result.errors, []);
+  const rowByMethod = new Map(CODEX_APP_SERVER_CAPABILITY_MATRIX.map((row) => [row.method, row]));
+  assert.equal(rowByMethod.get('initialize').localStatus, 'supported');
+  assert.equal(rowByMethod.get('model/list').localStatus, 'supported');
+  assert.equal(rowByMethod.get('thread/start').localStatus, 'supported');
+  assert.equal(rowByMethod.get('turn/interrupt').risk, 'write');
+  assert.equal(rowByMethod.get('item/commandExecution/requestApproval').direction, 'serverRequest');
+});
+
+test('Codex app-server capability matrix rejects active unknown risk rows', () => {
+  const {
+    CODEX_APP_SERVER_CAPABILITY_MATRIX,
+    validateCodexAppServerCapabilityMatrix
+  } = require('../daemon/src/codex-app-server/capability-matrix');
+  const invalid = CODEX_APP_SERVER_CAPABILITY_MATRIX.map((row) => ({ ...row }));
+  invalid.push({
+    method: 'example/activeUnknownRisk',
+    direction: 'request',
+    stability: 'stable',
+    category: 'diagnostics',
+    localStatus: 'planned',
+    daemonOwner: 'server route',
+    mobileStatus: 'not planned',
+    risk: 'unknown',
+    testRequirement: 'unit',
+    rationale: 'invalid fixture row'
+  });
+  const result = validateCodexAppServerCapabilityMatrix(invalid);
+  assert.equal(result.errors.some((error) => error.includes('example/activeUnknownRisk') && error.includes('unknown risk')), true);
+});
+
+test('Codex app-server client initializes once for concurrent callers', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve(method === 'model/list' ? { data: [] } : {});
+    },
+    sendNotification(method, params) {
+      calls.push({ notification: method, params });
+    }
+  };
+  const client = new CodexAppServerClient({ transport });
+  await Promise.all([client.initialize(), client.initialize()]);
+  assert.deepEqual(calls.map((call) => call.method || `notification:${call.notification}`), [
+    'initialize',
+    'notification:initialized'
+  ]);
+});
+
+test('Codex app-server client invalidates after failed initialize', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  let attempts = 0;
+  const transport = {
+    sendRequest(method) {
+      attempts += 1;
+      throw new Error(`${method} failed`);
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+  await assert.rejects(() => Promise.all([client.initialize(), client.initialize()]), /initialize failed/);
+  assert.equal(attempts, 1);
+  await assert.rejects(() => client.initialize(), /invalidated/);
+});
+
+test('Codex app-server client sends typed conversation requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      if (method === 'thread/start') return Promise.resolve({ thread: { id: 'thread_client' } });
+      if (method === 'turn/start') return Promise.resolve({ turn: { id: 'turn_client' } });
+      if (method === 'turn/interrupt') return Promise.resolve({});
+      return Promise.resolve({});
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+  assert.equal((await client.startThread({ workspacePath: process.cwd(), permissionMode: 'default' })).thread.id, 'thread_client');
+  assert.equal((await client.startTurn({ threadId: 'thread_client', workspacePath: process.cwd(), message: 'hello' })).turn.id, 'turn_client');
+  await client.interruptTurn({ threadId: 'thread_client', turnId: 'turn_client' });
+  assert.deepEqual(calls.map((call) => call.method), ['thread/start', 'turn/start', 'turn/interrupt']);
+});
+
+test('Codex app-server model service normalizes model/list responses', () => {
+  const { normalizeCodexAppServerModelCapability } = require('../daemon/src/codex-app-server/models');
+  const capability = normalizeCodexAppServerModelCapability({
+    data: [
+      { id: 'gpt-5-codex', displayName: 'GPT-5 Codex', isDefault: true, inputModalities: ['text', 'image'] },
+      { id: 'hidden-model', hidden: true },
+      { id: 'gpt-5-codex' }
+    ]
+  });
+  assert.deepEqual(capability, {
+    models: [
+      {
+        id: 'gpt-5-codex',
+        label: 'GPT-5 Codex',
+        source: 'app_server',
+        selected: true,
+        inputModalities: ['text', 'image']
+      }
+    ],
+    selectedModel: 'gpt-5-codex',
+    canSelectModel: true
+  });
 });
 
 test('Codex app-server lifecycle enforces max process limit', async () => {
-  const { EventEmitter } = require('node:events');
-  const { PassThrough } = require('node:stream');
   const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
   const children = [];
   const lifecycle = new CodexAppServerLifecycle({
     maxProcesses: 1,
     spawnAppServer: () => {
-      const child = new EventEmitter();
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.pid = 1234 + children.length;
-      child.kill = () => true;
+      const child = createFakeAppServerChild({ pid: 1234 + children.length });
       children.push(child);
       return child;
     }
@@ -332,20 +467,16 @@ test('Codex app-server lifecycle enforces max process limit', async () => {
 });
 
 test('Codex app-server lifecycle escalates shutdown after grace timeout', async () => {
-  const { EventEmitter } = require('node:events');
-  const { PassThrough } = require('node:stream');
   const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
   const signals = [];
-  const child = new EventEmitter();
-  child.stdin = new PassThrough();
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.pid = 4321;
-  child.kill = (signal) => {
-    signals.push(signal || 'SIGTERM');
-    if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
-    return true;
-  };
+  const child = createFakeAppServerChild({
+    pid: 4321,
+    kill(signal) {
+      signals.push(signal || 'SIGTERM');
+      if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
   const lifecycle = new CodexAppServerLifecycle({
     maxProcesses: 1,
     gracefulShutdownMs: 5,
@@ -357,20 +488,16 @@ test('Codex app-server lifecycle escalates shutdown after grace timeout', async 
 });
 
 test('Codex app-server lifecycle can terminate a Windows process tree before direct child kill', async () => {
-  const { EventEmitter } = require('node:events');
-  const { PassThrough } = require('node:stream');
   const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
   const terminations = [];
   const signals = [];
-  const child = new EventEmitter();
-  child.stdin = new PassThrough();
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.pid = 9876;
-  child.kill = (signal) => {
-    signals.push(signal || 'SIGTERM');
-    return true;
-  };
+  const child = createFakeAppServerChild({
+    pid: 9876,
+    kill(signal) {
+      signals.push(signal || 'SIGTERM');
+      return true;
+    }
+  });
   const lifecycle = new CodexAppServerLifecycle({
     maxProcesses: 1,
     gracefulShutdownMs: 5,
@@ -392,15 +519,8 @@ test('Codex app-server lifecycle can terminate a Windows process tree before dir
 });
 
 test('Codex app-server lifecycle rejects pending requests on child spawn error', async () => {
-  const { EventEmitter } = require('node:events');
-  const { PassThrough } = require('node:stream');
   const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
-  const child = new EventEmitter();
-  child.stdin = new PassThrough();
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.pid = null;
-  child.kill = () => false;
+  const child = createFakeAppServerChild({ pid: null, kill: () => false });
   const lifecycle = new CodexAppServerLifecycle({
     maxProcesses: 1,
     spawnAppServer: () => child
@@ -840,7 +960,12 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
 
 test('createApp exposes codex-app-server by default behind probe gate and kill switch', async () => {
   const appDbPath = tempConversationDbPath('app-server-listing-');
-  const defaultApp = createApp({ port: 0, appDbPath, codexAppServerProbe: false });
+  const defaultApp = createApp({
+    port: 0,
+    appDbPath,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false
+  });
   try {
     const adapters = await defaultApp.adapterRegistry.listCapabilities();
     const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
@@ -868,7 +993,8 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
   const experimentalDisabled = createApp({
     port: 0,
     appDbPath: experimentalDisabledDbPath,
-    codexAppServerExperimentalApi: false
+    codexAppServerExperimentalApi: false,
+    codexAppServerModelLister: false
   });
   try {
     const adapters = await experimentalDisabled.adapterRegistry.listCapabilities();
@@ -887,7 +1013,8 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
     port: 0,
     appDbPath: rolloutDisabledDbPath,
     codexAppServerRolloutPercent: 0,
-    codexAppServerTransport: 'stdio'
+    codexAppServerTransport: 'stdio',
+    codexAppServerModelLister: false
   });
   try {
     const adapters = await rolloutDisabled.adapterRegistry.listCapabilities();
@@ -905,7 +1032,8 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
     port: 0,
     appDbPath: selectableDbPath,
     codexAppServerTransport: 'stdio',
-    codexAppServerProbe: false
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false
   });
   try {
     const adapters = await selectable.adapterRegistry.listCapabilities();
@@ -925,6 +1053,7 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
     port: 0,
     appDbPath: probedDbPath,
     codexAppServerTransport: 'stdio',
+    codexAppServerModelLister: false,
     codexAppServerProbe: async () => {
       probeCalls.push('probe');
       return {
@@ -998,6 +1127,181 @@ test('Codex app-server default probe avoids slow model list request', async () =
   ]);
 });
 
+test('Codex app-server probe initializes through typed client', async () => {
+  const { createCodexAppServerProbe } = require('../daemon/src/main');
+  const calls = [];
+  const probe = createCodexAppServerProbe({
+    lifecycle: {
+      spawn() {
+        return {
+          transport: {
+            sendRequest(method, params, options) {
+              calls.push({ method, params, options });
+              return Promise.resolve({});
+            },
+            sendNotification(method, params) {
+              calls.push({ notification: method, params });
+            }
+          },
+          shutdown() {
+            calls.push({ shutdown: true });
+            return Promise.resolve();
+          }
+        };
+      }
+    }
+  });
+
+  const status = await probe();
+
+  assert.equal(status.transportHealthy, true);
+  assert.deepEqual(calls.map((call) => {
+    if (call.shutdown) return 'shutdown';
+    return call.method || `notification:${call.notification}`;
+  }), [
+    'initialize',
+    'notification:initialized',
+    'shutdown'
+  ]);
+  assert.equal(calls[0].options.timeoutMs, 10000);
+});
+
+test('Codex app-server listing adapter exposes app-server model list', async () => {
+  const adapter = new CodexAppServerListingAdapter({
+    enabled: true,
+    installed: true,
+    protocolCompatible: true,
+    transportHealthy: true,
+    unavailableReason: null,
+    modelLister: async () => ({
+      canSelectModel: true,
+      selectedModel: 'gpt-5.5',
+      models: [
+        { id: 'gpt-5.5', label: 'GPT-5.5', source: 'app_server', selected: true },
+        { id: 'gpt-5-codex', label: 'GPT-5 Codex', source: 'app_server', selected: false }
+      ]
+    })
+  });
+
+  const status = await adapter.detectCapabilities();
+  const modelCapability = await adapter.getModelCapability(status);
+
+  assert.equal(status.selectable, true);
+  assert.equal(modelCapability.canSelectModel, true);
+  assert.equal(modelCapability.selectedModel, 'gpt-5.5');
+  assert.deepEqual(modelCapability.models.map((model) => model.id), ['gpt-5.5', 'gpt-5-codex']);
+});
+
+test('Codex app-server model lister initializes and normalizes model/list', async () => {
+  const { createCodexAppServerModelLister } = require('../daemon/src/main');
+  const sent = [];
+  let shutdownOptions = null;
+  const lister = createCodexAppServerModelLister({
+    shutdownGraceMs: 123,
+    lifecycle: {
+      spawn() {
+        return {
+          transport: {
+            sendRequest(method, params, options) {
+              sent.push({ kind: 'request', method, params, options });
+              if (method === 'model/list') {
+                return Promise.resolve({
+                  data: [
+                    { id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true, inputModalities: ['text', 'image'] },
+                    { id: 'hidden-model', displayName: 'Hidden', hidden: true },
+                    { id: 'gpt-5-codex', displayName: 'GPT-5 Codex' }
+                  ],
+                  nextCursor: null
+                });
+              }
+              return Promise.resolve({});
+            },
+            sendNotification(method, params) {
+              sent.push({ kind: 'notification', method, params });
+            }
+          },
+          async shutdown(options) {
+            shutdownOptions = options;
+          }
+        };
+      }
+    }
+  });
+
+  const modelCapability = await lister();
+
+  assert.deepEqual(shutdownOptions, {
+    gracefulShutdownMs: 123,
+    hardKillGraceMs: 123
+  });
+  assert.deepEqual(sent.map((message) => `${message.kind}:${message.method}`), [
+    'request:initialize',
+    'notification:initialized',
+    'request:model/list'
+  ]);
+  assert.equal(modelCapability.canSelectModel, true);
+  assert.equal(modelCapability.selectedModel, 'gpt-5.5');
+  assert.deepEqual(modelCapability.models.map((model) => model.id), ['gpt-5.5', 'gpt-5-codex']);
+  assert.deepEqual(modelCapability.models[0].inputModalities, ['text', 'image']);
+});
+
+test('Codex app-server listing adapter falls back to configured Codex models when model/list fails', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-models-'));
+  const homeDir = path.join(root, 'home');
+  fs.mkdirSync(path.join(homeDir, '.codex'), { recursive: true });
+  fs.writeFileSync(
+    path.join(homeDir, '.codex', 'config.toml'),
+    'model = "gpt-5-codex"\n',
+    'utf8'
+  );
+  const adapter = new CodexAppServerListingAdapter({
+    enabled: true,
+    installed: true,
+    protocolCompatible: true,
+    transportHealthy: true,
+    unavailableReason: null,
+    modelLister: async () => {
+      throw new Error('model/list unavailable');
+    },
+    modelDiscoveryOptions: {
+      homeDir,
+      workspacePath: root,
+      env: {}
+    }
+  });
+
+  try {
+    const status = await adapter.detectCapabilities();
+    const modelCapability = await adapter.getModelCapability(status);
+
+    assert.equal(status.selectable, true);
+    assert.equal(modelCapability.canSelectModel, true);
+    assert.equal(modelCapability.selectedModel, 'gpt-5-codex');
+    assert.deepEqual(modelCapability.models.map((model) => model.id), ['gpt-5-codex']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex app-server listing diagnostics include capability matrix summary', async () => {
+  const adapter = new CodexAppServerListingAdapter({
+    availabilityState: {
+      current: {
+        enabled: true,
+        installed: true,
+        protocolCompatible: true,
+        transportHealthy: true
+      }
+    }
+  });
+
+  const status = await adapter.detectCapabilities();
+
+  assert.ok(status.diagnostics.capabilityMatrix.totalMethods > 0);
+  assert.ok(status.diagnostics.capabilityMatrix.supportedMethods > 0);
+  assert.equal(status.diagnostics.capabilityMatrix.invalidRows, 0);
+});
+
 test('diagnostics include sanitized codex app-server adapter metrics', async () => {
   const dbPath = tempConversationDbPath('app-server-diagnostics-');
   const app = createApp({
@@ -1007,6 +1311,7 @@ test('diagnostics include sanitized codex app-server adapter metrics', async () 
     codexAppServerExperimentalApi: true,
     codexAppServerRolloutPercent: 100,
     codexAppServerTransport: 'stdio',
+    codexAppServerModelLister: false,
     codexAppServerProbe: async () => ({
       installed: true,
       protocolCompatible: true,
@@ -2696,6 +3001,26 @@ test('Codex app-server conversation adapter rejects sends before selectable prob
   assert.equal(spawnCount, 0);
 });
 
+test('Codex app-server conversation diagnostics include capability matrix summary', () => {
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: buildCodexAppServerAvailability({
+      enabled: true,
+      installed: true,
+      protocolCompatible: true,
+      transportHealthy: true
+    }),
+    lifecycle: { spawn() { throw new Error('not used'); } }
+  });
+
+  const status = adapter.detectCapabilities();
+
+  assert.ok(status.diagnostics.capabilityMatrix.totalMethods > 0);
+  assert.ok(status.diagnostics.capabilityMatrix.supportedMethods > 0);
+  assert.equal(status.diagnostics.capabilityMatrix.invalidRows, 0);
+});
+
 test('codex-app-server falls back to codex before provider side effects when unavailable', async () => {
   const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
   let spawnCount = 0;
@@ -2840,6 +3165,43 @@ test('codex-app-server does not fall back after side-effect boundary failure', a
   const updated = manager.getConversation(conversation.id, device);
   assert.equal(updated.effectiveAdapter, 'codex-app-server');
   assert.equal(codexStarted, false);
+});
+
+test('Codex app-server conversation fallback is blocked after thread request write', async () => {
+  const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
+  const lifecycle = {
+    spawn() {
+      const transport = new EventEmitter();
+      transport.sendRequest = async (method) => {
+        if (method === 'initialize') return {};
+        if (method === 'thread/start') throw new Error('provider rejected thread');
+        throw new Error(`unexpected request ${method}`);
+      };
+      transport.sendNotification = () => {};
+      return {
+        transport,
+        shutdown: async () => {}
+      };
+    }
+  };
+  const adapter = new CodexAppServerConversationAdapter({
+    availability: buildCodexAppServerAvailability({
+      enabled: true,
+      installed: true,
+      protocolCompatible: true,
+      transportHealthy: true
+    }),
+    lifecycle
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({ workspacePath: process.cwd(), onEvent() {} }),
+    (error) => {
+      assert.equal(error.codexAppServerFallbackAllowed, false);
+      return /provider rejected thread/.test(error.message);
+    }
+  );
 });
 
 test('Codex app-server conversation adapter runs stdio thread and turn lifecycle', async () => {
@@ -7797,7 +8159,8 @@ test('HTTP conversation API exposes model metadata and passes selected model int
   const app = createApp({
     port: 0,
     conversationAdapters,
-    conversationDbPath: tempConversationDbPath('conversation-model-http-')
+    conversationDbPath: tempConversationDbPath('conversation-model-http-'),
+    codexAppServerProbe: false
   });
   app.adapterRegistry.adapters.set('codex', {
     name: 'codex',
@@ -7920,7 +8283,7 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
 });
 
 test('V1.1 adapter diagnostics include codex disabled and opencode needs configuration', async () => {
-  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath() });
+  const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath(), codexAppServerProbe: false });
   app.adapterRegistry.get('claude').spawnSyncFn = fakeSpawnSync;
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
@@ -8272,6 +8635,24 @@ function fakeSpawnSync(_cmd, args) {
 function fakeCodexSpawnSync(_cmd, args) {
   if (args.includes('--version')) return { status: 0, stdout: 'codex-test', stderr: '' };
   return { status: 0, stdout: 'Usage: codex exec --json', stderr: '' };
+}
+
+function createFakeAppServerChild({ pid = 1234, kill } = {}) {
+  const { PassThrough } = require('node:stream');
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = pid;
+  child.kill = kill || (() => true);
+  const closeStdio = () => {
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
+  child.once('exit', closeStdio);
+  child.once('error', closeStdio);
+  return child;
 }
 
 function fakeCodexConversationSpawnSync(_cmd, args) {
@@ -12495,7 +12876,7 @@ test('V1.3 diagnostic export is authenticated, redacted, and audited', async () 
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
-  const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
+  const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath(), codexAppServerProbe: false });
   app.diagnosticBundle.outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diagnostic-export-'));
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
@@ -13302,7 +13683,7 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
   const os = require('node:os');
   const path = require('node:path');
   const appDbPath = tempConversationDbPath('app-db-exceptions-');
-  const app = createApp({ port: 0, mode: 'dev', devAdapters: true, appDbPath });
+  const app = createApp({ port: 0, mode: 'dev', devAdapters: true, appDbPath, codexAppServerProbe: false });
   app.diagnosticBundle.outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diagnostic-exceptions-'));
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;

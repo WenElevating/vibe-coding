@@ -2,15 +2,12 @@
 
 const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
 const { conversationEventTypes } = require('./conversation-protocol');
+const { CodexAppServerClient } = require('./codex-app-server/client');
+const { summarizeCodexAppServerCapabilityMatrix } = require('./codex-app-server/capability-matrix');
 const {
-  buildCodexAppServerApprovalResponse,
   mapCodexAppServerApprovalRequest
 } = require('./codex-app-server-approval');
 const {
-  buildCodexAppServerThreadResumeRequest,
-  buildCodexAppServerThreadStartRequest,
-  buildCodexAppServerTurnInterruptRequest,
-  buildCodexAppServerTurnStartRequest,
   mapCodexAppServerNotification
 } = require('./codex-app-server-bridge');
 
@@ -56,7 +53,8 @@ class CodexAppServerConversationAdapter {
       ...availability,
       capabilities: availability.effectiveCapabilities || {},
       diagnostics: {
-        metrics: snapshotMetrics(this.metrics, this.lifecycle)
+        metrics: snapshotMetrics(this.metrics, this.lifecycle),
+        capabilityMatrix: summarizeCodexAppServerCapabilityMatrix()
       }
     };
   }
@@ -127,6 +125,10 @@ class CodexAppServerConversationHandle {
     this.adapter = adapter;
     this.processHandle = processHandle;
     this.transport = processHandle.transport;
+    this.client = new CodexAppServerClient({
+      transport: this.transport,
+      initializeTimeoutMs: adapter.initializeTimeoutMs
+    });
     this.conversationId = conversationId || null;
     this.workspacePath = workspacePath;
     this.permissionMode = permissionMode || 'default';
@@ -148,38 +150,26 @@ class CodexAppServerConversationHandle {
 
   async initialize() {
     const initializeStarted = Date.now();
-    await this.transport.sendRequest('initialize', {
-      clientInfo: {
-        name: 'vibe-coding-daemon',
-        title: 'vibe-coding daemon',
-        version: '0.1.0'
-      },
-      capabilities: {
-        experimentalApi: true,
-        requestAttestation: false
-      }
-    }, { timeoutMs: this.adapter.initializeTimeoutMs });
+    await this.client.initialize();
     this.adapter.metrics.initializeLatencyMs = Date.now() - initializeStarted;
-    this.transport.sendNotification('initialized', {});
     const resuming = !!this.sessionId;
-    const threadRequest = resuming
-      ? buildCodexAppServerThreadResumeRequest({
+    this.sideEffectBoundaryCrossed = true;
+    const response = resuming
+      ? await this.client.resumeThread({
         threadId: this.sessionId,
         workspacePath: this.workspacePath,
         permissionMode: this.permissionMode,
         model: this.model,
         toolTimeoutSec: this.adapter.toolTimeoutSec
       })
-      : buildCodexAppServerThreadStartRequest({
+      : await this.client.startThread({
         workspacePath: this.workspacePath,
         permissionMode: this.permissionMode,
         model: this.model,
         toolTimeoutSec: this.adapter.toolTimeoutSec
       });
-    this.sideEffectBoundaryCrossed = true;
-    const response = await this.transport.sendRequest(threadRequest.method, threadRequest.params);
     const threadId = stringValue(response?.thread?.id) || this.sessionId;
-    if (!threadId) throw new Error(`${threadRequest.method} did not return thread.id`);
+    if (!threadId) throw new Error(`${resuming ? 'thread/resume' : 'thread/start'} did not return thread.id`);
     this.threadId = threadId;
     this.sessionId = threadId;
     this.initialized = true;
@@ -199,7 +189,7 @@ class CodexAppServerConversationHandle {
       error.status = 409;
       throw error;
     }
-    const turnRequest = buildCodexAppServerTurnStartRequest({
+    const response = await this.client.startTurn({
       threadId: this.threadId,
       clientUserMessageId: plainObject(message) ? message.clientMessageId : null,
       workspacePath: this.workspacePath,
@@ -207,7 +197,6 @@ class CodexAppServerConversationHandle {
       model: this.model,
       message
     });
-    const response = await this.transport.sendRequest(turnRequest.method, turnRequest.params);
     const turnId = stringValue(response?.turn?.id);
     if (!turnId) throw new Error('turn/start did not return turn.id');
     this.activeTurnId = turnId;
@@ -227,12 +216,11 @@ class CodexAppServerConversationHandle {
 
   async cancel() {
     if (!this.activeTurnId || !this.threadId || this.closed) return;
-    const interrupt = buildCodexAppServerTurnInterruptRequest({
-      threadId: this.threadId,
-      turnId: this.activeTurnId
-    });
     try {
-      await this.transport.sendRequest(interrupt.method, interrupt.params);
+      await this.client.interruptTurn({
+        threadId: this.threadId,
+        turnId: this.activeTurnId
+      });
     } catch (error) {
       this.onEvent({
         type: conversationEventTypes.PROTOCOL_WARNING,
@@ -345,8 +333,7 @@ class CodexAppServerConversationHandle {
         this.adapter.metrics.approvalRoundTripLatencyMs.shift();
       }
     }
-    const rpcResponse = buildCodexAppServerApprovalResponse(context, response);
-    this.transport.sendResult(rpcResponse.id, rpcResponse.result);
+    this.client.respondApproval(context, response);
     this.onEvent({
       type: conversationEventTypes.APPROVAL_RESOLVED,
       approvalId,
