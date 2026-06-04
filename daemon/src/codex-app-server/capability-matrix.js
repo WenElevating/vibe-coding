@@ -44,12 +44,42 @@ const DAEMON_OWNERS = new Set([
 ]);
 const MOBILE_STATUSES = new Set(['consumed', 'protocol-only', 'planned', 'not planned']);
 const RISKS = new Set(['none', 'read', 'write', 'process', 'account', 'network', 'permission', 'unknown']);
-const TEST_REQUIREMENTS = new Set(['unit', 'integration fake transport', 'route test', 'mobile contract test', 'manual-only']);
+const TEST_REQUIREMENTS = new Set(['unit', 'integration fake transport', 'route test', 'mobile contract test', 'matrix/event metadata only', 'manual-only']);
 
 const EXPLICIT_ROWS = [
   row('initialize', 'request', 'stable', 'lifecycle', 'supported', 'client', 'protocol-only', 'none', 'unit', 'Existing initialization request.'),
   row('initialized', 'notification', 'stable', 'lifecycle', 'supported', 'client', 'protocol-only', 'none', 'unit', 'Existing initialized notification.'),
   row('model/list', 'request', 'stable', 'model', 'supported', 'listing adapter', 'consumed', 'read', 'unit', 'Existing model picker source through /api/adapters.'),
+  row('modelProvider/capabilities/read', 'request', 'stable', 'model', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('permissionProfile/list', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('app/list', 'request', 'stable', 'app', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('app/list/updated', 'notification', 'stable', 'app', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('mcpServerStatus/list', 'request', 'stable', 'mcp', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('mcpServer/resource/read', 'request', 'stable', 'mcp', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('mcpServer/startupStatus/updated', 'notification', 'stable', 'mcp', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('skills/list', 'request', 'stable', 'skill', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('skills/changed', 'notification', 'stable', 'skill', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('plugin/list', 'request', 'stable', 'plugin', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('plugin/read', 'request', 'stable', 'plugin', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('plugin/skill/read', 'request', 'stable', 'plugin', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('plugin/share/list', 'request', 'stable', 'plugin', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('hooks/list', 'request', 'stable', 'diagnostics', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('hook/started', 'notification', 'stable', 'diagnostics', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('hook/completed', 'notification', 'stable', 'diagnostics', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('collaborationMode/list', 'request', 'stable', 'remote-control', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('experimentalFeature/list', 'request', 'experimental', 'diagnostics', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('externalAgentConfig/detect', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('config/read', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('configRequirements/read', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('configWarning', 'notification', 'stable', 'config', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('windowsSandbox/readiness', 'request', 'stable', 'sandbox', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('windowsSandbox/setupCompleted', 'notification', 'stable', 'sandbox', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('windows/worldWritableWarning', 'notification', 'stable', 'sandbox', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('deprecationNotice', 'notification', 'stable', 'diagnostics', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('warning', 'notification', 'stable', 'diagnostics', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('guardianWarning', 'notification', 'stable', 'diagnostics', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('model/rerouted', 'notification', 'stable', 'model', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
+  row('model/verification', 'notification', 'stable', 'model', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
   row('thread/list', 'request', 'stable', 'thread', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 3 thread history list route.'),
   row('thread/loaded/list', 'request', 'stable', 'thread', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 3 loaded thread list route.'),
   row('thread/read', 'request', 'stable', 'thread', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 3 thread read route.'),

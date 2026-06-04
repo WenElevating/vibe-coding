@@ -80,6 +80,92 @@ class CodexAppServerClient {
     return this.sendRequest('thread/loaded/list', {}, options);
   }
 
+  readConfig(options = {}) {
+    return this.sendRequest('config/read', {}, options);
+  }
+
+  readConfigRequirements(options = {}) {
+    return this.sendRequest('configRequirements/read', {}, options);
+  }
+
+  listMcpServerStatus(options = {}) {
+    return this.sendRequest('mcpServerStatus/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  readMcpServerResource(options = {}) {
+    return this.sendRequest('mcpServer/resource/read', compactObject({
+      serverId: options.serverId,
+      uri: options.uri
+    }), options);
+  }
+
+  listSkills(options = {}) {
+    return this.sendRequest('skills/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  listPlugins(options = {}) {
+    return this.sendRequest('plugin/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  readPlugin(options = {}) {
+    return this.sendRequest('plugin/read', compactObject({
+      pluginId: options.pluginId
+    }), options);
+  }
+
+  readPluginSkill(options = {}) {
+    return this.sendRequest('plugin/skill/read', compactObject({
+      pluginId: options.pluginId,
+      skillId: options.skillId
+    }), options);
+  }
+
+  listPluginShares(options = {}) {
+    return this.sendRequest('plugin/share/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  listApps(options = {}) {
+    return this.sendRequest('app/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  listHooks(options = {}) {
+    return this.sendRequest('hooks/list', {}, options);
+  }
+
+  listCollaborationModes(options = {}) {
+    return this.sendRequest('collaborationMode/list', {}, options);
+  }
+
+  listExperimentalFeatures(options = {}) {
+    return this.sendRequest('experimentalFeature/list', {}, options);
+  }
+
+  detectExternalAgentConfig(options = {}) {
+    return this.sendRequest('externalAgentConfig/detect', {}, options);
+  }
+
+  listPermissionProfiles(options = {}) {
+    return this.sendRequest('permissionProfile/list', {}, options);
+  }
+
+  readModelProviderCapabilities(options = {}) {
+    return this.sendRequest('modelProvider/capabilities/read', {}, options);
+  }
+
+  readWindowsSandboxReadiness(options = {}) {
+    return this.sendRequest('windowsSandbox/readiness', {}, options);
+  }
+
   readThread(options = {}) {
     return this.sendRequest('thread/read', compactObject({
       threadId: options.threadId

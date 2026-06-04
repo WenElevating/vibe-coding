@@ -3,6 +3,7 @@
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 const {
+  normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,
   normalizeThreadListResponse,
@@ -20,6 +21,146 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       routes: buildCodexAppServerRouteCapabilities()
     });
     return true;
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/config') {
+    return discoveryRoute(context, json, (client) => client.readConfig(), {});
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/config/requirements') {
+    return discoveryRoute(context, json, (client) => client.readConfigRequirements(), {});
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/mcp/servers') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listMcpServerStatus(compactObject({ cursor })),
+      { collectionKey: 'servers', candidateKeys: ['servers', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/mcp/resources') {
+    const serverId = parseRequiredQueryString(url.searchParams.get('serverId'), 'serverId');
+    const uri = parseRequiredQueryString(url.searchParams.get('uri'), 'uri');
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.readMcpServerResource({ serverId, uri }),
+      {}
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/skills') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listSkills(compactObject({ cursor })),
+      { collectionKey: 'skills', candidateKeys: ['skills', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/plugins') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listPlugins(compactObject({ cursor })),
+      { collectionKey: 'plugins', candidateKeys: ['plugins', 'data', 'items'] }
+    );
+  }
+
+  const pluginRead = url.pathname.match(/^\/api\/codex-app-server\/plugins\/([^/]+)$/);
+  if (method === 'GET' && pluginRead) {
+    const pluginId = decodePathParam(pluginRead[1]);
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.readPlugin({ pluginId }),
+      { objectKey: 'plugin' }
+    );
+  }
+
+  const pluginSkillRead = url.pathname.match(/^\/api\/codex-app-server\/plugins\/([^/]+)\/skills\/([^/]+)$/);
+  if (method === 'GET' && pluginSkillRead) {
+    const pluginId = decodePathParam(pluginSkillRead[1]);
+    const skillId = decodePathParam(pluginSkillRead[2]);
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.readPluginSkill({ pluginId, skillId }),
+      { objectKey: 'skill' }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/plugin-shares') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listPluginShares(compactObject({ cursor })),
+      { collectionKey: 'shares', candidateKeys: ['shares', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/apps') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listApps(compactObject({ cursor })),
+      { collectionKey: 'apps', candidateKeys: ['apps', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/hooks') {
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listHooks(),
+      { collectionKey: 'hooks', candidateKeys: ['hooks', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/collaboration-modes') {
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listCollaborationModes(),
+      { collectionKey: 'modes', candidateKeys: ['modes', 'collaborationModes', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/experimental-features') {
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listExperimentalFeatures(),
+      { collectionKey: 'features', candidateKeys: ['features', 'experimentalFeatures', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/external-agent-config') {
+    return discoveryRoute(context, json, (client) => client.detectExternalAgentConfig(), {});
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/permission-profiles') {
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listPermissionProfiles(),
+      { collectionKey: 'profiles', candidateKeys: ['profiles', 'permissionProfiles', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/model-provider-capabilities') {
+    return discoveryRoute(context, json, (client) => client.readModelProviderCapabilities(), {});
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/windows-sandbox/readiness') {
+    return discoveryRoute(context, json, (client) => client.readWindowsSandboxReadiness(), {});
   }
 
   const workspaceThreads = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads$/);
@@ -120,6 +261,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   });
 }
 
+async function discoveryRoute(context, json, action, normalizeOptions) {
+  const response = await requireService(context).withDiscoveryClient((client) => action(client));
+  json(200, normalizeDiscoveryResponse(response, normalizeOptions));
+  return true;
+}
+
 function parseLimit(value, fallback) {
   if (value === undefined || value === null || value === '') return fallback;
   if (!/^\d+$/.test(String(value))) throw badRequest('limit must be a positive integer');
@@ -137,6 +284,13 @@ function parseBoolean(value) {
 
 function parseOptionalString(value) {
   if (value === undefined || value === null || value === '') return undefined;
+  return value;
+}
+
+function parseRequiredQueryString(value, name) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    throw badRequest(`${name} query parameter is required`);
+  }
   return value;
 }
 

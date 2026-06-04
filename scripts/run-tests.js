@@ -487,6 +487,57 @@ test('Codex app-server client sends typed thread history requests', async () => 
   ]);
 });
 
+test('Codex app-server client sends typed discovery requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.readConfig();
+  await client.readConfigRequirements();
+  await client.listMcpServerStatus({ cursor: 'mcp_next', ignored: 'nope' });
+  await client.readMcpServerResource({ serverId: 'server_1', uri: 'file://one', cursor: 'ignored' });
+  await client.listSkills({ cursor: 'skill_next' });
+  await client.listPlugins({ cursor: 'plugin_next' });
+  await client.readPlugin({ pluginId: 'plugin_1', cursor: 'ignored' });
+  await client.readPluginSkill({ pluginId: 'plugin_1', skillId: 'skill_1' });
+  await client.listPluginShares({ cursor: 'share_next' });
+  await client.listApps({ cursor: 'app_next' });
+  await client.listHooks();
+  await client.listCollaborationModes();
+  await client.listExperimentalFeatures();
+  await client.detectExternalAgentConfig();
+  await client.listPermissionProfiles();
+  await client.readModelProviderCapabilities();
+  await client.readWindowsSandboxReadiness();
+
+  assert.deepEqual(calls, [
+    { method: 'config/read', params: {} },
+    { method: 'configRequirements/read', params: {} },
+    { method: 'mcpServerStatus/list', params: { cursor: 'mcp_next' } },
+    { method: 'mcpServer/resource/read', params: { serverId: 'server_1', uri: 'file://one' } },
+    { method: 'skills/list', params: { cursor: 'skill_next' } },
+    { method: 'plugin/list', params: { cursor: 'plugin_next' } },
+    { method: 'plugin/read', params: { pluginId: 'plugin_1' } },
+    { method: 'plugin/skill/read', params: { pluginId: 'plugin_1', skillId: 'skill_1' } },
+    { method: 'plugin/share/list', params: { cursor: 'share_next' } },
+    { method: 'app/list', params: { cursor: 'app_next' } },
+    { method: 'hooks/list', params: {} },
+    { method: 'collaborationMode/list', params: {} },
+    { method: 'experimentalFeature/list', params: {} },
+    { method: 'externalAgentConfig/detect', params: {} },
+    { method: 'permissionProfile/list', params: {} },
+    { method: 'modelProvider/capabilities/read', params: {} },
+    { method: 'windowsSandbox/readiness', params: {} }
+  ]);
+});
+
 test('Codex app-server service reuses healthy read-only discovery client within TTL', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   const spawned = [];
@@ -909,6 +960,121 @@ test('Codex app-server routes return controlled bad request for malformed path e
 
     assert.equal(response.status, 400);
     assert.equal(response.body.error.code, 'BAD_REQUEST');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server discovery routes use discovery client and normalize responses', async () => {
+  const calls = [];
+  const routeCases = [
+    { path: '/api/codex-app-server/config', clientMethod: 'readConfig', payload: { config: { model: 'gpt-5' }, extra: 'kept' } },
+    { path: '/api/codex-app-server/config/requirements', clientMethod: 'readConfigRequirements', payload: { requirements: [{ id: 'apiKey' }], nextCursor: 'ignored' } },
+    { path: '/api/codex-app-server/mcp/servers?cursor=next', clientMethod: 'listMcpServerStatus', options: { cursor: 'next' }, payload: { data: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' }, expectedBody: { servers: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' } },
+    { path: '/api/codex-app-server/mcp/resources?serverId=server_1&uri=file%3A%2F%2Fone', clientMethod: 'readMcpServerResource', options: { serverId: 'server_1', uri: 'file://one' }, payload: { resource: { uri: 'file://one', text: 'hello' }, serverId: 'server_1' } },
+    { path: '/api/codex-app-server/skills?cursor=skill_next', clientMethod: 'listSkills', options: { cursor: 'skill_next' }, payload: { data: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' }, expectedBody: { skills: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' } },
+    { path: '/api/codex-app-server/plugins?cursor=plugin_next', clientMethod: 'listPlugins', options: { cursor: 'plugin_next' }, payload: { items: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' }, expectedBody: { plugins: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' } },
+    { path: '/api/codex-app-server/plugins/plugin%2Fone', clientMethod: 'readPlugin', options: { pluginId: 'plugin/one' }, payload: { plugin: { id: 'plugin/one', enabled: true }, extra: 'kept' } },
+    { path: '/api/codex-app-server/plugins/plugin%2Fone/skills/skill%2Fone', clientMethod: 'readPluginSkill', options: { pluginId: 'plugin/one', skillId: 'skill/one' }, payload: { skill: { id: 'skill/one', pluginId: 'plugin/one' } } },
+    { path: '/api/codex-app-server/plugin-shares?cursor=share_next', clientMethod: 'listPluginShares', options: { cursor: 'share_next' }, payload: { shares: [{ id: 'share_1' }], nextCursor: 'share_more' } },
+    { path: '/api/codex-app-server/apps?cursor=app_next', clientMethod: 'listApps', options: { cursor: 'app_next' }, payload: { apps: [{ id: 'app_1' }], nextCursor: 'app_more' } },
+    { path: '/api/codex-app-server/hooks', clientMethod: 'listHooks', payload: { hooks: [{ id: 'hook_1' }] } },
+    { path: '/api/codex-app-server/collaboration-modes', clientMethod: 'listCollaborationModes', payload: { modes: [{ id: 'solo' }] } },
+    { path: '/api/codex-app-server/experimental-features', clientMethod: 'listExperimentalFeatures', payload: { features: [{ id: 'exp_1' }] } },
+    { path: '/api/codex-app-server/external-agent-config', clientMethod: 'detectExternalAgentConfig', payload: { config: { detected: true } } },
+    { path: '/api/codex-app-server/permission-profiles', clientMethod: 'listPermissionProfiles', payload: { profiles: [{ id: 'default' }] } },
+    { path: '/api/codex-app-server/model-provider-capabilities', clientMethod: 'readModelProviderCapabilities', payload: { providers: [{ id: 'openai' }] } },
+    { path: '/api/codex-app-server/windows-sandbox/readiness', clientMethod: 'readWindowsSandboxReadiness', payload: { readiness: { ready: false }, warning: 'needs setup' } }
+  ];
+  let currentCase = null;
+  const client = {};
+  for (const routeCase of routeCases) {
+    client[routeCase.clientMethod] = async (options) => {
+      calls.push({ method: routeCase.clientMethod, options });
+      return routeCase.payload;
+    };
+  }
+  const service = {
+    async withDiscoveryClient(callback) {
+      calls.push({ method: 'withDiscoveryClient', path: currentCase.path });
+      return callback(client);
+    },
+    async withMutationClient() {
+      throw new Error('discovery route must not use mutation pool');
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    for (const routeCase of routeCases) {
+      currentCase = routeCase;
+      const response = await app.get(routeCase.path);
+      assert.equal(response.status, 200, routeCase.path);
+      assert.deepEqual(response.body, routeCase.expectedBody || routeCase.payload, routeCase.path);
+    }
+
+    assert.deepEqual(
+      calls.filter((call) => call.method !== 'withDiscoveryClient'),
+      routeCases.map((routeCase) => ({
+        method: routeCase.clientMethod,
+        options: routeCase.options
+      }))
+    );
+    assert.equal(calls.filter((call) => call.method === 'withDiscoveryClient').length, routeCases.length);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server mcp resource route rejects missing query params before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withDiscoveryClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for invalid mcp resource query');
+      }
+    }
+  });
+
+  try {
+    for (const path of [
+      '/api/codex-app-server/mcp/resources',
+      '/api/codex-app-server/mcp/resources?serverId=server_1',
+      '/api/codex-app-server/mcp/resources?uri=file%3A%2F%2Fone',
+      '/api/codex-app-server/mcp/resources?serverId=%20&uri=file%3A%2F%2Fone',
+      '/api/codex-app-server/mcp/resources?serverId=server_1&uri=%20'
+    ]) {
+      const response = await app.get(path);
+      assert.equal(response.status, 400, path);
+      assert.equal(response.body.error.code, 'BAD_REQUEST', path);
+    }
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server plugin discovery routes reject malformed path encoding before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withDiscoveryClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for malformed plugin path');
+      }
+    }
+  });
+
+  try {
+    const plugin = await app.get('/api/codex-app-server/plugins/%E0%A4%A');
+    const skill = await app.get('/api/codex-app-server/plugins/plugin_1/skills/%E0%A4%A');
+
+    assert.equal(plugin.status, 400);
+    assert.equal(plugin.body.error.code, 'BAD_REQUEST');
+    assert.equal(skill.status, 400);
+    assert.equal(skill.body.error.code, 'BAD_REQUEST');
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();

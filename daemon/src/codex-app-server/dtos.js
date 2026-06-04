@@ -32,6 +32,48 @@ function normalizeGoalResponse(payload) {
   return { goal: normalizeGoal(payload) };
 }
 
+function normalizeDiscoveryResponse(payload, options = {}) {
+  if (options.collectionKey) {
+    return normalizeDiscoveryCollectionResponse(payload, options.collectionKey, options.candidateKeys || [options.collectionKey, 'data', 'items']);
+  }
+  if (options.objectKey) {
+    return normalizeDiscoveryObjectResponse(payload, options.objectKey);
+  }
+  return normalizeAnyDiscoveryValue(payload);
+}
+
+function normalizeDiscoveryCollectionResponse(payload, outputKey, candidateKeys) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const items = firstArray(source, candidateKeys);
+  const result = {
+    ...copyExtraFields(source, new Set(candidateKeys)),
+    [outputKey]: items.map(normalizeAnyDiscoveryValue)
+  };
+  if (source.nextCursor !== undefined) result.nextCursor = source.nextCursor;
+  if (source.cursor !== undefined && result.nextCursor === undefined) result.nextCursor = source.cursor;
+  return result;
+}
+
+function normalizeDiscoveryObjectResponse(payload, objectKey) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload[objectKey] !== undefined) {
+    return {
+      ...copyExtraFields(payload, new Set([objectKey])),
+      [objectKey]: normalizeAnyDiscoveryValue(payload[objectKey])
+    };
+  }
+  return { [objectKey]: normalizeAnyDiscoveryValue(payload) };
+}
+
+function normalizeAnyDiscoveryValue(value) {
+  if (Array.isArray(value)) return value.map(normalizeAnyDiscoveryValue);
+  if (!value || typeof value !== 'object') return value;
+  const result = {};
+  for (const [key, current] of Object.entries(value)) {
+    result[key] = normalizeAnyDiscoveryValue(current);
+  }
+  return result;
+}
+
 function normalizeCollectionResponse(payload, outputKey, candidateKeys, itemNormalizer) {
   const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   const items = firstArray(source, candidateKeys);
@@ -88,6 +130,7 @@ function copyExtraFields(source, excludedKeys) {
 }
 
 module.exports = {
+  normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,
   normalizeThreadListResponse,
