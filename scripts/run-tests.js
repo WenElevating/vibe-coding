@@ -323,25 +323,45 @@ test('Codex app-server method extractor reads schema request surfaces', () => {
   assert.equal(methods.requests.has('turn/start'), true);
   assert.equal(methods.requests.has('turn/interrupt'), true);
   assert.equal(methods.requests.has('model/list'), true);
+  assert.equal(methods.clientNotifications.has('initialized'), true);
   assert.equal(methods.serverRequests.has('item/commandExecution/requestApproval'), true);
   assert.equal(methods.serverRequests.has('item/fileChange/requestApproval'), true);
-  assert.equal(methods.notifications.has('thread/started'), true);
-  assert.equal(methods.notifications.has('turn/completed'), true);
+  assert.equal(methods.serverNotifications.has('thread/started'), true);
+  assert.equal(methods.serverNotifications.has('turn/completed'), true);
 });
 
 test('Codex app-server capability matrix covers generated methods', () => {
   const {
     CODEX_APP_SERVER_CAPABILITY_MATRIX,
+    codexAppServerMethodSurfaceSignature,
     validateCodexAppServerCapabilityMatrix
   } = require('../daemon/src/codex-app-server/capability-matrix');
   const result = validateCodexAppServerCapabilityMatrix(CODEX_APP_SERVER_CAPABILITY_MATRIX);
   assert.deepEqual(result.errors, []);
+  assert.equal(codexAppServerMethodSurfaceSignature(), 'd73ae1187282b17fa5620a414460f1e7fc7916be5b22dc2b6d693fe68aa8dbb1');
   const rowByMethod = new Map(CODEX_APP_SERVER_CAPABILITY_MATRIX.map((row) => [row.method, row]));
   assert.equal(rowByMethod.get('initialize').localStatus, 'supported');
+  assert.equal(rowByMethod.get('initialized').localStatus, 'supported');
   assert.equal(rowByMethod.get('model/list').localStatus, 'supported');
   assert.equal(rowByMethod.get('thread/start').localStatus, 'supported');
   assert.equal(rowByMethod.get('turn/interrupt').risk, 'write');
   assert.equal(rowByMethod.get('item/commandExecution/requestApproval').direction, 'serverRequest');
+});
+
+test('Codex app-server capability matrix rejects unreviewed official method surfaces', () => {
+  const {
+    CODEX_APP_SERVER_CAPABILITY_MATRIX,
+    validateCodexAppServerCapabilityMatrix
+  } = require('../daemon/src/codex-app-server/capability-matrix');
+  const methods = {
+    clientRequests: new Set(['initialize', 'example/newOfficialMethod']),
+    clientNotifications: new Set(['initialized']),
+    serverRequests: new Set(),
+    serverNotifications: new Set()
+  };
+  const result = validateCodexAppServerCapabilityMatrix(CODEX_APP_SERVER_CAPABILITY_MATRIX, methods);
+  assert.equal(result.errors.some((error) => error.includes('official method surface changed')), true);
+  assert.equal(result.errors.some((error) => error.includes('example/newOfficialMethod') && error.includes('missing client request row')), true);
 });
 
 test('Codex app-server capability matrix rejects active unknown risk rows', () => {
@@ -400,6 +420,20 @@ test('Codex app-server client invalidates after failed initialize', async () => 
   await assert.rejects(() => Promise.all([client.initialize(), client.initialize()]), /initialize failed/);
   assert.equal(attempts, 1);
   await assert.rejects(() => client.initialize(), /invalidated/);
+});
+
+test('Codex app-server client invalidates when transport closes', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const transport = new EventEmitter();
+  transport.sendRequest = () => Promise.resolve({});
+  transport.sendNotification = () => {};
+  const client = new CodexAppServerClient({ transport });
+  await client.initialize();
+
+  transport.emit('closed', new Error('process exited'));
+
+  await assert.rejects(() => client.initialize(), /process exited/);
+  await assert.rejects(() => client.listModels(), /process exited/);
 });
 
 test('Codex app-server client sends typed conversation requests', async () => {
@@ -1190,6 +1224,42 @@ test('Codex app-server listing adapter exposes app-server model list', async () 
   assert.equal(modelCapability.canSelectModel, true);
   assert.equal(modelCapability.selectedModel, 'gpt-5.5');
   assert.deepEqual(modelCapability.models.map((model) => model.id), ['gpt-5.5', 'gpt-5-codex']);
+});
+
+test('createApp exposes app-server model list through adapter registry', async () => {
+  const dbPath = tempConversationDbPath('app-server-model-registry-');
+  const app = createApp({
+    port: 0,
+    appDbPath: dbPath,
+    codexAppServerTransport: 'stdio',
+    codexAppServerProbe: async () => ({
+      installed: true,
+      protocolCompatible: true,
+      transportHealthy: true,
+      unavailableReason: null,
+      lastProbeAt: '2026-06-04T00:00:00.000Z'
+    }),
+    codexAppServerModelLister: async () => ({
+      canSelectModel: true,
+      selectedModel: 'gpt-5.5',
+      models: [
+        { id: 'gpt-5.5', label: 'GPT-5.5', source: 'app_server', selected: true },
+        { id: 'gpt-5-codex', label: 'GPT-5 Codex', source: 'app_server', selected: false }
+      ]
+    })
+  });
+  try {
+    const adapters = await app.adapterRegistry.listCapabilities();
+    const appServer = adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, true);
+    assert.equal(appServer.canSelectModel, true);
+    assert.equal(appServer.selectedModel, 'gpt-5.5');
+    assert.deepEqual(appServer.models.map((model) => model.id).sort(), ['gpt-5-codex', 'gpt-5.5']);
+  } finally {
+    app.appSqliteStore.close();
+    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  }
 });
 
 test('Codex app-server model lister initializes and normalizes model/list', async () => {

@@ -1,6 +1,9 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { loadCodexAppServerMethods } = require('./methods');
+
+const REVIEWED_METHOD_SURFACE_SIGNATURE = 'd73ae1187282b17fa5620a414460f1e7fc7916be5b22dc2b6d693fe68aa8dbb1';
 
 const DIRECTIONS = new Set(['request', 'notification', 'serverRequest']);
 const STABILITIES = new Set(['stable', 'experimental']);
@@ -74,9 +77,10 @@ function row(method, direction, stability, category, localStatus, daemonOwner, m
 function buildMatrix(methods = loadCodexAppServerMethods()) {
   const rows = new Map();
   for (const explicit of EXPLICIT_ROWS) rows.set(explicit.method, explicit);
-  addGeneratedDefaults(rows, methods.requests, 'request');
+  addGeneratedDefaults(rows, methods.clientRequests || methods.requests, 'request');
+  addGeneratedDefaults(rows, methods.clientNotifications, 'notification');
   addGeneratedDefaults(rows, methods.serverRequests, 'serverRequest');
-  addGeneratedDefaults(rows, methods.notifications, 'notification');
+  addGeneratedDefaults(rows, methods.serverNotifications || methods.notifications, 'notification');
   return [...rows.values()].sort((left, right) => left.method.localeCompare(right.method));
 }
 
@@ -101,6 +105,10 @@ function addGeneratedDefaults(rows, methods, direction) {
 function validateCodexAppServerCapabilityMatrix(rows = CODEX_APP_SERVER_CAPABILITY_MATRIX, methods = loadCodexAppServerMethods()) {
   const errors = [];
   const seen = new Set();
+  const signature = codexAppServerMethodSurfaceSignature(methods);
+  if (signature !== REVIEWED_METHOD_SURFACE_SIGNATURE) {
+    errors.push(`official method surface changed: ${signature}`);
+  }
   for (const current of rows) {
     if (!current || typeof current !== 'object') {
       errors.push('matrix row must be an object');
@@ -124,16 +132,31 @@ function validateCodexAppServerCapabilityMatrix(rows = CODEX_APP_SERVER_CAPABILI
       errors.push(`${current.method} is mobile-accessible with unknown risk`);
     }
   }
-  for (const method of methods.requests || []) {
-    if (!seen.has(method)) errors.push(`${method} missing request row`);
-  }
-  for (const method of methods.serverRequests || []) {
-    if (!seen.has(method)) errors.push(`${method} missing serverRequest row`);
-  }
-  for (const method of methods.notifications || []) {
-    if (!seen.has(method)) errors.push(`${method} missing notification row`);
-  }
+  requireRows(errors, seen, methods.clientRequests || methods.requests, 'client request');
+  requireRows(errors, seen, methods.clientNotifications, 'client notification');
+  requireRows(errors, seen, methods.serverRequests, 'serverRequest');
+  requireRows(errors, seen, methods.serverNotifications || methods.notifications, 'server notification');
   return { errors };
+}
+
+function requireRows(errors, seen, methods, label) {
+  for (const method of methods || []) {
+    if (!seen.has(method)) errors.push(`${method} missing ${label} row`);
+  }
+}
+
+function codexAppServerMethodSurfaceSignature(methods = loadCodexAppServerMethods()) {
+  const payload = JSON.stringify({
+    clientRequests: sortedMethods(methods.clientRequests || methods.requests),
+    clientNotifications: sortedMethods(methods.clientNotifications),
+    serverRequests: sortedMethods(methods.serverRequests),
+    serverNotifications: sortedMethods(methods.serverNotifications || methods.notifications)
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+function sortedMethods(methods) {
+  return [...(methods || [])].sort();
 }
 
 function summarizeCodexAppServerCapabilityMatrix(rows = CODEX_APP_SERVER_CAPABILITY_MATRIX) {
@@ -184,6 +207,7 @@ function inferCategory(method) {
 module.exports = {
   CODEX_APP_SERVER_CAPABILITY_MATRIX,
   buildCodexAppServerCapabilityMatrix: buildMatrix,
+  codexAppServerMethodSurfaceSignature,
   summarizeCodexAppServerCapabilityMatrix,
   validateCodexAppServerCapabilityMatrix
 };

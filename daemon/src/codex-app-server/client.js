@@ -28,11 +28,19 @@ class CodexAppServerClient {
     this.clientInfo = clientInfo;
     this.initialized = false;
     this.invalidated = false;
+    this.closeError = null;
     this.initializePromise = null;
+    if (typeof transport.on === 'function') {
+      transport.on('closed', (error) => {
+        this.invalidated = true;
+        this.initialized = false;
+        this.closeError = error instanceof Error ? error : new Error('Codex app-server transport closed');
+      });
+    }
   }
 
   initialize() {
-    if (this.invalidated) return Promise.reject(new Error('Codex app-server client invalidated'));
+    if (this.invalidated) return Promise.reject(this.invalidatedError());
     if (this.initialized) return Promise.resolve();
     if (!this.initializePromise) {
       this.initializePromise = this._initialize().catch((error) => {
@@ -86,9 +94,15 @@ class CodexAppServerClient {
   }
 
   sendRequest(method, params, options = {}) {
+    if (this.invalidated) return Promise.reject(this.invalidatedError());
     return this.transport.sendRequest(method, params, {
       timeoutMs: options.timeoutMs || this.requestTimeoutMs
     });
+  }
+
+  invalidatedError() {
+    if (this.closeError) return new Error(`Codex app-server client invalidated: ${this.closeError.message}`);
+    return new Error('Codex app-server client invalidated');
   }
 }
 

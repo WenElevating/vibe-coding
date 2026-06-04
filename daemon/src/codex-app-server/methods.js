@@ -8,10 +8,17 @@ function defaultCodexAppServerSchemaDir() {
 }
 
 function loadCodexAppServerMethods(schemaDir = defaultCodexAppServerSchemaDir()) {
+  const clientRequests = extractMethodsFromSchema(path.join(schemaDir, 'ClientRequest.json'));
+  const clientNotifications = extractMethodsFromSchema(path.join(schemaDir, 'ClientNotification.json'));
+  const serverRequests = extractMethodsFromSchema(path.join(schemaDir, 'ServerRequest.json'));
+  const serverNotifications = extractMethodsFromSchema(path.join(schemaDir, 'ServerNotification.json'));
   return {
-    requests: extractMethodsFromSchema(path.join(schemaDir, 'ClientRequest.json')),
-    serverRequests: extractMethodsFromSchema(path.join(schemaDir, 'ServerRequest.json')),
-    notifications: extractMethodsFromSchema(path.join(schemaDir, 'ServerNotification.json'))
+    clientRequests,
+    clientNotifications,
+    serverRequests,
+    serverNotifications,
+    requests: clientRequests,
+    notifications: serverNotifications
   };
 }
 
