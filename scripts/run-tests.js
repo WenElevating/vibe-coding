@@ -565,6 +565,99 @@ test('Codex app-server method timeout classes distinguish streams and server req
   assert.equal(classifyCodexAppServerTimeout('item/commandExecution/requestApproval').kind, 'inbound-server-request');
 });
 
+test('Codex app-server routes require authentication', async () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-auth-')
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const response = await request(port, 'GET', '/api/codex-app-server/capabilities');
+    assert.equal(response.status, 401);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server capabilities route returns matrix and route metadata', async () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-capabilities-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'test', 'device_capabilities');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const response = await request(port, 'GET', '/api/codex-app-server/capabilities', null, paired.token);
+    assert.equal(response.status, 200);
+    assert.ok(response.body.capabilityMatrix.totalMethods > 0);
+    assert.equal(response.body.routes.some((route) => route.group === 'history' && route.readOnly), true);
+    assert.equal(response.body.routes.some((route) => route.requiresApproval), true);
+    assert.equal(response.body.routes.every((route) => route.source === 'capability-matrix'), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server unknown routes return controlled not found errors', async () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-route-not-found-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'test', 'device_unknown_route');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const response = await request(port, 'GET', '/api/codex-app-server/unknown', null, paired.token);
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_ROUTE_NOT_FOUND');
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server dispatcher ignores non app-server paths', async () => {
+  const { tryHandleCodexAppServerRoute } = require('../daemon/src/codex-app-server/routes');
+  const handled = await tryHandleCodexAppServerRoute({
+    method: 'GET',
+    url: new URL('http://localhost/api/adapters'),
+    json: () => {
+      throw new Error('should not write a response');
+    },
+    readJson: async () => ({}),
+    context: {}
+  });
+  assert.equal(handled, false);
+});
+
+test('Codex app-server capability route metadata is derived from matrix rows', () => {
+  const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
+  const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
+  const selectedRows = CODEX_APP_SERVER_CAPABILITY_MATRIX.filter((row) => row.daemonOwner === 'server route' || row.mobileStatus === 'planned' || row.mobileStatus === 'consumed');
+  const routes = buildCodexAppServerRouteCapabilities();
+  assert.equal(routes.length, selectedRows.length);
+  for (const route of routes) {
+    const row = selectedRows.find((candidate) => candidate.method === route.method);
+    assert.ok(row, `${route.method} must be backed by a matrix row`);
+    assert.equal(route.localStatus, row.localStatus);
+    assert.equal(route.mobileStatus, row.mobileStatus);
+    assert.equal(route.risk, row.risk);
+    assert.equal(route.source, 'capability-matrix');
+  }
+});
+
 test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   const service = new CodexAppServerService({
