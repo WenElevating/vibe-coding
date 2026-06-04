@@ -6,7 +6,7 @@ const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 async function tryHandleCodexAppServerRoute({ method, url, json, readJson, context }) {
   void readJson;
   void context;
-  if (!url.pathname.startsWith('/api/codex-app-server')) return false;
+  if (url.pathname !== '/api/codex-app-server' && !url.pathname.startsWith('/api/codex-app-server/')) return false;
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/capabilities') {
     json(200, {

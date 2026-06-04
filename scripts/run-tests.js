@@ -584,6 +584,8 @@ test('Codex app-server routes require authentication', async () => {
 });
 
 test('Codex app-server capabilities route returns matrix and route metadata', async () => {
+  const { summarizeCodexAppServerCapabilityMatrix } = require('../daemon/src/codex-app-server/capability-matrix');
+  const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
   const app = createApp({
     port: 0,
     codexAppServerProbe: false,
@@ -597,7 +599,8 @@ test('Codex app-server capabilities route returns matrix and route metadata', as
   try {
     const response = await request(port, 'GET', '/api/codex-app-server/capabilities', null, paired.token);
     assert.equal(response.status, 200);
-    assert.ok(response.body.capabilityMatrix.totalMethods > 0);
+    assert.deepEqual(response.body.capabilityMatrix, summarizeCodexAppServerCapabilityMatrix());
+    assert.deepEqual(response.body.routes, buildCodexAppServerRouteCapabilities());
     assert.equal(response.body.routes.some((route) => route.group === 'history' && route.readOnly), true);
     assert.equal(response.body.routes.some((route) => route.requiresApproval), true);
     assert.equal(response.body.routes.every((route) => route.source === 'capability-matrix'), true);
@@ -630,16 +633,36 @@ test('Codex app-server unknown routes return controlled not found errors', async
 
 test('Codex app-server dispatcher ignores non app-server paths', async () => {
   const { tryHandleCodexAppServerRoute } = require('../daemon/src/codex-app-server/routes');
+  let writes = 0;
   const handled = await tryHandleCodexAppServerRoute({
     method: 'GET',
     url: new URL('http://localhost/api/adapters'),
     json: () => {
+      writes += 1;
       throw new Error('should not write a response');
     },
     readJson: async () => ({}),
     context: {}
   });
   assert.equal(handled, false);
+  assert.equal(writes, 0);
+});
+
+test('Codex app-server dispatcher ignores same-prefix non namespace paths', async () => {
+  const { tryHandleCodexAppServerRoute } = require('../daemon/src/codex-app-server/routes');
+  let writes = 0;
+  const handled = await tryHandleCodexAppServerRoute({
+    method: 'GET',
+    url: new URL('http://localhost/api/codex-app-server-v2'),
+    json: () => {
+      writes += 1;
+      throw new Error('should not write a response');
+    },
+    readJson: async () => ({}),
+    context: {}
+  });
+  assert.equal(handled, false);
+  assert.equal(writes, 0);
 });
 
 test('Codex app-server capability route metadata is derived from matrix rows', () => {
