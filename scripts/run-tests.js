@@ -583,6 +583,22 @@ test('Codex app-server routes require authentication', async () => {
   }
 });
 
+test('Codex app-server route context receives production audit log', () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    codexAppServerService: {},
+    appDbPath: tempConversationDbPath('app-server-audit-context-')
+  });
+  try {
+    assert.equal(app.server.context.auditLog, app.auditLog);
+    assert.ok(app.server.context.auditLog);
+  } finally {
+    app.appSqliteStore.close();
+  }
+});
+
 test('Codex app-server capabilities route returns matrix and route metadata', async () => {
   const { summarizeCodexAppServerCapabilityMatrix } = require('../daemon/src/codex-app-server/capability-matrix');
   const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
