@@ -16,6 +16,7 @@ const { CodexConversationAdapter } = require('./codex-conversation-adapter');
 const { CodexAppServerConversationAdapter } = require('./codex-app-server-conversation-adapter');
 const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
 const { CodexAppServerLifecycle } = require('./codex-app-server-lifecycle');
+const { CodexAppServerService } = require('./codex-app-server/service');
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
@@ -75,6 +76,7 @@ function createApp({
   codexAppServerMaxProcesses = process.env.CODEX_APP_SERVER_MAX_PROCESSES,
   codexAppServerProbe = undefined,
   codexAppServerModelLister = undefined,
+  codexAppServerService = undefined,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -159,6 +161,17 @@ function createApp({
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
   const attachmentScratchStore = new AttachmentScratchStore({ root: path.join(path.dirname(appDbPath), 'attachment-scratch') });
+  const effectiveCodexAppServerService = codexAppServerService !== undefined
+    ? codexAppServerService
+    : codexAppServerEnabled
+    ? new CodexAppServerService({
+      lifecycle: codexAppServerLifecycle,
+      poolLimits: {
+        conversation: codexAppServerMaxProcesses
+      },
+      metrics: codexAppServerMetrics
+    })
+    : null;
   const config = { host, port, mode };
   const version = versionInfo({ mode });
   const migrationService = new MigrationService();
@@ -192,11 +205,11 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService });
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
   notificationHub.attach(server);
   notificationHub.start();
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, attachmentScratchCleanup };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null, codexAppServerAvailabilityState = null, codexAppServerLifecycle = null, codexAppServerMetrics = null }) {

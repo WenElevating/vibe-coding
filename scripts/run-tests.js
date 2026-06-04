@@ -456,6 +456,136 @@ test('Codex app-server client sends typed conversation requests', async () => {
   assert.deepEqual(calls.map((call) => call.method), ['thread/start', 'turn/start', 'turn/interrupt']);
 });
 
+test('Codex app-server service reuses healthy read-only discovery client within TTL', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    ttlMs: 30000,
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.requests = [];
+        transport.sendRequest = async (method) => {
+          transport.requests.push(method);
+          if (method === 'initialize') return {};
+          if (method === 'model/list') return { data: [] };
+          throw new Error(`unexpected ${method}`);
+        };
+        transport.sendNotification = () => {};
+        const handle = { transport, shutdown: async () => { handle.shutdownCalled = true; } };
+        spawned.push(handle);
+        return handle;
+      }
+    },
+    now: (() => {
+      let value = 1000;
+      return () => value;
+    })()
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  await service.withDiscoveryClient((client) => client.listModels());
+
+  assert.equal(spawned.length, 1);
+  assert.deepEqual(spawned[0].transport.requests, ['initialize', 'model/list', 'model/list']);
+});
+
+test('Codex app-server service evicts discovery client on transport close', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    ttlMs: 30000,
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => method === 'initialize' ? {} : { data: [] };
+        transport.sendNotification = () => {};
+        const handle = { transport, shutdown: async () => {} };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  spawned[0].transport.emit('closed', new Error('closed'));
+  await service.withDiscoveryClient((client) => client.listModels());
+
+  assert.equal(spawned.length, 2);
+});
+
+test('Codex app-server service does not reuse mutation clients', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let spawnCount = 0;
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        spawnCount += 1;
+        const transport = new EventEmitter();
+        transport.sendRequest = async () => ({});
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    }
+  });
+
+  await service.withMutationClient({ method: 'config/value/write' }, async () => {});
+  await service.withMutationClient({ method: 'config/value/write' }, async () => {});
+
+  assert.equal(spawnCount, 2);
+});
+
+test('Codex app-server service never shares discovery, conversation, and mutation pools', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn(scope) {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => method === 'initialize' ? {} : { ok: true };
+        transport.sendNotification = () => {};
+        const handle = { scope, transport, shutdown: async () => {} };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  await service.withConversationClient({ threadId: 'thread_1' }, async () => {});
+  await service.withMutationClient({ method: 'fs/writeFile' }, async () => {});
+
+  assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
+});
+
+test('Codex app-server method timeout classes distinguish streams and server requests', () => {
+  const { classifyCodexAppServerTimeout } = require('../daemon/src/codex-app-server/timeouts');
+  assert.equal(classifyCodexAppServerTimeout('model/list').kind, 'instant-rpc');
+  assert.equal(classifyCodexAppServerTimeout('turn/start').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('item/commandExecution/requestApproval').kind, 'inbound-server-request');
+});
+
+test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const service = new CodexAppServerService({
+    poolLimits: { discovery: 0, conversation: 0, mutation: 0 },
+    lifecycle: { spawn() { throw new Error('must not spawn when pool is full'); } }
+  });
+
+  await assert.rejects(
+    () => service.withDiscoveryClient(async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+  await assert.rejects(
+    () => service.withConversationClient({ threadId: 'thread_1' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+  await assert.rejects(
+    () => service.withMutationClient({ method: 'fs/writeFile' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+});
+
 test('Codex app-server model service normalizes model/list responses', () => {
   const { normalizeCodexAppServerModelCapability } = require('../daemon/src/codex-app-server/models');
   const capability = normalizeCodexAppServerModelCapability({
