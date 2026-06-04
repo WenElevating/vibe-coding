@@ -99,6 +99,10 @@ class ConversationSummary {
     this.requestedPermissionMode = '',
     this.effectivePermissionMode = '',
     this.permissionSupport = const <String, Object?>{},
+    this.requestedAdapter = '',
+    this.effectiveAdapter = '',
+    this.effectiveCapabilities = const <String, Object?>{},
+    this.fallbackNotice = const <String, Object?>{},
     this.cliSessionId,
     this.sessionBinding = 'unknown',
     this.title,
@@ -125,35 +129,43 @@ class ConversationSummary {
   final String requestedPermissionMode;
   final String effectivePermissionMode;
   final Map<String, Object?> permissionSupport;
+  final String requestedAdapter;
+  final String effectiveAdapter;
+  final Map<String, Object?> effectiveCapabilities;
+  final Map<String, Object?> fallbackNotice;
 
-  factory ConversationSummary.fromJson(Map<String, Object?> json) =>
-      ConversationSummary(
-        id: json['id'] as String? ?? '',
-        workspaceId: json['workspaceId'] as String? ?? '',
-        adapter: json['adapter'] as String? ?? '',
-        model: _optionalText(json['model']),
-        status: json['status'] as String? ?? '',
-        cliSessionId: json['cliSessionId'] as String?,
-        sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
-        title: _optionalText(json['title']),
-        userMessageCount: json['userMessageCount'] as int? ?? 0,
-        blockingItem: _objectMap(json['blockingItem']).isNotEmpty
-            ? ConversationBlockingItem.fromJson(
-                _objectMap(json['blockingItem']))
-            : null,
-        idleExpiresAt: json['idleExpiresAt'] as String?,
-        createdAt: json['createdAt'] as String? ?? '',
-        updatedAt: json['updatedAt'] as String? ?? '',
-        capabilities: ConversationCapabilities.fromJson(
-          _objectMap(json['capabilities']),
-        ),
-        protocolVersion: json['protocolVersion'] as int? ?? 1,
-        requestedPermissionMode:
-            json['requestedPermissionMode'] as String? ?? '',
-        effectivePermissionMode:
-            json['effectivePermissionMode'] as String? ?? '',
-        permissionSupport: _objectMap(json['permissionSupport']),
-      );
+  factory ConversationSummary.fromJson(Map<String, Object?> json) {
+    final adapter = json['adapter'] as String? ?? '';
+    final requestedAdapter = json['requestedAdapter'] as String? ?? adapter;
+    return ConversationSummary(
+      id: json['id'] as String? ?? '',
+      workspaceId: json['workspaceId'] as String? ?? '',
+      adapter: adapter,
+      model: _optionalText(json['model']),
+      status: json['status'] as String? ?? '',
+      cliSessionId: json['cliSessionId'] as String?,
+      sessionBinding: json['sessionBinding'] as String? ?? 'unknown',
+      title: _optionalText(json['title']),
+      userMessageCount: json['userMessageCount'] as int? ?? 0,
+      blockingItem: _objectMap(json['blockingItem']).isNotEmpty
+          ? ConversationBlockingItem.fromJson(_objectMap(json['blockingItem']))
+          : null,
+      idleExpiresAt: json['idleExpiresAt'] as String?,
+      createdAt: json['createdAt'] as String? ?? '',
+      updatedAt: json['updatedAt'] as String? ?? '',
+      capabilities: ConversationCapabilities.fromJson(
+        _objectMap(json['capabilities']),
+      ),
+      protocolVersion: json['protocolVersion'] as int? ?? 1,
+      requestedPermissionMode: json['requestedPermissionMode'] as String? ?? '',
+      effectivePermissionMode: json['effectivePermissionMode'] as String? ?? '',
+      permissionSupport: _objectMap(json['permissionSupport']),
+      requestedAdapter: requestedAdapter,
+      effectiveAdapter: json['effectiveAdapter'] as String? ?? requestedAdapter,
+      effectiveCapabilities: _objectMap(json['effectiveCapabilities']),
+      fallbackNotice: _objectMap(json['fallbackNotice']),
+    );
+  }
 }
 
 String? _optionalText(Object? value) {

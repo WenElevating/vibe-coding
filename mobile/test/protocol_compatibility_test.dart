@@ -65,7 +65,8 @@ void main() {
     expect(summary.userMessageCount, 0);
   });
 
-  test('ConversationSummary accepts app-server fallback conversation fields', () {
+  test('ConversationSummary accepts app-server fallback conversation fields',
+      () {
     final summary = ConversationSummary.fromJson(const <String, Object?>{
       'id': 'conv_app_server_fallback',
       'workspaceId': 'default',
@@ -97,6 +98,10 @@ void main() {
 
     expect(summary.id, 'conv_app_server_fallback');
     expect(summary.adapter, 'codex-app-server');
+    expect(summary.requestedAdapter, 'codex-app-server');
+    expect(summary.effectiveAdapter, 'codex');
+    expect(summary.effectiveCapabilities['mobileApprovalCallbacks'], isFalse);
+    expect(summary.fallbackNotice['noticeKind'], 'adapter_fallback');
     expect(summary.status, 'idle');
     expect(summary.capabilities.waitingApproval, isTrue);
     expect(summary.capabilities.resume, isTrue);
