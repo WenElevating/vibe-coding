@@ -24,7 +24,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   const workspaceThreads = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads$/);
   if (method === 'GET' && workspaceThreads) {
-    const workspace = context.workspaces.getAuthorized(decodeURIComponent(workspaceThreads[1]), context.device);
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreads[1]), context.device);
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
     const archived = parseBoolean(url.searchParams.get('archived'));
@@ -40,7 +40,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   const workspaceSearch = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/search$/);
   if (method === 'GET' && workspaceSearch) {
-    const workspace = context.workspaces.getAuthorized(decodeURIComponent(workspaceSearch[1]), context.device);
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceSearch[1]), context.device);
     const query = parseOptionalString(url.searchParams.get('query'));
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
@@ -54,18 +54,14 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
-  if (method === 'GET' && url.pathname === '/api/codex-app-server/threads/loaded') {
-    const response = await requireService(context).withDiscoveryClient((client) => client.listLoadedThreads());
-    json(200, normalizeThreadListResponse(response));
-    return true;
-  }
-
-  const threadTurns = url.pathname.match(/^\/api\/codex-app-server\/threads\/([^/]+)\/turns$/);
-  if (method === 'GET' && threadTurns) {
+  const workspaceThreadTurns = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/turns$/);
+  if (method === 'GET' && workspaceThreadTurns) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadTurns[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadTurns[2]);
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
-    const response = await requireService(context).withDiscoveryClient((client) => client.listThreadTurns(compactObject({
-      threadId: decodeURIComponent(threadTurns[1]),
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.listThreadTurns(compactObject({
+      threadId,
       limit,
       cursor
     })));
@@ -73,13 +69,16 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
-  const turnItems = url.pathname.match(/^\/api\/codex-app-server\/threads\/([^/]+)\/turns\/([^/]+)\/items$/);
-  if (method === 'GET' && turnItems) {
+  const workspaceTurnItems = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/turns\/([^/]+)\/items$/);
+  if (method === 'GET' && workspaceTurnItems) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceTurnItems[1]), context.device);
+    const threadId = decodePathParam(workspaceTurnItems[2]);
+    const turnId = decodePathParam(workspaceTurnItems[3]);
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
-    const response = await requireService(context).withDiscoveryClient((client) => client.listThreadTurnItems(compactObject({
-      threadId: decodeURIComponent(turnItems[1]),
-      turnId: decodeURIComponent(turnItems[2]),
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.listThreadTurnItems(compactObject({
+      threadId,
+      turnId,
       limit,
       cursor
     })));
@@ -87,21 +86,31 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
-  const threadGoal = url.pathname.match(/^\/api\/codex-app-server\/threads\/([^/]+)\/goal$/);
-  if (method === 'GET' && threadGoal) {
-    const response = await requireService(context).withDiscoveryClient((client) => client.getThreadGoal({
-      threadId: decodeURIComponent(threadGoal[1])
+  const workspaceThreadGoal = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/goal$/);
+  if (method === 'GET' && workspaceThreadGoal) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadGoal[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadGoal[2]);
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.getThreadGoal({
+      threadId
     }));
     json(200, normalizeGoalResponse(response));
     return true;
   }
 
-  const threadRead = url.pathname.match(/^\/api\/codex-app-server\/threads\/([^/]+)$/);
-  if (method === 'GET' && threadRead) {
-    const response = await requireService(context).withDiscoveryClient((client) => client.readThread({
-      threadId: decodeURIComponent(threadRead[1])
+  const workspaceThreadRead = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)$/);
+  if (method === 'GET' && workspaceThreadRead) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadRead[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadRead[2]);
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.readThread({
+      threadId
     }));
     json(200, normalizeThreadResponse(response));
+    return true;
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/threads/loaded') {
+    const response = await requireService(context).withDiscoveryClient((client) => client.listLoadedThreads());
+    json(200, normalizeThreadListResponse(response));
     return true;
   }
 
@@ -129,6 +138,15 @@ function parseBoolean(value) {
 function parseOptionalString(value) {
   if (value === undefined || value === null || value === '') return undefined;
   return value;
+}
+
+function decodePathParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    if (error instanceof URIError) throw badRequest('path parameter is not valid percent-encoding');
+    throw error;
+  }
 }
 
 function workspaceRoot(workspace) {
@@ -161,6 +179,7 @@ function compactObject(value) {
 }
 
 module.exports = {
+  decodePathParam,
   parseBoolean,
   parseLimit,
   tryHandleCodexAppServerRoute

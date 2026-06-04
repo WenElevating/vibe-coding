@@ -755,7 +755,7 @@ test('Codex app-server workspace threads route rejects invalid archived flag', a
   }
 });
 
-test('Codex app-server thread history routes call typed service methods and normalize responses', async () => {
+test('Codex app-server thread history routes require workspace scope and normalize responses', async () => {
   const calls = [];
   const service = {
     async withDiscoveryClient(callback) {
@@ -763,7 +763,12 @@ test('Codex app-server thread history routes call typed service methods and norm
         async listLoadedThreads() {
           calls.push({ method: 'listLoadedThreads' });
           return { threads: [{ id: 'loaded_1', title: 'Loaded' }], nextCursor: 'loaded_next' };
-        },
+        }
+      });
+    },
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ method: 'withWorkspaceClient', workspace });
+      return callback({
         async readThread(options) {
           calls.push({ method: 'readThread', options });
           return { thread: { id: options.threadId, title: 'Read', metadata: { source: 'test' } } };
@@ -779,11 +784,7 @@ test('Codex app-server thread history routes call typed service methods and norm
         async getThreadGoal(options) {
           calls.push({ method: 'getThreadGoal', options });
           return { goal: { threadId: options.threadId, status: 'active', objective: 'ship' } };
-        }
-      });
-    },
-    async withWorkspaceClient(workspace, callback) {
-      return callback({
+        },
         async searchThreads(options) {
           calls.push({ method: 'searchThreads', workspace, options });
           return { threads: [{ id: 'search_1', title: 'Found', workspacePath: options.workspacePath }], nextCursor: 'search_next' };
@@ -795,11 +796,11 @@ test('Codex app-server thread history routes call typed service methods and norm
 
   try {
     const loaded = await app.get('/api/codex-app-server/threads/loaded');
-    const read = await app.get('/api/codex-app-server/threads/thread_1');
+    const read = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1`);
     const search = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/search?query=needle&limit=5&cursor=next`);
-    const turns = await app.get('/api/codex-app-server/threads/thread_1/turns?limit=3&cursor=turn_cursor');
-    const items = await app.get('/api/codex-app-server/threads/thread_1/turns/turn_1/items?limit=2');
-    const goal = await app.get('/api/codex-app-server/threads/thread_1/goal');
+    const turns = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/turns?limit=3&cursor=turn_cursor`);
+    const items = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/turns/turn_1/items?limit=2`);
+    const goal = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/goal`);
 
     assert.equal(loaded.status, 200);
     assert.deepEqual(loaded.body.threads, [{ id: 'loaded_1', title: 'Loaded' }]);
@@ -815,12 +816,100 @@ test('Codex app-server thread history routes call typed service methods and norm
     assert.deepEqual(goal.body.goal, { threadId: 'thread_1', status: 'active', objective: 'ship' });
     assert.deepEqual(calls, [
       { method: 'listLoadedThreads' },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'readThread', options: { threadId: 'thread_1' } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'searchThreads', workspace: app.workspace, options: { query: 'needle', workspacePath: app.workspace.path, limit: 5, cursor: 'next' } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'listThreadTurns', options: { threadId: 'thread_1', limit: 3, cursor: 'turn_cursor' } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'listThreadTurnItems', options: { threadId: 'thread_1', turnId: 'turn_1', limit: 2 } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'getThreadGoal', options: { threadId: 'thread_1' } }
     ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server unscoped thread history routes no longer expose thread reads', async () => {
+  const service = {
+    async withDiscoveryClient(callback) {
+      return callback({
+        async listLoadedThreads() {
+          return { threads: [] };
+        },
+        async readThread() {
+          throw new Error('must not read unscoped thread');
+        },
+        async listThreadTurns() {
+          throw new Error('must not list unscoped turns');
+        },
+        async listThreadTurnItems() {
+          throw new Error('must not list unscoped items');
+        },
+        async getThreadGoal() {
+          throw new Error('must not get unscoped goal');
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const read = await app.get('/api/codex-app-server/threads/thread_1');
+    const turns = await app.get('/api/codex-app-server/threads/thread_1/turns');
+    const items = await app.get('/api/codex-app-server/threads/thread_1/turns/turn_1/items');
+    const goal = await app.get('/api/codex-app-server/threads/thread_1/goal');
+
+    for (const response of [read, turns, items, goal]) {
+      assert.equal(response.status, 404);
+      assert.equal(response.body.error.code, 'CODEX_APP_SERVER_ROUTE_NOT_FOUND');
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server workspace thread read rejects unauthorized workspace before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for unauthorized workspace');
+      }
+    }
+  });
+
+  try {
+    const response = await app.get('/api/codex-app-server/workspaces/workspace_not_allowed/threads/thread_1');
+
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error.code, 'WORKSPACE_NOT_FOUND');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server routes return controlled bad request for malformed path encoding', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for malformed path');
+      }
+    }
+  });
+
+  try {
+    const response = await app.get('/api/codex-app-server/workspaces/%E0%A4%A/threads/thread_1');
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'BAD_REQUEST');
+    assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
   }
