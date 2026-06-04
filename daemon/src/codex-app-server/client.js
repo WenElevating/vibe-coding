@@ -166,6 +166,40 @@ class CodexAppServerClient {
     return this.sendRequest('windowsSandbox/readiness', {}, options);
   }
 
+  readAccount(options = {}) {
+    return this.sendRequest('account/read', {}, options);
+  }
+
+  readAccountRateLimits(options = {}) {
+    return this.sendRequest('account/rateLimits/read', {}, options);
+  }
+
+  startAccountLogin(options = {}) {
+    return this.sendRequest('account/login/start', compactObject({
+      provider: options.provider
+    }), options);
+  }
+
+  cancelAccountLogin(options = {}) {
+    return this.sendRequest('account/login/cancel', compactObject({
+      loginId: options.loginId
+    }), options);
+  }
+
+  logoutAccount(options = {}) {
+    return this.sendRequest('account/logout', {}, options);
+  }
+
+  sendAddCreditsNudgeEmail(options = {}) {
+    return this.sendRequest('account/sendAddCreditsNudgeEmail', {}, options);
+  }
+
+  startMcpServerOauthLogin(options = {}) {
+    return this.sendRequest('mcpServer/oauth/login', compactObject({
+      serverId: options.serverId
+    }), options);
+  }
+
   readThread(options = {}) {
     return this.sendRequest('thread/read', compactObject({
       threadId: options.threadId

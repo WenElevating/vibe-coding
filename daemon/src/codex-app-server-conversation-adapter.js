@@ -291,6 +291,13 @@ class CodexAppServerConversationHandle {
   }
 
   handleServerRequest(message) {
+    if (message?.method === 'account/chatgptAuthTokens/refresh') {
+      this.failClosedServerRequest(
+        message,
+        'Token refresh requires an explicit secure token provider; daemon must not synthesize or expose account tokens.'
+      );
+      return;
+    }
     const approval = mapCodexAppServerApprovalRequest(message);
     if (!approval) {
       this.failClosedServerRequest(message, 'unsupported Codex app-server server request');

@@ -3,6 +3,8 @@
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 const {
+  normalizeAccountRateLimitsResponse,
+  normalizeAccountResponse,
   normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,
@@ -21,6 +23,64 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       routes: buildCodexAppServerRouteCapabilities()
     });
     return true;
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/account') {
+    const response = await requireService(context).withDiscoveryClient((client) => client.readAccount());
+    json(200, normalizeAccountResponse(response));
+    return true;
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/account/rate-limits') {
+    const response = await requireService(context).withDiscoveryClient((client) => client.readAccountRateLimits());
+    json(200, normalizeAccountRateLimitsResponse(response));
+    return true;
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/account/login/start') {
+    const body = await readJson();
+    const provider = parseOptionalString(body?.provider);
+    return mutationRoute(context, json, {
+      method: 'account/login/start',
+      risk: 'account',
+      action: (client) => client.startAccountLogin(compactObject({ provider }))
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/account/login/cancel') {
+    const body = await readJson();
+    const loginId = parseRequiredBodyString(body?.loginId, 'loginId');
+    return mutationRoute(context, json, {
+      method: 'account/login/cancel',
+      risk: 'account',
+      action: (client) => client.cancelAccountLogin({ loginId })
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/account/logout') {
+    return mutationRoute(context, json, {
+      method: 'account/logout',
+      risk: 'account',
+      action: (client) => client.logoutAccount()
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/account/add-credits-email') {
+    return mutationRoute(context, json, {
+      method: 'account/sendAddCreditsNudgeEmail',
+      risk: 'account',
+      action: (client) => client.sendAddCreditsNudgeEmail()
+    });
+  }
+
+  const mcpOauthLogin = url.pathname.match(/^\/api\/codex-app-server\/mcp\/servers\/([^/]+)\/oauth\/login$/);
+  if (method === 'POST' && mcpOauthLogin) {
+    const serverId = parseRequiredBodyString(decodePathParam(mcpOauthLogin[1]), 'serverId');
+    return mutationRoute(context, json, {
+      method: 'mcpServer/oauth/login',
+      risk: 'network',
+      action: (client) => client.startMcpServerOauthLogin({ serverId })
+    });
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/config') {
@@ -267,6 +327,19 @@ async function discoveryRoute(context, json, action, normalizeOptions) {
   return true;
 }
 
+async function mutationRoute(context, json, { method, risk, action }) {
+  const correlationId = createCorrelationId();
+  try {
+    const response = await requireService(context).withMutationClient({ method, risk }, (client) => action(client));
+    recordAccountAudit(context, { method, risk, decision: 'allow', result: 'success', correlationId });
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  } catch (error) {
+    recordAccountAudit(context, { method, risk, decision: 'allow', result: 'error', correlationId, error: error.message });
+    throw error;
+  }
+}
+
 function parseLimit(value, fallback) {
   if (value === undefined || value === null || value === '') return fallback;
   if (!/^\d+$/.test(String(value))) throw badRequest('limit must be a positive integer');
@@ -292,6 +365,13 @@ function parseRequiredQueryString(value, name) {
     throw badRequest(`${name} query parameter is required`);
   }
   return value;
+}
+
+function parseRequiredBodyString(value, name) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    throw badRequest(`${name} is required`);
+  }
+  return String(value).trim();
 }
 
 function decodePathParam(value) {
@@ -322,6 +402,18 @@ function badRequest(message) {
     status: 400,
     code: 'BAD_REQUEST'
   });
+}
+
+function recordAccountAudit(context, payload) {
+  if (!context.auditLog || typeof context.auditLog.record !== 'function') return;
+  context.auditLog.record('codex_app_server.account_mutation', {
+    ...payload,
+    deviceId: context.device?.id || null
+  });
+}
+
+function createCorrelationId() {
+  return `codex-app-server-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function compactObject(value) {

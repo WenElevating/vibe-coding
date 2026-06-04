@@ -538,6 +538,37 @@ test('Codex app-server client sends typed discovery requests', async () => {
   ]);
 });
 
+test('Codex app-server client sends typed account and auth requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.readAccount();
+  await client.readAccountRateLimits();
+  await client.startAccountLogin({ provider: 'chatgpt', ignored: 'nope' });
+  await client.cancelAccountLogin({ loginId: 'login_1', ignored: 'nope' });
+  await client.logoutAccount({ ignored: 'nope' });
+  await client.sendAddCreditsNudgeEmail({ ignored: 'nope' });
+  await client.startMcpServerOauthLogin({ serverId: 'server_1', ignored: 'nope' });
+
+  assert.deepEqual(calls, [
+    { method: 'account/read', params: {} },
+    { method: 'account/rateLimits/read', params: {} },
+    { method: 'account/login/start', params: { provider: 'chatgpt' } },
+    { method: 'account/login/cancel', params: { loginId: 'login_1' } },
+    { method: 'account/logout', params: {} },
+    { method: 'account/sendAddCreditsNudgeEmail', params: {} },
+    { method: 'mcpServer/oauth/login', params: { serverId: 'server_1' } }
+  ]);
+});
+
 test('Codex app-server service reuses healthy read-only discovery client within TTL', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   const spawned = [];
@@ -638,6 +669,48 @@ test('Codex app-server service never shares discovery, conversation, and mutatio
   await service.withMutationClient({ method: 'fs/writeFile' }, async () => {});
 
   assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
+});
+
+test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
+  const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const errors = [];
+  const results = [];
+  const events = [];
+  const transport = new EventEmitter();
+  transport.sendRequest = async () => ({});
+  transport.sendNotification = () => {};
+  transport.sendError = (id, error) => errors.push({ id, error });
+  transport.sendResult = (id, result) => results.push({ id, result });
+  const handle = new CodexAppServerConversationHandle({
+    adapter: {
+      initializeTimeoutMs: 100,
+      approvalTimeoutMs: 100,
+      metrics: {
+        approvalRequestedCount: 0,
+        approvalTimeoutCount: 0,
+        approvalRoundTripLatencyMs: [],
+        transportCloseCount: 0,
+        runErrorAfterTurnStartedCount: 0
+      }
+    },
+    processHandle: { transport },
+    workspacePath: process.cwd(),
+    onEvent: (event) => events.push(event)
+  });
+
+  handle.handleServerRequest({
+    id: 'token-refresh-1',
+    method: 'account/chatgptAuthTokens/refresh',
+    params: { accessToken: 'should-not-leak', refreshToken: 'should-not-leak' }
+  });
+
+  assert.deepEqual(results, []);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].id, 'token-refresh-1');
+  assert.equal(errors[0].error.code, -32601);
+  assert.match(errors[0].error.message, /secure token provider/);
+  assert.equal(JSON.stringify(errors).includes('should-not-leak'), false);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR && /account\/chatgptAuthTokens\/refresh/.test(event.message)), true);
 });
 
 test('Codex app-server method timeout classes distinguish streams and server requests', () => {
@@ -1022,6 +1095,183 @@ test('Codex app-server discovery routes use discovery client and normalize respo
       }))
     );
     assert.equal(calls.filter((call) => call.method === 'withDiscoveryClient').length, routeCases.length);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server account read routes use discovery client and redact sensitive DTO fields', async () => {
+  const calls = [];
+  const service = {
+    async withDiscoveryClient(callback) {
+      calls.push({ method: 'withDiscoveryClient' });
+      return callback({
+        async readAccount() {
+          calls.push({ method: 'readAccount' });
+          return {
+            account: {
+              id: 'acct_1',
+              displayName: 'Codex User',
+              email: 'raw@example.test',
+              accessToken: 'access-secret',
+              refreshToken: 'refresh-secret',
+              bearerToken: 'Bearer secret',
+              tokenInfo: { token: 'nested-secret', expiresAt: '2026-06-04T00:00:00.000Z' },
+              authDetails: { token: 'nested-secret', expiresAt: '2026-06-04T00:00:00.000Z' },
+              accountFilePath: 'C:\\Users\\Alice\\.codex\\auth.json',
+              profile: { emailAddress: 'nested@example.test', name: 'Nested' }
+            }
+          };
+        },
+        async readAccountRateLimits() {
+          calls.push({ method: 'readAccountRateLimits' });
+          return {
+            rateLimits: {
+              remaining: 5,
+              resetAt: '2026-06-04T00:00:00.000Z',
+              rawEmail: 'raw@example.test',
+              access_token: 'snake-secret'
+            }
+          };
+        }
+      });
+    },
+    async withMutationClient() {
+      throw new Error('account read route must not use mutation pool');
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const account = await app.get('/api/codex-app-server/account');
+    const limits = await app.get('/api/codex-app-server/account/rate-limits');
+
+    assert.equal(account.status, 200);
+    assert.equal(account.body.account.id, 'acct_1');
+    assert.equal(account.body.account.displayName, 'Codex User');
+    assert.equal(account.body.account.email, '[REDACTED]');
+    assert.equal(account.body.account.accessToken, '[REDACTED]');
+    assert.equal(account.body.account.refreshToken, '[REDACTED]');
+    assert.equal(account.body.account.bearerToken, '[REDACTED]');
+    assert.equal(account.body.account.tokenInfo, '[REDACTED]');
+    assert.equal(account.body.account.authDetails.token, '[REDACTED]');
+    assert.equal(account.body.account.accountFilePath, '[REDACTED]');
+    assert.equal(account.body.account.profile.emailAddress, '[REDACTED]');
+    assert.equal(account.body.account.profile.name, 'Nested');
+    assert.equal(limits.status, 200);
+    assert.equal(limits.body.rateLimits.remaining, 5);
+    assert.equal(limits.body.rateLimits.rawEmail, '[REDACTED]');
+    assert.equal(limits.body.rateLimits.access_token, '[REDACTED]');
+    assert.deepEqual(calls.map((call) => call.method), [
+      'withDiscoveryClient',
+      'readAccount',
+      'withDiscoveryClient',
+      'readAccountRateLimits'
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server account mutation routes use mutation client and audit decisions', async () => {
+  const calls = [];
+  const service = {
+    async withDiscoveryClient(callback) {
+      calls.push({ method: 'withDiscoveryClient' });
+      return callback({
+        async readAccount() {
+          calls.push({ method: 'readAccount' });
+          return { account: { id: 'acct_1' } };
+        }
+      });
+    },
+    async withMutationClient(metadata, callback) {
+      calls.push({ method: 'withMutationClient', metadata });
+      return callback({
+        async startAccountLogin(options) {
+          calls.push({ method: 'startAccountLogin', options });
+          return { login: { id: 'login_1', provider: options.provider } };
+        },
+        async cancelAccountLogin(options) {
+          calls.push({ method: 'cancelAccountLogin', options });
+          return { cancelled: true };
+        },
+        async logoutAccount() {
+          calls.push({ method: 'logoutAccount' });
+          return { loggedOut: true };
+        },
+        async sendAddCreditsNudgeEmail() {
+          calls.push({ method: 'sendAddCreditsNudgeEmail' });
+          return { sent: true };
+        },
+        async startMcpServerOauthLogin(options) {
+          calls.push({ method: 'startMcpServerOauthLogin', options });
+          return { login: { serverId: options.serverId } };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_account_mutation' });
+
+  try {
+    const read = await app.get('/api/codex-app-server/account');
+    const login = await app.post('/api/codex-app-server/account/login/start', { provider: 'chatgpt' });
+    const cancel = await app.post('/api/codex-app-server/account/login/cancel', { loginId: 'login_1' });
+    const logout = await app.post('/api/codex-app-server/account/logout');
+    const nudge = await app.post('/api/codex-app-server/account/add-credits-email');
+    const oauth = await app.post('/api/codex-app-server/mcp/servers/server%2Fone/oauth/login');
+
+    assert.equal(read.status, 200);
+    assert.equal(login.status, 200);
+    assert.equal(cancel.status, 200);
+    assert.equal(logout.status, 200);
+    assert.equal(nudge.status, 200);
+    assert.equal(oauth.status, 200);
+    assert.deepEqual(calls.filter((call) => call.method === 'withMutationClient').map((call) => call.metadata), [
+      { method: 'account/login/start', risk: 'account' },
+      { method: 'account/login/cancel', risk: 'account' },
+      { method: 'account/logout', risk: 'account' },
+      { method: 'account/sendAddCreditsNudgeEmail', risk: 'account' },
+      { method: 'mcpServer/oauth/login', risk: 'network' }
+    ]);
+    assert.deepEqual(calls.filter((call) => call.method === 'startMcpServerOauthLogin')[0].options, { serverId: 'server/one' });
+    const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.account_mutation');
+    assert.deepEqual(records.map((record) => [record.method, record.risk, record.decision, record.result, record.deviceId]), [
+      ['account/login/start', 'account', 'allow', 'success', 'device_account_mutation'],
+      ['account/login/cancel', 'account', 'allow', 'success', 'device_account_mutation'],
+      ['account/logout', 'account', 'allow', 'success', 'device_account_mutation'],
+      ['account/sendAddCreditsNudgeEmail', 'account', 'allow', 'success', 'device_account_mutation'],
+      ['mcpServer/oauth/login', 'network', 'allow', 'success', 'device_account_mutation']
+    ]);
+    assert.equal(records.every((record) => typeof record.correlationId === 'string' && record.correlationId.length > 0), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server account mutation routes reject missing required fields before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withMutationClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for invalid account mutation');
+      }
+    }
+  });
+
+  try {
+    for (const [path, body] of [
+      ['/api/codex-app-server/account/login/cancel', {}],
+      ['/api/codex-app-server/account/login/cancel', { loginId: ' ' }],
+      ['/api/codex-app-server/mcp/servers/%20/oauth/login', {}],
+      ['/api/codex-app-server/mcp/servers/%E0%A4%A/oauth/login', {}]
+    ]) {
+      const response = await app.post(path, body);
+      assert.equal(response.status, 400, path);
+      assert.equal(response.body.error.code, 'BAD_REQUEST', path);
+    }
+    assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
   }
@@ -9661,7 +9911,7 @@ async function createCodexAppServerRouteTestApp({
   const call = (method, pathValue, body) => request(port, method, pathValue, body, paired.token);
   return {
     app,
-    auditLog,
+    auditLog: app.auditLog,
     device,
     token: paired.token,
     workspace,

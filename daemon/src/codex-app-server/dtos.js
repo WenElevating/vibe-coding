@@ -42,6 +42,26 @@ function normalizeDiscoveryResponse(payload, options = {}) {
   return normalizeAnyDiscoveryValue(payload);
 }
 
+function normalizeAccountResponse(payload) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.account !== undefined) {
+    return {
+      ...redactAccountFields(copyExtraFields(payload, new Set(['account']))),
+      account: redactAccountFields(payload.account)
+    };
+  }
+  return { account: redactAccountFields(payload) };
+}
+
+function normalizeAccountRateLimitsResponse(payload) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.rateLimits !== undefined) {
+    return {
+      ...redactAccountFields(copyExtraFields(payload, new Set(['rateLimits']))),
+      rateLimits: redactAccountFields(payload.rateLimits)
+    };
+  }
+  return { rateLimits: redactAccountFields(payload) };
+}
+
 function normalizeDiscoveryCollectionResponse(payload, outputKey, candidateKeys) {
   const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   const items = firstArray(source, candidateKeys);
@@ -129,7 +149,33 @@ function copyExtraFields(source, excludedKeys) {
   return result;
 }
 
+function redactAccountFields(value) {
+  if (Array.isArray(value)) return value.map(redactAccountFields);
+  if (!value || typeof value !== 'object') return value;
+  const result = {};
+  for (const [key, current] of Object.entries(value)) {
+    if (isSensitiveAccountKey(key)) {
+      result[key] = '[REDACTED]';
+    } else {
+      result[key] = redactAccountFields(current);
+    }
+  }
+  return result;
+}
+
+function isSensitiveAccountKey(key) {
+  const normalized = String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('token')) return true;
+  if (normalized.includes('bearer')) return true;
+  if (normalized.includes('email')) return true;
+  if (normalized.includes('filepath') || normalized === 'path' || normalized.endsWith('path')) return true;
+  return false;
+}
+
 module.exports = {
+  normalizeAccountRateLimitsResponse,
+  normalizeAccountResponse,
   normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,
