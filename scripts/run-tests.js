@@ -456,6 +456,37 @@ test('Codex app-server client sends typed conversation requests', async () => {
   assert.deepEqual(calls.map((call) => call.method), ['thread/start', 'turn/start', 'turn/interrupt']);
 });
 
+test('Codex app-server client sends typed thread history requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.listThreads({ workspacePath: process.cwd(), limit: 20, cursor: null, archived: false });
+  await client.listLoadedThreads();
+  await client.readThread({ threadId: 'thread_client' });
+  await client.searchThreads({ query: 'needle', workspacePath: process.cwd(), limit: undefined, cursor: 'next' });
+  await client.listThreadTurns({ threadId: 'thread_client', limit: 10 });
+  await client.listThreadTurnItems({ threadId: 'thread_client', turnId: 'turn_client', cursor: undefined });
+  await client.getThreadGoal({ threadId: 'thread_client' });
+
+  assert.deepEqual(calls, [
+    { method: 'thread/list', params: { workspacePath: process.cwd(), limit: 20, archived: false } },
+    { method: 'thread/loaded/list', params: {} },
+    { method: 'thread/read', params: { threadId: 'thread_client' } },
+    { method: 'thread/search', params: { query: 'needle', workspacePath: process.cwd(), cursor: 'next' } },
+    { method: 'thread/turns/list', params: { threadId: 'thread_client', limit: 10 } },
+    { method: 'thread/turns/items/list', params: { threadId: 'thread_client', turnId: 'turn_client' } },
+    { method: 'thread/goal/get', params: { threadId: 'thread_client' } }
+  ]);
+});
+
 test('Codex app-server service reuses healthy read-only discovery client within TTL', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   const spawned = [];
@@ -644,6 +675,154 @@ test('Codex app-server unknown routes return controlled not found errors', async
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
     app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server workspace threads route authorizes workspace and normalizes list response', async () => {
+  const calls = [];
+  const service = {
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ workspace });
+      return callback({
+        async listThreads(options) {
+          calls.push({ method: 'listThreads', options });
+          return {
+            data: [
+              { id: 'thread_1', title: 'Thread One', workspacePath: options.workspacePath, archived: false, extra: 'kept' }
+            ],
+            nextCursor: 'cursor_2',
+            ignoredByNormalizer: false
+          };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const response = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads?limit=20&cursor=abc&archived=false`);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.threads, [
+      { id: 'thread_1', title: 'Thread One', workspacePath: app.workspace.path, archived: false, extra: 'kept' }
+    ]);
+    assert.equal(response.body.nextCursor, 'cursor_2');
+    assert.deepEqual(calls[0].workspace, app.workspace);
+    assert.deepEqual(calls[1], {
+      method: 'listThreads',
+      options: { workspacePath: app.workspace.path, limit: 20, cursor: 'abc', archived: false }
+    });
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server workspace threads route rejects invalid limit', async () => {
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        throw new Error('must not call service for invalid query');
+      }
+    }
+  });
+
+  try {
+    const response = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads?limit=bad`);
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'BAD_REQUEST');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server workspace threads route rejects invalid archived flag', async () => {
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        throw new Error('must not call service for invalid query');
+      }
+    }
+  });
+
+  try {
+    const response = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads?archived=yes`);
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'BAD_REQUEST');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread history routes call typed service methods and normalize responses', async () => {
+  const calls = [];
+  const service = {
+    async withDiscoveryClient(callback) {
+      return callback({
+        async listLoadedThreads() {
+          calls.push({ method: 'listLoadedThreads' });
+          return { threads: [{ id: 'loaded_1', title: 'Loaded' }], nextCursor: 'loaded_next' };
+        },
+        async readThread(options) {
+          calls.push({ method: 'readThread', options });
+          return { thread: { id: options.threadId, title: 'Read', metadata: { source: 'test' } } };
+        },
+        async listThreadTurns(options) {
+          calls.push({ method: 'listThreadTurns', options });
+          return { turns: [{ id: 'turn_1', status: 'completed' }], nextCursor: 'turn_next' };
+        },
+        async listThreadTurnItems(options) {
+          calls.push({ method: 'listThreadTurnItems', options });
+          return { items: [{ id: 'item_1', kind: 'agentMessage' }], nextCursor: 'item_next' };
+        },
+        async getThreadGoal(options) {
+          calls.push({ method: 'getThreadGoal', options });
+          return { goal: { threadId: options.threadId, status: 'active', objective: 'ship' } };
+        }
+      });
+    },
+    async withWorkspaceClient(workspace, callback) {
+      return callback({
+        async searchThreads(options) {
+          calls.push({ method: 'searchThreads', workspace, options });
+          return { threads: [{ id: 'search_1', title: 'Found', workspacePath: options.workspacePath }], nextCursor: 'search_next' };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const loaded = await app.get('/api/codex-app-server/threads/loaded');
+    const read = await app.get('/api/codex-app-server/threads/thread_1');
+    const search = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/search?query=needle&limit=5&cursor=next`);
+    const turns = await app.get('/api/codex-app-server/threads/thread_1/turns?limit=3&cursor=turn_cursor');
+    const items = await app.get('/api/codex-app-server/threads/thread_1/turns/turn_1/items?limit=2');
+    const goal = await app.get('/api/codex-app-server/threads/thread_1/goal');
+
+    assert.equal(loaded.status, 200);
+    assert.deepEqual(loaded.body.threads, [{ id: 'loaded_1', title: 'Loaded' }]);
+    assert.equal(read.status, 200);
+    assert.deepEqual(read.body.thread, { id: 'thread_1', title: 'Read', metadata: { source: 'test' } });
+    assert.equal(search.status, 200);
+    assert.deepEqual(search.body.threads, [{ id: 'search_1', title: 'Found', workspacePath: app.workspace.path }]);
+    assert.equal(turns.status, 200);
+    assert.deepEqual(turns.body.turns, [{ id: 'turn_1', status: 'completed' }]);
+    assert.equal(items.status, 200);
+    assert.deepEqual(items.body.items, [{ id: 'item_1', kind: 'agentMessage' }]);
+    assert.equal(goal.status, 200);
+    assert.deepEqual(goal.body.goal, { threadId: 'thread_1', status: 'active', objective: 'ship' });
+    assert.deepEqual(calls, [
+      { method: 'listLoadedThreads' },
+      { method: 'readThread', options: { threadId: 'thread_1' } },
+      { method: 'searchThreads', workspace: app.workspace, options: { query: 'needle', workspacePath: app.workspace.path, limit: 5, cursor: 'next' } },
+      { method: 'listThreadTurns', options: { threadId: 'thread_1', limit: 3, cursor: 'turn_cursor' } },
+      { method: 'listThreadTurnItems', options: { threadId: 'thread_1', turnId: 'turn_1', limit: 2 } },
+      { method: 'getThreadGoal', options: { threadId: 'thread_1' } }
+    ]);
+  } finally {
+    await app.close();
   }
 });
 
@@ -9199,6 +9378,49 @@ async function request(port, method, path, body, token) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+async function createCodexAppServerRouteTestApp({
+  service,
+  auditLog = new AuditLog(),
+  workspacePath = process.cwd(),
+  workspaceName = 'Codex App Server Test',
+  label = 'codex-app-server-route-test',
+  deviceId = `device_${nodeCrypto.randomBytes(4).toString('hex')}`
+} = {}) {
+  const app = createApp({
+    port: 0,
+    codexAppServerService: service,
+    auditLog,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-route-test-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, label, deviceId);
+  const device = app.auth.authenticate(`Bearer ${paired.token}`);
+  const workspace = app.workspaces.add({ workspacePath, name: workspaceName }, device);
+  app.auth.allowWorkspace(device.id, workspace.id);
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const call = (method, pathValue, body) => request(port, method, pathValue, body, paired.token);
+  return {
+    app,
+    auditLog,
+    device,
+    token: paired.token,
+    workspace,
+    port,
+    get: (pathValue) => call('GET', pathValue),
+    post: (pathValue, body = {}) => call('POST', pathValue, body),
+    patch: (pathValue, body = {}) => call('PATCH', pathValue, body),
+    delete: (pathValue, body = {}) => call('DELETE', pathValue, body),
+    close: async () => {
+      await new Promise((resolve) => app.server.close(resolve));
+      app.notificationHub.close();
+      app.appSqliteStore.close();
+    }
+  };
 }
 
 function wsUrl(port, path = '/api/notifications/ws') {

@@ -67,6 +67,57 @@ class CodexAppServerClient {
     return this.sendRequest('model/list', {}, options);
   }
 
+  listThreads(options = {}) {
+    return this.sendRequest('thread/list', compactObject({
+      workspacePath: options.workspacePath,
+      limit: options.limit,
+      cursor: options.cursor,
+      archived: options.archived
+    }), options);
+  }
+
+  listLoadedThreads(options = {}) {
+    return this.sendRequest('thread/loaded/list', {}, options);
+  }
+
+  readThread(options = {}) {
+    return this.sendRequest('thread/read', compactObject({
+      threadId: options.threadId
+    }), options);
+  }
+
+  searchThreads(options = {}) {
+    return this.sendRequest('thread/search', compactObject({
+      query: options.query,
+      workspacePath: options.workspacePath,
+      limit: options.limit,
+      cursor: options.cursor
+    }), options);
+  }
+
+  listThreadTurns(options = {}) {
+    return this.sendRequest('thread/turns/list', compactObject({
+      threadId: options.threadId,
+      limit: options.limit,
+      cursor: options.cursor
+    }), options);
+  }
+
+  listThreadTurnItems(options = {}) {
+    return this.sendRequest('thread/turns/items/list', compactObject({
+      threadId: options.threadId,
+      turnId: options.turnId,
+      limit: options.limit,
+      cursor: options.cursor
+    }), options);
+  }
+
+  getThreadGoal(options = {}) {
+    return this.sendRequest('thread/goal/get', compactObject({
+      threadId: options.threadId
+    }), options);
+  }
+
   startThread(options = {}) {
     const request = buildCodexAppServerThreadStartRequest(options);
     return this.sendRequest(request.method, request.params, options);
@@ -106,6 +157,15 @@ class CodexAppServerClient {
   }
 }
 
+function compactObject(value) {
+  const result = {};
+  for (const [key, current] of Object.entries(value || {})) {
+    if (current !== undefined && current !== null) result[key] = current;
+  }
+  return result;
+}
+
 module.exports = {
-  CodexAppServerClient
+  CodexAppServerClient,
+  compactObject
 };
