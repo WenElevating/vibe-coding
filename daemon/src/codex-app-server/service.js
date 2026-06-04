@@ -47,6 +47,7 @@ class CodexAppServerService {
   async withDiscoveryClient(options, callback) {
     const resolved = normalizeOptionsAndCallback(options, callback);
     const scope = {
+      ...resolved.options,
       pool: 'discovery',
       invocationKey: resolved.options.invocationKey || 'default'
     };
@@ -55,12 +56,11 @@ class CodexAppServerService {
   }
 
   async withWorkspaceClient(workspace, callback) {
-    const scope = {
-      pool: 'conversation',
+    return this.withDiscoveryClient({
+      invocationKey: workspaceDiscoveryKey(workspace),
       workspaceId: workspace?.id || workspace?.workspaceId || null,
       workspacePath: workspace?.workspacePath || workspace?.path || null
-    };
-    return this.withConversationClient(scope, callback);
+    }, callback);
   }
 
   async withConversationClient(options, callback) {
@@ -68,13 +68,14 @@ class CodexAppServerService {
       ...options,
       pool: 'conversation'
     };
-    const scoped = await this.createScopedClient(scope);
     this.activeConversationCount += 1;
+    let scoped = null;
     try {
+      scoped = await this.createScopedClient(scope);
       return await callback(scoped.client);
     } finally {
       this.activeConversationCount -= 1;
-      await scoped.shutdown();
+      if (scoped) await scoped.shutdown();
     }
   }
 
@@ -92,13 +93,14 @@ class CodexAppServerService {
         key: workspaceKey
       });
     }
-    const scoped = await this.createScopedClient(scope);
     this.activeMutationCounts.set(workspaceKey, activeCount + 1);
+    let scoped = null;
     try {
+      scoped = await this.createScopedClient(scope);
       return await callback(scoped.client);
     } finally {
       decrementMapCount(this.activeMutationCounts, workspaceKey);
-      await scoped.shutdown();
+      if (scoped) await scoped.shutdown();
     }
   }
 
@@ -115,7 +117,7 @@ class CodexAppServerService {
     }
     this.metrics.discoveryCacheMissTotal += 1;
     if (this.discoveryCreating.has(key)) return this.discoveryCreating.get(key);
-    if (this.discovery.size >= this.poolLimits.discovery) {
+    if (this.discoveryPoolSize() >= this.poolLimits.discovery) {
       throw new CodexAppServerBusyError('Codex app-server discovery pool is busy', {
         pool: 'discovery',
         key
@@ -146,6 +148,13 @@ class CodexAppServerService {
     return entry;
   }
 
+  discoveryPoolSize() {
+    return new Set([
+      ...this.discovery.keys(),
+      ...this.discoveryCreating.keys()
+    ]).size;
+  }
+
   isDiscoveryEntryHealthy(entry) {
     if (!entry || !entry.client || entry.client.invalidated) return false;
     if (this.ttlMs <= 0) return false;
@@ -160,7 +169,7 @@ class CodexAppServerService {
 
   async createScopedClient(scope = {}) {
     const pool = scope.pool || 'conversation';
-    if (pool === 'conversation' && this.activeConversationCount >= this.poolLimits.conversation) {
+    if (pool === 'conversation' && this.activeConversationCount > this.poolLimits.conversation) {
       throw new CodexAppServerBusyError('Codex app-server conversation pool is busy', {
         pool,
         key: scope.threadId || scope.workspaceId || 'default'
@@ -227,6 +236,14 @@ function mutationWorkspaceKey(options = {}) {
     options.workspace?.workspaceId ||
     options.workspacePath ||
     options.workspace?.workspacePath ||
+    'default';
+}
+
+function workspaceDiscoveryKey(workspace = {}) {
+  return workspace.id ||
+    workspace.workspaceId ||
+    workspace.workspacePath ||
+    workspace.path ||
     'default';
 }
 

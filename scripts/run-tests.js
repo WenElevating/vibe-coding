@@ -586,6 +586,125 @@ test('Codex app-server service returns controlled busy errors when pools are exh
   );
 });
 
+test('Codex app-server conversation pool reserves capacity before callback completes', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let releaseFirst;
+  let firstEntered;
+  const firstEnteredPromise = new Promise((resolve) => { firstEntered = resolve; });
+  const service = new CodexAppServerService({
+    poolLimits: { conversation: 1 },
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async () => ({});
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    }
+  });
+
+  const first = service.withConversationClient({ threadId: 'thread_1' }, async () => {
+    firstEntered();
+    await new Promise((resolve) => { releaseFirst = resolve; });
+  });
+  await firstEnteredPromise;
+
+  await assert.rejects(
+    () => service.withConversationClient({ threadId: 'thread_2' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+
+  releaseFirst();
+  await first;
+});
+
+test('Codex app-server mutation pool reserves workspace capacity before callback completes', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let releaseFirst;
+  let firstEntered;
+  const firstEnteredPromise = new Promise((resolve) => { firstEntered = resolve; });
+  const service = new CodexAppServerService({
+    poolLimits: { mutation: 1 },
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async () => ({});
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    }
+  });
+
+  const first = service.withMutationClient({ method: 'fs/writeFile', workspaceId: 'workspace_1' }, async () => {
+    firstEntered();
+    await new Promise((resolve) => { releaseFirst = resolve; });
+  });
+  await firstEnteredPromise;
+
+  await assert.rejects(
+    () => service.withMutationClient({ method: 'fs/remove', workspaceId: 'workspace_1' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+
+  releaseFirst();
+  await first;
+});
+
+test('Codex app-server discovery pool counts in-flight distinct invocation keys', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let releaseInitialize;
+  const service = new CodexAppServerService({
+    poolLimits: { discovery: 1 },
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          if (method === 'initialize') {
+            await new Promise((resolve) => { releaseInitialize = resolve; });
+            return {};
+          }
+          return { data: [] };
+        };
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    }
+  });
+
+  const first = service.withDiscoveryClient({ invocationKey: 'workspace_1' }, (client) => client.listModels());
+  await assert.rejects(
+    () => service.withDiscoveryClient({ invocationKey: 'workspace_2' }, (client) => client.listModels()),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+
+  releaseInitialize();
+  await first;
+});
+
+test('Codex app-server workspace client uses discovery pool with workspace scope', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn(scope) {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => method === 'initialize' ? {} : { data: [] };
+        transport.sendNotification = () => {};
+        const handle = { scope, transport, shutdown: async () => {} };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await service.withWorkspaceClient({ id: 'workspace_1', workspacePath: process.cwd() }, (client) => client.listModels());
+
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].scope.pool, 'discovery');
+  assert.equal(spawned[0].scope.workspaceId, 'workspace_1');
+  assert.equal(spawned[0].scope.workspacePath, process.cwd());
+});
+
 test('Codex app-server model service normalizes model/list responses', () => {
   const { normalizeCodexAppServerModelCapability } = require('../daemon/src/codex-app-server/models');
   const capability = normalizeCodexAppServerModelCapability({

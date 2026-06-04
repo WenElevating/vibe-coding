@@ -8,8 +8,12 @@ const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 
 function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null }) {
-  void codexAppServerService;
-  return http.createServer(async (req, res) => {
+  const serverContext = {
+    auth,
+    workspaces,
+    codexAppServerService
+  };
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const method = req.method || 'GET';
@@ -201,6 +205,8 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       json(res, error.status || 500, { error: { code: error.code || 'ERROR', message: error.message, details: error.details, actionable: error.actionable, userAction: error.userAction, recoverable: error.recoverable, traceId: trace.traceId } }, error.headers || {});
     }
   });
+  server.context = serverContext;
+  return server;
 }
 
 function recordClientException(body, { device, diagnosticBundle, req }) {
