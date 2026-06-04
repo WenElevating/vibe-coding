@@ -942,8 +942,16 @@ test('createApp exposes codex-app-server by default behind probe gate and kill s
     assert.ok(appServer);
     assert.equal(probeCalls.length, 1);
     assert.equal(appServer.selectable, true);
+    assert.equal(appServer.available, true);
+    assert.equal(appServer.status, 'available');
     assert.equal(appServer.transportHealthy, true);
     assert.equal(appServer.effectiveCapabilities.mobileApprovalCallbacks, true);
+    assert.equal(appServer.capabilities.mobileApprovalCallbacks, true);
+    assert.deepEqual(appServer.capabilities.attachments, {
+      image: 'native',
+      pdf: 'unsupported',
+      textDocument: 'text_extract'
+    });
     assert.equal(probed.conversations.adapters.get('codex-app-server').detectCapabilities().selectable, true);
   } finally {
     probed.appSqliteStore.close();

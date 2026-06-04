@@ -1633,11 +1633,6 @@ class WorkbenchViewModel extends ChangeNotifier {
   }
 
   static String? _computePreferredAdapter(List<AdapterStatus> adapters) {
-    for (final name in const ['claude', 'codex', 'opencode']) {
-      final found = adapters.where(
-          (a) => a.adapter == name && a.available && _isSelectableAdapter(a));
-      if (found.isNotEmpty) return found.first.adapter;
-    }
     final available =
         adapters.where((a) => a.available && _isSelectableAdapter(a));
     return available.isEmpty ? null : available.first.adapter;
@@ -1646,7 +1641,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   static bool _isSelectableAdapter(AdapterStatus adapter) {
     final id = adapter.adapter.trim().toLowerCase();
     if (id.isEmpty || id.startsWith('synthetic-')) return false;
-    return const {'claude', 'codex', 'opencode'}.contains(id);
+    return true;
   }
 
   static ConversationSummary _copyConversationStatus(

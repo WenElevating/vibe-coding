@@ -1874,7 +1874,7 @@ class _CodingRouteObserver extends NavigatorObserver {
 bool _isSelectableCliAdapter(AdapterStatus adapter) {
   final id = adapter.adapter.trim().toLowerCase();
   if (id.isEmpty || id.startsWith('synthetic-')) return false;
-  return const {'claude', 'codex', 'opencode'}.contains(id);
+  return true;
 }
 
 String? _normalizedAdapter(String? adapter) {

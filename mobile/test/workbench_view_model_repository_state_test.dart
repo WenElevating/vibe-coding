@@ -126,6 +126,31 @@ void main() {
       expect(adapterRepository.listenerCount, 0);
     });
 
+    test('selects app-server when it is the available adapter projection', () {
+      final workspaceRepository =
+          _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]);
+      final adapterRepository = _FakeCliAdapterRepository(
+        adapters: const <AdapterStatus>[
+          AdapterStatus(
+            adapter: 'codex',
+            available: false,
+            status: 'unavailable',
+          ),
+          AdapterStatus(
+            adapter: 'codex-app-server',
+            available: true,
+            status: 'available',
+          ),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        adapterRepository: adapterRepository,
+      );
+
+      expect(viewModel.selectedAdapter, 'codex-app-server');
+    });
+
     test('selected workspace comes from repository', () {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[

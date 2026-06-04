@@ -50,6 +50,8 @@ function buildCodexAppServerAvailability(input = {}) {
   const selectable = enabled && installed && protocolCompatible && transportHealthy;
   return {
     adapter: 'codex-app-server',
+    available: selectable,
+    status: selectable ? 'available' : 'unavailable',
     installed,
     protocolCompatible,
     transportHealthy,
@@ -61,7 +63,8 @@ function buildCodexAppServerAvailability(input = {}) {
       protocolCompatible,
       transportHealthy
     }),
-    effectiveCapabilities: cloneCapabilities(selectable ? selectableCapabilities : unavailableCapabilities)
+    effectiveCapabilities: cloneCapabilities(selectable ? selectableCapabilities : unavailableCapabilities),
+    capabilities: cloneCapabilities(selectable ? selectableCapabilities : unavailableCapabilities)
   };
 }
 
