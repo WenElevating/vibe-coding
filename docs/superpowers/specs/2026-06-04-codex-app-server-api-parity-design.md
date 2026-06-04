@@ -172,6 +172,9 @@ fail, the owning adapter or service disposes the handle, and a future operation
 creates a new process handle and client. The client must guard against duplicate
 initialization by tracking an `initialize()` promise per process handle; parallel
 callers share that promise, and failed initialization invalidates the client.
+All callers waiting on a failed initialization receive the same rejection. They
+must not retry through the invalidated client; retry is an upper-layer concern
+that creates a new lifecycle process handle and client.
 
 ### Method Registry And Capability Matrix
 
@@ -206,6 +209,10 @@ Matrix lifecycle rules:
   `daemonOwner: none`.
 - A PR may change `unsupported` to `planned`, `partial`, `supported`,
   `diagnostic-only`, or `intentionally-blocked` only with a short rationale.
+- A PR that changes a row from `unsupported` to any more active status must also
+  replace `risk: unknown` with a concrete risk classification. Matrix lint
+  should fail active rows that still have unknown risk, even when the row is not
+  mobile-accessible yet.
 - Experimental methods are included by default when the generator output was
   produced with `--experimental`; their `stability` field must remain
   `experimental`.
@@ -314,6 +321,8 @@ The service should support a small scoped process cache:
 - Key by app-server invocation, workspace scope when required, and stability
   mode, including whether experimental methods are enabled.
 - Reuse only initialized, healthy, idle clients.
+- A client with an active conversation turn, pending high-risk operation, or
+  unresolved server request is not idle.
 - Use a short TTL, initially 30 seconds, for read-only discovery.
 - Never reuse a discovery client for active conversation turns.
 - Never share a high-risk operation process with passive discovery unless the
@@ -407,8 +416,11 @@ status.
 - Reuse the existing conversation approval queue where possible.
 - Add audit logging for device, workspace, method, decision, and result.
 - Acceptance tests must cover default denial, approval-required paths, audit
-  records, workspace isolation, secret redaction, and failure behavior when the
-  app-server returns JSON-RPC errors after the daemon has authorized an action.
+  records, workspace isolation, secret redaction, and downstream failure
+  behavior when the app-server returns JSON-RPC errors after the daemon has
+  authorized an action. Authorized downstream failures must write an audit
+  record and return a controlled, redacted error to mobile; they must not be
+  swallowed or converted to success.
 
 ### Phase 6: Mobile Consumption
 
@@ -439,8 +451,8 @@ status.
 1. Mobile or diagnostics calls a typed daemon route.
 2. The route authenticates the paired device and resolves workspace scope where
    needed.
-3. The app-server service starts a short-lived app-server process unless an
-   existing scoped process is intentionally reused.
+3. The app-server service reuses or starts a scoped app-server process according
+   to the discovery process reuse policy.
 4. The typed client calls a read-only official method.
 5. The daemon normalizes the response into product DTOs and includes raw method
    metadata only in diagnostics-safe fields.
@@ -537,5 +549,3 @@ flutter test --no-pub test\widget_test.dart
   required shape, not a substitute for the generated contract.
 - If official method names differ from the examples above, the generated schema
   wins and the matrix should use official names.
-- Existing dirty worktree changes around app-server model listing and mobile
-  model picker should not be reverted as part of this design work.
