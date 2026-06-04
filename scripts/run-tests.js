@@ -705,6 +705,38 @@ test('Codex app-server workspace client uses discovery pool with workspace scope
   assert.equal(spawned[0].scope.workspacePath, process.cwd());
 });
 
+test('Codex app-server service shuts down spawned handle when initialization fails', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          if (method === 'initialize') throw new Error('initialize failed');
+          return {};
+        };
+        transport.sendNotification = () => {};
+        const handle = {
+          transport,
+          shutdownCalled: false,
+          shutdown: async () => { handle.shutdownCalled = true; }
+        };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => service.withDiscoveryClient((client) => client.listModels()),
+    /initialize failed/
+  );
+
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].shutdownCalled, true);
+});
+
 test('Codex app-server model service normalizes model/list responses', () => {
   const { normalizeCodexAppServerModelCapability } = require('../daemon/src/codex-app-server/models');
   const capability = normalizeCodexAppServerModelCapability({

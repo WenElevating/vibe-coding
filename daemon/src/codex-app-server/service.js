@@ -194,7 +194,14 @@ class CodexAppServerService {
       initializeTimeoutMs: this.initializeTimeoutMs,
       requestTimeoutMs: this.requestTimeoutMs
     });
-    await client.initialize();
+    try {
+      await client.initialize();
+    } catch (error) {
+      if (handle && typeof handle.shutdown === 'function') {
+        await handle.shutdown();
+      }
+      throw error;
+    }
     let shutdownCalled = false;
     return {
       pool,
