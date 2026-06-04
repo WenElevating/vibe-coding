@@ -87,12 +87,23 @@ code instead of a reusable app-server client layer.
 Codex app-server exposes generated contracts. The daemon parity workflow should
 depend on those generated artifacts rather than a hand-maintained method list.
 
-The spec requires a repository script or documented command that can run:
+The local development baseline verified for this design is:
 
 ```powershell
-codex app-server generate-ts
-codex app-server generate-json-schema
+codex --version
+# codex-cli 0.137.0
 ```
+
+That version exposes and successfully runs the app-server protocol generators:
+
+```powershell
+codex app-server generate-ts --experimental --out <DIR>
+codex app-server generate-json-schema --experimental --out <DIR>
+```
+
+`--experimental` is required for parity tracking because the official app-server
+surface separates stable and experimental protocol members. The matrix must
+record stability per method rather than silently excluding experimental rows.
 
 The generated output should be checked into a daemon-local contract fixture or
 used to update a committed capability manifest. The implementation can choose
@@ -118,6 +129,17 @@ The generated contract should be treated as the authority for:
 - Stable versus experimental API classification.
 - Deprecation or rename detection.
 
+If a future local environment cannot run the generators, Phase 1 must not
+silently proceed with stale method knowledge. The fallback is:
+
+1. Record the installed `codex --version` and generator failure in the PR.
+2. Use the latest committed fixture as the comparison base.
+3. Mark the fixture source version and generation date in
+   `daemon/test/fixtures/codex-app-server/README.md`.
+4. Keep the matrix update test active against that fixture.
+5. Treat generator recovery as required before claiming parity with a newer
+   installed Codex version.
+
 ## Architecture
 
 ### `CodexAppServerClient`
@@ -138,6 +160,18 @@ Responsibilities:
 The first implementation can stay CommonJS and lightweight. It does not need a
 runtime schema validator for every request on day one, but the method registry
 must make missing methods visible in tests.
+
+Client lifetime is process-handle scoped, not a daemon singleton. Each
+`CodexAppServerLifecycle.spawn()` handle owns one transport and one
+`CodexAppServerClient`. The client becomes invalid when the transport closes or
+the process handle shuts down. Reuse happens by reusing a live scoped process
+handle, not by reattaching a client to a new transport.
+
+If the app-server process exits, crashes, or is killed, pending client requests
+fail, the owning adapter or service disposes the handle, and a future operation
+creates a new process handle and client. The client must guard against duplicate
+initialization by tracking an `initialize()` promise per process handle; parallel
+callers share that promise, and failed initialization invalidates the client.
 
 ### Method Registry And Capability Matrix
 
@@ -163,6 +197,24 @@ Each method entry should track:
 The matrix should be exposed in daemon diagnostics so app-server drift is
 visible without reading code.
 
+Matrix lifecycle rules:
+
+- Generated schema is the input; handwritten matrix rows are the reviewed
+  classification layer.
+- A sync script should add newly discovered official methods with
+  `localStatus: unsupported`, `mobileStatus: not planned`, `risk: unknown`, and
+  `daemonOwner: none`.
+- A PR may change `unsupported` to `planned`, `partial`, `supported`,
+  `diagnostic-only`, or `intentionally-blocked` only with a short rationale.
+- Experimental methods are included by default when the generator output was
+  produced with `--experimental`; their `stability` field must remain
+  `experimental`.
+- Deprecated or removed official methods should stay in the matrix for one
+  release cycle as `intentionally-blocked` or `deprecated`, with the schema
+  version that removed them, before deletion.
+- Tests should fail on missing rows, duplicate method rows, invalid enum values,
+  and any `risk: unknown` row that is marked mobile-accessible.
+
 ### Conversation Adapter
 
 `CodexAppServerConversationAdapter` should remain the bridge between official
@@ -180,6 +232,20 @@ It should delegate JSON-RPC calls to `CodexAppServerClient`:
 It should keep the existing side-effect boundary: fallback to the CLI adapter is
 allowed before app-server provider side effects, but not after a thread start or
 resume request has been sent.
+
+The boundary is crossed when the daemon successfully writes a provider-side
+request that may create, resume, mutate, interrupt, or otherwise affect a Codex
+app-server thread or turn. For conversation startup, this means:
+
+- `spawn` failure and `initialize` failure are pre-boundary and may fall back.
+- Failure while building local request payloads is pre-boundary and may fall
+  back.
+- Once `thread/start` or `thread/resume` has been written to the transport,
+  fallback is no longer allowed, even if the provider later returns a JSON-RPC
+  error, times out, or closes before responding.
+
+This preserves provider identity and avoids creating a second CLI conversation
+after app-server may already have created or touched a thread.
 
 It should keep streaming deltas unchanged. Dense `assistant.partial` history is
 a mobile replay/windowing concern, not a daemon filtering concern.
@@ -217,6 +283,13 @@ route that can read files, write files, run commands, alter process state,
 change permissions, or expose account details needs an explicit risk review
 before it becomes mobile-accessible.
 
+`/api/adapters` remains the product-level adapter listing and model-picker
+source. It should return normalized model choices suitable for existing mobile
+UI. `/api/codex-app-server/models`, if added, is an app-server-specific
+diagnostic or advanced discovery route that returns richer protocol metadata.
+Both routes must call the same typed app-server model service so selected model
+ids, labels, and availability cannot drift.
+
 ### Diagnostic Raw RPC
 
 A restricted raw RPC endpoint may be added only for development diagnostics.
@@ -229,6 +302,27 @@ Rules:
 - Logs method name, category, risk, workspace id, and device id.
 - Redacts secrets in errors and diagnostics.
 - Never becomes the main mobile product contract.
+
+### Process Reuse For Discovery
+
+Discovery APIs should not blindly start a fresh app-server process for every
+request once Phase 4 adds frequent routes such as models, MCP servers, skills,
+plugins, apps, config, and sandbox discovery.
+
+The service should support a small scoped process cache:
+
+- Key by app-server invocation, workspace scope when required, and stability
+  mode, including whether experimental methods are enabled.
+- Reuse only initialized, healthy, idle clients.
+- Use a short TTL, initially 30 seconds, for read-only discovery.
+- Never reuse a discovery client for active conversation turns.
+- Never share a high-risk operation process with passive discovery unless the
+  implementation proves state isolation.
+- On transport close or protocol error, evict the process handle immediately.
+
+Phase 1 and Phase 2 can keep one short-lived process per operation. Phase 4 must
+choose and test the reuse policy before adding frequently-polled discovery
+routes.
 
 ## API Coverage Matrix
 
@@ -268,6 +362,9 @@ status.
 - Add tests that fail when official methods are missing from the matrix.
 - Keep existing runtime behavior unchanged except for routing method constants
   through the registry where low-risk.
+- Acceptance tests must prove generator output or fixture loading works,
+  generated methods are fully represented in the matrix, new methods get safe
+  default statuses, and invalid matrix enum values fail.
 
 ### Phase 2: Typed Client For Existing Behavior
 
@@ -277,6 +374,9 @@ status.
   client.
 - Keep existing fallback and side-effect-boundary behavior.
 - Keep all current event mappings and streaming deltas.
+- Acceptance tests must prove existing app-server conversation and model-list
+  tests pass through the client, duplicate initialization is single-flight, and
+  fallback is disallowed after a thread request is written.
 
 ### Phase 3: Thread And History Parity
 
@@ -286,6 +386,8 @@ status.
   semantics are explicit.
 - Avoid mobile UI work except protocol DTOs or contract fixtures needed for
   tests.
+- Acceptance tests must cover route auth, workspace authorization, response
+  normalization, schema drift handling, and no UI dependency on these routes.
 
 ### Phase 4: Discovery Surfaces
 
@@ -294,6 +396,9 @@ status.
 - Prefer read-only discovery first.
 - Expose route-level capability metadata so mobile can hide unsupported controls
   until UI work catches up.
+- Acceptance tests must cover discovery process reuse or explicit non-reuse,
+  TTL eviction, transport-close eviction, shared model service behavior between
+  `/api/adapters` and app-server model routes, and read-only enforcement.
 
 ### Phase 5: High-Risk Operations
 
@@ -301,6 +406,9 @@ status.
   mutation APIs only behind explicit product authorization and approval flows.
 - Reuse the existing conversation approval queue where possible.
 - Add audit logging for device, workspace, method, decision, and result.
+- Acceptance tests must cover default denial, approval-required paths, audit
+  records, workspace isolation, secret redaction, and failure behavior when the
+  app-server returns JSON-RPC errors after the daemon has authorized an action.
 
 ### Phase 6: Mobile Consumption
 
@@ -308,6 +416,8 @@ status.
 - Keep mobile changes feature-local under `mobile/lib/src/ui/features`.
 - Do not expand mobile protocol barrels unless preserving existing public import
   surfaces requires it.
+- Acceptance tests must cover repository DTO parsing, ViewModel state for each
+  consumed route, and preservation of existing conversation/model-picker flows.
 
 ## Data Flow
 
@@ -386,12 +496,22 @@ Daemon tests should cover:
 - High-risk methods are blocked unless explicitly allowed.
 - Raw diagnostic RPC is disabled outside development mode.
 - Sanitization redacts secrets in app-server errors and metrics.
+- Phase 3 thread/history routes enforce auth and normalize schema-backed
+  responses.
+- Phase 4 discovery routes share source services with product routes, enforce
+  read-only behavior, and test process reuse or TTL eviction.
+- Phase 5 high-risk operation routes deny by default, require approval where
+  configured, write audit records, and redact sensitive error data.
 
 Mobile tests are deferred unless daemon route DTOs change existing mobile
 contracts. Later mobile phases should add repository and ViewModel tests for
 each consumed daemon route.
 
 ## Verification Commands
+
+Commands in this document are written for the project's verified Windows
+PowerShell environment. Cross-platform CI or developer workflows can use the
+same Node and Dart entry points with platform-native path separators.
 
 For daemon-only phases:
 
@@ -415,9 +535,6 @@ flutter test --no-pub test\widget_test.dart
 - The implementation plan should inspect the generated app-server schema before
   writing the final method rows. The category table in this design is the
   required shape, not a substitute for the generated contract.
-- If the installed `codex` version cannot generate schemas in the local
-  environment, commit a fixture from the official package version used by this
-  project and record the source version.
 - If official method names differ from the examples above, the generated schema
   wins and the matrix should use official names.
 - Existing dirty worktree changes around app-server model listing and mobile
