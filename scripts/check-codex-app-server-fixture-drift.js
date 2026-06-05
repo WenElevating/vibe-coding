@@ -85,16 +85,23 @@ function run(spawnSyncFn, command, args) {
     windowsHide: true
   };
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(String(command))) {
-    const commandLine = [command, ...args.map(quoteWindowsCmdArgIfNeeded)].join(' ');
-    return spawnSyncFn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', commandLine], options);
+    const commandLine = [quoteWindowsCmdArg(command), ...args.map(quoteWindowsCmdArgIfNeeded)].join(' ');
+    return spawnSyncFn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', commandLine], {
+      ...options,
+      windowsVerbatimArguments: true
+    });
   }
   return spawnSyncFn(command, args, options);
+}
+
+function quoteWindowsCmdArg(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
 }
 
 function quoteWindowsCmdArgIfNeeded(value) {
   const text = String(value);
   if (!/[\s&()^|<>"]/.test(text)) return text;
-  return `"${text.replace(/"/g, '\\"')}"`;
+  return quoteWindowsCmdArg(text);
 }
 
 function findGeneratedSchemaDir(root) {

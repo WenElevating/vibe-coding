@@ -475,12 +475,13 @@ test('Codex app-server fixture drift gate fails when successful generator emits 
     runFixtureDriftCheck({
       tempRootFactory: () => tempRoot,
       removeTempRoot: false,
-      spawnSyncFn(command, args) {
-        if (command === 'where.exe' || command === 'which') return { status: 0, stdout: 'C:\\Tools\\codex\r\nC:\\Tools\\codex.cmd\r\n', stderr: '' };
+      spawnSyncFn(command, args, options = {}) {
+        if (command === 'where.exe' || command === 'which') return { status: 0, stdout: 'C:\\Program Files\\Codex\\codex\r\nC:\\Program Files\\Codex\\codex.cmd\r\n', stderr: '' };
         assert.equal(command.toLowerCase().endsWith('cmd.exe'), true);
         assert.equal(args.includes('/c'), true);
         assert.equal(args.includes('/s'), false);
-        assert.equal(args[args.length - 1].startsWith('C:\\Tools\\codex.cmd '), true);
+        assert.equal(args[args.length - 1].startsWith('"C:\\Program Files\\Codex\\codex.cmd" '), true);
+        assert.equal(options.windowsVerbatimArguments, true);
         return { status: 0, stdout: '', stderr: '' };
       }
     });
