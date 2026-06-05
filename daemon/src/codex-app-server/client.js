@@ -205,6 +205,155 @@ class CodexAppServerClient {
     }), options);
   }
 
+  copyFile(options = {}) {
+    return this.sendRequest('fs/copy', compactObject({
+      sourcePath: options.sourcePath,
+      destinationPath: options.destinationPath
+    }), options);
+  }
+
+  createDirectory(options = {}) {
+    return this.sendRequest('fs/createDirectory', compactObject({
+      path: options.path
+    }), options);
+  }
+
+  removeFile(options = {}) {
+    return this.sendRequest('fs/remove', compactObject({
+      path: options.path
+    }), options);
+  }
+
+  writeFile(options = {}) {
+    return this.sendRequest('fs/writeFile', compactObject({
+      path: options.path,
+      content: options.content,
+      encoding: options.encoding
+    }), options);
+  }
+
+  spawnProcess(options = {}) {
+    return this.sendRequest('process/spawn', compactObject({
+      command: options.command,
+      args: options.args,
+      cwd: options.cwd,
+      workspacePath: options.workspacePath
+    }), options);
+  }
+
+  killProcess(options = {}) {
+    return this.sendRequest('process/kill', compactObject({
+      processId: options.processId
+    }), options);
+  }
+
+  executeCommand(options = {}) {
+    return this.sendRequest('command/exec', compactObject({
+      command: options.command,
+      cwd: options.cwd,
+      workspacePath: options.workspacePath
+    }), options);
+  }
+
+  writeConfigValue(options = {}) {
+    return this.sendRequest('config/value/write', compactObject({
+      key: options.key,
+      value: options.value
+    }), options);
+  }
+
+  writeConfigBatch(options = {}) {
+    return this.sendRequest('config/batchWrite', compactObject({
+      values: options.values
+    }), options);
+  }
+
+  reloadMcpServerConfig(options = {}) {
+    return this.sendRequest('config/mcpServer/reload', compactObject({
+      serverId: options.serverId
+    }), options);
+  }
+
+  addEnvironment(options = {}) {
+    return this.sendRequest('environment/add', compactObject({
+      name: options.name,
+      value: options.value
+    }), options);
+  }
+
+  installPlugin(options = {}) {
+    return this.sendRequest('plugin/install', compactObject({
+      pluginId: options.pluginId
+    }), options);
+  }
+
+  uninstallPlugin(options = {}) {
+    return this.sendRequest('plugin/uninstall', compactObject({
+      pluginId: options.pluginId
+    }), options);
+  }
+
+  addMarketplace(options = {}) {
+    return this.sendRequest('marketplace/add', compactObject({
+      marketplaceId: options.marketplaceId,
+      url: options.url
+    }), options);
+  }
+
+  removeMarketplace(options = {}) {
+    return this.sendRequest('marketplace/remove', compactObject({
+      marketplaceId: options.marketplaceId
+    }), options);
+  }
+
+  upgradeMarketplace(options = {}) {
+    return this.sendRequest('marketplace/upgrade', compactObject({
+      marketplaceId: options.marketplaceId
+    }), options);
+  }
+
+  writeSkillsConfig(options = {}) {
+    return this.sendRequest('skills/config/write', compactObject({
+      config: options.config
+    }), options);
+  }
+
+  setSkillsExtraRoots(options = {}) {
+    return this.sendRequest('skills/extraRoots/set', compactObject({
+      roots: options.roots
+    }), options);
+  }
+
+  readRemoteControlStatus(options = {}) {
+    return this.sendRequest('remoteControl/status/read', {}, options);
+  }
+
+  listRemoteControlClients(options = {}) {
+    return this.sendRequest('remoteControl/client/list', compactObject({
+      cursor: options.cursor
+    }), options);
+  }
+
+  enableRemoteControl(options = {}) {
+    return this.sendRequest('remoteControl/enable', {}, options);
+  }
+
+  disableRemoteControl(options = {}) {
+    return this.sendRequest('remoteControl/disable', {}, options);
+  }
+
+  startRemoteControlPairing(options = {}) {
+    return this.sendRequest('remoteControl/pairing/start', compactObject({
+      timeoutSecs: options.timeoutSecs
+    }), options);
+  }
+
+  revokeRemoteControlClient(options = {}) {
+    return this.sendRequest('remoteControl/client/revoke', compactObject({
+      clientId: options.clientId
+    }), options);
+  }
+
   startAccountLogin(options = {}) {
     return this.sendRequest('account/login/start', compactDefinedObject({
       type: options.type,

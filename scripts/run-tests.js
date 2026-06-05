@@ -1903,6 +1903,174 @@ test('Codex app-server fs diagnostic watch routes are workspace scoped', async (
   }
 });
 
+test('Codex app-server high-risk routes default deny without approval policy', async () => {
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withMutationClient() {
+        throw new Error('must not call app-server');
+      }
+    }
+  });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/write-file`, {
+      path: 'README.md',
+      content: 'unsafe'
+    });
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_APPROVAL_REQUIRED');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server high-risk routes audit authorized downstream failures', async () => {
+  const auditEvents = [];
+  const app = await createCodexAppServerRouteTestApp({
+    approvalPolicy: { allowHighRiskForTests: true },
+    auditLog: { record: (event, payload) => auditEvents.push({ event, payload }) },
+    service: {
+      async withMutationClient({ method }, callback) {
+        return callback({
+          async writeFile() {
+            assert.equal(method, 'fs/writeFile');
+            const error = new Error('provider write failed with token sk-secret');
+            error.code = 'JSON_RPC_ERROR';
+            throw error;
+          }
+        });
+      }
+    }
+  });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/write-file`, {
+      path: 'README.md',
+      content: 'safe'
+    });
+
+    assert.equal(response.status, 502);
+    assert.equal(response.body.error.message.includes('sk-secret'), false);
+    assert.equal(auditEvents.some((event) => event.event === 'codex_app_server.high_risk_failure' && event.payload.method === 'fs/writeFile'), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server high-risk routes call typed clients after approval', async () => {
+  const calls = [];
+  const service = {
+    async withDiscoveryClient(callback) {
+      calls.push({ method: 'withDiscoveryClient' });
+      return callback({
+        async readRemoteControlStatus() {
+          calls.push({ method: 'readRemoteControlStatus' });
+          return { enabled: false };
+        },
+        async listRemoteControlClients(options) {
+          calls.push({ method: 'listRemoteControlClients', options });
+          return { clients: [{ id: 'client_1' }], nextCursor: 'next' };
+        }
+      });
+    },
+    async withMutationClient(metadata, callback) {
+      calls.push({ method: 'withMutationClient', metadata });
+      const client = {};
+      for (const name of [
+        'writeFile',
+        'copyFile',
+        'createDirectory',
+        'removeFile',
+        'spawnProcess',
+        'killProcess',
+        'executeCommand',
+        'writeConfigValue',
+        'writeConfigBatch',
+        'reloadMcpServerConfig',
+        'addEnvironment',
+        'installPlugin',
+        'uninstallPlugin',
+        'addMarketplace',
+        'removeMarketplace',
+        'upgradeMarketplace',
+        'writeSkillsConfig',
+        'setSkillsExtraRoots',
+        'enableRemoteControl',
+        'disableRemoteControl',
+        'startRemoteControlPairing',
+        'revokeRemoteControlClient'
+      ]) {
+        client[name] = async (options = {}) => {
+          calls.push({ method: name, options });
+          return { ok: true, method: name, options };
+        };
+      }
+      return callback(client);
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({
+    approvalPolicy: { allowHighRiskForTests: true },
+    service
+  });
+  const root = `/api/codex-app-server/workspaces/${app.workspace.id}`;
+  const resolveInWorkspace = (...segments) => path.resolve(app.workspace.path, ...segments);
+
+  try {
+    const cases = [
+      () => app.post(`${root}/fs/write-file`, { path: 'README.md', content: 'safe' }),
+      () => app.post(`${root}/fs/copy`, { sourcePath: 'README.md', destinationPath: 'README.copy.md' }),
+      () => app.post(`${root}/fs/create-directory`, { path: 'tmp' }),
+      () => app.delete(`${root}/fs/remove`, { path: 'tmp/file.txt' }),
+      () => app.post(`${root}/processes`, { command: 'node', args: ['--version'], cwd: 'tools' }),
+      () => app.post(`${root}/processes/proc_1/kill`),
+      () => app.post(`${root}/commands/exec`, { command: 'npm test', cwd: '.' }),
+      () => app.patch('/api/codex-app-server/config/value', { key: 'theme', value: 'dark' }),
+      () => app.patch('/api/codex-app-server/config/batch', { values: { theme: 'dark' } }),
+      () => app.post('/api/codex-app-server/config/mcp-server/reload', { serverId: 'server_1' }),
+      () => app.post('/api/codex-app-server/environment', { name: 'KEY', value: 'value' }),
+      () => app.post('/api/codex-app-server/plugins/install', { pluginId: 'plugin_1' }),
+      () => app.post('/api/codex-app-server/plugins/plugin_1/uninstall'),
+      () => app.post('/api/codex-app-server/marketplace/add', { url: 'https://example.test' }),
+      () => app.post('/api/codex-app-server/marketplace/remove', { marketplaceId: 'market_1' }),
+      () => app.post('/api/codex-app-server/marketplace/upgrade', { marketplaceId: 'market_1' }),
+      () => app.patch('/api/codex-app-server/skills/config', { config: { enabled: true } }),
+      () => app.patch('/api/codex-app-server/skills/extra-roots', { roots: ['skills'] }),
+      () => app.get('/api/codex-app-server/remote-control/status'),
+      () => app.get('/api/codex-app-server/remote-control/clients?cursor=abc'),
+      () => app.post('/api/codex-app-server/remote-control/enable'),
+      () => app.post('/api/codex-app-server/remote-control/disable'),
+      () => app.post('/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: 5 }),
+      () => app.post('/api/codex-app-server/remote-control/clients/client_1/revoke')
+    ];
+
+    for (const run of cases) {
+      const response = await run();
+      assert.equal(response.status, 200);
+    }
+
+    assert.deepEqual(calls.filter((call) => call.method === 'writeFile')[0].options, {
+      path: resolveInWorkspace('README.md'),
+      content: 'safe'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'spawnProcess')[0].options, {
+      command: 'node',
+      args: ['--version'],
+      cwd: resolveInWorkspace('tools'),
+      workspacePath: app.workspace.path
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'executeCommand')[0].options, {
+      command: 'npm test',
+      cwd: app.workspace.path,
+      workspacePath: app.workspace.path
+    });
+    assert.equal(calls.some((call) => call.method === 'enableRemoteControl'), true);
+    assert.equal(calls.some((call) => call.method === 'readRemoteControlStatus'), true);
+  } finally {
+    await app.close();
+  }
+});
+
 test('Codex app-server fs routes reject missing required params before service access', async () => {
   let serviceCalls = 0;
   const app = await createCodexAppServerRouteTestApp({
@@ -10554,20 +10722,30 @@ async function request(port, method, path, body, token) {
 
 async function createCodexAppServerRouteTestApp({
   service,
-  auditLog = new AuditLog(),
+  approvalPolicy,
+  auditLog,
   workspacePath = process.cwd(),
   workspaceName = 'Codex App Server Test',
   label = 'codex-app-server-route-test',
   deviceId = `device_${nodeCrypto.randomBytes(4).toString('hex')}`
 } = {}) {
+  const forwardedAuditLog = auditLog;
+  if (service && approvalPolicy) service.approvalPolicy = approvalPolicy;
   const app = createApp({
     port: 0,
     codexAppServerService: service,
-    auditLog,
+    auditLog: auditLog || new AuditLog(),
     codexAppServerProbe: false,
     codexAppServerModelLister: false,
     appDbPath: tempConversationDbPath('app-server-route-test-')
   });
+  if (forwardedAuditLog && forwardedAuditLog !== app.auditLog && typeof forwardedAuditLog.record === 'function') {
+    const originalRecord = app.auditLog.record.bind(app.auditLog);
+    app.auditLog.record = (event, payload) => {
+      originalRecord(event, payload);
+      forwardedAuditLog.record(event, payload);
+    };
+  }
   const pair = app.auth.createPairingCode();
   const paired = app.auth.pair(pair.code, label, deviceId);
   const device = app.auth.authenticate(`Bearer ${paired.token}`);

@@ -4,6 +4,7 @@ const path = require('node:path');
 const { recordCodexAppServerAudit } = require('./audit');
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
+const { redactCodexAppServerError, requireHighRiskApproval } = require('./high-risk-approval');
 const {
   normalizeAccountRateLimitsResponse,
   normalizeAccountResponse,
@@ -285,6 +286,108 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
+  const workspaceFsWriteFile = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/write-file$/);
+  if (method === 'POST' && workspaceFsWriteFile) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsWriteFile[1]), context.device);
+    const body = await readJson();
+    const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
+    const content = parseRequiredBodyString(body?.content, 'content');
+    const encoding = parseOptionalBodyString(body?.encoding, 'encoding');
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'fs/writeFile',
+      risk: 'write',
+      action: (client) => client.writeFile(compactObject({ path: filePath, content, encoding }))
+    });
+  }
+
+  const workspaceFsCopy = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/copy$/);
+  if (method === 'POST' && workspaceFsCopy) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsCopy[1]), context.device);
+    const body = await readJson();
+    const sourcePath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.sourcePath || body?.source, 'sourcePath'));
+    const destinationPath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.destinationPath || body?.destination, 'destinationPath'));
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'fs/copy',
+      risk: 'write',
+      action: (client) => client.copyFile({ sourcePath, destinationPath })
+    });
+  }
+
+  const workspaceFsCreateDirectory = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/create-directory$/);
+  if (method === 'POST' && workspaceFsCreateDirectory) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsCreateDirectory[1]), context.device);
+    const body = await readJson();
+    const directoryPath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'fs/createDirectory',
+      risk: 'write',
+      action: (client) => client.createDirectory({ path: directoryPath })
+    });
+  }
+
+  const workspaceFsRemove = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/remove$/);
+  if (method === 'DELETE' && workspaceFsRemove) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsRemove[1]), context.device);
+    const body = await readJson();
+    const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'fs/remove',
+      risk: 'write',
+      action: (client) => client.removeFile({ path: filePath })
+    });
+  }
+
+  const workspaceProcesses = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/processes$/);
+  if (method === 'POST' && workspaceProcesses) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceProcesses[1]), context.device);
+    const body = await readJson();
+    const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'process/spawn',
+      risk: 'process',
+      action: (client) => client.spawnProcess(compactObject({
+        command: parseRequiredBodyString(body?.command, 'command'),
+        args: parseOptionalStringArray(body?.args, 'args'),
+        cwd,
+        workspacePath: workspaceRoot(workspace)
+      }))
+    });
+  }
+
+  const workspaceProcessKill = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/processes\/([^/]+)\/kill$/);
+  if (method === 'POST' && workspaceProcessKill) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceProcessKill[1]), context.device);
+    const processId = decodePathParam(workspaceProcessKill[2]);
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'process/kill',
+      risk: 'process',
+      action: (client) => client.killProcess({ processId })
+    });
+  }
+
+  const workspaceCommandExec = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/commands\/exec$/);
+  if (method === 'POST' && workspaceCommandExec) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceCommandExec[1]), context.device);
+    const body = await readJson();
+    const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
+    return highRiskMutationRoute(context, json, {
+      workspace,
+      method: 'command/exec',
+      risk: 'process',
+      action: (client) => client.executeCommand({
+        command: parseRequiredBodyString(body?.command, 'command'),
+        cwd,
+        workspacePath: workspaceRoot(workspace)
+      })
+    });
+  }
+
   const workspaceThreads = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads$/);
   if (method === 'GET' && workspaceThreads) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreads[1]), context.device);
@@ -549,6 +652,171 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
+  if (method === 'PATCH' && url.pathname === '/api/codex-app-server/config/value') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'config/value/write',
+      risk: 'write',
+      action: (client) => client.writeConfigValue({
+        key: parseRequiredBodyString(body?.key, 'key'),
+        value: parseDefinedValue(body?.value, 'value')
+      })
+    });
+  }
+
+  if (method === 'PATCH' && url.pathname === '/api/codex-app-server/config/batch') {
+    const body = await readJson();
+    const values = parseRequiredObject(body?.values, 'values');
+    return highRiskMutationRoute(context, json, {
+      method: 'config/batchWrite',
+      risk: 'write',
+      action: (client) => client.writeConfigBatch({ values })
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/config/mcp-server/reload') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'config/mcpServer/reload',
+      risk: 'write',
+      action: (client) => client.reloadMcpServerConfig(compactObject({
+        serverId: parseOptionalBodyString(body?.serverId, 'serverId')
+      }))
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/environment') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'environment/add',
+      risk: 'write',
+      action: (client) => client.addEnvironment({
+        name: parseRequiredBodyString(body?.name, 'name'),
+        value: parseDefinedValue(body?.value, 'value')
+      })
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/plugins/install') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'plugin/install',
+      risk: 'write',
+      action: (client) => client.installPlugin({ pluginId: parseRequiredBodyString(body?.pluginId, 'pluginId') })
+    });
+  }
+
+  const pluginUninstall = url.pathname.match(/^\/api\/codex-app-server\/plugins\/([^/]+)\/uninstall$/);
+  if (method === 'POST' && pluginUninstall) {
+    const pluginId = decodePathParam(pluginUninstall[1]);
+    return highRiskMutationRoute(context, json, {
+      method: 'plugin/uninstall',
+      risk: 'write',
+      action: (client) => client.uninstallPlugin({ pluginId })
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/add') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'marketplace/add',
+      risk: 'write',
+      action: (client) => client.addMarketplace(compactObject({
+        marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId'),
+        url: parseRequiredBodyString(body?.url, 'url')
+      }))
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/remove') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'marketplace/remove',
+      risk: 'write',
+      action: (client) => client.removeMarketplace({ marketplaceId: parseRequiredBodyString(body?.marketplaceId, 'marketplaceId') })
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/upgrade') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'marketplace/upgrade',
+      risk: 'write',
+      action: (client) => client.upgradeMarketplace(compactObject({
+        marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId')
+      }))
+    });
+  }
+
+  if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/config') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'skills/config/write',
+      risk: 'write',
+      action: (client) => client.writeSkillsConfig({ config: parseRequiredObject(body?.config, 'config') })
+    });
+  }
+
+  if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/extra-roots') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'skills/extraRoots/set',
+      risk: 'write',
+      action: (client) => client.setSkillsExtraRoots({ roots: parseRequiredStringArray(body?.roots, 'roots') })
+    });
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/remote-control/status') {
+    return discoveryRoute(context, json, (client) => client.readRemoteControlStatus(), {});
+  }
+
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/remote-control/clients') {
+    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    return discoveryRoute(
+      context,
+      json,
+      (client) => client.listRemoteControlClients(compactObject({ cursor })),
+      { collectionKey: 'clients', candidateKeys: ['clients', 'data', 'items'] }
+    );
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/remote-control/enable') {
+    return highRiskMutationRoute(context, json, {
+      method: 'remoteControl/enable',
+      risk: 'network',
+      action: (client) => client.enableRemoteControl()
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/remote-control/disable') {
+    return highRiskMutationRoute(context, json, {
+      method: 'remoteControl/disable',
+      risk: 'network',
+      action: (client) => client.disableRemoteControl()
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/codex-app-server/remote-control/pairing/start') {
+    const body = await readJson();
+    return highRiskMutationRoute(context, json, {
+      method: 'remoteControl/pairing/start',
+      risk: 'network',
+      action: (client) => client.startRemoteControlPairing(compactObject({
+        timeoutSecs: parseOptionalPositiveInteger(body?.timeoutSecs, 'timeoutSecs')
+      }))
+    });
+  }
+
+  const remoteClientRevoke = url.pathname.match(/^\/api\/codex-app-server\/remote-control\/clients\/([^/]+)\/revoke$/);
+  if (method === 'POST' && remoteClientRevoke) {
+    const clientId = decodePathParam(remoteClientRevoke[1]);
+    return highRiskMutationRoute(context, json, {
+      method: 'remoteControl/client/revoke',
+      risk: 'network',
+      action: (client) => client.revokeRemoteControlClient({ clientId })
+    });
+  }
+
   throw Object.assign(new Error('Codex app-server route not found'), {
     status: 404,
     code: 'CODEX_APP_SERVER_ROUTE_NOT_FOUND'
@@ -581,6 +849,57 @@ async function mutationRoute(context, json, { method, risk, action }) {
       downstreamCode: sanitized.downstreamCode
     });
     throw controlledAccountMutationError();
+  }
+}
+
+async function highRiskMutationRoute(context, json, { workspace = null, method, risk, action }) {
+  const correlationId = createCorrelationId();
+  const workspaceId = workspace?.id || workspace?.workspaceId || null;
+  const metadata = {
+    method,
+    workspaceId,
+    deviceId: context.device?.id || null,
+    risk,
+    correlationId
+  };
+  try {
+    const service = requireService(context);
+    const approval = requireHighRiskApproval({
+      method,
+      approvalPolicy: context.approvalPolicy || service.approvalPolicy
+    });
+    const response = await service.withMutationClient({
+      method,
+      risk,
+      workspaceId,
+      workspacePath: workspace ? workspaceRoot(workspace) : undefined
+    }, (client) => action(client));
+    recordCodexAppServerAudit(context.auditLog, 'high_risk_success', {
+      ...metadata,
+      decision: approval.decision,
+      ok: true
+    });
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  } catch (error) {
+    if (error?.code === 'CODEX_APP_SERVER_APPROVAL_REQUIRED') {
+      recordCodexAppServerAudit(context.auditLog, 'high_risk_denial', {
+        ...metadata,
+        decision: 'deny',
+        result: 'failure',
+        errorCode: error.code
+      });
+      throw error;
+    }
+    const sanitized = sanitizeHighRiskMutationError(error);
+    recordCodexAppServerAudit(context.auditLog, 'high_risk_failure', {
+      ...metadata,
+      decision: 'allow',
+      result: 'failure',
+      errorCode: sanitized.downstreamCode || sanitized.errorCode,
+      downstreamStatus: sanitized.downstreamStatus
+    });
+    throw controlledHighRiskMutationError(sanitized.message);
   }
 }
 
@@ -730,6 +1049,27 @@ function parseOptionalBodyString(value, name) {
   return parseRequiredBodyString(value, name);
 }
 
+function parseDefinedValue(value, name) {
+  if (value === undefined) throw badRequest(`${name} is required`);
+  return value;
+}
+
+function parseRequiredStringArray(value, name) {
+  if (!Array.isArray(value)) throw badRequest(`${name} must be an array of strings`);
+  return value.map((entry) => parseRequiredStringValue(entry, name));
+}
+
+function parseOptionalStringArray(value, name) {
+  if (value === undefined || value === null) return undefined;
+  return parseRequiredStringArray(value, name);
+}
+
+function parseOptionalPositiveInteger(value, name) {
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isInteger(value) || value < 1) throw badRequest(`${name} must be a positive integer`);
+  return value;
+}
+
 function parseOptionalBoolean(value, name) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'boolean') throw badRequest(`${name} must be a boolean`);
@@ -809,6 +1149,11 @@ function resolveWorkspaceRelativePath(workspace, relativePath) {
   return resolved;
 }
 
+function resolveWorkspaceOptionalCwd(workspace, relativePath) {
+  if (relativePath === undefined || relativePath === null || String(relativePath).trim() === '') return workspaceRoot(workspace);
+  return resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(relativePath, 'cwd'));
+}
+
 function pathsReferToSameLocation(left, right) {
   if (!left || !right) return false;
   return normalizePathForGuard(path.resolve(left)) === normalizePathForGuard(path.resolve(right));
@@ -868,6 +1213,13 @@ function controlledThreadMutationError() {
   });
 }
 
+function controlledHighRiskMutationError(message) {
+  return Object.assign(new Error(message || 'Codex app-server high-risk operation failed.'), {
+    status: 502,
+    code: 'CODEX_APP_SERVER_HIGH_RISK_OPERATION_FAILED'
+  });
+}
+
 function sanitizeAccountMutationError(error) {
   return {
     auditError: redactAccountSensitiveText(error?.message || 'Codex app-server account mutation failed.'),
@@ -879,6 +1231,15 @@ function sanitizeAccountMutationError(error) {
 function sanitizeThreadMutationError(error) {
   return {
     errorCode: 'CODEX_APP_SERVER_THREAD_MUTATION_FAILED',
+    downstreamStatus: safeDownstreamStatus(error?.status),
+    downstreamCode: safeDownstreamCode(error?.code)
+  };
+}
+
+function sanitizeHighRiskMutationError(error) {
+  return {
+    errorCode: 'CODEX_APP_SERVER_HIGH_RISK_OPERATION_FAILED',
+    message: redactCodexAppServerError(error),
     downstreamStatus: safeDownstreamStatus(error?.status),
     downstreamCode: safeDownstreamCode(error?.code)
   };
