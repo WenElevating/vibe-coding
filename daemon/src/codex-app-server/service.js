@@ -373,6 +373,8 @@ function recordMethodError(metrics, method, pool) {
 
 function sanitizeMetrics(metrics) {
   const snapshot = JSON.parse(JSON.stringify(metrics));
+  sanitizeMetricLatencyEntries(snapshot);
+  sanitizeProcessMetricMaps(snapshot);
   normalizeMetricErrorTotals(snapshot);
   const metricSamples = exportMetricSamples(snapshot);
   return {
@@ -381,6 +383,40 @@ function sanitizeMetrics(metrics) {
     metricSamples,
     metricNames: Array.from(new Set(metricSamples.map((sample) => sample.name))).sort()
   };
+}
+
+function sanitizeMetricLatencyEntries(metrics) {
+  metrics.methodLatencyMs = (metrics.methodLatencyMs || []).map((latency) => ({
+    name: 'codex_app_server_method_latency_ms',
+    method: sanitizeMethodName(latency?.method),
+    pool: sanitizeLabelValue(latency?.pool),
+    value: Math.max(0, Number(latency?.value) || 0)
+  }));
+}
+
+function sanitizeProcessMetricMaps(metrics) {
+  metrics.processSpawnTotal = sanitizePoolValueMap(metrics.processSpawnTotal);
+  metrics.processEvictionTotal = sanitizePoolReasonMap(metrics.processEvictionTotal);
+}
+
+function sanitizePoolValueMap(value) {
+  const sanitized = {};
+  for (const [pool, count] of Object.entries(value || {})) {
+    sanitized[sanitizeLabelValue(pool)] = Number(count) || 0;
+  }
+  return sanitized;
+}
+
+function sanitizePoolReasonMap(value) {
+  const sanitized = {};
+  for (const [pool, reasons] of Object.entries(value || {})) {
+    const safePool = sanitizeLabelValue(pool);
+    sanitized[safePool] = {};
+    for (const [reason, count] of Object.entries(reasons || {})) {
+      sanitized[safePool][sanitizeLabelValue(reason)] = Number(count) || 0;
+    }
+  }
+  return sanitized;
 }
 
 function normalizeMetricErrorTotals(metrics) {
@@ -498,14 +534,14 @@ const CLIENT_METHOD_TO_APP_SERVER_METHOD = Object.freeze({
   killProcess: 'process/kill',
   executeCommand: 'command/exec',
   writeConfigValue: 'config/value/write',
-  batchWriteConfig: 'config/batchWrite',
+  writeConfigBatch: 'config/batchWrite',
   reloadMcpServerConfig: 'config/mcpServer/reload',
-  addEnvironmentVariable: 'environment/add',
+  addEnvironment: 'environment/add',
   installPlugin: 'plugin/install',
   uninstallPlugin: 'plugin/uninstall',
-  addMarketplaceItem: 'marketplace/add',
-  removeMarketplaceItem: 'marketplace/remove',
-  upgradeMarketplaceItem: 'marketplace/upgrade',
+  addMarketplace: 'marketplace/add',
+  removeMarketplace: 'marketplace/remove',
+  upgradeMarketplace: 'marketplace/upgrade',
   writeSkillsConfig: 'skills/config/write',
   setSkillsExtraRoots: 'skills/extraRoots/set',
   readRemoteControlStatus: 'remoteControl/status/read',
@@ -521,7 +557,7 @@ const CLIENT_METHOD_TO_APP_SERVER_METHOD = Object.freeze({
   startMcpServerOauthLogin: 'mcpServer/oauth/login',
   readThread: 'thread/read',
   searchThreads: 'thread/search',
-  searchFuzzyFiles: 'fuzzyFileSearch',
+  fuzzyFileSearch: 'fuzzyFileSearch',
   startFuzzyFileSearchSession: 'fuzzyFileSearch/sessionStart',
   updateFuzzyFileSearchSession: 'fuzzyFileSearch/sessionUpdate',
   stopFuzzyFileSearchSession: 'fuzzyFileSearch/sessionStop',

@@ -948,6 +948,51 @@ test('Codex app-server diagnostics expose sanitized operational metrics', async 
   assert.equal(JSON.stringify(metrics).includes('secret-token-should-not-appear'), false);
 });
 
+test('Codex app-server operational metrics sanitize raw snapshot labels and use protocol method names', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let now = 2000;
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          now += 3;
+          if (method === 'initialize') return {};
+          return {};
+        };
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    },
+    now: () => now
+  });
+
+  service.metrics.processSpawnTotal['D:/secret/token'] = 9;
+  service.metrics.processEvictionTotal['C:/private/workspace'] = { 'token:abc123': 4 };
+  service.metrics.methodLatencyMs.push({
+    name: 'codex_app_server_method_latency_ms',
+    method: 'D:/secret/token',
+    pool: 'C:/private/workspace',
+    value: 12
+  });
+  service.metrics.methodErrorTotal['C:/private/workspace'] = { 'D:/secret/token': 2 };
+
+  await service.withMutationClient({ workspaceId: 'metrics' }, async (client) => {
+    await client.writeConfigBatch({ values: { theme: 'dark' } });
+    await client.addEnvironment({ name: 'SAFE_NAME', value: 'redacted' });
+  });
+
+  const metrics = service.snapshotMetrics();
+  const serialized = JSON.stringify(metrics);
+  assert.equal(serialized.includes('D:/secret/token'), false);
+  assert.equal(serialized.includes('C:/private/workspace'), false);
+  assert.equal(serialized.includes('token:abc123'), false);
+  assert.equal(metrics.methodLatencyMs.some((item) => item.method === 'config/batchWrite' && item.pool === 'mutation'), true);
+  assert.equal(metrics.methodLatencyMs.some((item) => item.method === 'environment/add' && item.pool === 'mutation'), true);
+  assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'config/batchWrite'), true);
+  assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'environment/add'), true);
+});
+
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
   const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
   const errors = [];
@@ -1090,6 +1135,26 @@ test('Codex app-server kill-switch disables app-server routes without disabling 
     assert.ok(app.adapterRegistry.get('codex'));
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
+    app.notificationHub.close();
+    app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server kill-switch does not discard explicitly injected route service', () => {
+  const injectedService = { marker: 'test-service' };
+  const app = createApp({
+    port: 0,
+    codexAppServerEnabled: false,
+    codexAppServerService: injectedService,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-disabled-injected-')
+  });
+  try {
+    assert.equal(app.codexAppServerService, injectedService);
+    assert.equal(app.server.context.codexAppServerService, injectedService);
+    assert.equal(app.server.context.codexAppServerEnabled, false);
+  } finally {
     app.notificationHub.close();
     app.appSqliteStore.close();
   }

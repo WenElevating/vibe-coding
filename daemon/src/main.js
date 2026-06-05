@@ -163,10 +163,10 @@ function createApp({
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
   const attachmentScratchStore = new AttachmentScratchStore({ root: path.join(path.dirname(appDbPath), 'attachment-scratch') });
-  const effectiveCodexAppServerService = !codexAppServerRouteEnabled
-    ? null
-    : codexAppServerService !== undefined
+  const effectiveCodexAppServerService = codexAppServerService !== undefined
     ? codexAppServerService
+    : !codexAppServerRouteEnabled
+    ? null
     : new CodexAppServerService({
       lifecycle: codexAppServerLifecycle,
       poolLimits: {
