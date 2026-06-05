@@ -418,6 +418,7 @@
   "workbenchRejectAction": "拒绝",
   "workbenchApproveAction": "批准",
   "workbenchInlineReady": "准备好接收编码任务",
+  "workbenchLoadingEarlierEvents": "正在加载更早的事件...",
   "workbenchInlineCompleted": "本次 CLI 会话已完成 · {count} 个事件已处理",
   "@workbenchInlineCompleted": {
     "placeholders": {

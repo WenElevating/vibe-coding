@@ -370,7 +370,93 @@ void main() {
       );
       expect(command.body, contains('pwsh.exe'));
       expect(command.event?.raw['output'], contains('using-superpowers'));
+      expect(
+        viewModel.conversationEvents
+            .where((event) => event.type == 'assistant.partial'),
+        isEmpty,
+      );
       expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+    });
+
+    test(
+        'older event page compacts dense assistant partials before rebuilding transcript',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository(
+        eventPages: <ConversationEventPage>[
+          ConversationEventPage(
+            events: <ConversationEvent>[
+              _event(seq: 100, type: 'user.message', text: 'tail prompt'),
+              _event(seq: 101, type: 'assistant.message', text: 'tail answer'),
+            ],
+            oldestSeq: 100,
+            newestSeq: 101,
+            hasMoreBefore: true,
+          ),
+          ConversationEventPage(
+            events: <ConversationEvent>[
+              _event(seq: 1, type: 'user.message', text: 'older prompt'),
+              for (var seq = 2; seq <= 80; seq++)
+                _event(
+                  seq: seq,
+                  type: 'assistant.partial',
+                  text: 'partial $seq',
+                ),
+              _event(
+                seq: 81,
+                type: 'assistant.message',
+                text: 'older answer',
+              ),
+            ],
+            oldestSeq: 1,
+            newestSeq: 81,
+            hasMoreBefore: false,
+          ),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+
+      await viewModel.loadInitialConversationEventPage(
+        conversationId: 'c1',
+        limit: 80,
+        streamOutput: false,
+      );
+      final loaded = await viewModel.loadOlderConversationEventPage(
+        conversationId: 'c1',
+        limit: 80,
+        streamOutput: false,
+      );
+
+      expect(loaded, isTrue);
+      expect(viewModel.oldestLoadedConversationSeq, 1);
+      expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+      expect(
+        viewModel.conversationEvents.map((event) => event.seq),
+        const <int>[1, 81, 100, 101],
+      );
+      expect(
+        viewModel.conversationEvents
+            .where((event) => event.type == 'assistant.partial'),
+        isEmpty,
+      );
+      expect(
+        viewModel.messages.map((message) => message.body),
+        containsAllInOrder(
+          const <String>[
+            'older prompt',
+            'older answer',
+            'tail prompt',
+            'tail answer',
+          ],
+        ),
+      );
     });
 
     test('selectModel preserves selected model when repository rejects update',

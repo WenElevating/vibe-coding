@@ -1140,14 +1140,20 @@ class WorkbenchViewModel extends ChangeNotifier {
       isCurrent: stillCurrent,
     );
     if (!stillCurrent()) return false;
+    final historicalEvents = _compactHistoricalConversationEvents(
+      page.events,
+    );
     _oldestLoadedConversationSeq =
         page.oldestSeq ?? (page.events.isEmpty ? null : page.events.first.seq);
     _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
     _historicalConversationLoadError = null;
-    _replaceConversationEventWindow(page.events, streamOutput: streamOutput);
+    _replaceConversationEventWindow(
+      historicalEvents,
+      streamOutput: streamOutput,
+    );
     _notifyListeners();
     final previewChanged = await _bindAndResolveAttachmentPreviews(
-      page.events,
+      historicalEvents,
       isCurrent: stillCurrent,
     );
     if (!stillCurrent()) return false;
@@ -1223,16 +1229,19 @@ class WorkbenchViewModel extends ChangeNotifier {
         _notifyListeners();
         return false;
       }
+      final historicalEvents = _compactHistoricalConversationEvents(
+        page.events,
+      );
       _oldestLoadedConversationSeq = page.oldestSeq ?? page.events.first.seq;
       _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
       _replaceConversationEventWindow(
-        _mergeConversationEventWindow(page.events),
+        _mergeConversationEventWindow(historicalEvents),
         streamOutput: streamOutput,
       );
       _loadingOlderConversationEvents = false;
       _notifyListeners();
       final previewChanged = await _bindAndResolveAttachmentPreviews(
-        page.events,
+        historicalEvents,
         isCurrent: stillCurrent,
       );
       if (!stillCurrent()) return false;
@@ -1250,6 +1259,36 @@ class WorkbenchViewModel extends ChangeNotifier {
         _notifyListeners();
       }
     }
+  }
+
+  List<ConversationEvent> _compactHistoricalConversationEvents(
+    List<ConversationEvent> events,
+  ) {
+    final compacted = <ConversationEvent>[];
+    ConversationEvent? pendingPartial;
+    for (final event in events) {
+      if (event.type == 'assistant.partial') {
+        pendingPartial = event;
+        continue;
+      }
+      if (event.type == 'assistant.message') {
+        pendingPartial = null;
+      } else {
+        _flushHistoricalPartial(compacted, pendingPartial);
+        pendingPartial = null;
+      }
+      compacted.add(event);
+    }
+    _flushHistoricalPartial(compacted, pendingPartial);
+    return compacted;
+  }
+
+  void _flushHistoricalPartial(
+    List<ConversationEvent> events,
+    ConversationEvent? partial,
+  ) {
+    if (partial == null || (partial.text ?? '').trim().isEmpty) return;
+    events.add(partial);
   }
 
   bool _needsEarlierInitialContext(List<ConversationEvent> events) {

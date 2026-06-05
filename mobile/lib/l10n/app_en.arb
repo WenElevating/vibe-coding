@@ -418,6 +418,7 @@
   "workbenchRejectAction": "Deny",
   "workbenchApproveAction": "Approve",
   "workbenchInlineReady": "Ready for a coding task",
+  "workbenchLoadingEarlierEvents": "Loading earlier events...",
   "workbenchInlineCompleted": "CLI session complete ? {count} events processed",
   "@workbenchInlineCompleted": {
     "placeholders": {

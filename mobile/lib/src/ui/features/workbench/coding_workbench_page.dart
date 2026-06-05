@@ -1793,7 +1793,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       expandThinking: widget.expandThinking,
       expandToolDetails: widget.expandToolDetails,
       useReverseTranscript: _useReverseTranscript,
-      loadingOlderConversationEvents: _loadingInitialConversationEvents,
+      loadingOlderConversationEvents:
+          _workbenchViewModel.loadingOlderConversationEvents,
       showPendingDuringInitialConversationLoad:
           _showPendingDuringInitialConversationLoad,
       showStatus: _activeRunId != null,

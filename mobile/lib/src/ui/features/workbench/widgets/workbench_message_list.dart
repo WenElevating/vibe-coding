@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../domain/models/approval_response.dart';
 import '../../../../models/protocol.dart';
+import '../../../core/theme/theme.dart' as theme;
 import '../messages/pending_sentinel.dart';
 import '../messages/codex_command_run_card.dart';
 import '../messages/workbench_message_card.dart';
@@ -72,7 +74,8 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
   Widget build(BuildContext context) {
     final displayItems =
         projectWorkbenchTranscriptDisplayItems(widget.messages);
-    final itemCount = (widget.showStatus ? 1 : 0) +
+    final itemCount = (widget.loadingOlderConversationEvents ? 1 : 0) +
+        (widget.showStatus ? 1 : 0) +
         displayItems.length +
         (widget.showError ? 1 : 0) +
         (widget.showPending ? 1 : 0);
@@ -90,8 +93,18 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
           final logicalIndex =
               widget.useReverseTranscript ? itemCount - 1 - index : index;
           var messageIndex = logicalIndex;
-          if (widget.showStatus) {
+          if (widget.loadingOlderConversationEvents) {
             if (logicalIndex == 0) {
+              return const Padding(
+                key: ValueKey('workbench-history-loading-row'),
+                padding: EdgeInsets.only(bottom: 12),
+                child: _HistoryLoadingRow(),
+              );
+            }
+            messageIndex -= 1;
+          }
+          if (widget.showStatus) {
+            if (messageIndex == 0) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: WorkbenchInlineStatus(
@@ -196,3 +209,44 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
     return '${first.runId ?? 'run'}-${messages.length}-${first.body}-${last.body}';
   }
 }
+
+class _HistoryLoadingRow extends StatelessWidget {
+  const _HistoryLoadingRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SizedBox(
+      height: 36,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0x66111B2A),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: .075)),
+        ),
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.purple2,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Text(
+                l10n.workbenchLoadingEarlierEvents,
+                style: const TextStyle(
+                  color: theme.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );

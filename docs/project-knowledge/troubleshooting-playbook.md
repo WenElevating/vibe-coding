@@ -549,7 +549,10 @@ npm run lint
   partials plus the final answer, pushing earlier `tool.started` /
   `tool.completed` rows outside the first page. Historical open should fetch a
   small amount of earlier context when the tail has a final assistant message
-  but no user/tool/question/task context.
+  but no user/tool/question/task context. When loading older pages, compact
+  historical `assistant.partial` runs before merging them into the mobile event
+  window so upward pagination does not inflate the transcript and destabilize
+  scroll compensation.
 - Related file:
   [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
 - Verification:
@@ -557,9 +560,10 @@ npm run lint
 ```powershell
 cd mobile
 flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "initial event page expands past dense partial tail to keep command context"
+flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "older event page compacts dense assistant partials"
 ```
 
-- Last verified: 2026-06-04
+- Last verified: 2026-06-05
 
 ## Symptom: Codex App Server History Shows Maximum Process Limit Error
 
