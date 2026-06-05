@@ -19,10 +19,19 @@ class ConversationClient {
   final http.Client _httpClient;
   String? _deviceId;
   String? _token;
+  String? _lastCodexAppServerWorkspaceId;
 
   Future<void> attachDevice(String deviceId) async {
     _deviceId = deviceId;
     _token = await tokenStore.readDeviceToken(deviceId);
+  }
+
+  void close() {
+    _httpClient.close();
+  }
+
+  void attachCurrentToken(String? token) {
+    _token = token;
   }
 
   Future<List<ConversationSummary>> listConversations() async {
@@ -162,6 +171,59 @@ class ConversationClient {
     return ConversationSummary.fromJson(
       response['conversation'] as Map<String, Object?>,
     );
+  }
+
+  Future<Map<String, Object?>> getCodexAppServerCapabilities() {
+    return _get('/api/codex-app-server/capabilities');
+  }
+
+  Future<Map<String, Object?>> listCodexAppServerThreads(
+    String workspaceId, {
+    int limit = 50,
+  }) {
+    _lastCodexAppServerWorkspaceId = workspaceId;
+    final query = Uri(queryParameters: <String, String>{
+      'limit': limit.toString(),
+    }).query;
+    return _get(
+      '/api/codex-app-server/workspaces/'
+      '${Uri.encodeComponent(workspaceId)}/threads/search?$query',
+    );
+  }
+
+  Future<Map<String, Object?>> readCodexAppServerThread(
+    String threadId,
+  ) {
+    final workspaceId = _lastCodexAppServerWorkspaceId;
+    if (workspaceId == null || workspaceId.isEmpty) {
+      throw StateError(
+        'Codex app-server readThread requires listThreads to establish '
+        'workspace scope.',
+      );
+    }
+    return _get(
+      '/api/codex-app-server/workspaces/'
+      '${Uri.encodeComponent(workspaceId)}/threads/'
+      '${Uri.encodeComponent(threadId)}',
+    );
+  }
+
+  Future<Map<String, Object?>> getCodexAppServerDiscovery() async {
+    final models =
+        await _get('/api/codex-app-server/model-provider-capabilities');
+    final mcpServers = await _get('/api/codex-app-server/mcp/servers');
+    final skills = await _get('/api/codex-app-server/skills');
+    final plugins = await _get('/api/codex-app-server/plugins');
+    final apps = await _get('/api/codex-app-server/apps');
+    final config = await _get('/api/codex-app-server/config');
+    return <String, Object?>{
+      'models': models,
+      'mcpServers': mcpServers,
+      'skills': skills,
+      'plugins': plugins,
+      'apps': apps,
+      'config': config,
+    };
   }
 
   Future<Map<String, Object?>> _get(String path) async {

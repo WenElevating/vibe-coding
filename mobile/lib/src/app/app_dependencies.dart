@@ -9,6 +9,7 @@ import '../data/repositories/cached_run_repository.dart';
 import '../data/repositories/cli_adapter_repository.dart';
 import '../data/repositories/command_catalog_repository.dart';
 import '../data/repositories/coding_preferences_repository.dart';
+import '../data/repositories/codex_app_server_repository.dart';
 import '../data/repositories/daemon_connection_config_repository.dart';
 import '../data/repositories/daemon_adapter_repository.dart';
 import '../data/repositories/daemon_app_update_repository.dart';
@@ -26,6 +27,7 @@ import '../domain/models/daemon_initial_data.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
+import '../domain/repositories/codex_app_server_repository.dart';
 import '../domain/repositories/conversation_repository.dart';
 import '../domain/repositories/daemon_connection_config_repository.dart';
 import '../domain/repositories/diagnostics_repository.dart';
@@ -37,6 +39,7 @@ import '../services/app_update_client.dart';
 import '../services/app_update_download_manager.dart';
 import '../services/asr_model_manager.dart';
 import '../services/background_download_bridge.dart';
+import '../services/conversation_client.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/daemon_notification_client.dart';
@@ -289,6 +292,13 @@ class DataDependencies {
       notificationService: notificationClient,
     );
     final rawRunRepository = DaemonRunRepository(client: client);
+    final codexAppServerClient = ConversationClient(
+      baseUri: client.baseUri,
+      tokenStore: client.tokenStore,
+    )..attachCurrentToken(client.currentToken);
+    final codexAppServerRepository = DaemonCodexAppServerRepository(
+      client: codexAppServerClient,
+    );
     final conversationRepository = CachedConversationRepository(
       delegate: rawConversationRepository,
       eventCache: conversationEventCacheStore,
@@ -308,11 +318,15 @@ class DataDependencies {
       ),
       slashCommandCatalogRepository: slashCommandCatalogRepository,
       appUpdateRepository: DaemonAppUpdateRepository(client: appUpdateClient),
+      codexAppServerRepository: codexAppServerRepository,
       conversationRepository: conversationRepository,
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
       runRepository: runRepository,
       workspaceRepository: DaemonWorkspaceRepository(client: client),
-      dispose: notificationClient.close,
+      dispose: () async {
+        await notificationClient.close();
+        codexAppServerClient.close();
+      },
     );
   }
 }
@@ -325,6 +339,7 @@ class ConnectedDataDependencies {
     CommandCatalogRepository? commandCatalogRepository,
     SlashCommandCatalogRepository? slashCommandCatalogRepository,
     required this.appUpdateRepository,
+    CodexAppServerRepository? codexAppServerRepository,
     required ConversationRepository conversationRepository,
     required this.diagnosticsRepository,
     required RunRepository runRepository,
@@ -341,6 +356,8 @@ class ConnectedDataDependencies {
             SlashCommandCatalogRepository(
               client: (_, {workspaceId}) async => const <SlashCommand>[],
             ),
+        codexAppServerRepository =
+            codexAppServerRepository ?? _UnavailableCodexAppServerRepository(),
         conversationRepository = conversationRepository
                 is CachedConversationRepository
             ? conversationRepository
@@ -356,6 +373,7 @@ class ConnectedDataDependencies {
   final CommandCatalogRepository commandCatalogRepository;
   final SlashCommandCatalogRepository slashCommandCatalogRepository;
   final AppUpdateRepository appUpdateRepository;
+  final CodexAppServerRepository codexAppServerRepository;
   final CachedConversationRepository conversationRepository;
   final DiagnosticsRepository diagnosticsRepository;
   final CachedRunRepository runRepository;
@@ -440,6 +458,31 @@ class ConnectedDataDependencies {
     } catch (_) {
       // Diagnostics must never interfere with the foreground UI path.
     }
+  }
+}
+
+class _UnavailableCodexAppServerRepository implements CodexAppServerRepository {
+  @override
+  Future<CodexAppServerCapabilities> loadCapabilities() {
+    throw UnsupportedError('Codex app-server repository is not configured.');
+  }
+
+  @override
+  Future<CodexAppServerDiscoverySnapshot> loadDiscovery() {
+    throw UnsupportedError('Codex app-server repository is not configured.');
+  }
+
+  @override
+  Future<CodexAppServerThreadPage> listThreads(
+    String workspaceId, {
+    int limit = 50,
+  }) {
+    throw UnsupportedError('Codex app-server repository is not configured.');
+  }
+
+  @override
+  Future<CodexAppServerThreadDetail> readThread(String threadId) {
+    throw UnsupportedError('Codex app-server repository is not configured.');
   }
 }
 
