@@ -848,9 +848,30 @@ test('Codex app-server capabilities route returns matrix and route metadata', as
     assert.equal(response.body.routes.some((route) => route.group === 'history' && route.readOnly), true);
     assert.equal(response.body.routes.some((route) => route.requiresApproval), true);
     assert.equal(response.body.routes.every((route) => route.source === 'capability-matrix'), true);
+    assert.equal(response.body.routes.some((route) => route.method === 'process/resizePty'), false);
+    assert.equal(response.body.routes.some((route) => route.method === 'process/writeStdin'), false);
+    assert.equal(response.body.routes.some((route) => route.method === 'command/exec/resize'), false);
+    assert.equal(response.body.routes.some((route) => route.method === 'command/exec/terminate'), false);
+    assert.equal(response.body.routes.some((route) => route.method === 'command/exec/write'), false);
+    assert.equal(response.body.routes.some((route) => route.method === 'plugin/share/checkout'), false);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
     app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server route capabilities exclude matrix-only diagnostics', () => {
+  const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
+  const methods = new Set(buildCodexAppServerRouteCapabilities().map((route) => route.method));
+  for (const method of [
+    'process/resizePty',
+    'process/writeStdin',
+    'command/exec/resize',
+    'command/exec/terminate',
+    'command/exec/write',
+    'plugin/share/checkout'
+  ]) {
+    assert.equal(methods.has(method), false, method);
   }
 });
 
@@ -1912,9 +1933,11 @@ test('Codex app-server fs diagnostic watch routes are workspace scoped', async (
 });
 
 test('Codex app-server high-risk routes default deny without approval policy', async () => {
+  let serviceCalls = 0;
   const app = await createCodexAppServerRouteTestApp({
     service: {
       async withMutationClient() {
+        serviceCalls += 1;
         throw new Error('must not call app-server');
       }
     }
@@ -1928,6 +1951,27 @@ test('Codex app-server high-risk routes default deny without approval policy', a
 
     assert.equal(response.status, 403);
     assert.equal(response.body.error.code, 'CODEX_APP_SERVER_APPROVAL_REQUIRED');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server high-risk routes default deny before service availability check', async () => {
+  const app = await createCodexAppServerRouteTestApp({ service: null });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/write-file`, {
+      path: 'README.md',
+      content: 'unsafe'
+    });
+    const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.high_risk_denial');
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_APPROVAL_REQUIRED');
+    assert.deepEqual(records.map((record) => [record.method, record.decision, record.result, record.errorCode]), [
+      ['fs/writeFile', 'deny', 'denied', 'CODEX_APP_SERVER_APPROVAL_REQUIRED']
+    ]);
   } finally {
     await app.close();
   }
@@ -1966,6 +2010,33 @@ test('Codex app-server high-risk routes audit authorized downstream failures', a
     assert.equal(response.body.error.message.includes('npm test'), false);
     assert.equal(response.body.error.message.includes('Bearer'), false);
     assert.equal(auditEvents.some((event) => event.event === 'codex_app_server.high_risk_failure' && event.payload.method === 'fs/writeFile'), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server approved high-risk local service errors are preserved', async () => {
+  const app = await createCodexAppServerRouteTestApp({
+    approvalPolicy: { allowHighRiskForTests: true },
+    service: {
+      async withMutationClient() {
+        const error = new Error('Codex app-server service is unavailable');
+        error.status = 503;
+        error.code = 'CODEX_APP_SERVER_UNAVAILABLE';
+        throw error;
+      }
+    }
+  });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/write-file`, {
+      path: 'README.md',
+      content: 'safe'
+    });
+
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_UNAVAILABLE');
+    assert.equal(response.body.error.message, 'Codex app-server service is unavailable');
   } finally {
     await app.close();
   }
@@ -2079,6 +2150,50 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
     });
     assert.equal(calls.some((call) => call.method === 'enableRemoteControl'), true);
     assert.equal(calls.some((call) => call.method === 'readRemoteControlStatus'), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server high-risk routes reject malformed bodies before approval service mutation access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    approvalPolicy: { allowHighRiskForTests: true },
+    service: {
+      async withMutationClient() {
+        serviceCalls += 1;
+        throw new Error('must not allocate mutation client for malformed high-risk request');
+      }
+    }
+  });
+
+  try {
+    const root = `/api/codex-app-server/workspaces/${app.workspace.id}`;
+    for (const [method, route, body] of [
+      ['POST', `${root}/processes`, {}],
+      ['POST', `${root}/processes`, { command: 'node', args: 'not-array' }],
+      ['POST', `${root}/processes`, { command: 'node', args: ['--version', 1] }],
+      ['POST', `${root}/commands/exec`, {}],
+      ['PATCH', '/api/codex-app-server/config/value', { value: 'dark' }],
+      ['PATCH', '/api/codex-app-server/config/value', { key: 'theme' }],
+      ['POST', '/api/codex-app-server/environment', { value: 'value' }],
+      ['POST', '/api/codex-app-server/environment', { name: 'KEY' }],
+      ['POST', '/api/codex-app-server/plugins/install', {}],
+      ['POST', '/api/codex-app-server/marketplace/add', {}],
+      ['POST', '/api/codex-app-server/marketplace/remove', {}],
+      ['PATCH', '/api/codex-app-server/skills/config', {}],
+      ['PATCH', '/api/codex-app-server/skills/extra-roots', { roots: 'skills' }],
+      ['PATCH', '/api/codex-app-server/skills/extra-roots', { roots: ['skills', 1] }],
+      ['POST', '/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: '5' }],
+      ['POST', '/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: 0 }]
+    ]) {
+      const response = method === 'PATCH'
+        ? await app.patch(route, body)
+        : await app.post(route, body);
+      assert.equal(response.status, 400, route);
+      assert.equal(response.body.error.code, 'BAD_REQUEST', route);
+    }
+    assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
   }
@@ -2206,7 +2321,11 @@ test('Codex app-server dispatcher ignores same-prefix non namespace paths', asyn
 test('Codex app-server capability route metadata is derived from matrix rows', () => {
   const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
   const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
-  const selectedRows = CODEX_APP_SERVER_CAPABILITY_MATRIX.filter((row) => row.daemonOwner === 'server route' || row.mobileStatus === 'planned' || row.mobileStatus === 'consumed');
+  const selectedRows = CODEX_APP_SERVER_CAPABILITY_MATRIX.filter((row) => (
+    row.daemonOwner === 'server route' &&
+    row.direction === 'request' &&
+    row.testRequirement === 'route test'
+  ));
   const routes = buildCodexAppServerRouteCapabilities();
   assert.equal(routes.length, selectedRows.length);
   for (const route of routes) {

@@ -4,7 +4,7 @@ const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('./capability-matrix');
 
 function buildCodexAppServerRouteCapabilities(rows = CODEX_APP_SERVER_CAPABILITY_MATRIX) {
   return rows
-    .filter((row) => row.daemonOwner === 'server route' || row.mobileStatus === 'planned' || row.mobileStatus === 'consumed')
+    .filter((row) => row.daemonOwner === 'server route' && row.direction === 'request' && row.testRequirement === 'route test')
     .map((row) => ({
       method: row.method,
       group: routeGroupForMethod(row.method),

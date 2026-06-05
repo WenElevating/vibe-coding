@@ -10,10 +10,4 @@ function requireHighRiskApproval({ method, approvalPolicy }) {
   throw error;
 }
 
-function redactCodexAppServerError(error) {
-  return String(error?.message || 'Codex app-server operation failed')
-    .replace(/sk-[A-Za-z0-9_-]+/g, 'sk-REDACTED')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer REDACTED');
-}
-
-module.exports = { redactCodexAppServerError, requireHighRiskApproval };
+module.exports = { requireHighRiskApproval };

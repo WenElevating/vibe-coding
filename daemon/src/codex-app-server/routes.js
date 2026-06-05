@@ -346,16 +346,17 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceProcesses[1]), context.device);
     const body = await readJson();
     const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
+    const request = compactObject({
+      command: parseRequiredBodyString(body?.command, 'command'),
+      args: parseOptionalStringArray(body?.args, 'args'),
+      cwd,
+      workspacePath: workspaceRoot(workspace)
+    });
     return highRiskMutationRoute(context, json, {
       workspace,
       method: 'process/spawn',
       risk: 'process',
-      action: (client) => client.spawnProcess(compactObject({
-        command: parseRequiredBodyString(body?.command, 'command'),
-        args: parseOptionalStringArray(body?.args, 'args'),
-        cwd,
-        workspacePath: workspaceRoot(workspace)
-      }))
+      action: (client) => client.spawnProcess(request)
     });
   }
 
@@ -376,15 +377,16 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceCommandExec[1]), context.device);
     const body = await readJson();
     const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
+    const request = {
+      command: parseRequiredBodyString(body?.command, 'command'),
+      cwd,
+      workspacePath: workspaceRoot(workspace)
+    };
     return highRiskMutationRoute(context, json, {
       workspace,
       method: 'command/exec',
       risk: 'process',
-      action: (client) => client.executeCommand({
-        command: parseRequiredBodyString(body?.command, 'command'),
-        cwd,
-        workspacePath: workspaceRoot(workspace)
-      })
+      action: (client) => client.executeCommand(request)
     });
   }
 
@@ -654,13 +656,14 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/config/value') {
     const body = await readJson();
+    const request = {
+      key: parseRequiredBodyString(body?.key, 'key'),
+      value: parseDefinedValue(body?.value, 'value')
+    };
     return highRiskMutationRoute(context, json, {
       method: 'config/value/write',
       risk: 'write',
-      action: (client) => client.writeConfigValue({
-        key: parseRequiredBodyString(body?.key, 'key'),
-        value: parseDefinedValue(body?.value, 'value')
-      })
+      action: (client) => client.writeConfigValue(request)
     });
   }
 
@@ -676,33 +679,36 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/config/mcp-server/reload') {
     const body = await readJson();
+    const request = compactObject({
+      serverId: parseOptionalBodyString(body?.serverId, 'serverId')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'config/mcpServer/reload',
       risk: 'write',
-      action: (client) => client.reloadMcpServerConfig(compactObject({
-        serverId: parseOptionalBodyString(body?.serverId, 'serverId')
-      }))
+      action: (client) => client.reloadMcpServerConfig(request)
     });
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/environment') {
     const body = await readJson();
+    const request = {
+      name: parseRequiredBodyString(body?.name, 'name'),
+      value: parseDefinedValue(body?.value, 'value')
+    };
     return highRiskMutationRoute(context, json, {
       method: 'environment/add',
       risk: 'write',
-      action: (client) => client.addEnvironment({
-        name: parseRequiredBodyString(body?.name, 'name'),
-        value: parseDefinedValue(body?.value, 'value')
-      })
+      action: (client) => client.addEnvironment(request)
     });
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/plugins/install') {
     const body = await readJson();
+    const request = { pluginId: parseRequiredBodyString(body?.pluginId, 'pluginId') };
     return highRiskMutationRoute(context, json, {
       method: 'plugin/install',
       risk: 'write',
-      action: (client) => client.installPlugin({ pluginId: parseRequiredBodyString(body?.pluginId, 'pluginId') })
+      action: (client) => client.installPlugin(request)
     });
   }
 
@@ -718,51 +724,56 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/add') {
     const body = await readJson();
+    const request = compactObject({
+      marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId'),
+      url: parseRequiredBodyString(body?.url, 'url')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/add',
       risk: 'write',
-      action: (client) => client.addMarketplace(compactObject({
-        marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId'),
-        url: parseRequiredBodyString(body?.url, 'url')
-      }))
+      action: (client) => client.addMarketplace(request)
     });
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/remove') {
     const body = await readJson();
+    const request = { marketplaceId: parseRequiredBodyString(body?.marketplaceId, 'marketplaceId') };
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/remove',
       risk: 'write',
-      action: (client) => client.removeMarketplace({ marketplaceId: parseRequiredBodyString(body?.marketplaceId, 'marketplaceId') })
+      action: (client) => client.removeMarketplace(request)
     });
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/upgrade') {
     const body = await readJson();
+    const request = compactObject({
+      marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/upgrade',
       risk: 'write',
-      action: (client) => client.upgradeMarketplace(compactObject({
-        marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId')
-      }))
+      action: (client) => client.upgradeMarketplace(request)
     });
   }
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/config') {
     const body = await readJson();
+    const request = { config: parseRequiredObject(body?.config, 'config') };
     return highRiskMutationRoute(context, json, {
       method: 'skills/config/write',
       risk: 'write',
-      action: (client) => client.writeSkillsConfig({ config: parseRequiredObject(body?.config, 'config') })
+      action: (client) => client.writeSkillsConfig(request)
     });
   }
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/extra-roots') {
     const body = await readJson();
+    const request = { roots: parseRequiredStringArray(body?.roots, 'roots') };
     return highRiskMutationRoute(context, json, {
       method: 'skills/extraRoots/set',
       risk: 'write',
-      action: (client) => client.setSkillsExtraRoots({ roots: parseRequiredStringArray(body?.roots, 'roots') })
+      action: (client) => client.setSkillsExtraRoots(request)
     });
   }
 
@@ -798,12 +809,13 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/remote-control/pairing/start') {
     const body = await readJson();
+    const request = compactObject({
+      timeoutSecs: parseOptionalPositiveInteger(body?.timeoutSecs, 'timeoutSecs')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'remoteControl/pairing/start',
       risk: 'network',
-      action: (client) => client.startRemoteControlPairing(compactObject({
-        timeoutSecs: parseOptionalPositiveInteger(body?.timeoutSecs, 'timeoutSecs')
-      }))
+      action: (client) => client.startRemoteControlPairing(request)
     });
   }
 
@@ -863,11 +875,11 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
     correlationId
   };
   try {
-    const service = requireService(context);
     const approval = requireHighRiskApproval({
       method,
-      approvalPolicy: context.approvalPolicy || service.approvalPolicy
+      approvalPolicy: context.approvalPolicy
     });
+    const service = requireService(context);
     const response = await service.withMutationClient({
       method,
       risk,
@@ -886,7 +898,7 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
       recordCodexAppServerAudit(context.auditLog, 'high_risk_denial', {
         ...metadata,
         decision: 'deny',
-        result: 'failure',
+        result: 'denied',
         errorCode: error.code
       });
       throw error;
@@ -899,6 +911,7 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
       errorCode: sanitized.downstreamCode || sanitized.errorCode,
       downstreamStatus: sanitized.downstreamStatus
     });
+    if (isSafeLocalInfrastructureError(error)) throw error;
     throw controlledHighRiskMutationError();
   }
 }
