@@ -174,6 +174,37 @@ class CodexAppServerClient {
     return this.sendRequest('account/rateLimits/read', {}, options);
   }
 
+  getFileMetadata(options = {}) {
+    return this.sendRequest('fs/getMetadata', compactObject({
+      path: options.path
+    }), options);
+  }
+
+  readDirectory(options = {}) {
+    return this.sendRequest('fs/readDirectory', compactObject({
+      path: options.path
+    }), options);
+  }
+
+  readFile(options = {}) {
+    return this.sendRequest('fs/readFile', compactObject({
+      path: options.path,
+      encoding: options.encoding
+    }), options);
+  }
+
+  watchFileSystem(options = {}) {
+    return this.sendRequest('fs/watch', compactObject({
+      path: options.path
+    }), options);
+  }
+
+  unwatchFileSystem(options = {}) {
+    return this.sendRequest('fs/unwatch', compactObject({
+      watchId: options.watchId
+    }), options);
+  }
+
   startAccountLogin(options = {}) {
     return this.sendRequest('account/login/start', compactDefinedObject({
       type: options.type,

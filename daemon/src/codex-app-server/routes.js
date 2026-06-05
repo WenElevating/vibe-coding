@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('node:path');
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 const {
@@ -222,6 +223,65 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/windows-sandbox/readiness') {
     return discoveryRoute(context, json, (client) => client.readWindowsSandboxReadiness(), {});
+  }
+
+  const workspaceFsMetadata = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/metadata$/);
+  if (method === 'GET' && workspaceFsMetadata) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsMetadata[1]), context.device);
+    const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredQueryString(url.searchParams.get('path'), 'path'));
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.getFileMetadata({
+      path: filePath
+    }));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFsDirectory = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/directory$/);
+  if (method === 'GET' && workspaceFsDirectory) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsDirectory[1]), context.device);
+    const directoryPath = resolveWorkspaceRelativePath(workspace, parseRequiredQueryString(url.searchParams.get('path'), 'path'));
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.readDirectory({
+      path: directoryPath
+    }));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFsReadFile = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/read-file$/);
+  if (method === 'GET' && workspaceFsReadFile) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsReadFile[1]), context.device);
+    const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredQueryString(url.searchParams.get('path'), 'path'));
+    const encoding = parseOptionalString(url.searchParams.get('encoding'));
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.readFile(compactObject({
+      path: filePath,
+      encoding
+    })));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFsWatch = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/watch$/);
+  if (method === 'POST' && workspaceFsWatch) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsWatch[1]), context.device);
+    const body = await readJson();
+    const watchPath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.watchFileSystem({
+      path: watchPath
+    }));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFsUnwatch = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fs\/unwatch$/);
+  if (method === 'POST' && workspaceFsUnwatch) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsUnwatch[1]), context.device);
+    const body = await readJson();
+    const watchId = parseRequiredBodyString(body?.watchId, 'watchId');
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.unwatchFileSystem({
+      watchId
+    }));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
   }
 
   const workspaceThreads = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads$/);
@@ -462,6 +522,44 @@ function workspaceRoot(workspace) {
   return workspace.path || workspace.workspacePath;
 }
 
+function resolveWorkspaceRelativePath(workspace, relativePath) {
+  const root = workspaceRoot(workspace);
+  if (!root) throw badRequest('workspace path is required');
+  if (hasAbsolutePathSyntax(relativePath)) {
+    throw Object.assign(new Error('path outside authorized workspace'), {
+      status: 403,
+      code: 'FORBIDDEN'
+    });
+  }
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, relativePath || '.');
+  const comparableRoot = normalizePathForGuard(resolvedRoot);
+  const comparableResolved = normalizePathForGuard(resolved);
+  if (comparableResolved !== comparableRoot && !comparableResolved.startsWith(`${comparableRoot}${path.sep}`)) {
+    throw Object.assign(new Error('path outside authorized workspace'), {
+      status: 403,
+      code: 'FORBIDDEN'
+    });
+  }
+  return resolved;
+}
+
+function hasAbsolutePathSyntax(value) {
+  const candidate = String(value || '');
+  return path.isAbsolute(candidate) ||
+    path.win32.isAbsolute(candidate) ||
+    path.posix.isAbsolute(candidate) ||
+    /^[A-Za-z]:/.test(candidate);
+}
+
+function normalizePathForGuard(value) {
+  let normalized = path.normalize(value);
+  while (normalized.length > path.parse(normalized).root.length && normalized.endsWith(path.sep)) {
+    normalized = normalized.slice(0, -1);
+  }
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
 function requireService(context) {
   if (!context.codexAppServerService) {
     throw Object.assign(new Error('Codex app-server service is unavailable'), {
@@ -538,5 +636,6 @@ module.exports = {
   decodePathParam,
   parseBoolean,
   parseLimit,
+  resolveWorkspaceRelativePath,
   tryHandleCodexAppServerRoute
 };

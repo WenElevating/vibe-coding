@@ -570,6 +570,33 @@ test('Codex app-server client sends typed account and auth requests', async () =
   ]);
 });
 
+test('Codex app-server client sends typed filesystem requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.getFileMetadata({ path: 'D:\\Repo\\README.md' });
+  await client.readDirectory({ path: 'D:\\Repo\\src' });
+  await client.readFile({ path: 'D:\\Repo\\README.md', encoding: 'utf8' });
+  await client.watchFileSystem({ path: 'D:\\Repo\\src' });
+  await client.unwatchFileSystem({ watchId: 'watch_1' });
+
+  assert.deepEqual(calls, [
+    { method: 'fs/getMetadata', params: { path: 'D:\\Repo\\README.md' } },
+    { method: 'fs/readDirectory', params: { path: 'D:\\Repo\\src' } },
+    { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md', encoding: 'utf8' } },
+    { method: 'fs/watch', params: { path: 'D:\\Repo\\src' } },
+    { method: 'fs/unwatch', params: { watchId: 'watch_1' } }
+  ]);
+});
+
 test('Codex app-server service reuses healthy read-only discovery client within TTL', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   const spawned = [];
@@ -1332,6 +1359,151 @@ test('Codex app-server account mutation failures return controlled redacted erro
     assert.equal(records[0].error, '[REDACTED]');
     assert.equal(records[0].downstreamStatus, 409);
     assert.equal(records[0].downstreamCode, 'UPSTREAM_SECRET_FAILURE');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fs read routes reject paths outside authorized workspace', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call app-server for outside path');
+      }
+    }
+  });
+
+  try {
+    const absolute = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('C:\\Windows\\win.ini')}`);
+    const posixAbsolute = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('/etc/passwd')}`);
+    const driveRelative = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('C:Windows\\win.ini')}`);
+    const traversal = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('../outside.txt')}`);
+
+    for (const response of [absolute, posixAbsolute, driveRelative, traversal]) {
+      assert.equal(response.status, 403);
+      assert.equal(response.body.error.code, 'FORBIDDEN');
+    }
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fs read routes resolve workspace paths and call typed service methods', async () => {
+  const calls = [];
+  const service = {
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ method: 'withWorkspaceClient', workspace });
+      return callback({
+        async getFileMetadata(options) {
+          calls.push({ method: 'getFileMetadata', options });
+          return { metadata: { path: options.path, kind: 'file' }, extra: 'kept' };
+        },
+        async readDirectory(options) {
+          calls.push({ method: 'readDirectory', options });
+          return { entries: [{ name: 'README.md' }], path: options.path };
+        },
+        async readFile(options) {
+          calls.push({ method: 'readFile', options });
+          return { file: { path: options.path, text: 'hello', encoding: options.encoding } };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+  const resolveInWorkspace = (...segments) => path.resolve(app.workspace.path, ...segments);
+
+  try {
+    const metadata = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/metadata?path=${encodeURIComponent('README.md')}`);
+    const directory = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/directory?path=${encodeURIComponent('src')}`);
+    const file = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('src/index.js')}&encoding=utf8`);
+
+    assert.equal(metadata.status, 200);
+    assert.deepEqual(metadata.body, { metadata: { path: resolveInWorkspace('README.md'), kind: 'file' }, extra: 'kept' });
+    assert.equal(directory.status, 200);
+    assert.deepEqual(directory.body, { entries: [{ name: 'README.md' }], path: resolveInWorkspace('src') });
+    assert.equal(file.status, 200);
+    assert.deepEqual(file.body, { file: { path: resolveInWorkspace('src/index.js'), text: 'hello', encoding: 'utf8' } });
+    assert.deepEqual(calls, [
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'getFileMetadata', options: { path: resolveInWorkspace('README.md') } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'readDirectory', options: { path: resolveInWorkspace('src') } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'readFile', options: { path: resolveInWorkspace('src/index.js'), encoding: 'utf8' } }
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fs diagnostic watch routes are workspace scoped', async () => {
+  const calls = [];
+  const service = {
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ method: 'withWorkspaceClient', workspace });
+      return callback({
+        async watchFileSystem(options) {
+          calls.push({ method: 'watchFileSystem', options });
+          return { watchId: 'watch_1', path: options.path };
+        },
+        async unwatchFileSystem(options) {
+          calls.push({ method: 'unwatchFileSystem', options });
+          return { unwatched: options.watchId };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+  const watchedPath = path.resolve(app.workspace.path, 'src');
+
+  try {
+    const watch = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/watch`, { path: 'src' });
+    const unwatch = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/unwatch`, { watchId: 'watch_1' });
+
+    assert.equal(watch.status, 200);
+    assert.deepEqual(watch.body, { watchId: 'watch_1', path: watchedPath });
+    assert.equal(unwatch.status, 200);
+    assert.deepEqual(unwatch.body, { unwatched: 'watch_1' });
+    assert.deepEqual(calls, [
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'watchFileSystem', options: { path: watchedPath } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'unwatchFileSystem', options: { watchId: 'watch_1' } }
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fs routes reject missing required params before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call app-server for invalid fs request');
+      }
+    }
+  });
+
+  try {
+    for (const [method, route, body] of [
+      ['GET', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/metadata`, undefined],
+      ['GET', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/directory?path=`, undefined],
+      ['GET', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file`, undefined],
+      ['POST', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/watch`, {}],
+      ['POST', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/watch`, { path: ' ' }],
+      ['POST', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/unwatch`, {}],
+      ['POST', `/api/codex-app-server/workspaces/${app.workspace.id}/fs/unwatch`, { watchId: ' ' }]
+    ]) {
+      const response = await (method === 'GET' ? app.get(route) : app.post(route, body));
+      assert.equal(response.status, 400, route);
+      assert.equal(response.body.error.code, 'BAD_REQUEST', route);
+    }
+    assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
   }

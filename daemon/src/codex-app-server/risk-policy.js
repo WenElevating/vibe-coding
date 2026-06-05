@@ -11,8 +11,6 @@ const HIGH_RISK_METHODS = new Set([
   'fs/copy',
   'fs/createDirectory',
   'fs/remove',
-  'fs/unwatch',
-  'fs/watch',
   'fs/writeFile',
   'marketplace/add',
   'marketplace/remove',
@@ -67,6 +65,7 @@ function riskForCodexAppServerMethod(method) {
   }
   if (value.startsWith('account/') || value.includes('login') || value.includes('logout')) return 'account';
   if (value.includes('oauth')) return 'account';
+  if (value === 'fs/watch' || value === 'fs/unwatch') return 'permission';
   if (value.startsWith('mcpServer/tool/call') || value === 'item/tool/call') return 'permission';
   return 'read';
 }
