@@ -298,6 +298,10 @@ class CodexAppServerConversationHandle {
       );
       return;
     }
+    if (message?.method === 'item/tool/requestUserInput' || message?.method === 'mcpServer/elicitation/request') {
+      this.failClosedServerRequest(message, 'interactive app-server tool request is not supported yet');
+      return;
+    }
     const approval = mapCodexAppServerApprovalRequest(message);
     if (!approval) {
       this.failClosedServerRequest(message, 'unsupported Codex app-server server request');

@@ -402,6 +402,52 @@ class CodexAppServerClient {
     }), options);
   }
 
+  fuzzyFileSearch(options = {}) {
+    return this.sendRequest('fuzzyFileSearch', compactObject({
+      query: options.query,
+      workspacePath: options.workspacePath,
+      limit: options.limit
+    }), options);
+  }
+
+  startFuzzyFileSearchSession(options = {}) {
+    return this.sendRequest('fuzzyFileSearch/sessionStart', compactObject({
+      query: options.query,
+      workspacePath: options.workspacePath,
+      limit: options.limit
+    }), options);
+  }
+
+  updateFuzzyFileSearchSession(options = {}) {
+    return this.sendRequest('fuzzyFileSearch/sessionUpdate', compactObject({
+      sessionId: options.sessionId,
+      query: options.query,
+      workspacePath: options.workspacePath,
+      limit: options.limit
+    }), options);
+  }
+
+  stopFuzzyFileSearchSession(options = {}) {
+    return this.sendRequest('fuzzyFileSearch/sessionStop', compactObject({
+      sessionId: options.sessionId,
+      workspacePath: options.workspacePath
+    }), options);
+  }
+
+  startReview(options = {}) {
+    return this.sendRequest('review/start', compactObject({
+      workspacePath: options.workspacePath,
+      maxItems: options.maxItems
+    }), options);
+  }
+
+  generateAttestation(options = {}) {
+    return this.sendRequest('attestation/generate', compactObject({
+      workspacePath: options.workspacePath,
+      challenge: options.challenge
+    }), options);
+  }
+
   listThreadTurns(options = {}) {
     return this.sendRequest('thread/turns/list', compactObject({
       threadId: options.threadId,

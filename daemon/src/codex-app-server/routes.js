@@ -422,6 +422,96 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
+  const workspaceFuzzySearch = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fuzzy-file-search$/);
+  if (method === 'GET' && workspaceFuzzySearch) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearch[1]), context.device);
+    const query = parseRequiredQueryString(url.searchParams.get('q'), 'q');
+    const limit = parseLimit(url.searchParams.get('limit'), 50);
+    const request = {
+      query,
+      workspacePath: workspaceRoot(workspace),
+      limit
+    };
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.fuzzyFileSearch(request));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFuzzySearchSessions = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fuzzy-file-search\/sessions$/);
+  if (method === 'POST' && workspaceFuzzySearchSessions) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSessions[1]), context.device);
+    const body = await readJson();
+    const request = {
+      query: parseRequiredBodyString(body?.query ?? body?.q, 'query'),
+      workspacePath: workspaceRoot(workspace),
+      limit: parseOptionalPositiveInteger(body?.limit, 'limit')
+    };
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.startFuzzyFileSearchSession(compactObject(request)));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceFuzzySearchSession = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fuzzy-file-search\/sessions\/([^/]+)$/);
+  if (method === 'PATCH' && workspaceFuzzySearchSession) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
+    const sessionId = parseRequiredBodyString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
+    const body = await readJson();
+    const request = {
+      sessionId,
+      query: parseRequiredBodyString(body?.query ?? body?.q, 'query'),
+      workspacePath: workspaceRoot(workspace),
+      limit: parseOptionalPositiveInteger(body?.limit, 'limit')
+    };
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.updateFuzzyFileSearchSession(compactObject(request)));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  if (method === 'DELETE' && workspaceFuzzySearchSession) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
+    const sessionId = parseRequiredBodyString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.stopFuzzyFileSearchSession({
+      sessionId,
+      workspacePath: workspaceRoot(workspace)
+    }));
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  }
+
+  const workspaceReviewStart = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/review\/start$/);
+  if (method === 'POST' && workspaceReviewStart) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceReviewStart[1]), context.device);
+    const body = await readJson();
+    const maxItems = parseOptionalPositiveInteger(body?.maxItems, 'maxItems') || 50;
+    if (maxItems > 200) throw badRequest('maxItems must be at most 200');
+    return auditedDiagnosticRoute(context, json, {
+      workspace,
+      method: 'review/start',
+      risk: 'permission',
+      event: 'review_start',
+      action: (client) => client.startReview({
+        workspacePath: workspaceRoot(workspace),
+        maxItems
+      })
+    });
+  }
+
+  const workspaceAttestationGenerate = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/attestation\/generate$/);
+  if (method === 'POST' && workspaceAttestationGenerate) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceAttestationGenerate[1]), context.device);
+    const body = await readJson();
+    return auditedDiagnosticRoute(context, json, {
+      workspace,
+      method: 'attestation/generate',
+      risk: 'permission',
+      event: 'attestation_generate',
+      action: (client) => client.generateAttestation(compactObject({
+        workspacePath: workspaceRoot(workspace),
+        challenge: parseOptionalBodyString(body?.challenge, 'challenge')
+      }))
+    });
+  }
+
   const workspaceThreadTurns = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/turns$/);
   if (method === 'GET' && workspaceThreadTurns) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadTurns[1]), context.device);
@@ -913,6 +1003,39 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
     });
     if (isSafeLocalInfrastructureError(error)) throw error;
     throw controlledHighRiskMutationError();
+  }
+}
+
+async function auditedDiagnosticRoute(context, json, { workspace, method, risk, event, action }) {
+  const correlationId = createCorrelationId();
+  const metadata = {
+    method,
+    workspaceId: workspace?.id || workspace?.workspaceId || null,
+    workspacePath: workspace ? workspaceRoot(workspace) : undefined,
+    deviceId: context.device?.id || null,
+    risk,
+    correlationId
+  };
+  try {
+    const response = await requireService(context).withWorkspaceClient(workspace, (client) => action(client));
+    recordCodexAppServerAudit(context.auditLog, event, {
+      ...metadata,
+      decision: 'allow',
+      ok: true
+    });
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  } catch (error) {
+    const sanitized = sanitizeHighRiskMutationError(error);
+    recordCodexAppServerAudit(context.auditLog, event, {
+      ...metadata,
+      decision: 'allow',
+      result: 'failure',
+      errorCode: sanitized.downstreamCode || sanitized.errorCode,
+      downstreamStatus: sanitized.downstreamStatus
+    });
+    if (isSafeLocalInfrastructureError(error)) throw error;
+    throw controlledHighRiskMutationError('Codex app-server diagnostic operation failed.');
   }
 }
 

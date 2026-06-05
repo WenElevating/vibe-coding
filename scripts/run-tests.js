@@ -624,13 +624,25 @@ test('Codex app-server client sends typed filesystem requests', async () => {
   await client.readFile({ path: 'D:\\Repo\\README.md', encoding: 'utf8' });
   await client.watchFileSystem({ path: 'D:\\Repo\\src' });
   await client.unwatchFileSystem({ watchId: 'watch_1' });
+  await client.fuzzyFileSearch({ query: 'readme', workspacePath: 'D:\\Repo', limit: 10 });
+  await client.startFuzzyFileSearchSession({ query: 'src', workspacePath: 'D:\\Repo' });
+  await client.updateFuzzyFileSearchSession({ sessionId: 'fuzzy_1', query: 'daemon', workspacePath: 'D:\\Repo', limit: 5 });
+  await client.stopFuzzyFileSearchSession({ sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' });
+  await client.startReview({ workspacePath: 'D:\\Repo', maxItems: 20 });
+  await client.generateAttestation({ workspacePath: 'D:\\Repo', challenge: 'nonce' });
 
   assert.deepEqual(calls, [
     { method: 'fs/getMetadata', params: { path: 'D:\\Repo\\README.md' } },
     { method: 'fs/readDirectory', params: { path: 'D:\\Repo\\src' } },
     { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md', encoding: 'utf8' } },
     { method: 'fs/watch', params: { path: 'D:\\Repo\\src' } },
-    { method: 'fs/unwatch', params: { watchId: 'watch_1' } }
+    { method: 'fs/unwatch', params: { watchId: 'watch_1' } },
+    { method: 'fuzzyFileSearch', params: { query: 'readme', workspacePath: 'D:\\Repo', limit: 10 } },
+    { method: 'fuzzyFileSearch/sessionStart', params: { query: 'src', workspacePath: 'D:\\Repo' } },
+    { method: 'fuzzyFileSearch/sessionUpdate', params: { sessionId: 'fuzzy_1', query: 'daemon', workspacePath: 'D:\\Repo', limit: 5 } },
+    { method: 'fuzzyFileSearch/sessionStop', params: { sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' } },
+    { method: 'review/start', params: { workspacePath: 'D:\\Repo', maxItems: 20 } },
+    { method: 'attestation/generate', params: { workspacePath: 'D:\\Repo', challenge: 'nonce' } }
   ]);
 });
 
@@ -776,6 +788,47 @@ test('Codex app-server conversation handle rejects auth token refresh server req
   assert.match(errors[0].error.message, /secure token provider/);
   assert.equal(JSON.stringify(errors).includes('should-not-leak'), false);
   assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR && /account\/chatgptAuthTokens\/refresh/.test(event.message)), true);
+});
+
+test('Codex app-server conversation handle rejects interactive tool input server requests fail closed', () => {
+  const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const errors = [];
+  const results = [];
+  const events = [];
+  const transport = new EventEmitter();
+  transport.sendRequest = async () => ({});
+  transport.sendNotification = () => {};
+  transport.sendError = (id, error) => errors.push({ id, error });
+  transport.sendResult = (id, result) => results.push({ id, result });
+  const handle = new CodexAppServerConversationHandle({
+    adapter: {
+      initializeTimeoutMs: 100,
+      approvalTimeoutMs: 100,
+      metrics: {
+        approvalRequestedCount: 0,
+        approvalTimeoutCount: 0,
+        approvalRoundTripLatencyMs: [],
+        transportCloseCount: 0,
+        runErrorAfterTurnStartedCount: 0
+      }
+    },
+    processHandle: { transport },
+    workspacePath: process.cwd(),
+    onEvent: (event) => events.push(event)
+  });
+
+  handle.handleServerRequest({ id: 'input-1', method: 'item/tool/requestUserInput', params: { prompt: 'secret' } });
+  handle.handleServerRequest({ id: 'elicitation-1', method: 'mcpServer/elicitation/request', params: { prompt: 'secret' } });
+
+  assert.deepEqual(results, []);
+  assert.equal(errors.length, 2);
+  assert.deepEqual(errors.map((entry) => entry.id), ['input-1', 'elicitation-1']);
+  assert.equal(errors.every((entry) => entry.error.code === -32601), true);
+  assert.equal(errors.every((entry) => /interactive app-server tool request is not supported yet/.test(entry.error.message)), true);
+  assert.equal(JSON.stringify(errors).includes('secret'), false);
+  assert.equal(events.filter((event) => event.type === conversationEventTypes.RUN_ERROR).length, 2);
+  assert.equal(events.some((event) => /item\/tool\/requestUserInput/.test(event.message)), true);
+  assert.equal(events.some((event) => /mcpServer\/elicitation\/request/.test(event.message)), true);
 });
 
 test('Codex app-server method timeout classes distinguish streams and server requests', () => {
@@ -1097,6 +1150,193 @@ test('Codex app-server workspace thread read rejects unauthorized workspace befo
 
     assert.equal(response.status, 404);
     assert.equal(response.body.error.code, 'WORKSPACE_NOT_FOUND');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fuzzy search is workspace scoped and read-only', async () => {
+  const calls = [];
+  const service = {
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ method: 'withWorkspaceClient', workspace });
+      return callback({
+        async fuzzyFileSearch(options) {
+          calls.push({ method: 'fuzzyFileSearch', options });
+          return { matches: [{ path: 'daemon/src/index.js', score: 0.9 }], nextCursor: 'ignored' };
+        },
+        async startFuzzyFileSearchSession(options) {
+          calls.push({ method: 'startFuzzyFileSearchSession', options });
+          return { session: { id: 'fuzzy_1', query: options.query }, matches: [] };
+        },
+        async updateFuzzyFileSearchSession(options) {
+          calls.push({ method: 'updateFuzzyFileSearchSession', options });
+          return { session: { id: options.sessionId, query: options.query }, matches: [{ path: 'scripts/run-tests.js' }] };
+        },
+        async stopFuzzyFileSearchSession(options) {
+          calls.push({ method: 'stopFuzzyFileSearchSession', options });
+          return { session: { id: options.sessionId, stopped: true } };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const search = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search?q=daemon&limit=7`);
+    const start = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions`, {
+      query: 'src',
+      workspacePath: 'D:\\Untrusted',
+      limit: 9
+    });
+    const update = await app.patch(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions/fuzzy_1`, {
+      q: 'tests',
+      workspacePath: 'D:\\Untrusted',
+      limit: 3
+    });
+    const stop = await app.delete(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions/fuzzy_1`, {
+      workspacePath: 'D:\\Untrusted'
+    });
+
+    assert.equal(search.status, 200);
+    assert.deepEqual(search.body.matches, [{ path: 'daemon/src/index.js', score: 0.9 }]);
+    assert.equal(start.status, 200);
+    assert.deepEqual(start.body.session, { id: 'fuzzy_1', query: 'src' });
+    assert.equal(update.status, 200);
+    assert.deepEqual(update.body.session, { id: 'fuzzy_1', query: 'tests' });
+    assert.equal(stop.status, 200);
+    assert.deepEqual(stop.body.session, { id: 'fuzzy_1', stopped: true });
+    assert.deepEqual(calls, [
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'fuzzyFileSearch', options: { query: 'daemon', workspacePath: app.workspace.path, limit: 7 } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'startFuzzyFileSearchSession', options: { query: 'src', workspacePath: app.workspace.path, limit: 9 } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'updateFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1', query: 'tests', workspacePath: app.workspace.path, limit: 3 } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'stopFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1', workspacePath: app.workspace.path } }
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server fuzzy search validates authorization and query before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service before validation passes');
+      }
+    }
+  });
+
+  try {
+    const unauthorized = await app.get('/api/codex-app-server/workspaces/workspace_not_allowed/fuzzy-file-search?q=daemon');
+    const missingQuery = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search`);
+    const missingSessionQuery = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions`, {});
+
+    assert.equal(unauthorized.status, 404);
+    assert.equal(unauthorized.body.error.code, 'WORKSPACE_NOT_FOUND');
+    assert.equal(missingQuery.status, 400);
+    assert.equal(missingQuery.body.error.code, 'BAD_REQUEST');
+    assert.equal(missingSessionQuery.status, 400);
+    assert.equal(missingSessionQuery.body.error.code, 'BAD_REQUEST');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server review and attestation diagnostic routes audit workspace-scoped requests', async () => {
+  const calls = [];
+  const auditEvents = [];
+  const service = {
+    async withWorkspaceClient(workspace, callback) {
+      calls.push({ method: 'withWorkspaceClient', workspace });
+      return callback({
+        async startReview(options) {
+          calls.push({ method: 'startReview', options });
+          return {
+            review: {
+              findings: [{ severity: 'medium', message: 'Check route validation' }],
+              maxItems: options.maxItems
+            }
+          };
+        },
+        async generateAttestation(options) {
+          calls.push({ method: 'generateAttestation', options });
+          return { attestation: { workspacePath: options.workspacePath, token: 'attested' } };
+        }
+      });
+    }
+  };
+  const auditLog = { record: (event, payload) => auditEvents.push({ event, payload }) };
+  const app = await createCodexAppServerRouteTestApp({ service, auditLog });
+
+  try {
+    const review = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
+      maxItems: 25,
+      workspacePath: 'D:\\Untrusted'
+    });
+    const attestation = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/attestation/generate`, {
+      challenge: 'nonce',
+      workspacePath: 'D:\\Untrusted'
+    });
+
+    assert.equal(review.status, 200);
+    assert.deepEqual(review.body.review, {
+      findings: [{ severity: 'medium', message: 'Check route validation' }],
+      maxItems: 25
+    });
+    assert.equal(attestation.status, 200);
+    assert.deepEqual(attestation.body.attestation, { workspacePath: app.workspace.path, token: 'attested' });
+    assert.deepEqual(calls, [
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'startReview', options: { workspacePath: app.workspace.path, maxItems: 25 } },
+      { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'generateAttestation', options: { workspacePath: app.workspace.path, challenge: 'nonce' } }
+    ]);
+    const appServerAudit = auditEvents.filter((entry) => entry.event.startsWith('codex_app_server.'));
+    assert.equal(appServerAudit.length, 2);
+    assert.deepEqual(appServerAudit.map((entry) => entry.event), [
+      'codex_app_server.review_start',
+      'codex_app_server.attestation_generate'
+    ]);
+    assert.equal(appServerAudit.every((entry) => entry.payload.workspaceId === app.workspace.id), true);
+    assert.deepEqual(appServerAudit.map((entry) => entry.payload.method), ['review/start', 'attestation/generate']);
+    assert.equal(appServerAudit.every((entry) => entry.payload.risk === 'permission'), true);
+    assert.equal(appServerAudit.every((entry) => entry.payload.decision === 'allow' && entry.payload.result === 'success'), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server review diagnostic route validates maxItems before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for invalid review request');
+      }
+    }
+  });
+
+  try {
+    const invalidType = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
+      maxItems: '25'
+    });
+    const tooLarge = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
+      maxItems: 201
+    });
+
+    assert.equal(invalidType.status, 400);
+    assert.equal(invalidType.body.error.code, 'BAD_REQUEST');
+    assert.equal(tooLarge.status, 400);
+    assert.equal(tooLarge.body.error.code, 'BAD_REQUEST');
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
