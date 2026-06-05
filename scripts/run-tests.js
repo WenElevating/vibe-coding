@@ -1439,6 +1439,16 @@ test('Codex app-server capability route metadata is derived from matrix rows', (
     assert.equal(route.risk, row.risk);
     assert.equal(route.source, 'capability-matrix');
   }
+
+  const routeByMethod = new Map(routes.map((route) => [route.method, route]));
+  assert.equal(routeByMethod.get('account/read').readOnly, true);
+  assert.equal(routeByMethod.get('account/rateLimits/read').readOnly, true);
+  assert.equal(routeByMethod.get('account/login/start').readOnly, false);
+  assert.equal(routeByMethod.get('account/logout').readOnly, false);
+  assert.equal(routeByMethod.get('mcpServer/oauth/login').readOnly, false);
+  assert.equal(routeByMethod.get('account/login/start').requiresApproval, true);
+  assert.equal(routeByMethod.get('account/logout').requiresApproval, true);
+  assert.equal(routeByMethod.get('mcpServer/oauth/login').requiresApproval, true);
 });
 
 test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {

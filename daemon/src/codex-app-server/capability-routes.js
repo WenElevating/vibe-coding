@@ -11,10 +11,26 @@ function buildCodexAppServerRouteCapabilities(rows = CODEX_APP_SERVER_CAPABILITY
       localStatus: row.localStatus,
       mobileStatus: row.mobileStatus,
       risk: row.risk,
-      readOnly: row.risk === 'none' || row.risk === 'read' || row.risk === 'account',
-      requiresApproval: ['write', 'process', 'network', 'permission'].includes(row.risk),
+      readOnly: isReadOnlyCapability(row),
+      requiresApproval: requiresCapabilityApproval(row),
       source: 'capability-matrix'
     }));
+}
+
+function isReadOnlyCapability(row) {
+  if (row.risk === 'none' || row.risk === 'read') return true;
+  if (row.risk === 'account') return isAccountReadMethod(row.method);
+  return false;
+}
+
+function requiresCapabilityApproval(row) {
+  if (row.risk === 'account') return !isAccountReadMethod(row.method);
+  return ['write', 'process', 'network', 'permission'].includes(row.risk);
+}
+
+function isAccountReadMethod(method) {
+  const value = String(method || '');
+  return value === 'account/read' || value === 'account/rateLimits/read' || value.endsWith('/read');
 }
 
 function routeGroupForMethod(method) {
@@ -28,5 +44,8 @@ function routeGroupForMethod(method) {
 
 module.exports = {
   buildCodexAppServerRouteCapabilities,
+  isAccountReadMethod,
+  isReadOnlyCapability,
+  requiresCapabilityApproval,
   routeGroupForMethod
 };
