@@ -488,6 +488,43 @@ test('Codex app-server client sends typed thread history requests', async () => 
   ]);
 });
 
+test('Codex app-server client sends typed thread mutation requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.forkThread({ threadId: 'thread_client', workspacePath: process.cwd(), fromTurnId: 'turn_1', ignored: 'nope' });
+  await client.archiveThread({ threadId: 'thread_client', ignored: 'nope' });
+  await client.unarchiveThread({ threadId: 'thread_client' });
+  await client.rollbackThread({ threadId: 'thread_client', turnId: 'turn_1', itemId: null });
+  await client.updateThreadMetadata({ threadId: 'thread_client', metadata: { pinned: true } });
+  await client.setThreadName({ threadId: 'thread_client', name: 'Renamed' });
+  await client.updateThreadSettings({ threadId: 'thread_client', settings: { model: 'gpt-5' } });
+  await client.setThreadMemoryMode({ threadId: 'thread_client', memoryMode: 'auto' });
+  await client.setThreadGoal({ threadId: 'thread_client', goal: { objective: 'Ship it' } });
+  await client.clearThreadGoal({ threadId: 'thread_client' });
+
+  assert.deepEqual(calls, [
+    { method: 'thread/fork', params: { threadId: 'thread_client', workspacePath: process.cwd(), fromTurnId: 'turn_1' } },
+    { method: 'thread/archive', params: { threadId: 'thread_client' } },
+    { method: 'thread/unarchive', params: { threadId: 'thread_client' } },
+    { method: 'thread/rollback', params: { threadId: 'thread_client', turnId: 'turn_1' } },
+    { method: 'thread/metadata/update', params: { threadId: 'thread_client', metadata: { pinned: true } } },
+    { method: 'thread/name/set', params: { threadId: 'thread_client', name: 'Renamed' } },
+    { method: 'thread/settings/update', params: { threadId: 'thread_client', settings: { model: 'gpt-5' } } },
+    { method: 'thread/memoryMode/set', params: { threadId: 'thread_client', memoryMode: 'auto' } },
+    { method: 'thread/goal/set', params: { threadId: 'thread_client', goal: { objective: 'Ship it' } } },
+    { method: 'thread/goal/clear', params: { threadId: 'thread_client' } }
+  ]);
+});
+
 test('Codex app-server client sends typed discovery requests', async () => {
   const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
   const calls = [];
@@ -1359,6 +1396,203 @@ test('Codex app-server account mutation failures return controlled redacted erro
     assert.equal(records[0].error, '[REDACTED]');
     assert.equal(records[0].downstreamStatus, 409);
     assert.equal(records[0].downstreamCode, 'UPSTREAM_SECRET_FAILURE');
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread mutation routes use authorized workspace root and audit success', async () => {
+  const calls = [];
+  const service = {
+    async withMutationClient(metadata, callback) {
+      calls.push({ method: 'withMutationClient', metadata });
+      return callback({
+        async forkThread(options) {
+          calls.push({ method: 'forkThread', options });
+          return { thread: { id: 'thread_forked', workspacePath: options.workspacePath } };
+        },
+        async archiveThread(options) {
+          calls.push({ method: 'archiveThread', options });
+          return { archived: true, threadId: options.threadId };
+        },
+        async unarchiveThread(options) {
+          calls.push({ method: 'unarchiveThread', options });
+          return { archived: false, threadId: options.threadId };
+        },
+        async rollbackThread(options) {
+          calls.push({ method: 'rollbackThread', options });
+          return { rolledBack: true, threadId: options.threadId };
+        },
+        async updateThreadMetadata(options) {
+          calls.push({ method: 'updateThreadMetadata', options });
+          return { metadata: options.metadata };
+        },
+        async setThreadName(options) {
+          calls.push({ method: 'setThreadName', options });
+          return { name: options.name };
+        },
+        async updateThreadSettings(options) {
+          calls.push({ method: 'updateThreadSettings', options });
+          return { settings: options.settings };
+        },
+        async setThreadMemoryMode(options) {
+          calls.push({ method: 'setThreadMemoryMode', options });
+          return { memoryMode: options.memoryMode };
+        },
+        async setThreadGoal(options) {
+          calls.push({ method: 'setThreadGoal', options });
+          return { goal: options.goal };
+        },
+        async clearThreadGoal(options) {
+          calls.push({ method: 'clearThreadGoal', options });
+          return { cleared: true, threadId: options.threadId };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_thread_mutation' });
+
+  try {
+    const base = `/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1`;
+    const fork = await app.post(`${base}/fork`, { fromTurnId: 'turn_1', workspacePath: 'D:\\Untrusted' });
+    const archive = await app.post(`${base}/archive`);
+    const unarchive = await app.post(`${base}/unarchive`);
+    const rollback = await app.post(`${base}/rollback`, { turnId: 'turn_1', itemId: 'item_1' });
+    const metadata = await app.patch(`${base}/metadata`, { metadata: { pinned: true } });
+    const name = await app.patch(`${base}/name`, { name: 'Renamed' });
+    const settings = await app.patch(`${base}/settings`, { settings: { model: 'gpt-5' } });
+    const memoryMode = await app.patch(`${base}/memory-mode`, { memoryMode: 'auto' });
+    const goal = await app.put(`${base}/goal`, { goal: { objective: 'Ship it' } });
+    const clearGoal = await app.delete(`${base}/goal`);
+
+    for (const response of [fork, archive, unarchive, rollback, metadata, name, settings, memoryMode, goal, clearGoal]) {
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+    }
+    assert.deepEqual(calls.filter((call) => call.method === 'withMutationClient').map((call) => call.metadata), [
+      { method: 'thread/fork', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/archive', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/unarchive', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/rollback', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/metadata/update', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/name/set', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/settings/update', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/memoryMode/set', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/goal/set', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
+      { method: 'thread/goal/clear', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' }
+    ]);
+    assert.equal(calls.find((call) => call.method === 'forkThread').options.workspacePath, app.workspace.path);
+    assert.deepEqual(calls.find((call) => call.method === 'rollbackThread').options, { threadId: 'thread_1', turnId: 'turn_1', itemId: 'item_1' });
+    assert.deepEqual(calls.find((call) => call.method === 'setThreadGoal').options, { threadId: 'thread_1', goal: { objective: 'Ship it' } });
+    const records = app.auditLog.list().filter((record) => record.type.startsWith('codex_app_server.thread_'));
+    assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result]), [
+      ['thread/fork', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/archive', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/unarchive', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/rollback', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/metadata/update', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/name/set', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/settings/update', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/memoryMode/set', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/goal/set', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
+      ['thread/goal/clear', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success']
+    ]);
+    assert.equal(records.every((record) => typeof record.timestamp === 'string' && typeof record.correlationId === 'string'), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread archive route rejects unauthorized workspace before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withMutationClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for unauthorized workspace');
+      }
+    }
+  });
+
+  try {
+    const response = await app.post('/api/codex-app-server/workspaces/workspace_not_allowed/threads/thread_1/archive');
+
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error.code, 'WORKSPACE_NOT_FOUND');
+    assert.equal(serviceCalls, 0);
+    assert.equal(app.auditLog.list().filter((record) => record.type.startsWith('codex_app_server.thread_')).length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread mutation routes reject malformed bodies before service access', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withMutationClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for invalid thread mutation');
+      }
+    }
+  });
+
+  try {
+    const base = `/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1`;
+    for (const [method, route, body] of [
+      ['PATCH', `${base}/metadata`, {}],
+      ['PATCH', `${base}/metadata`, { metadata: [] }],
+      ['PATCH', `${base}/name`, {}],
+      ['PATCH', `${base}/name`, { name: ' ' }],
+      ['PATCH', `${base}/settings`, {}],
+      ['PATCH', `${base}/settings`, { settings: [] }],
+      ['PATCH', `${base}/memory-mode`, {}],
+      ['PATCH', `${base}/memory-mode`, { memoryMode: ' ' }],
+      ['PUT', `${base}/goal`, {}],
+      ['PUT', `${base}/goal`, { goal: [] }],
+      ['PUT', `${base}/goal`, { goal: ' ' }]
+    ]) {
+      const response = await (method === 'PATCH' ? app.patch(route, body) : app.put(route, body));
+      assert.equal(response.status, 400, route);
+      assert.equal(response.body.error.code, 'BAD_REQUEST', route);
+    }
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread mutation failures return controlled redacted errors and audit failure', async () => {
+  const sensitive = 'thread failed with sk-secret for alice@example.test at C:\\Users\\Alice\\.codex\\threads.json';
+  const service = {
+    async withMutationClient(metadata, callback) {
+      const error = new Error(sensitive);
+      error.status = 409;
+      error.code = 'UPSTREAM_THREAD_SECRET_FAILURE';
+      await callback({
+        async archiveThread() {
+          throw error;
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_thread_failure' });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/archive`);
+    const responseText = JSON.stringify(response.body);
+    const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.thread_archive');
+    const auditText = JSON.stringify(records);
+
+    assert.equal(response.status, 502);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_THREAD_MUTATION_FAILED');
+    assert.equal(response.body.error.message, 'Codex app-server thread mutation failed.');
+    for (const secret of ['sk-secret', 'alice@example.test', 'Alice', '.codex', 'threads.json']) {
+      assert.equal(responseText.includes(secret), false, secret);
+      assert.equal(auditText.includes(secret), false, secret);
+    }
+    assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result, record.errorCode]), [
+      ['thread/archive', app.workspace.id, 'thread_1', 'device_thread_failure', 'write', 'allow', 'failure', 'UPSTREAM_THREAD_SECRET_FAILURE']
+    ]);
   } finally {
     await app.close();
   }
@@ -10191,6 +10425,7 @@ async function createCodexAppServerRouteTestApp({
     get: (pathValue) => call('GET', pathValue),
     post: (pathValue, body = {}) => call('POST', pathValue, body),
     patch: (pathValue, body = {}) => call('PATCH', pathValue, body),
+    put: (pathValue, body = {}) => call('PUT', pathValue, body),
     delete: (pathValue, body = {}) => call('DELETE', pathValue, body),
     close: async () => {
       await new Promise((resolve) => app.server.close(resolve));

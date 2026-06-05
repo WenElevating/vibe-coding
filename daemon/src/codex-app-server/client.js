@@ -276,6 +276,75 @@ class CodexAppServerClient {
     }), options);
   }
 
+  forkThread(options = {}) {
+    return this.sendRequest('thread/fork', compactObject({
+      threadId: options.threadId,
+      workspacePath: options.workspacePath,
+      fromTurnId: options.fromTurnId
+    }), options);
+  }
+
+  archiveThread(options = {}) {
+    return this.sendRequest('thread/archive', compactObject({
+      threadId: options.threadId
+    }), options);
+  }
+
+  unarchiveThread(options = {}) {
+    return this.sendRequest('thread/unarchive', compactObject({
+      threadId: options.threadId
+    }), options);
+  }
+
+  rollbackThread(options = {}) {
+    return this.sendRequest('thread/rollback', compactObject({
+      threadId: options.threadId,
+      turnId: options.turnId,
+      itemId: options.itemId
+    }), options);
+  }
+
+  updateThreadMetadata(options = {}) {
+    return this.sendRequest('thread/metadata/update', compactObject({
+      threadId: options.threadId,
+      metadata: options.metadata
+    }), options);
+  }
+
+  setThreadName(options = {}) {
+    return this.sendRequest('thread/name/set', compactObject({
+      threadId: options.threadId,
+      name: options.name
+    }), options);
+  }
+
+  updateThreadSettings(options = {}) {
+    return this.sendRequest('thread/settings/update', compactObject({
+      threadId: options.threadId,
+      settings: options.settings
+    }), options);
+  }
+
+  setThreadMemoryMode(options = {}) {
+    return this.sendRequest('thread/memoryMode/set', compactObject({
+      threadId: options.threadId,
+      memoryMode: options.memoryMode
+    }), options);
+  }
+
+  setThreadGoal(options = {}) {
+    return this.sendRequest('thread/goal/set', compactObject({
+      threadId: options.threadId,
+      goal: options.goal
+    }), options);
+  }
+
+  clearThreadGoal(options = {}) {
+    return this.sendRequest('thread/goal/clear', compactObject({
+      threadId: options.threadId
+    }), options);
+  }
+
   startThread(options = {}) {
     const request = buildCodexAppServerThreadStartRequest(options);
     return this.sendRequest(request.method, request.params, options);

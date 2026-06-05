@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { recordCodexAppServerAudit } = require('./audit');
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 const {
@@ -359,6 +360,174 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     return true;
   }
 
+  const workspaceThreadFork = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/fork$/);
+  if (method === 'POST' && workspaceThreadFork) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadFork[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadFork[2]);
+    const body = await readJson();
+    const fromTurnId = parseOptionalBodyString(body?.fromTurnId, 'fromTurnId');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/fork',
+      event: 'thread_fork',
+      action: (client) => client.forkThread(compactObject({
+        threadId,
+        workspacePath: workspaceRoot(workspace),
+        fromTurnId
+      }))
+    });
+  }
+
+  const workspaceThreadArchive = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/archive$/);
+  if (method === 'POST' && workspaceThreadArchive) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadArchive[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadArchive[2]);
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/archive',
+      event: 'thread_archive',
+      action: (client) => client.archiveThread({ threadId })
+    });
+  }
+
+  const workspaceThreadUnarchive = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/unarchive$/);
+  if (method === 'POST' && workspaceThreadUnarchive) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadUnarchive[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadUnarchive[2]);
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/unarchive',
+      event: 'thread_unarchive',
+      action: (client) => client.unarchiveThread({ threadId })
+    });
+  }
+
+  const workspaceThreadRollback = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/rollback$/);
+  if (method === 'POST' && workspaceThreadRollback) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadRollback[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadRollback[2]);
+    const body = await readJson();
+    const turnId = parseOptionalBodyString(body?.turnId, 'turnId');
+    const itemId = parseOptionalBodyString(body?.itemId, 'itemId');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/rollback',
+      event: 'thread_rollback',
+      action: (client) => client.rollbackThread(compactObject({
+        threadId,
+        turnId,
+        itemId
+      }))
+    });
+  }
+
+  const workspaceThreadMetadata = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/metadata$/);
+  if (method === 'PATCH' && workspaceThreadMetadata) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadMetadata[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadMetadata[2]);
+    const body = await readJson();
+    const metadata = parseRequiredObject(body?.metadata, 'metadata');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/metadata/update',
+      event: 'thread_metadata_update',
+      action: (client) => client.updateThreadMetadata({
+        threadId,
+        metadata
+      })
+    });
+  }
+
+  const workspaceThreadName = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/name$/);
+  if (method === 'PATCH' && workspaceThreadName) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadName[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadName[2]);
+    const body = await readJson();
+    const name = parseRequiredBodyString(body?.name, 'name');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/name/set',
+      event: 'thread_name_set',
+      action: (client) => client.setThreadName({
+        threadId,
+        name
+      })
+    });
+  }
+
+  const workspaceThreadSettings = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/settings$/);
+  if (method === 'PATCH' && workspaceThreadSettings) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadSettings[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadSettings[2]);
+    const body = await readJson();
+    const settings = parseRequiredObject(body?.settings, 'settings');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/settings/update',
+      event: 'thread_settings_update',
+      action: (client) => client.updateThreadSettings({
+        threadId,
+        settings
+      })
+    });
+  }
+
+  const workspaceThreadMemoryMode = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/memory-mode$/);
+  if (method === 'PATCH' && workspaceThreadMemoryMode) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadMemoryMode[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadMemoryMode[2]);
+    const body = await readJson();
+    const memoryMode = parseRequiredBodyString(body?.memoryMode, 'memoryMode');
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/memoryMode/set',
+      event: 'thread_memory_mode_set',
+      action: (client) => client.setThreadMemoryMode({
+        threadId,
+        memoryMode
+      })
+    });
+  }
+
+  const workspaceThreadGoalPut = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/goal$/);
+  if (method === 'PUT' && workspaceThreadGoalPut) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadGoalPut[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadGoalPut[2]);
+    const body = await readJson();
+    const goal = parseRequiredGoal(body);
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/goal/set',
+      event: 'thread_goal_set',
+      action: (client) => client.setThreadGoal({
+        threadId,
+        goal
+      })
+    });
+  }
+
+  const workspaceThreadGoalDelete = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/goal$/);
+  if (method === 'DELETE' && workspaceThreadGoalDelete) {
+    const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadGoalDelete[1]), context.device);
+    const threadId = decodePathParam(workspaceThreadGoalDelete[2]);
+    return threadMutationRoute(context, json, {
+      workspace,
+      threadId,
+      method: 'thread/goal/clear',
+      event: 'thread_goal_clear',
+      action: (client) => client.clearThreadGoal({ threadId })
+    });
+  }
+
   const workspaceThreadRead = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)$/);
   if (method === 'GET' && workspaceThreadRead) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadRead[1]), context.device);
@@ -408,6 +577,47 @@ async function mutationRoute(context, json, { method, risk, action }) {
       downstreamCode: sanitized.downstreamCode
     });
     throw controlledAccountMutationError();
+  }
+}
+
+async function threadMutationRoute(context, json, { workspace, threadId, method, event, action }) {
+  const correlationId = createCorrelationId();
+  const risk = 'write';
+  const metadata = {
+    method,
+    risk,
+    workspaceId: workspace.id || workspace.workspaceId || null,
+    workspacePath: workspaceRoot(workspace),
+    threadId
+  };
+  try {
+    const response = await requireService(context).withMutationClient(metadata, (client) => action(client));
+    recordCodexAppServerAudit(context.auditLog, event, {
+      method,
+      workspaceId: metadata.workspaceId,
+      threadId,
+      deviceId: context.device?.id || null,
+      risk,
+      decision: 'allow',
+      ok: true,
+      correlationId
+    });
+    json(200, normalizeDiscoveryResponse(response, {}));
+    return true;
+  } catch (error) {
+    const sanitized = sanitizeThreadMutationError(error);
+    recordCodexAppServerAudit(context.auditLog, event, {
+      method,
+      workspaceId: metadata.workspaceId,
+      threadId,
+      deviceId: context.device?.id || null,
+      risk,
+      decision: 'allow',
+      result: 'failure',
+      errorCode: sanitized.downstreamCode || sanitized.errorCode,
+      correlationId
+    });
+    throw controlledThreadMutationError();
   }
 }
 
@@ -482,6 +692,11 @@ function parseOptionalNullableString(value, name) {
   return parseRequiredBodyString(value, name);
 }
 
+function parseOptionalBodyString(value, name) {
+  if (value === undefined || value === null) return undefined;
+  return parseRequiredBodyString(value, name);
+}
+
 function parseOptionalBoolean(value, name) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'boolean') throw badRequest(`${name} must be a boolean`);
@@ -507,6 +722,23 @@ function parseRequiredStringValue(value, name) {
     throw badRequest(`${name} must be a nonblank string`);
   }
   return value.trim();
+}
+
+function parseRequiredObject(value, name) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw badRequest(`${name} must be an object`);
+  }
+  return value;
+}
+
+function parseRequiredGoal(body) {
+  if (body && Object.prototype.hasOwnProperty.call(body, 'goal')) {
+    const goal = body.goal;
+    if (goal === null) return null;
+    if (typeof goal === 'string') return parseRequiredBodyString(goal, 'goal');
+    if (goal && typeof goal === 'object' && !Array.isArray(goal)) return goal;
+  }
+  throw badRequest('goal is required');
 }
 
 function decodePathParam(value) {
@@ -584,9 +816,24 @@ function controlledAccountMutationError() {
   });
 }
 
+function controlledThreadMutationError() {
+  return Object.assign(new Error('Codex app-server thread mutation failed.'), {
+    status: 502,
+    code: 'CODEX_APP_SERVER_THREAD_MUTATION_FAILED'
+  });
+}
+
 function sanitizeAccountMutationError(error) {
   return {
     auditError: redactAccountSensitiveText(error?.message || 'Codex app-server account mutation failed.'),
+    downstreamStatus: safeDownstreamStatus(error?.status),
+    downstreamCode: safeDownstreamCode(error?.code)
+  };
+}
+
+function sanitizeThreadMutationError(error) {
+  return {
+    errorCode: 'CODEX_APP_SERVER_THREAD_MUTATION_FAILED',
     downstreamStatus: safeDownstreamStatus(error?.status),
     downstreamCode: safeDownstreamCode(error?.code)
   };
