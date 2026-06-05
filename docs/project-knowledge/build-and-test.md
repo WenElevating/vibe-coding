@@ -17,6 +17,43 @@ git diff --check
 `node scripts/run-tests.js`, `node scripts/check-project-knowledge.js`, and
 `npm run lint` were verified on 2026-05-22.
 
+## Codex App-Server Parity Release Gate
+
+Run from repo root before shipping app-server parity changes:
+
+```powershell
+node scripts/run-tests.js
+npm run lint
+node scripts/check-project-knowledge.js
+node scripts/check-codex-app-server-fixture-drift.js
+```
+
+`scripts/run-tests.js` includes the release smoke gates for full parity matrix
+completion, supported route coverage, route process isolation, high-risk
+approval/audit behavior, kill-switch behavior, and per-adapter model
+normalization isolation. A malformed `codex-app-server` model list must not
+break `/api/adapters` for other adapters.
+
+`scripts/check-codex-app-server-fixture-drift.js` is the contract drift gate. It
+compares committed app-server schema fixtures against schemas generated from the
+real `codex` binary when that generator is available. A skip means the local
+binary or generator is unavailable; it is acceptable for local development but
+not enough evidence for a release branch.
+
+Operational expectations:
+
+- Passive discovery, active conversation, and mutation/high-risk routes use
+  separate app-server process pools.
+- High-risk operations require workspace authorization, approval or product
+  policy, controlled errors, and append-only audit records.
+- Streaming `assistant.partial` and output deltas stay unfiltered; bounded
+  retention, durable snapshots, and WebSocket backpressure provide the resource
+  controls.
+- Mobile should consume app-server data through daemon repositories and route
+  metadata derived from the capability matrix, not raw JSON-RPC.
+
+Last verified: 2026-06-05
+
 ## Flutter/Dart Environment
 
 For Flutter/Dart commands under `mobile/`, use mainland China mirrors and local

@@ -3975,6 +3975,52 @@ test('createApp exposes app-server model list through adapter registry', async (
   }
 });
 
+test('Codex app-server model normalization failure is isolated to that adapter', async () => {
+  const dbPath = tempConversationDbPath('app-server-model-isolation-');
+  const app = createApp({
+    port: 0,
+    appDbPath: dbPath,
+    codexAppServerTransport: 'stdio',
+    codexAppServerProbe: async () => ({
+      installed: true,
+      protocolCompatible: true,
+      transportHealthy: true,
+      unavailableReason: null,
+      lastProbeAt: '2026-06-04T00:00:00.000Z'
+    }),
+    codexAppServerModelLister: async () => {
+      throw new Error('malformed model/list response');
+    }
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'model-isolation', 'device_model_isolation');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await request(
+      app.server.address().port,
+      'GET',
+      '/api/adapters',
+      null,
+      paired.token
+    );
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(response.body.adapters));
+    assert.equal(
+      response.body.adapters.some((adapter) => adapter.adapter !== 'codex-app-server' && adapter.name !== 'codex-app-server'),
+      true
+    );
+    const appServer = response.body.adapters.find((adapter) => adapter.adapter === 'codex-app-server' || adapter.name === 'codex-app-server');
+    assert.ok(appServer);
+    assert.equal(appServer.selectable, true);
+    assert.equal(Array.isArray(appServer.models), true);
+    assert.equal(appServer.models.every((model) => model && typeof model.id === 'string' && model.id.trim()), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  }
+});
+
 test('Codex app-server model lister initializes and normalizes model/list', async () => {
   const { createCodexAppServerModelLister } = require('../daemon/src/main');
   const sent = [];
