@@ -23,7 +23,7 @@ import '../features/settings/settings.dart'
         AppUpdateViewModel,
         SettingsViewModel;
 import '../features/workbench/workbench.dart';
-import '../pages/pages.dart';
+import '../pages/coding/coding_page.dart';
 import 'coding_adapter_gate.dart';
 import 'connected_main_shell.dart';
 import 'main_shell_view_model.dart';
@@ -56,7 +56,6 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   MainShellViewModel? _viewModel;
-  HomeViewModel? _homeViewModel;
   CodexAppServerViewModel? _codexAppServerViewModel;
   SettingsViewModel? _settingsViewModel;
   late final MobileAppEventBus _mobileAppEventBus;
@@ -140,10 +139,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       _connectedInitialData = widget.initialData;
       final shellWasMissing = _viewModel == null;
       _viewModel ??= MainShellViewModel();
-      if (_homeViewModel == null || _settingsViewModel == null) {
+      if (_settingsViewModel == null) {
         _createRepositoryBackedViewModels(widget.initialData);
       } else {
-        _updateHomeViewModelInputs(widget.initialData);
+        _updateCodexAppServerWorkspace(widget.initialData);
         _updateSettingsViewModelInputs(widget.initialData);
       }
       if (shellWasMissing) {
@@ -186,7 +185,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   void _handleApprovalNotificationTap(ApprovalNotificationTap tap) {
     final viewModel = _viewModel;
     if (viewModel == null) return;
-    viewModel.selectTab(1);
+    viewModel.selectTab(MainShellViewModel.codingTabIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(
@@ -321,12 +320,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   void _createRepositoryBackedViewModels(DaemonInitialData data) {
     _disposeRepositoryBackedViewModels();
-    final homeViewModel =
-        widget.pageDependencies.featureDependencies.createHomeViewModel(
-      _connectedData,
-      signalMetrics: const HomeWorkspaceSignalMetrics(),
-    );
-    _homeViewModel = homeViewModel;
     final codexAppServerViewModel = CodexAppServerViewModel(
       repository: _connectedData.codexAppServerRepository,
     );
@@ -345,8 +338,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     );
   }
 
-  void _updateHomeViewModelInputs(DaemonInitialData data) {
-    _homeViewModel?.updateSignalMetrics(const HomeWorkspaceSignalMetrics());
+  void _updateCodexAppServerWorkspace(DaemonInitialData data) {
     final workspaceId = data.workspace?.id;
     if (workspaceId != null && workspaceId.isNotEmpty) {
       unawaited(_codexAppServerViewModel?.load(workspaceId: workspaceId));
@@ -361,8 +353,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   }
 
   void _disposeRepositoryBackedViewModels() {
-    _homeViewModel?.dispose();
-    _homeViewModel = null;
     _codexAppServerViewModel?.dispose();
     _codexAppServerViewModel = null;
     _settingsViewModel?.dispose();
@@ -399,19 +389,15 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       viewModel.closeOverlay();
       return;
     }
-    if (viewModel.activeTab == 1) {
+    if (viewModel.activeTab == MainShellViewModel.codingTabIndex) {
       final consumed =
           await (_codingWorkbenchKey.currentState?.handleSystemBack() ??
               Future<bool>.value(false));
       if (consumed) return;
-      viewModel.selectTab(0);
+      await SystemNavigator.pop();
       return;
     }
-    if (viewModel.activeTab != 0) {
-      viewModel.selectTab(0);
-      return;
-    }
-    await SystemNavigator.pop();
+    viewModel.selectTab(MainShellViewModel.codingTabIndex);
   }
 
   @override
@@ -427,12 +413,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   Widget _buildShell(BuildContext context) {
     final viewModel = _viewModel;
     final initialData = _connectedInitialData;
-    final homeViewModel = _homeViewModel;
     final codexAppServerViewModel = _codexAppServerViewModel;
     final settingsViewModel = _settingsViewModel;
     if (viewModel == null ||
         initialData == null ||
-        homeViewModel == null ||
         codexAppServerViewModel == null ||
         settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
@@ -440,7 +424,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     return ConnectedMainShell(
       viewModel: viewModel,
       initialData: initialData,
-      homeViewModel: homeViewModel,
       settingsViewModel: settingsViewModel,
       codexAppServerViewModel: codexAppServerViewModel,
       appUpdateViewModel: _appUpdateViewModel,
@@ -527,7 +510,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
             requested: workspace,
             opened: openedWorkspace,
           );
-          _updateHomeViewModelInputs(initialData);
+          _updateCodexAppServerWorkspace(initialData);
           _updateSettingsViewModelInputs(initialData);
         });
         return;
@@ -537,10 +520,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         _loadingWorkspace = false;
         _connectedInitialData = initialData;
         _viewModel ??= MainShellViewModel();
-        if (_homeViewModel == null || _settingsViewModel == null) {
+        if (_settingsViewModel == null) {
           _createRepositoryBackedViewModels(initialData);
         } else {
-          _updateHomeViewModelInputs(initialData);
+          _updateCodexAppServerWorkspace(initialData);
           _updateSettingsViewModelInputs(initialData);
         }
       });
@@ -595,7 +578,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     return CodingPage(
       workbenchDependencies: _workbenchDependencies,
       workbenchKey: _codingWorkbenchKey,
-      onBack: () => viewModel.selectTab(0),
+      onBack: () => viewModel.selectTab(MainShellViewModel.codingTabIndex),
       onSessionListChanged: viewModel.reportSessionListOpen,
       openSessionListRequest: viewModel.openSessionListRequest,
       streamOutput: viewModel.streamOutput,

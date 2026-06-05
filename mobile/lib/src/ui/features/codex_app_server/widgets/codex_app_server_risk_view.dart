@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../domain/models/codex_app_server_models.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../../../core/widgets/widgets.dart';
+import 'codex_app_server_ui.dart';
 
 class CodexAppServerRiskView extends StatelessWidget {
   const CodexAppServerRiskView({super.key, required this.capabilities});
@@ -16,28 +17,37 @@ class CodexAppServerRiskView extends StatelessWidget {
     final readOnly = routes.length - highRisk;
     return PageScroll(
       children: [
-        const SizedBox(height: 14),
         _RiskSummary(
           readOnly: readOnly < 0 ? 0 : readOnly,
           highRisk: highRisk,
         ),
-        const SizedBox(height: 14),
-        const _RiskPolicyRow(
-          icon: Icons.verified_user_rounded,
-          title: 'Workspace authorization',
-          detail: 'Workspace routes resolve through authorized daemon scope.',
+        const CodexSectionHeader(
+          label: 'Controls',
+          trailing: 'Daemon enforced',
         ),
-        const _RiskPolicyRow(
-          icon: Icons.fact_check_rounded,
-          title: 'Approval boundary',
-          detail:
-              'Write, process, network, and permission operations require policy or approval.',
-        ),
-        const _RiskPolicyRow(
-          icon: Icons.receipt_long_rounded,
-          title: 'Audit trail',
-          detail:
-              'High-risk operations are expected to produce controlled errors and audit records.',
+        const CodexSurface(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              _RiskPolicyRow(
+                icon: Icons.verified_user_outlined,
+                title: 'Workspace authorization',
+                detail: 'Routes resolve through authorized daemon scope.',
+              ),
+              Divider(height: 1, color: codexLine),
+              _RiskPolicyRow(
+                icon: Icons.fact_check_outlined,
+                title: 'Approval boundary',
+                detail: 'Write, process, network, and permission operations.',
+              ),
+              Divider(height: 1, color: codexLine),
+              _RiskPolicyRow(
+                icon: Icons.receipt_long_outlined,
+                title: 'Audit trail',
+                detail: 'Downstream failures stay controlled and traceable.',
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -52,24 +62,26 @@ class _RiskSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _RiskCounter(
-            label: 'Read / diagnostic',
-            value: readOnly,
-            color: const Color(0xFF63D297),
+    return CodexSurface(
+      child: Row(
+        children: [
+          Expanded(
+            child: _RiskCounter(
+              label: 'Read / diagnostic',
+              value: readOnly,
+              color: codexSuccess,
+            ),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _RiskCounter(
-            label: 'Guarded risk',
-            value: highRisk,
-            color: const Color(0xFFFFC15A),
+          Container(width: 1, height: 38, color: codexLine),
+          Expanded(
+            child: _RiskCounter(
+              label: 'Guarded risk',
+              value: highRisk,
+              color: codexWarning,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -87,13 +99,8 @@ class _RiskCounter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF101113),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: .07)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -107,12 +114,12 @@ class _RiskCounter extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 5),
           Text(
             '$value',
             style: TextStyle(
               color: color,
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -136,44 +143,44 @@ class _RiskPolicyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF101113),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withValues(alpha: .07)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: const Color(0xFFFFC15A)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    detail,
-                    style: const TextStyle(
-                      color: theme.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: codexWarning.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(9),
             ),
-          ],
-        ),
+            child: Icon(icon, color: codexWarning, size: 17),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  detail,
+                  style: const TextStyle(
+                    color: theme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

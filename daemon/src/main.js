@@ -16,7 +16,7 @@ const { CodexConversationAdapter } = require('./codex-conversation-adapter');
 const { CodexAppServerConversationAdapter } = require('./codex-app-server-conversation-adapter');
 const { buildCodexAppServerAvailability } = require('./codex-app-server-availability');
 const { CodexAppServerLifecycle } = require('./codex-app-server-lifecycle');
-const { CodexAppServerService } = require('./codex-app-server/service');
+const { CodexAppServerService, DEFAULT_POOL_LIMITS } = require('./codex-app-server/service');
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
@@ -110,9 +110,10 @@ function createApp({
   const codexAppServerRouteEnabled = codexAppServerRuntime.availability.enabled === true;
   const codexAppServerAvailabilityState = { current: codexAppServerRuntime.availability };
   const codexAppServerMetrics = createCodexAppServerMetrics();
+  const codexAppServerLifecycleMaxProcesses = resolveCodexAppServerLifecycleMaxProcesses(codexAppServerMaxProcesses);
   const codexAppServerLifecycle = codexAppServerRouteEnabled ? createCodexAppServerLifecycle({
     codexCommand,
-    maxProcesses: codexAppServerMaxProcesses,
+    maxProcesses: codexAppServerLifecycleMaxProcesses,
     metrics: codexAppServerMetrics
   }) : null;
   if (codexAppServerRouteEnabled) {
@@ -225,7 +226,7 @@ function createConversationAdapters({ claudeCommand, codexCommand, codexToolTime
     const availabilityState = codexAppServerAvailabilityState || { current: runtime.availability };
     const lifecycle = codexAppServerLifecycle || createCodexAppServerLifecycle({
       codexCommand,
-      maxProcesses: codexAppServerMaxProcesses,
+      maxProcesses: resolveCodexAppServerLifecycleMaxProcesses(codexAppServerMaxProcesses),
       metrics: codexAppServerMetrics || null
     });
     adapters.set('codex-app-server', new CodexAppServerConversationAdapter({
@@ -365,6 +366,11 @@ function createCodexAppServerProbe({ lifecycle, initializeTimeoutMs = 10000, shu
   };
 }
 
+function resolveCodexAppServerLifecycleMaxProcesses(conversationLimit = null) {
+  const conversation = normalizePositiveInteger(conversationLimit, DEFAULT_POOL_LIMITS.conversation);
+  return DEFAULT_POOL_LIMITS.discovery + conversation + DEFAULT_POOL_LIMITS.mutation;
+}
+
 function createCodexAppServerModelLister({ lifecycle, initializeTimeoutMs = 10000, requestTimeoutMs = 10000, shutdownGraceMs = 250 } = {}) {
   return async function listCodexAppServerModels() {
     if (!lifecycle || typeof lifecycle.spawn !== 'function') return null;
@@ -403,6 +409,13 @@ function parseBooleanEnv(value, defaultValue = false) {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   return defaultValue;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 1) return fallback;
+  return Math.floor(numeric);
 }
 
 function notImplementedConversationAdapter(label) {
@@ -454,5 +467,6 @@ if (require.main === module) {
 module.exports = {
   createApp,
   createCodexAppServerProbe,
-  createCodexAppServerModelLister
+  createCodexAppServerModelLister,
+  resolveCodexAppServerLifecycleMaxProcesses
 };

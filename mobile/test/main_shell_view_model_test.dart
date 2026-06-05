@@ -3,14 +3,37 @@ import 'package:lan_ai_cli_control/src/shell/app_route.dart';
 import 'package:lan_ai_cli_control/src/ui/main/main_shell_view_model.dart';
 
 void main() {
+  test('defaults to coding as the root tab', () {
+    final viewModel = MainShellViewModel();
+    addTearDown(viewModel.dispose);
+
+    expect(viewModel.activeTab, MainShellViewModel.codingTabIndex);
+    expect(viewModel.openSessionListRequest, 0);
+  });
+
   test('selectTab changes only shell state', () {
     final viewModel = MainShellViewModel();
+    addTearDown(viewModel.dispose);
 
-    viewModel.selectTab(1);
+    viewModel.selectTab(MainShellViewModel.codexTabIndex);
 
-    expect(viewModel.activeTab, 1);
+    expect(viewModel.activeTab, MainShellViewModel.codexTabIndex);
     expect(viewModel.activeRoute, RoutePage.tabs);
+    expect(viewModel.openSessionListRequest, 0);
+
+    viewModel.selectTab(MainShellViewModel.codingTabIndex);
+
+    expect(viewModel.activeTab, MainShellViewModel.codingTabIndex);
     expect(viewModel.openSessionListRequest, 1);
+  });
+
+  test('selectTab clamps removed or invalid tab indexes', () {
+    final viewModel = MainShellViewModel();
+    addTearDown(viewModel.dispose);
+
+    viewModel.selectTab(99);
+
+    expect(viewModel.activeTab, MainShellViewModel.settingsTabIndex);
   });
 
   test('overlay is independent from business data', () {

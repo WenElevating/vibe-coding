@@ -158,7 +158,7 @@ void main() {
 
     expect(find.text('History'), findsOneWidget);
     expect(find.text('Discovery'), findsOneWidget);
-    expect(find.text('Risk Controls'), findsOneWidget);
+    expect(find.text('Risk'), findsOneWidget);
     expect(find.text('Fix auth'), findsOneWidget);
     expect(find.text('Open'), findsOneWidget);
 

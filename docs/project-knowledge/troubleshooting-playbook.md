@@ -561,6 +561,30 @@ flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r ex
 
 - Last verified: 2026-06-04
 
+## Symptom: Codex App Server History Shows Maximum Process Limit Error
+
+- Symptom: the mobile Codex app-server History, Discovery, or Risk Control page
+  shows `DaemonClientException(500, ... maximum Codex app-server process limit
+  reached ...)` instead of a controlled busy state or route data.
+- Action: inspect the boundary between `CodexAppServerService` pool limits and
+  the shared `CodexAppServerLifecycle` max process limit. The service uses
+  physically separated discovery, conversation, and mutation pools; the
+  lifecycle global limit must be at least the sum of those default pool
+  capacities. If the lifecycle is left at its historical default of 1, the first
+  active app-server process can make unrelated read-only History/Discovery
+  requests fail with a raw lifecycle error.
+- Related files:
+  [main.js](../../daemon/src/main.js),
+  [service.js](../../daemon/src/codex-app-server/service.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js --plain-name "Codex app-server lifecycle default limit covers isolated service pools"
+npm run lint
+```
+
+- Last verified: 2026-06-05
+
 ## Symptom: ASR Model Download Fails With Missing `.zip.part`
 
 - Symptom: mobile voice-model preparation fails with a missing

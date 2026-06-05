@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../domain/models/codex_app_server_models.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../../../core/widgets/widgets.dart';
+import 'codex_app_server_ui.dart';
 
 class CodexAppServerDiscoveryView extends StatelessWidget {
   const CodexAppServerDiscoveryView({
@@ -19,13 +20,12 @@ class CodexAppServerDiscoveryView extends StatelessWidget {
     final discovery = this.discovery;
     return PageScroll(
       children: [
-        const SizedBox(height: 14),
         _MetricStrip(
           totalMethods: capabilities?.totalMethods ?? 0,
           providers: _count(discovery?.models['providers']),
           mcpServers: _count(discovery?.mcpServers['servers']),
         ),
-        const SizedBox(height: 14),
+        const CodexSectionHeader(label: 'Status'),
         _StatusSection(
           modelsStatus:
               _availableStatus(_count(discovery?.models['providers'])),
@@ -37,36 +37,57 @@ class CodexAppServerDiscoveryView extends StatelessWidget {
                   ? 'Available'
                   : 'Empty',
         ),
-        const SizedBox(height: 14),
-        _DiscoverySection(
-          title: 'Models',
-          icon: Icons.auto_awesome_rounded,
-          count: _count(discovery?.models['providers']),
+        const CodexSectionHeader(
+          label: 'Discovery',
+          trailing: 'Read-only',
         ),
-        _DiscoverySection(
-          title: 'MCP Servers',
-          icon: Icons.hub_rounded,
-          count: _count(discovery?.mcpServers['servers']),
-        ),
-        _DiscoverySection(
-          title: 'Skills',
-          icon: Icons.psychology_rounded,
-          count: _count(discovery?.skills['skills']),
-        ),
-        _DiscoverySection(
-          title: 'Plugins',
-          icon: Icons.extension_rounded,
-          count: _count(discovery?.plugins['plugins']),
-        ),
-        _DiscoverySection(
-          title: 'Apps',
-          icon: Icons.apps_rounded,
-          count: _count(discovery?.apps['apps']),
-        ),
-        _DiscoverySection(
-          title: 'Config',
-          icon: Icons.tune_rounded,
-          count: discovery?.config.isEmpty == false ? 1 : 0,
+        CodexSurface(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              _DiscoveryRow(
+                title: 'Models',
+                detail: 'Configured model providers',
+                icon: Icons.auto_awesome_outlined,
+                count: _count(discovery?.models['providers']),
+              ),
+              const Divider(height: 1, color: codexLine),
+              _DiscoveryRow(
+                title: 'MCP Servers',
+                detail: 'Connected tool servers',
+                icon: Icons.hub_outlined,
+                count: _count(discovery?.mcpServers['servers']),
+              ),
+              const Divider(height: 1, color: codexLine),
+              _DiscoveryRow(
+                title: 'Skills',
+                detail: 'Codex skill entries',
+                icon: Icons.psychology_outlined,
+                count: _count(discovery?.skills['skills']),
+              ),
+              const Divider(height: 1, color: codexLine),
+              _DiscoveryRow(
+                title: 'Plugins',
+                detail: 'Installed plugin surfaces',
+                icon: Icons.extension_outlined,
+                count: _count(discovery?.plugins['plugins']),
+              ),
+              const Divider(height: 1, color: codexLine),
+              _DiscoveryRow(
+                title: 'Apps',
+                detail: 'Registered app integrations',
+                icon: Icons.apps_outlined,
+                count: _count(discovery?.apps['apps']),
+              ),
+              const Divider(height: 1, color: codexLine),
+              _DiscoveryRow(
+                title: 'Config',
+                detail: 'Resolved app-server config',
+                icon: Icons.tune_outlined,
+                count: discovery?.config.isEmpty == false ? 1 : 0,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -86,12 +107,8 @@ class _StatusSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF101113),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: .07)),
-      ),
+    return CodexSurface(
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           _StatusRow(label: 'Model status', value: modelsStatus),
@@ -150,14 +167,16 @@ class _MetricStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: _Metric(label: 'Methods', value: '$totalMethods')),
-        const SizedBox(width: 8),
-        Expanded(child: _Metric(label: 'Providers', value: '$providers')),
-        const SizedBox(width: 8),
-        Expanded(child: _Metric(label: 'MCP', value: '$mcpServers')),
-      ],
+    return CodexSurface(
+      child: Row(
+        children: [
+          Expanded(child: _Metric(label: 'Methods', value: '$totalMethods')),
+          const _MetricDivider(),
+          Expanded(child: _Metric(label: 'Providers', value: '$providers')),
+          const _MetricDivider(),
+          Expanded(child: _Metric(label: 'MCP', value: '$mcpServers')),
+        ],
+      ),
     );
   }
 }
@@ -170,79 +189,94 @@ class _Metric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF101113),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: .07)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                color: theme.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              )),
-          const SizedBox(height: 4),
-          Text(value,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-              )),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+              color: theme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            )),
+        const SizedBox(height: 4),
+        Text(value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            )),
+      ],
     );
   }
 }
 
-class _DiscoverySection extends StatelessWidget {
-  const _DiscoverySection({
+class _MetricDivider extends StatelessWidget {
+  const _MetricDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 34, color: codexLine);
+  }
+}
+
+class _DiscoveryRow extends StatelessWidget {
+  const _DiscoveryRow({
     required this.title,
+    required this.detail,
     required this.icon,
     required this.count,
   });
 
   final String title;
+  final String detail;
   final IconData icon;
   final int count;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF101113),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withValues(alpha: .07)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: const Color(0xFF8DB4FF)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: codexAccent.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, color: codexAccent, size: 17),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 3),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: theme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '$count',
-              style: const TextStyle(
-                color: theme.muted,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
+          ),
+          CodexStatusPill(
+            label: '$count',
+            color: count > 0 ? codexAccent : theme.faint,
+          ),
+        ],
       ),
     );
   }

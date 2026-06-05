@@ -6,6 +6,7 @@ import '../view_models/codex_app_server_view_model.dart';
 import '../widgets/codex_app_server_discovery_view.dart';
 import '../widgets/codex_app_server_history_view.dart';
 import '../widgets/codex_app_server_risk_view.dart';
+import '../widgets/codex_app_server_ui.dart';
 
 class CodexAppServerPage extends StatelessWidget {
   const CodexAppServerPage({
@@ -31,8 +32,9 @@ class CodexAppServerPage extends StatelessWidget {
               TopBar(
                 title: 'Codex app-server',
                 subtitle: workspace?.name ?? 'No workspace selected',
+                statusLabel: state.loading ? 'syncing' : 'ready',
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: _CodexAppServerTabs(),
@@ -74,19 +76,27 @@ class _CodexAppServerTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
+      height: 40,
       decoration: BoxDecoration(
-        color: const Color(0xFF101113),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: .08)),
+        color: codexPanel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: codexLine),
       ),
       child: const TabBar(
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
+        labelPadding: EdgeInsets.zero,
+        labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        unselectedLabelStyle:
+            TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        indicator: BoxDecoration(
+          color: codexPanelHi,
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
         tabs: [
           Tab(text: 'History'),
           Tab(text: 'Discovery'),
-          Tab(text: 'Risk Controls'),
+          Tab(text: 'Risk'),
         ],
       ),
     );
@@ -104,8 +114,8 @@ class _CodexAppServerError extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF3A1616),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF2B1717),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFF7F2B2B)),
       ),
       child: Text(

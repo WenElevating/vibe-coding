@@ -3,6 +3,11 @@ import 'package:flutter/foundation.dart';
 import '../../shell/app_route.dart';
 
 class MainShellViewModel extends ChangeNotifier {
+  static const int codingTabIndex = 0;
+  static const int codexTabIndex = 1;
+  static const int settingsTabIndex = 2;
+  static const int tabCount = 3;
+
   int _activeTab = 0;
   bool _streamOutput = false;
   bool _expandThinking = false;
@@ -33,9 +38,9 @@ class MainShellViewModel extends ChangeNotifier {
   }
 
   void selectTab(int index) {
-    _activeTab = index;
+    _activeTab = index.clamp(0, tabCount - 1);
     _activeRoute = RoutePage.tabs;
-    if (index == 1) {
+    if (_activeTab == codingTabIndex) {
       _codingSessionListOpen = true;
       _openSessionListRequest++;
     }

@@ -9,11 +9,10 @@ import '../../shell/app_route.dart';
 import '../core/widgets/widgets.dart';
 import '../features/codex_app_server/codex_app_server.dart';
 import '../features/settings/settings.dart'
-    show AppUpdateViewModel, SettingsViewModel;
+    show AppUpdateViewModel, SettingsPage, SettingsViewModel;
 import '../main_route_overlay.dart';
 import '../main_tab_items.dart';
 import '../mobile_ui_frame.dart';
-import '../pages/pages.dart';
 import 'main_shell_view_model.dart';
 import 'widgets/main_error_banner.dart';
 import 'widgets/main_loading_overlay.dart';
@@ -23,7 +22,6 @@ class ConnectedMainShell extends StatelessWidget {
     super.key,
     required this.viewModel,
     required this.initialData,
-    required this.homeViewModel,
     required this.settingsViewModel,
     required this.codexAppServerViewModel,
     required this.appUpdateViewModel,
@@ -41,7 +39,6 @@ class ConnectedMainShell extends StatelessWidget {
 
   final MainShellViewModel viewModel;
   final DaemonInitialData initialData;
-  final HomeViewModel homeViewModel;
   final SettingsViewModel settingsViewModel;
   final CodexAppServerViewModel codexAppServerViewModel;
   final AppUpdateViewModel? appUpdateViewModel;
@@ -59,15 +56,7 @@ class ConnectedMainShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final pages = [
-      HomePage(
-        open: viewModel.openOverlay,
-        selectTab: viewModel.selectTab,
-        viewModel: homeViewModel,
-        health: initialData.health,
-        onCreateWorkspace: onCreateWorkspace,
-        onOpenWorkspace: onOpenWorkspace,
-      ),
+    final pages = <Widget>[
       codingTab,
       CodexAppServerPage(
         viewModel: codexAppServerViewModel,
@@ -93,7 +82,10 @@ class ConnectedMainShell extends StatelessWidget {
           child: Stack(
             children: [
               viewModel.activeRoute == RoutePage.tabs
-                  ? IndexedStack(index: viewModel.activeTab, children: pages)
+                  ? IndexedStack(
+                      index: viewModel.activeTab.clamp(0, pages.length - 1),
+                      children: pages,
+                    )
                   : MainRouteOverlay(
                       route: viewModel.activeRoute,
                       connectedData: connectedData,
@@ -109,7 +101,8 @@ class ConnectedMainShell extends StatelessWidget {
           ),
         ),
         bottomNavigationBar: viewModel.activeRoute == RoutePage.tabs &&
-                (viewModel.activeTab != 1 || viewModel.codingSessionListOpen)
+                (viewModel.activeTab != MainShellViewModel.codingTabIndex ||
+                    viewModel.codingSessionListOpen)
             ? BottomNav(
                 selected: viewModel.activeTab,
                 items: mainTabItems(l10n),

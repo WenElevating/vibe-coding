@@ -3018,6 +3018,14 @@ test('Codex app-server service returns controlled busy errors when pools are exh
   );
 });
 
+test('Codex app-server lifecycle default limit covers isolated service pools', () => {
+  const { resolveCodexAppServerLifecycleMaxProcesses } = require('../daemon/src/main');
+
+  assert.equal(resolveCodexAppServerLifecycleMaxProcesses(), 7);
+  assert.equal(resolveCodexAppServerLifecycleMaxProcesses(2), 5);
+  assert.equal(resolveCodexAppServerLifecycleMaxProcesses('6'), 9);
+});
+
 test('Codex app-server conversation pool reserves capacity before callback completes', async () => {
   const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
   let releaseFirst;

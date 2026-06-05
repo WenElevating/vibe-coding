@@ -1972,14 +1972,14 @@ void main() {
     expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
   });
 
-  testWidgets('connected startup renders bootstrap home without refetching',
+  testWidgets('connected startup opens coding without bootstrap refetching',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     _setMockPackageInfo();
     final client = _NoBootstrapRefreshClient();
     addTearDown(client.close);
-    HomeViewModel? openedHomeViewModel;
+    var createdHomeViewModels = 0;
     final dependencies = AppDependencies.createDefault();
     final testDependencies = AppDependencies(
       network: dependencies.network,
@@ -1989,11 +1989,11 @@ void main() {
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
         createHomeViewModel: (connectedData, {signalMetrics}) {
+          createdHomeViewModels += 1;
           final viewModel = _defaultTestHomeViewModelFactory(
             connectedData,
             signalMetrics: signalMetrics,
           );
-          openedHomeViewModel = viewModel;
           return viewModel;
         },
         createDiagnosticsViewModel:
@@ -2033,9 +2033,9 @@ void main() {
     ));
     await _pumpNavigationFrame(tester);
 
-    final deck = openedHomeViewModel?.deck;
-    expect(deck?.now.id, 'queue:run_bootstrap');
-    expect(deck?.signals.queue, 1);
+    expect(createdHomeViewModels, 0);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.text('Home'), findsNothing);
     expect(client.listWorkspacesCalls, 0);
     expect(client.listConversationsCalls, 0);
     expect(client.listRunsCalls, 0);
@@ -2691,8 +2691,9 @@ void main() {
 
     expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
     expect(find.byType(BottomNav), findsOneWidget);
-    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Home'), findsNothing);
     expect(find.text('Coding'), findsOneWidget);
+    expect(find.text('Codex'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Workspaces'), findsOneWidget);
 
@@ -6433,20 +6434,18 @@ void main() {
     expect(find.text('Select workspace for this coding session'), findsNothing);
   });
 
-  testWidgets('returning to coding tab shows workspace list',
+  testWidgets('returning to coding tab from Codex shows workspace list',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Coding'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
 
-    await tester.tap(find.text('Home'));
+    await tester.tap(find.text('Codex'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
@@ -6507,15 +6506,13 @@ void main() {
     expect(find.text('Created Project'), findsOneWidget);
   });
 
-  testWidgets('system back walks coding nested navigator before home',
+  testWidgets('system back walks coding nested navigator before app exit',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
     await tester.pumpWidget(_MainHarness(client: _AdapterRefreshClient()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Coding'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Current Project'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('session-new-button')));
@@ -6536,11 +6533,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
 
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    expect(find.text('vibe-coding'), findsWidgets);
-    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
   });
 
   testWidgets('system back returns conversation to sessions',

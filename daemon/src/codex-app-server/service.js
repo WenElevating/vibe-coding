@@ -5,6 +5,11 @@ const { CodexAppServerClient } = require('./client');
 const DEFAULT_DISCOVERY_LIMIT = 2;
 const DEFAULT_CONVERSATION_LIMIT = Math.max(1, Number(process.env.CODEX_APP_SERVER_MAX_PROCESSES) || 4);
 const DEFAULT_MUTATION_LIMIT = 1;
+const DEFAULT_POOL_LIMITS = Object.freeze({
+  discovery: DEFAULT_DISCOVERY_LIMIT,
+  conversation: DEFAULT_CONVERSATION_LIMIT,
+  mutation: DEFAULT_MUTATION_LIMIT
+});
 
 class CodexAppServerBusyError extends Error {
   constructor(message, { pool, key } = {}) {
@@ -585,5 +590,6 @@ const CLIENT_METHOD_TO_APP_SERVER_METHOD = Object.freeze({
 
 module.exports = {
   CodexAppServerBusyError,
+  DEFAULT_POOL_LIMITS,
   CodexAppServerService
 };
