@@ -584,7 +584,7 @@ async function mutationRoute(context, json, { method, risk, action }) {
   }
 }
 
-async function threadMutationRoute(context, json, { workspace, threadId, method, event, preflight = null, action }) {
+async function threadMutationRoute(context, json, { workspace, threadId, method, event, preflight = preflightThreadWorkspaceOwnership, skipPreflight = false, action }) {
   const correlationId = createCorrelationId();
   const risk = 'write';
   const metadata = {
@@ -596,7 +596,7 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
   };
   try {
     const response = await requireService(context).withMutationClient(metadata, async (client) => {
-      if (preflight) await preflight({ client, workspace, threadId });
+      if (!skipPreflight && preflight) await preflight({ client, workspace, threadId });
       return action(client);
     });
     recordCodexAppServerAudit(context.auditLog, event, {
@@ -636,8 +636,10 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
       decision: 'allow',
       result: 'failure',
       errorCode: sanitized.downstreamCode || sanitized.errorCode,
+      downstreamStatus: sanitized.downstreamStatus,
       correlationId
     });
+    if (isSafeLocalInfrastructureError(error)) throw error;
     throw controlledThreadMutationError();
   }
 }
@@ -880,6 +882,13 @@ function sanitizeThreadMutationError(error) {
     downstreamStatus: safeDownstreamStatus(error?.status),
     downstreamCode: safeDownstreamCode(error?.code)
   };
+}
+
+function isSafeLocalInfrastructureError(error) {
+  const status = safeDownstreamStatus(error?.status);
+  const code = safeDownstreamCode(error?.code);
+  if (!status || !code) return false;
+  return /^(CODEX_APP_SERVER_|BAD_REQUEST|FORBIDDEN|WORKSPACE_|AUTH_|CONVERSATION_|RUN_|ADAPTER_|CLAUDE_|OPENCODE_|GIT_|ATTACHMENT_|UNSUPPORTED_MEDIA_TYPE)/.test(code);
 }
 
 function redactAccountSensitiveText(text) {

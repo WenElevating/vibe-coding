@@ -12,6 +12,7 @@ function recordCodexAppServerAudit(auditLog, event, details) {
     decision: details.decision || null,
     result: details.result || (details.ok === true ? 'success' : 'failure'),
     errorCode: details.errorCode || null,
+    downstreamStatus: details.downstreamStatus || null,
     correlationId: details.correlationId || null
   });
 }

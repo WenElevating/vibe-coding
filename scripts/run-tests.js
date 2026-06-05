@@ -1488,7 +1488,7 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
     assert.deepEqual(calls.find((call) => call.method === 'rollbackThread').options, { threadId: 'thread_1', turnId: 'turn_1', itemId: 'item_1' });
     assert.deepEqual(calls.find((call) => call.method === 'setThreadGoal').options, { threadId: 'thread_1', goal: { objective: 'Ship it' } });
     assert.deepEqual(
-      calls.filter((call) => call.method === 'readThread' || call.method.endsWith('Thread')).map((call) => call.method),
+      calls.filter((call) => call.method !== 'withMutationClient').map((call) => call.method),
       [
         'readThread',
         'forkThread',
@@ -1497,7 +1497,19 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
         'readThread',
         'unarchiveThread',
         'readThread',
-        'rollbackThread'
+        'rollbackThread',
+        'readThread',
+        'updateThreadMetadata',
+        'readThread',
+        'setThreadName',
+        'readThread',
+        'updateThreadSettings',
+        'readThread',
+        'setThreadMemoryMode',
+        'readThread',
+        'setThreadGoal',
+        'readThread',
+        'clearThreadGoal'
       ]
     );
     const records = app.auditLog.list().filter((record) => record.type.startsWith('codex_app_server.thread_'));
@@ -1521,10 +1533,16 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
 
 test('Codex app-server gated thread mutation routes reject metadata outside authorized workspace', async () => {
   const routes = [
-    { method: 'thread/fork', auditType: 'codex_app_server.thread_fork', mutation: 'forkThread', route: 'fork', body: { fromTurnId: 'turn_1' } },
-    { method: 'thread/archive', auditType: 'codex_app_server.thread_archive', mutation: 'archiveThread', route: 'archive', body: undefined },
-    { method: 'thread/unarchive', auditType: 'codex_app_server.thread_unarchive', mutation: 'unarchiveThread', route: 'unarchive', body: undefined },
-    { method: 'thread/rollback', auditType: 'codex_app_server.thread_rollback', mutation: 'rollbackThread', route: 'rollback', body: { turnId: 'turn_1' } }
+    { method: 'thread/fork', auditType: 'codex_app_server.thread_fork', mutation: 'forkThread', httpMethod: 'POST', route: 'fork', body: { fromTurnId: 'turn_1' } },
+    { method: 'thread/archive', auditType: 'codex_app_server.thread_archive', mutation: 'archiveThread', httpMethod: 'POST', route: 'archive', body: undefined },
+    { method: 'thread/unarchive', auditType: 'codex_app_server.thread_unarchive', mutation: 'unarchiveThread', httpMethod: 'POST', route: 'unarchive', body: undefined },
+    { method: 'thread/rollback', auditType: 'codex_app_server.thread_rollback', mutation: 'rollbackThread', httpMethod: 'POST', route: 'rollback', body: { turnId: 'turn_1' } },
+    { method: 'thread/metadata/update', auditType: 'codex_app_server.thread_metadata_update', mutation: 'updateThreadMetadata', httpMethod: 'PATCH', route: 'metadata', body: { metadata: { pinned: true } } },
+    { method: 'thread/name/set', auditType: 'codex_app_server.thread_name_set', mutation: 'setThreadName', httpMethod: 'PATCH', route: 'name', body: { name: 'Renamed' } },
+    { method: 'thread/settings/update', auditType: 'codex_app_server.thread_settings_update', mutation: 'updateThreadSettings', httpMethod: 'PATCH', route: 'settings', body: { settings: { model: 'gpt-5' } } },
+    { method: 'thread/memoryMode/set', auditType: 'codex_app_server.thread_memory_mode_set', mutation: 'setThreadMemoryMode', httpMethod: 'PATCH', route: 'memory-mode', body: { memoryMode: 'auto' } },
+    { method: 'thread/goal/set', auditType: 'codex_app_server.thread_goal_set', mutation: 'setThreadGoal', httpMethod: 'PUT', route: 'goal', body: { goal: { objective: 'Ship it' } } },
+    { method: 'thread/goal/clear', auditType: 'codex_app_server.thread_goal_clear', mutation: 'clearThreadGoal', httpMethod: 'DELETE', route: 'goal', body: undefined }
   ];
 
   for (const workspacePath of [path.join(os.tmpdir(), 'other-workspace'), undefined]) {
@@ -1553,6 +1571,30 @@ test('Codex app-server gated thread mutation routes reject metadata outside auth
             async rollbackThread(options) {
               calls.push({ method: 'rollbackThread', options });
               return {};
+            },
+            async updateThreadMetadata(options) {
+              calls.push({ method: 'updateThreadMetadata', options });
+              return {};
+            },
+            async setThreadName(options) {
+              calls.push({ method: 'setThreadName', options });
+              return {};
+            },
+            async updateThreadSettings(options) {
+              calls.push({ method: 'updateThreadSettings', options });
+              return {};
+            },
+            async setThreadMemoryMode(options) {
+              calls.push({ method: 'setThreadMemoryMode', options });
+              return {};
+            },
+            async setThreadGoal(options) {
+              calls.push({ method: 'setThreadGoal', options });
+              return {};
+            },
+            async clearThreadGoal(options) {
+              calls.push({ method: 'clearThreadGoal', options });
+              return {};
             }
           });
         }
@@ -1560,10 +1602,14 @@ test('Codex app-server gated thread mutation routes reject metadata outside auth
       const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_thread_preflight' });
 
       try {
-        const response = await app.post(
-          `/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/${route.route}`,
-          route.body
-        );
+        const routePath = `/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/${route.route}`;
+        const response = route.httpMethod === 'PATCH'
+          ? await app.patch(routePath, route.body)
+          : route.httpMethod === 'PUT'
+            ? await app.put(routePath, route.body)
+            : route.httpMethod === 'DELETE'
+              ? await app.delete(routePath, route.body)
+              : await app.post(routePath, route.body);
 
         assert.equal(response.status, 403, `${route.method} ${workspacePath}`);
         assert.equal(response.body.error.code, 'FORBIDDEN', route.method);
@@ -1680,6 +1726,33 @@ test('Codex app-server thread mutation failures return controlled redacted error
     }
     assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result, record.errorCode]), [
       ['thread/archive', app.workspace.id, 'thread_1', 'device_thread_failure', 'write', 'allow', 'failure', 'UPSTREAM_THREAD_SECRET_FAILURE']
+    ]);
+    assert.equal(records[0].downstreamStatus, 409);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server thread mutation preserves safe local infrastructure errors', async () => {
+  const service = {
+    async withMutationClient() {
+      const error = new Error('Codex app-server mutation pool is busy');
+      error.status = 503;
+      error.code = 'CODEX_APP_SERVER_BUSY';
+      throw error;
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_thread_local_error' });
+
+  try {
+    const response = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/archive`);
+    const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.thread_archive');
+
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_BUSY');
+    assert.equal(response.body.error.message, 'Codex app-server mutation pool is busy');
+    assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result, record.errorCode, record.downstreamStatus]), [
+      ['thread/archive', app.workspace.id, 'thread_1', 'device_thread_local_error', 'write', 'allow', 'failure', 'CODEX_APP_SERVER_BUSY', 503]
     ]);
   } finally {
     await app.close();
