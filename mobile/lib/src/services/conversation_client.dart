@@ -19,19 +19,10 @@ class ConversationClient {
   final http.Client _httpClient;
   String? _deviceId;
   String? _token;
-  String? _lastCodexAppServerWorkspaceId;
 
   Future<void> attachDevice(String deviceId) async {
     _deviceId = deviceId;
     _token = await tokenStore.readDeviceToken(deviceId);
-  }
-
-  void close() {
-    _httpClient.close();
-  }
-
-  void attachCurrentToken(String? token) {
-    _token = token;
   }
 
   Future<List<ConversationSummary>> listConversations() async {
@@ -181,26 +172,19 @@ class ConversationClient {
     String workspaceId, {
     int limit = 50,
   }) {
-    _lastCodexAppServerWorkspaceId = workspaceId;
     final query = Uri(queryParameters: <String, String>{
       'limit': limit.toString(),
     }).query;
     return _get(
       '/api/codex-app-server/workspaces/'
-      '${Uri.encodeComponent(workspaceId)}/threads/search?$query',
+      '${Uri.encodeComponent(workspaceId)}/threads?$query',
     );
   }
 
   Future<Map<String, Object?>> readCodexAppServerThread(
+    String workspaceId,
     String threadId,
   ) {
-    final workspaceId = _lastCodexAppServerWorkspaceId;
-    if (workspaceId == null || workspaceId.isEmpty) {
-      throw StateError(
-        'Codex app-server readThread requires listThreads to establish '
-        'workspace scope.',
-      );
-    }
     return _get(
       '/api/codex-app-server/workspaces/'
       '${Uri.encodeComponent(workspaceId)}/threads/'

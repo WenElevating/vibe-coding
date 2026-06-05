@@ -1,14 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/models/codex_app_server_models.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/codex_app_server_repository.dart';
-import 'package:lan_ai_cli_control/src/services/conversation_client.dart';
-import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
-
-import 'support/fake_http.dart';
 
 void main() {
   test('CodexAppServerThreadSummary parses stable daemon DTO', () {
-    final summary = CodexAppServerThreadSummary.fromJson(const {
+    final summary = parseCodexAppServerThreadSummary(const {
       'id': 'thread_1',
       'title': 'Fix auth',
       'workspacePath': 'D:/Repo',
@@ -22,7 +18,7 @@ void main() {
   });
 
   test('CodexAppServerCapabilities derives total methods defensively', () {
-    final capabilities = CodexAppServerCapabilities.fromJson(const {
+    final capabilities = parseCodexAppServerCapabilities(const {
       'capabilityMatrix': {
         'totalMethods': '7',
       },
@@ -37,7 +33,7 @@ void main() {
   });
 
   test('CodexAppServerThreadPage parses list envelope and cursor', () {
-    final page = CodexAppServerThreadPage.fromJson(const {
+    final page = parseCodexAppServerThreadPage(const {
       'threads': [
         {
           'id': 'thread_1',
@@ -55,7 +51,7 @@ void main() {
 
   test('CodexAppServerDiscoverySnapshot preserves discovery route payloads',
       () {
-    final snapshot = CodexAppServerDiscoverySnapshot.fromJson(const {
+    final snapshot = parseCodexAppServerDiscoverySnapshot(const {
       'models': {
         'providers': [
           {'id': 'openai'}
@@ -96,50 +92,45 @@ void main() {
 
   test('repository maps Codex app-server calls to daemon routes', () async {
     final requests = <String>[];
-    final client = ConversationClient(
-      baseUri: Uri.parse('http://127.0.0.1:4317'),
-      tokenStore: MemoryTokenStore(),
-      httpClient: FakeHttpClient((request) {
-        requests.add(request.url.path +
-            (request.url.hasQuery ? '?${request.url.query}' : ''));
-        switch (request.url.path) {
+    final repository = DaemonCodexAppServerRepository(
+      getJson: (path) async {
+        requests.add(path);
+        switch (path) {
           case '/api/codex-app-server/capabilities':
-            return jsonResponse(const {
+            return const {
               'capabilityMatrix': {'totalMethods': 3},
               'routes': [],
-            });
-          case '/api/codex-app-server/workspaces/workspace_1/threads/search':
-            expect(request.url.queryParameters['limit'], '5');
-            return jsonResponse(const {
+            };
+          case '/api/codex-app-server/workspaces/workspace_1/threads?limit=5':
+            return const {
               'threads': [
                 {'id': 'thread_1', 'title': 'Fix auth'}
               ],
-            });
+            };
           case '/api/codex-app-server/workspaces/workspace_1/threads/thread_1':
-            return jsonResponse(const {
+            return const {
               'thread': {'id': 'thread_1', 'title': 'Fix auth'},
-            });
+            };
           case '/api/codex-app-server/model-provider-capabilities':
-            return jsonResponse(const {'providers': []});
+            return const {'providers': []};
           case '/api/codex-app-server/mcp/servers':
-            return jsonResponse(const {'servers': []});
+            return const {'servers': []};
           case '/api/codex-app-server/skills':
-            return jsonResponse(const {'skills': []});
+            return const {'skills': []};
           case '/api/codex-app-server/plugins':
-            return jsonResponse(const {'plugins': []});
+            return const {'plugins': []};
           case '/api/codex-app-server/apps':
-            return jsonResponse(const {'apps': []});
+            return const {'apps': []};
           case '/api/codex-app-server/config':
-            return jsonResponse(const {'config': {}});
+            return const {'config': <String, Object?>{}};
         }
-        fail('Unexpected request: ${request.url}');
-      }),
+        fail('Unexpected request: $path');
+      },
     );
-    final repository = DaemonCodexAppServerRepository(client: client);
 
     final capabilities = await repository.loadCapabilities();
     final page = await repository.listThreads('workspace_1', limit: 5);
-    final detail = await repository.readThread('thread_1');
+    final detail = await repository.readThread('workspace_1', 'thread_1');
     final discovery = await repository.loadDiscovery();
 
     expect(capabilities.totalMethods, 3);
@@ -150,31 +141,45 @@ void main() {
       requests,
       containsAllInOrder(const <String>[
         '/api/codex-app-server/capabilities',
-        '/api/codex-app-server/workspaces/workspace_1/threads/search?limit=5',
+        '/api/codex-app-server/workspaces/workspace_1/threads?limit=5',
         '/api/codex-app-server/workspaces/workspace_1/threads/thread_1',
         '/api/codex-app-server/model-provider-capabilities',
+        '/api/codex-app-server/mcp/servers',
+        '/api/codex-app-server/skills',
+        '/api/codex-app-server/plugins',
+        '/api/codex-app-server/apps',
+        '/api/codex-app-server/config',
       ]),
     );
   });
 
-  test('readThread requires a workspace-scoped list before route mapping', () {
+  test('readThread uses explicit workspace scope without list state', () async {
+    final requests = <String>[];
     final repository = DaemonCodexAppServerRepository(
-      client: ConversationClient(
-        baseUri: Uri.parse('http://127.0.0.1:4317'),
-        tokenStore: MemoryTokenStore(),
-        httpClient: FakeHttpClient((_) {
-          fail('readThread should fail before HTTP without workspace scope');
-        }),
-      ),
+      getJson: (path) async {
+        requests.add(path);
+        switch (path) {
+          case '/api/codex-app-server/workspaces/workspace_b/threads?limit=50':
+            return const {'threads': []};
+          case '/api/codex-app-server/workspaces/workspace_a/threads/thread_a':
+            return const {
+              'thread': {'id': 'thread_a', 'title': 'Fix auth'},
+            };
+        }
+        fail('Unexpected request: $path');
+      },
     );
 
+    await repository.listThreads('workspace_b');
+    final detail = await repository.readThread('workspace_a', 'thread_a');
+
+    expect(detail.thread.id, 'thread_a');
     expect(
-      repository.readThread('thread_1'),
-      throwsA(isA<StateError>().having(
-        (error) => error.message,
-        'message',
-        contains('listThreads'),
-      )),
+      requests,
+      const <String>[
+        '/api/codex-app-server/workspaces/workspace_b/threads?limit=50',
+        '/api/codex-app-server/workspaces/workspace_a/threads/thread_a',
+      ],
     );
   });
 }

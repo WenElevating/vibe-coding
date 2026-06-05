@@ -159,6 +159,10 @@ class DaemonClient
     return response;
   }
 
+  Future<Map<String, Object?>> getAuthorizedJson(String path) {
+    return _get(path);
+  }
+
   Future<http.StreamedResponse> sendAuthorizedStream(
     http.BaseRequest Function(Uri baseUri, Map<String, String> headers) build,
   ) async {

@@ -24,6 +24,7 @@ import '../data/repositories/workspace_repository.dart';
 import '../data/services/conversation_event_cache_store.dart';
 import '../domain/models/daemon_connection_config.dart';
 import '../domain/models/daemon_initial_data.dart';
+import '../domain/models/codex_app_server_models.dart';
 import '../domain/repositories/adapter_repository.dart';
 import '../domain/repositories/app_update_repository.dart';
 import '../domain/repositories/auth_repository.dart';
@@ -39,7 +40,6 @@ import '../services/app_update_client.dart';
 import '../services/app_update_download_manager.dart';
 import '../services/asr_model_manager.dart';
 import '../services/background_download_bridge.dart';
-import '../services/conversation_client.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/daemon_notification_client.dart';
@@ -292,12 +292,8 @@ class DataDependencies {
       notificationService: notificationClient,
     );
     final rawRunRepository = DaemonRunRepository(client: client);
-    final codexAppServerClient = ConversationClient(
-      baseUri: client.baseUri,
-      tokenStore: client.tokenStore,
-    )..attachCurrentToken(client.currentToken);
     final codexAppServerRepository = DaemonCodexAppServerRepository(
-      client: codexAppServerClient,
+      getJson: client.getAuthorizedJson,
     );
     final conversationRepository = CachedConversationRepository(
       delegate: rawConversationRepository,
@@ -325,7 +321,6 @@ class DataDependencies {
       workspaceRepository: DaemonWorkspaceRepository(client: client),
       dispose: () async {
         await notificationClient.close();
-        codexAppServerClient.close();
       },
     );
   }
@@ -481,7 +476,10 @@ class _UnavailableCodexAppServerRepository implements CodexAppServerRepository {
   }
 
   @override
-  Future<CodexAppServerThreadDetail> readThread(String threadId) {
+  Future<CodexAppServerThreadDetail> readThread(
+    String workspaceId,
+    String threadId,
+  ) {
     throw UnsupportedError('Codex app-server repository is not configured.');
   }
 }
