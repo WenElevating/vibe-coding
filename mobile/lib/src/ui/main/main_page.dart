@@ -15,6 +15,7 @@ import '../../services/local_approval_notification_service.dart';
 import '../../services/mobile_app_event_bus.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
 import '../features/workspace_picker/workspace_picker.dart';
+import '../features/codex_app_server/codex_app_server.dart';
 import '../features/settings/settings.dart'
     show
         AppUpdateCheckTrigger,
@@ -56,6 +57,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   MainShellViewModel? _viewModel;
   HomeViewModel? _homeViewModel;
+  CodexAppServerViewModel? _codexAppServerViewModel;
   SettingsViewModel? _settingsViewModel;
   late final MobileAppEventBus _mobileAppEventBus;
   late final ApprovalNotificationHandler _approvalNotificationHandler;
@@ -325,6 +327,14 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       signalMetrics: const HomeWorkspaceSignalMetrics(),
     );
     _homeViewModel = homeViewModel;
+    final codexAppServerViewModel = CodexAppServerViewModel(
+      repository: _connectedData.codexAppServerRepository,
+    );
+    _codexAppServerViewModel = codexAppServerViewModel;
+    final workspaceId = data.workspace?.id;
+    if (workspaceId != null && workspaceId.isNotEmpty) {
+      unawaited(codexAppServerViewModel.load(workspaceId: workspaceId));
+    }
     _settingsViewModel =
         widget.pageDependencies.featureDependencies.createSettingsViewModel(
       connectedData: _connectedData,
@@ -337,6 +347,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   void _updateHomeViewModelInputs(DaemonInitialData data) {
     _homeViewModel?.updateSignalMetrics(const HomeWorkspaceSignalMetrics());
+    final workspaceId = data.workspace?.id;
+    if (workspaceId != null && workspaceId.isNotEmpty) {
+      unawaited(_codexAppServerViewModel?.load(workspaceId: workspaceId));
+    }
   }
 
   void _updateSettingsViewModelInputs(DaemonInitialData data) {
@@ -349,6 +363,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   void _disposeRepositoryBackedViewModels() {
     _homeViewModel?.dispose();
     _homeViewModel = null;
+    _codexAppServerViewModel?.dispose();
+    _codexAppServerViewModel = null;
     _settingsViewModel?.dispose();
     _settingsViewModel = null;
   }
@@ -412,10 +428,12 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     final viewModel = _viewModel;
     final initialData = _connectedInitialData;
     final homeViewModel = _homeViewModel;
+    final codexAppServerViewModel = _codexAppServerViewModel;
     final settingsViewModel = _settingsViewModel;
     if (viewModel == null ||
         initialData == null ||
         homeViewModel == null ||
+        codexAppServerViewModel == null ||
         settingsViewModel == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -424,6 +442,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       initialData: initialData,
       homeViewModel: homeViewModel,
       settingsViewModel: settingsViewModel,
+      codexAppServerViewModel: codexAppServerViewModel,
       appUpdateViewModel: _appUpdateViewModel,
       connectedData: _connectedData,
       repositories: _repositories,
