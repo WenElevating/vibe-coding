@@ -371,6 +371,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       threadId,
       method: 'thread/fork',
       event: 'thread_fork',
+      preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.forkThread(compactObject({
         threadId,
         workspacePath: workspaceRoot(workspace),
@@ -388,6 +389,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       threadId,
       method: 'thread/archive',
       event: 'thread_archive',
+      preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.archiveThread({ threadId })
     });
   }
@@ -401,6 +403,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       threadId,
       method: 'thread/unarchive',
       event: 'thread_unarchive',
+      preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.unarchiveThread({ threadId })
     });
   }
@@ -417,6 +420,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       threadId,
       method: 'thread/rollback',
       event: 'thread_rollback',
+      preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.rollbackThread(compactObject({
         threadId,
         turnId,
@@ -580,7 +584,7 @@ async function mutationRoute(context, json, { method, risk, action }) {
   }
 }
 
-async function threadMutationRoute(context, json, { workspace, threadId, method, event, action }) {
+async function threadMutationRoute(context, json, { workspace, threadId, method, event, preflight = null, action }) {
   const correlationId = createCorrelationId();
   const risk = 'write';
   const metadata = {
@@ -591,7 +595,10 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
     threadId
   };
   try {
-    const response = await requireService(context).withMutationClient(metadata, (client) => action(client));
+    const response = await requireService(context).withMutationClient(metadata, async (client) => {
+      if (preflight) await preflight({ client, workspace, threadId });
+      return action(client);
+    });
     recordCodexAppServerAudit(context.auditLog, event, {
       method,
       workspaceId: metadata.workspaceId,
@@ -605,6 +612,20 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;
   } catch (error) {
+    if (error?.threadWorkspaceOwnershipDenied === true) {
+      recordCodexAppServerAudit(context.auditLog, event, {
+        method,
+        workspaceId: metadata.workspaceId,
+        threadId,
+        deviceId: context.device?.id || null,
+        risk,
+        decision: 'deny',
+        result: 'failure',
+        errorCode: 'FORBIDDEN',
+        correlationId
+      });
+      throw error;
+    }
     const sanitized = sanitizeThreadMutationError(error);
     recordCodexAppServerAudit(context.auditLog, event, {
       method,
@@ -618,6 +639,16 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
       correlationId
     });
     throw controlledThreadMutationError();
+  }
+}
+
+async function preflightThreadWorkspaceOwnership({ client, workspace, threadId }) {
+  const response = await client.readThread({ threadId });
+  const workspacePath = response?.thread?.workspacePath || response?.workspacePath;
+  if (!workspacePath || !pathsReferToSameLocation(workspacePath, workspaceRoot(workspace))) {
+    throw Object.assign(forbidden('thread does not belong to authorized workspace'), {
+      threadWorkspaceOwnershipDenied: true
+    });
   }
 }
 
@@ -776,6 +807,11 @@ function resolveWorkspaceRelativePath(workspace, relativePath) {
   return resolved;
 }
 
+function pathsReferToSameLocation(left, right) {
+  if (!left || !right) return false;
+  return normalizePathForGuard(path.resolve(left)) === normalizePathForGuard(path.resolve(right));
+}
+
 function hasAbsolutePathSyntax(value) {
   const candidate = String(value || '');
   return path.isAbsolute(candidate) ||
@@ -806,6 +842,13 @@ function badRequest(message) {
   return Object.assign(new Error(message), {
     status: 400,
     code: 'BAD_REQUEST'
+  });
+}
+
+function forbidden(message) {
+  return Object.assign(new Error(message || 'forbidden'), {
+    status: 403,
+    code: 'FORBIDDEN'
   });
 }
 

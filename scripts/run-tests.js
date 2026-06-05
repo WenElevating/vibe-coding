@@ -1407,6 +1407,10 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
     async withMutationClient(metadata, callback) {
       calls.push({ method: 'withMutationClient', metadata });
       return callback({
+        async readThread(options) {
+          calls.push({ method: 'readThread', options });
+          return { thread: { id: options.threadId, workspacePath: path.join(app.workspace.path, '.') } };
+        },
         async forkThread(options) {
           calls.push({ method: 'forkThread', options });
           return { thread: { id: 'thread_forked', workspacePath: options.workspacePath } };
@@ -1483,6 +1487,19 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
     assert.equal(calls.find((call) => call.method === 'forkThread').options.workspacePath, app.workspace.path);
     assert.deepEqual(calls.find((call) => call.method === 'rollbackThread').options, { threadId: 'thread_1', turnId: 'turn_1', itemId: 'item_1' });
     assert.deepEqual(calls.find((call) => call.method === 'setThreadGoal').options, { threadId: 'thread_1', goal: { objective: 'Ship it' } });
+    assert.deepEqual(
+      calls.filter((call) => call.method === 'readThread' || call.method.endsWith('Thread')).map((call) => call.method),
+      [
+        'readThread',
+        'forkThread',
+        'readThread',
+        'archiveThread',
+        'readThread',
+        'unarchiveThread',
+        'readThread',
+        'rollbackThread'
+      ]
+    );
     const records = app.auditLog.list().filter((record) => record.type.startsWith('codex_app_server.thread_'));
     assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result]), [
       ['thread/fork', app.workspace.id, 'thread_1', 'device_thread_mutation', 'write', 'allow', 'success'],
@@ -1499,6 +1516,74 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
     assert.equal(records.every((record) => typeof record.timestamp === 'string' && typeof record.correlationId === 'string'), true);
   } finally {
     await app.close();
+  }
+});
+
+test('Codex app-server gated thread mutation routes reject metadata outside authorized workspace', async () => {
+  const routes = [
+    { method: 'thread/fork', auditType: 'codex_app_server.thread_fork', mutation: 'forkThread', route: 'fork', body: { fromTurnId: 'turn_1' } },
+    { method: 'thread/archive', auditType: 'codex_app_server.thread_archive', mutation: 'archiveThread', route: 'archive', body: undefined },
+    { method: 'thread/unarchive', auditType: 'codex_app_server.thread_unarchive', mutation: 'unarchiveThread', route: 'unarchive', body: undefined },
+    { method: 'thread/rollback', auditType: 'codex_app_server.thread_rollback', mutation: 'rollbackThread', route: 'rollback', body: { turnId: 'turn_1' } }
+  ];
+
+  for (const workspacePath of [path.join(os.tmpdir(), 'other-workspace'), undefined]) {
+    for (const route of routes) {
+      const calls = [];
+      const service = {
+        async withMutationClient(metadata, callback) {
+          calls.push({ method: 'withMutationClient', metadata });
+          return callback({
+            async readThread(options) {
+              calls.push({ method: 'readThread', options });
+              return { thread: { id: options.threadId, workspacePath } };
+            },
+            async forkThread(options) {
+              calls.push({ method: 'forkThread', options });
+              return {};
+            },
+            async archiveThread(options) {
+              calls.push({ method: 'archiveThread', options });
+              return {};
+            },
+            async unarchiveThread(options) {
+              calls.push({ method: 'unarchiveThread', options });
+              return {};
+            },
+            async rollbackThread(options) {
+              calls.push({ method: 'rollbackThread', options });
+              return {};
+            }
+          });
+        }
+      };
+      const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_thread_preflight' });
+
+      try {
+        const response = await app.post(
+          `/api/codex-app-server/workspaces/${app.workspace.id}/threads/thread_1/${route.route}`,
+          route.body
+        );
+
+        assert.equal(response.status, 403, `${route.method} ${workspacePath}`);
+        assert.equal(response.body.error.code, 'FORBIDDEN', route.method);
+        assert.deepEqual(calls.map((call) => call.method), ['withMutationClient', 'readThread'], route.method);
+        assert.equal(calls.some((call) => call.method === route.mutation), false, route.method);
+        assert.deepEqual(calls[0].metadata, {
+          method: route.method,
+          risk: 'write',
+          workspaceId: app.workspace.id,
+          workspacePath: app.workspace.path,
+          threadId: 'thread_1'
+        });
+        const records = app.auditLog.list().filter((record) => record.type === route.auditType);
+        assert.deepEqual(records.map((record) => [record.method, record.workspaceId, record.threadId, record.deviceId, record.risk, record.decision, record.result, record.errorCode]), [
+          [route.method, app.workspace.id, 'thread_1', 'device_thread_preflight', 'write', 'deny', 'failure', 'FORBIDDEN']
+        ]);
+      } finally {
+        await app.close();
+      }
+    }
   }
 });
 
@@ -1569,6 +1654,9 @@ test('Codex app-server thread mutation failures return controlled redacted error
       error.status = 409;
       error.code = 'UPSTREAM_THREAD_SECRET_FAILURE';
       await callback({
+        async readThread() {
+          return { thread: { id: 'thread_1', workspacePath: app.workspace.path } };
+        },
         async archiveThread() {
           throw error;
         }
