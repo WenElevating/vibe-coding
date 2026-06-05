@@ -1236,14 +1236,26 @@ test('Codex app-server fuzzy search validates authorization and query before ser
   try {
     const unauthorized = await app.get('/api/codex-app-server/workspaces/workspace_not_allowed/fuzzy-file-search?q=daemon');
     const missingQuery = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search`);
+    const invalidLimit = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search?q=daemon&limit=bad`);
     const missingSessionQuery = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions`, {});
+    const missingPatchQuery = await app.patch(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions/fuzzy_1`, {});
+    const invalidPatchLimit = await app.patch(`/api/codex-app-server/workspaces/${app.workspace.id}/fuzzy-file-search/sessions/fuzzy_1`, {
+      q: 'daemon',
+      limit: 0
+    });
 
     assert.equal(unauthorized.status, 404);
     assert.equal(unauthorized.body.error.code, 'WORKSPACE_NOT_FOUND');
     assert.equal(missingQuery.status, 400);
     assert.equal(missingQuery.body.error.code, 'BAD_REQUEST');
+    assert.equal(invalidLimit.status, 400);
+    assert.equal(invalidLimit.body.error.code, 'BAD_REQUEST');
     assert.equal(missingSessionQuery.status, 400);
     assert.equal(missingSessionQuery.body.error.code, 'BAD_REQUEST');
+    assert.equal(missingPatchQuery.status, 400);
+    assert.equal(missingPatchQuery.body.error.code, 'BAD_REQUEST');
+    assert.equal(invalidPatchLimit.status, 400);
+    assert.equal(invalidPatchLimit.body.error.code, 'BAD_REQUEST');
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
@@ -1338,6 +1350,38 @@ test('Codex app-server review diagnostic route validates maxItems before service
     assert.equal(tooLarge.status, 400);
     assert.equal(tooLarge.body.error.code, 'BAD_REQUEST');
     assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server attestation diagnostic route validates challenge before service access', async () => {
+  let serviceCalls = 0;
+  const auditEvents = [];
+  const app = await createCodexAppServerRouteTestApp({
+    auditLog: { record: (event, payload) => auditEvents.push({ event, payload }) },
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for invalid attestation request');
+      }
+    }
+  });
+
+  try {
+    const invalidType = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/attestation/generate`, {
+      challenge: 123
+    });
+    const tooLarge = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/attestation/generate`, {
+      challenge: 'x'.repeat(4097)
+    });
+
+    assert.equal(invalidType.status, 400);
+    assert.equal(invalidType.body.error.code, 'BAD_REQUEST');
+    assert.equal(tooLarge.status, 400);
+    assert.equal(tooLarge.body.error.code, 'BAD_REQUEST');
+    assert.equal(serviceCalls, 0);
+    assert.deepEqual(auditEvents.filter((entry) => entry.event.startsWith('codex_app_server.')), []);
   } finally {
     await app.close();
   }
@@ -2578,6 +2622,10 @@ test('Codex app-server capability route metadata is derived from matrix rows', (
   assert.equal(routeByMethod.get('account/login/start').requiresApproval, true);
   assert.equal(routeByMethod.get('account/logout').requiresApproval, true);
   assert.equal(routeByMethod.get('mcpServer/oauth/login').requiresApproval, true);
+  assert.equal(routeByMethod.get('review/start').localStatus, 'diagnostic-only');
+  assert.equal(routeByMethod.get('review/start').requiresApproval, false);
+  assert.equal(routeByMethod.get('attestation/generate').localStatus, 'diagnostic-only');
+  assert.equal(routeByMethod.get('attestation/generate').requiresApproval, false);
 });
 
 test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {

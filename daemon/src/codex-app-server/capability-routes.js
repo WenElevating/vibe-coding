@@ -24,6 +24,7 @@ function isReadOnlyCapability(row) {
 }
 
 function requiresCapabilityApproval(row) {
+  if (row.localStatus === 'diagnostic-only') return false;
   if (row.risk === 'account') return !isAccountReadMethod(row.method);
   return ['write', 'process', 'network', 'permission'].includes(row.risk);
 }

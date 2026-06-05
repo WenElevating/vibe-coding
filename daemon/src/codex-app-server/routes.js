@@ -454,7 +454,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   const workspaceFuzzySearchSession = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/fuzzy-file-search\/sessions\/([^/]+)$/);
   if (method === 'PATCH' && workspaceFuzzySearchSession) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
-    const sessionId = parseRequiredBodyString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
+    const sessionId = parseRequiredPathString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
     const body = await readJson();
     const request = {
       sessionId,
@@ -469,7 +469,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'DELETE' && workspaceFuzzySearchSession) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
-    const sessionId = parseRequiredBodyString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
+    const sessionId = parseRequiredPathString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.stopFuzzyFileSearchSession({
       sessionId,
       workspacePath: workspaceRoot(workspace)
@@ -500,6 +500,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && workspaceAttestationGenerate) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceAttestationGenerate[1]), context.device);
     const body = await readJson();
+    const challenge = parseOptionalBoundedBodyString(body?.challenge, 'challenge', 4096);
     return auditedDiagnosticRoute(context, json, {
       workspace,
       method: 'attestation/generate',
@@ -507,7 +508,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       event: 'attestation_generate',
       action: (client) => client.generateAttestation(compactObject({
         workspacePath: workspaceRoot(workspace),
-        challenge: parseOptionalBodyString(body?.challenge, 'challenge')
+        challenge
       }))
     });
   }
@@ -1219,11 +1220,25 @@ function parseRequiredQueryString(value, name) {
   return value;
 }
 
+function parseRequiredPathString(value, name) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    throw badRequest(`${name} path parameter is required`);
+  }
+  return String(value).trim();
+}
+
 function parseRequiredBodyString(value, name) {
   if (value === undefined || value === null || String(value).trim() === '') {
     throw badRequest(`${name} is required`);
   }
   return String(value).trim();
+}
+
+function parseOptionalBoundedBodyString(value, name, maxLength) {
+  if (value === undefined || value === null) return undefined;
+  const parsed = parseRequiredStringValue(value, name);
+  if (parsed.length > maxLength) throw badRequest(`${name} must be at most ${maxLength} characters`);
+  return parsed;
 }
 
 function parseRequiredStringValue(value, name) {
