@@ -37,6 +37,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   static const int _defaultImageBytesLimit = 10 * 1024 * 1024;
   static const int _textDocumentBytesLimit = 1024 * 1024;
   static const int _totalMultipartBytesLimit = 20 * 1024 * 1024;
+  static const int _initialHistoryContextMaxPages = 3;
 
   WorkbenchViewModel({
     required WorkspaceRepository workspaceRepository,
@@ -1129,8 +1130,15 @@ class WorkbenchViewModel extends ChangeNotifier {
   }) async {
     final stillCurrent = isCurrent ?? () => true;
     if (!stillCurrent()) return false;
-    final page = await _requireConversationRepository()
+    var page = await _requireConversationRepository()
         .fetchConversationEventPage(conversationId, limit: limit);
+    if (!stillCurrent()) return false;
+    page = await _expandInitialConversationContext(
+      conversationId: conversationId,
+      initialPage: page,
+      limit: limit,
+      isCurrent: stillCurrent,
+    );
     if (!stillCurrent()) return false;
     _oldestLoadedConversationSeq =
         page.oldestSeq ?? (page.events.isEmpty ? null : page.events.first.seq);
@@ -1148,6 +1156,41 @@ class WorkbenchViewModel extends ChangeNotifier {
       _notifyListeners();
     }
     return page.events.isNotEmpty || previewChanged;
+  }
+
+  Future<ConversationEventPage> _expandInitialConversationContext({
+    required String conversationId,
+    required ConversationEventPage initialPage,
+    required int limit,
+    required WorkbenchEventApplicationIsCurrent isCurrent,
+  }) async {
+    var page = initialPage;
+    for (var i = 0;
+        i < _initialHistoryContextMaxPages &&
+            isCurrent() &&
+            page.hasMoreBefore &&
+            _needsEarlierInitialContext(page.events);
+        i++) {
+      final beforeSeq = page.oldestSeq ??
+          (page.events.isEmpty ? null : page.events.first.seq);
+      if (beforeSeq == null) break;
+      final olderPage =
+          await _requireConversationRepository().fetchConversationEventPage(
+        conversationId,
+        beforeSeq: beforeSeq,
+        limit: limit,
+      );
+      if (!isCurrent() || olderPage.events.isEmpty) break;
+      final merged =
+          _mergeConversationEventPages(olderPage.events, page.events);
+      page = ConversationEventPage(
+        events: merged,
+        oldestSeq: olderPage.oldestSeq ?? merged.first.seq,
+        newestSeq: page.newestSeq ?? merged.last.seq,
+        hasMoreBefore: olderPage.hasMoreBefore,
+      );
+    }
+    return page;
   }
 
   Future<bool> loadOlderConversationEventPage({
@@ -1207,6 +1250,44 @@ class WorkbenchViewModel extends ChangeNotifier {
         _notifyListeners();
       }
     }
+  }
+
+  bool _needsEarlierInitialContext(List<ConversationEvent> events) {
+    var hasAssistantMessage = false;
+    var hasUserOrToolContext = false;
+    for (final event in events) {
+      switch (event.type) {
+        case 'assistant.message':
+          hasAssistantMessage = true;
+          break;
+        case 'user.message':
+        case 'tool.started':
+        case 'tool.output':
+        case 'tool.completed':
+        case 'approval.requested':
+        case 'assistant.question':
+        case 'task.progress.updated':
+          hasUserOrToolContext = true;
+          break;
+      }
+    }
+    return hasAssistantMessage && !hasUserOrToolContext;
+  }
+
+  List<ConversationEvent> _mergeConversationEventPages(
+    List<ConversationEvent> olderEvents,
+    List<ConversationEvent> newerEvents,
+  ) {
+    final bySeq = <int, ConversationEvent>{};
+    for (final event in olderEvents) {
+      bySeq[event.seq] = event;
+    }
+    for (final event in newerEvents) {
+      bySeq.putIfAbsent(event.seq, () => event);
+    }
+    final merged = bySeq.values.toList(growable: false)
+      ..sort((left, right) => left.seq.compareTo(right.seq));
+    return merged;
   }
 
   Stream<ConversationEvent> watchConversationEvents({

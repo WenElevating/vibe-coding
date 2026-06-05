@@ -268,6 +268,7 @@ class _CodingComposerState extends State<CodingComposer>
                         child: Align(
                             alignment: Alignment.centerLeft,
                             child: InkWell(
+                                key: const ValueKey('composer-model-pill'),
                                 onTap: widget.modelLocked
                                     ? null
                                     : widget.onModelTap,

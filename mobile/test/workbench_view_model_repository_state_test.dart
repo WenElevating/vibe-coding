@@ -278,6 +278,101 @@ void main() {
           viewModel.messages.length);
     });
 
+    test(
+        'initial event page expands past dense partial tail to keep command context',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final firstPage = <ConversationEvent>[
+        for (var seq = 34; seq <= 112; seq++)
+          _event(
+            seq: seq,
+            type: 'assistant.partial',
+            text: 'chunk $seq',
+          ),
+        _event(
+          seq: 113,
+          type: 'assistant.message',
+          text: 'final answer',
+        ),
+      ];
+      final secondPage = <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'user.message',
+          text: 'who are you?',
+        ),
+        _event(
+          seq: 2,
+          type: 'assistant.message',
+          text: 'I will inspect local instructions.',
+        ),
+        _event(
+          seq: 3,
+          type: 'tool.started',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+          input: const <String, Object?>{
+            'command': r'C:\Program Files\PowerShell\7\pwsh.exe'
+          },
+        ),
+        _event(
+          seq: 4,
+          type: 'tool.completed',
+          text: '---\nname: using-superpowers',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+        ),
+        for (var seq = 5; seq <= 33; seq++)
+          _event(
+            seq: seq,
+            type: 'assistant.partial',
+            text: 'early chunk $seq',
+          ),
+      ];
+      final conversationRepository = _FakeCachedConversationRepository(
+        eventPages: <ConversationEventPage>[
+          ConversationEventPage(
+            events: firstPage,
+            oldestSeq: 34,
+            newestSeq: 113,
+            hasMoreBefore: true,
+          ),
+          ConversationEventPage(
+            events: secondPage,
+            oldestSeq: 1,
+            newestSeq: 33,
+            hasMoreBefore: false,
+          ),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+
+      await viewModel.loadInitialConversationEventPage(
+        conversationId: 'c1',
+        limit: 80,
+        streamOutput: false,
+      );
+
+      expect(
+        viewModel.messages.map((message) => message.role),
+        containsAllInOrder(
+            <String>['user', 'assistant', 'command', 'assistant']),
+      );
+      final command = viewModel.messages.singleWhere(
+        (message) => message.role == 'command',
+      );
+      expect(command.body, contains('pwsh.exe'));
+      expect(command.event?.raw['output'], contains('using-superpowers'));
+      expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+    });
+
     test('selectModel preserves selected model when repository rejects update',
         () async {
       final workspaceRepository = _FakeWorkspaceRepository(
@@ -763,13 +858,20 @@ ConversationEvent _event({
   required String type,
   String conversationId = 'c1',
   String? text,
+  String? toolUseId,
+  String? toolName,
+  Map<String, Object?> input = const <String, Object?>{},
 }) =>
     ConversationEvent(
       type: type,
       seq: seq,
       conversationId: conversationId,
-      createdAt: DateTime.parse('2026-06-01T00:00:0$seq.000Z'),
+      createdAt: DateTime.parse('2026-06-01T00:00:00.000Z')
+          .add(Duration(seconds: seq)),
       text: text,
+      toolUseId: toolUseId,
+      toolName: toolName,
+      input: input,
     );
 
 const _codexModels = AdapterStatus(

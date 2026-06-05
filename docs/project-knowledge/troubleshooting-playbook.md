@@ -519,6 +519,48 @@ npm run lint
 
 - Last verified: 2026-05-27
 
+## Symptom: Codex App Server Model List Only Shows Default Model
+
+- Symptom: the mobile model picker for `codex-app-server` only shows
+  `default model` even when Codex config contains selectable models.
+- Action: inspect `/api/adapters` enrichment before changing mobile UI. The
+  adapter registry only exposes model choices from `getModelCapability()` or
+  status model metadata. `codex-app-server` availability probes must stay cheap
+  and avoid app-server model-list RPCs; model choices should come from the same
+  local Codex model discovery path as the CLI adapter.
+- Related file:
+  [codex-app-server-listing-adapter.js](../../daemon/src/codex-app-server-listing-adapter.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js
+npm run lint
+```
+
+- Last verified: 2026-06-04
+
+## Symptom: Codex App Server Reopened Conversation Loses Tool Cards
+
+- Symptom: a live `codex-app-server` turn shows tool cards, but leaving and
+  reopening the conversation only shows the final assistant answer.
+- Action: first inspect persisted `conversation_events` to distinguish storage
+  loss from replay projection. Long app-server turns can emit many
+  `assistant.partial` rows; the initial tail page can then contain only dense
+  partials plus the final answer, pushing earlier `tool.started` /
+  `tool.completed` rows outside the first page. Historical open should fetch a
+  small amount of earlier context when the tail has a final assistant message
+  but no user/tool/question/task context.
+- Related file:
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
+- Verification:
+
+```powershell
+cd mobile
+flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "initial event page expands past dense partial tail to keep command context"
+```
+
+- Last verified: 2026-06-04
+
 ## Symptom: ASR Model Download Fails With Missing `.zip.part`
 
 - Symptom: mobile voice-model preparation fails with a missing

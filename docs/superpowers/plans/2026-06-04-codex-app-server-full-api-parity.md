@@ -4,7 +4,7 @@
 
 **Goal:** Implement product-grade daemon support for every official Codex app-server API method currently present in the committed schema, then add mobile consumption for the stable user-facing surfaces.
 
-**Architecture:** Keep the schema fixture and capability matrix as the source of truth, but expose official methods only through typed daemon services and typed HTTP routes. Read-only discovery and history APIs use scoped short-lived or TTL-reused app-server clients; high-risk file/process/config/remote-control mutations require workspace authorization, explicit mobile approval or product policy authorization, controlled errors, and audit records. Mobile UI is the final phase, after daemon DTOs and tests are stable.
+**Architecture:** Keep the schema fixture and capability matrix as the source of truth, but expose official methods only through typed daemon services and typed HTTP routes. App-server process reuse is physically separated by pool: passive discovery, active conversation, and mutation/high-risk operations do not share process handles. High-risk file/process/config/remote-control mutations require workspace authorization, explicit mobile approval or product policy authorization, controlled errors, and audit records. Mobile UI is the final phase, after daemon DTOs and tests are stable.
 
 **Tech Stack:** Node.js CommonJS daemon, `CodexAppServerClient`, `CodexAppServerLifecycle`, JSON-RPC over stdio, `scripts/run-tests.js`, `npm run lint`, Flutter/Dart mobile repositories and ViewModels for the final phase.
 
@@ -34,9 +34,15 @@ Remaining official methods are currently `unsupported` in `daemon/src/codex-app-
 - Do not add a raw arbitrary JSON-RPC route.
 - Every route must authenticate the paired device before calling app-server.
 - Every workspace-scoped route must resolve `workspaceId` through `WorkspaceRegistry.getAuthorized()`.
+- App-server must receive the registry-resolved workspace root, never a client-provided path; relative paths must normalize inside that root before any app-server call.
 - Every high-risk method must have a risk classification other than `unknown`, an audit record, and a controlled error path.
 - Mutating file/process/config/account/remote-control operations must not share a passive discovery client.
 - Conversation streaming deltas must remain unfiltered and uncompressed.
+- Dense partial streams still need bounded persistence retention, replay windowing, and WebSocket backpressure; "do not filter" is not permission for unbounded daemon memory growth.
+- Route capability metadata must be derived from the capability matrix; do not create a second handwritten source for mobile visibility.
+- Account reads are sensitive reads and must be authenticated plus DTO-redacted, even when they are read-only.
+- The app-server path must have a runtime kill-switch and basic spawn/cache/latency/error metrics before broad route rollout.
+- High-risk and thread-mutation audits are append-only app SQLite records retained for at least 90 days with device id, workspace id, method, risk, decision, result, redacted error, and correlation id.
 - Mobile UI work must stay feature-local; do not add new files under retired `mobile/lib/src/features`, `mobile/lib/src/widgets`, `mobile/lib/src/theme`, or `mobile/lib/src/state`.
 - Keep schema drift checks strict: a changed official method surface must fail tests until the matrix and route plan are updated.
 
@@ -47,7 +53,15 @@ Create:
 - `daemon/src/codex-app-server/service.js`
   - Owns process-scoped app-server clients for daemon routes.
   - Provides `withDiscoveryClient()`, `withWorkspaceClient()`, and `withMutationClient()`.
-  - Implements TTL reuse for read-only discovery clients and immediate eviction on transport close.
+  - Implements physically separated discovery, conversation, and mutation pools; only the discovery pool uses TTL reuse.
+  - Emits spawn/cache/latency/error metrics and evicts immediately on transport close.
+- `daemon/src/codex-app-server/timeouts.js`
+  - Classifies methods as instant RPC, long-lived stream, or inbound server request.
+  - Prevents long turns and approval server requests from sharing one blunt method timeout.
+- `daemon/src/codex-app-server/capability-routes.js`
+  - Derives route metadata from capability matrix rows for mobile and diagnostics.
+- `daemon/src/codex-app-server/streaming-policy.js`
+  - Defines partial-event retention, replay window, and WebSocket backpressure constants used by tests.
 - `daemon/src/codex-app-server/routes.js`
   - Registers `/api/codex-app-server/*` routes and delegates to typed services.
   - Keeps `server.js` small by exporting `tryHandleCodexAppServerRoute(context)`.
@@ -55,8 +69,9 @@ Create:
   - Normalizes official app-server responses into stable daemon DTOs.
   - Keeps raw official payloads only in `diagnostics.raw` fields where explicitly allowed.
 - `daemon/src/codex-app-server/risk-policy.js`
-  - Maps method names to `none`, `read`, `write`, `process`, `account`, `network`, or `permission`.
+  - Maps method names to `none`, `read`, `write`, `process`, `account`, `network`, `permission`, or temporary `unknown`.
   - Provides route guard helpers for read-only, workspace-scoped, and high-risk calls.
+  - Keeps `process` and `marketplace` as machine categories when syncing matrix rows; do not collapse them into `command` or `plugin`.
 - `daemon/src/codex-app-server/audit.js`
   - Centralizes audit record shape for app-server operations.
 - `daemon/src/codex-app-server/high-risk-approval.js`
@@ -95,13 +110,14 @@ Modify:
 Early daemon tasks must add one reusable route-test helper in `scripts/run-tests.js` and all later route tests must use it:
 
 ```javascript
-async function createCodexAppServerRouteTestApp({ service = {}, workspace = null } = {}) {
+async function createCodexAppServerRouteTestApp({ service = {}, workspace = null, auditLog = null } = {}) {
   const app = createApp({
     port: 0,
     appDbPath: tempConversationDbPath('app-server-route-'),
     codexAppServerProbe: false,
     codexAppServerModelLister: false,
-    codexAppServerService: service
+    codexAppServerService: service,
+    auditLog
   });
   const effectiveWorkspace = workspace || app.workspaces.add({ name: 'Repo', path: process.cwd() }, { id: 'owner', allowedWorkspaceIds: new Set() });
   const pair = app.auth.createPairingCode();
@@ -130,11 +146,12 @@ This helper depends on Task 1 adding a `createApp({ codexAppServerService })` in
 
 ---
 
-### Task 1: App-Server Route Service And Process Reuse Foundation
+### Task 1: App-Server Route Service, Process Isolation, And Timeout Foundation
 
 **Files:**
 - Create: `daemon/src/codex-app-server/service.js`
 - Create: `daemon/src/codex-app-server/risk-policy.js`
+- Create: `daemon/src/codex-app-server/timeouts.js`
 - Modify: `daemon/src/main.js`
 - Modify: `scripts/run-tests.js`
 
@@ -223,6 +240,58 @@ test('Codex app-server service does not reuse mutation clients', async () => {
   await service.withMutationClient({ method: 'config/value/write' }, async () => {});
 
   assert.equal(spawnCount, 2);
+});
+
+test('Codex app-server service never shares discovery, conversation, and mutation pools', async () => {
+  const { EventEmitter } = require('node:events');
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn(scope) {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => method === 'initialize' ? {} : { ok: true };
+        transport.sendNotification = () => {};
+        const handle = { scope, transport, shutdown: async () => {} };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  await service.withConversationClient({ threadId: 'thread_1' }, async () => {});
+  await service.withMutationClient({ method: 'fs/writeFile' }, async () => {});
+
+  assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
+});
+
+test('Codex app-server method timeout classes distinguish streams and server requests', () => {
+  const { classifyCodexAppServerTimeout } = require('../daemon/src/codex-app-server/timeouts');
+  assert.equal(classifyCodexAppServerTimeout('model/list').kind, 'instant-rpc');
+  assert.equal(classifyCodexAppServerTimeout('turn/start').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('item/commandExecution/requestApproval').kind, 'inbound-server-request');
+});
+
+test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const service = new CodexAppServerService({
+    poolLimits: { discovery: 0, conversation: 0, mutation: 0 },
+    lifecycle: { spawn() { throw new Error('must not spawn when pool is full'); } }
+  });
+
+  await assert.rejects(
+    () => service.withDiscoveryClient(async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+  await assert.rejects(
+    () => service.withConversationClient({ threadId: 'thread_1' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
+  await assert.rejects(
+    () => service.withMutationClient({ method: 'fs/writeFile' }, async () => {}),
+    (error) => error.code === 'CODEX_APP_SERVER_BUSY'
+  );
 });
 ```
 
@@ -403,7 +472,7 @@ class CodexAppServerService {
       error.code = 'CODEX_APP_SERVER_LIFECYCLE_MISSING';
       throw error;
     }
-    const handle = this.lifecycle.spawn();
+    const handle = this.lifecycle.spawn({ pool: 'discovery' });
     const client = new CodexAppServerClient({
       transport: handle.transport,
       initializeTimeoutMs: this.initializeTimeoutMs,
@@ -436,7 +505,60 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 5: Wire service from `main.js`**
+Before running the tests, update the service implementation so:
+
+- `createScopedClient(scope)` passes `scope` to `lifecycle.spawn(scope)`.
+- `withDiscoveryClient()` calls `createScopedClient({ pool: 'discovery' })` and is the only path that caches by TTL.
+- `withWorkspaceClient(workspace, callback)` calls `createScopedClient({ pool: 'discovery', workspaceId: workspace.id })` for read-only route calls.
+- `withConversationClient(conversationScope, callback)` calls `createScopedClient({ pool: 'conversation', ...conversationScope })` and never uses the discovery cache.
+- `withMutationClient({ method }, callback)` calls `createScopedClient({ pool: 'mutation', method })` and never uses the discovery cache, even for repeated requests.
+- Default pool limits are discovery 2 per invocation key, conversation `CODEX_APP_SERVER_MAX_PROCESSES || 4`, and mutation 1 per workspace. Pool exhaustion returns `CODEX_APP_SERVER_BUSY`; conversation exhaustion may fall back to CLI only before the provider side-effect boundary.
+- Metrics hooks record `codex_app_server_process_spawn_total`, discovery cache hit/miss, eviction reason, per-method latency, and per-method errors. The first implementation can use the existing diagnostics collector shape rather than adding a new metrics dependency.
+
+- [ ] **Step 5: Implement `timeouts.js`**
+
+Create `daemon/src/codex-app-server/timeouts.js`:
+
+```javascript
+'use strict';
+
+const LONG_LIVED_STREAM_METHODS = new Set([
+  'thread/start',
+  'thread/resume',
+  'turn/start',
+  'thread/realtime/start',
+  'thread/realtime/appendAudio',
+  'thread/realtime/appendText',
+  'command/exec',
+  'process/spawn'
+]);
+
+const INBOUND_SERVER_REQUEST_METHODS = new Set([
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'item/permissions/requestApproval',
+  'item/tool/requestUserInput',
+  'mcpServer/elicitation/request',
+  'account/chatgptAuthTokens/refresh'
+]);
+
+function classifyCodexAppServerTimeout(method) {
+  const value = String(method || '');
+  if (INBOUND_SERVER_REQUEST_METHODS.has(value)) {
+    return { kind: 'inbound-server-request', timeoutMs: 120000 };
+  }
+  if (LONG_LIVED_STREAM_METHODS.has(value)) {
+    return { kind: 'long-lived-stream', startupTimeoutMs: 30000, idleTimeoutMs: 300000, heartbeatTimeoutMs: 60000 };
+  }
+  return { kind: 'instant-rpc', timeoutMs: 30000 };
+}
+
+module.exports = {
+  classifyCodexAppServerTimeout
+};
+```
+
+- [ ] **Step 6: Wire service from `main.js`**
 
 In `daemon/src/main.js`, import:
 
@@ -469,7 +591,7 @@ Update the returned app object to include:
 codexAppServerService: effectiveCodexAppServerService
 ```
 
-- [ ] **Step 6: Run service tests**
+- [ ] **Step 7: Run service tests**
 
 Run:
 
@@ -483,10 +605,10 @@ Expected:
 tests passed
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add daemon/src/codex-app-server/service.js daemon/src/codex-app-server/risk-policy.js daemon/src/main.js scripts/run-tests.js
+git add daemon/src/codex-app-server/service.js daemon/src/codex-app-server/risk-policy.js daemon/src/codex-app-server/timeouts.js daemon/src/main.js scripts/run-tests.js
 git commit -m "Add Codex app-server route service foundation"
 ```
 
@@ -495,6 +617,7 @@ git commit -m "Add Codex app-server route service foundation"
 ### Task 2: Route Dispatcher, Error Shape, And Capability Metadata
 
 **Files:**
+- Create: `daemon/src/codex-app-server/capability-routes.js`
 - Create: `daemon/src/codex-app-server/routes.js`
 - Create: `daemon/src/codex-app-server/dtos.js`
 - Modify: `daemon/src/server.js`
@@ -540,8 +663,9 @@ test('Codex app-server capabilities route returns matrix and route metadata', as
     });
     assert.equal(response.status, 200);
     assert.ok(response.body.capabilityMatrix.totalMethods > 0);
-    assert.equal(response.body.routes.history.readOnly, true);
-    assert.equal(response.body.routes.highRisk.requiresApproval, true);
+    assert.equal(response.body.routes.some((route) => route.group === 'history' && route.readOnly), true);
+    assert.equal(response.body.routes.some((route) => route.requiresApproval), true);
+    assert.equal(response.body.routes.every((route) => route.source === 'capability-matrix'), true);
   } finally {
     app.server.close();
     app.appSqliteStore.close();
@@ -563,7 +687,45 @@ Expected:
 404
 ```
 
-- [ ] **Step 3: Implement route dispatcher**
+- [ ] **Step 3: Implement matrix-derived route capability metadata**
+
+Create `daemon/src/codex-app-server/capability-routes.js`:
+
+```javascript
+'use strict';
+
+const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('./capability-matrix');
+
+function buildCodexAppServerRouteCapabilities() {
+  return CODEX_APP_SERVER_CAPABILITY_MATRIX
+    .filter((row) => row.daemonOwner === 'server route' || row.mobileStatus === 'planned' || row.mobileStatus === 'consumed')
+    .map((row) => ({
+      method: row.method,
+      group: routeGroupForMethod(row.method),
+      localStatus: row.localStatus,
+      mobileStatus: row.mobileStatus,
+      risk: row.risk,
+      readOnly: row.risk === 'none' || row.risk === 'read',
+      requiresApproval: ['write', 'process', 'network', 'permission'].includes(row.risk),
+      source: 'capability-matrix'
+    }));
+}
+
+function routeGroupForMethod(method) {
+  const value = String(method || '');
+  if (value.startsWith('thread/') && (value.includes('/list') || value.includes('/read') || value.includes('/search'))) return 'history';
+  if (value.startsWith('model/') || value.startsWith('mcpServer/') || value.startsWith('skills/') || value.startsWith('plugin/') || value.startsWith('app/')) return 'discovery';
+  if (value.startsWith('account/')) return 'account';
+  if (value.startsWith('fs/') || value.startsWith('process/') || value.startsWith('command/') || value.startsWith('remoteControl/')) return 'high-risk';
+  return 'other';
+}
+
+module.exports = {
+  buildCodexAppServerRouteCapabilities
+};
+```
+
+- [ ] **Step 4: Implement route dispatcher**
 
 Create `daemon/src/codex-app-server/routes.js`:
 
@@ -571,6 +733,7 @@ Create `daemon/src/codex-app-server/routes.js`:
 'use strict';
 
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
+const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
 
 async function tryHandleCodexAppServerRoute({ method, url, json, readJson, context }) {
   if (!url.pathname.startsWith('/api/codex-app-server')) return false;
@@ -578,11 +741,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'GET' && url.pathname === '/api/codex-app-server/capabilities') {
     return json(200, {
       capabilityMatrix: summarizeCodexAppServerCapabilityMatrix(),
-      routes: {
-        history: { readOnly: true },
-        discovery: { readOnly: true },
-        highRisk: { requiresApproval: true, audited: true }
-      }
+      routes: buildCodexAppServerRouteCapabilities()
     });
   }
 
@@ -597,7 +756,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Wire dispatcher into `server.js`**
+- [ ] **Step 5: Wire dispatcher into `server.js`**
 
 Import:
 
@@ -624,7 +783,7 @@ After authentication and before `/api/adapters`, add:
       if (handledCodexAppServer) return;
 ```
 
-- [ ] **Step 5: Run route tests**
+- [ ] **Step 6: Run route tests**
 
 Run:
 
@@ -638,10 +797,10 @@ Expected:
 tests passed
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add daemon/src/codex-app-server/routes.js daemon/src/server.js scripts/run-tests.js
+git add daemon/src/codex-app-server/capability-routes.js daemon/src/codex-app-server/routes.js daemon/src/server.js scripts/run-tests.js
 git commit -m "Add Codex app-server route dispatcher"
 ```
 
@@ -1153,6 +1312,7 @@ POST /api/codex-app-server/mcp/servers/:serverId/oauth/login
 ```
 
 Read routes use `withDiscoveryClient`. Mutating account routes use `withMutationClient` and audit.
+Account read DTOs must redact bearer tokens, refresh tokens, raw email fields unless explicitly needed by UI, and local account file paths. Treat account reads as `risk: account`, not plain `risk: read`.
 
 - [ ] **Step 3: Add tests for read and mutation separation**
 
@@ -1182,6 +1342,29 @@ test('Codex app-server account read routes are discovery scoped and login routes
   assert.equal(read.status, 200);
   assert.equal(login.status, 200);
   assert.deepEqual(calls, ['discovery:account/read', 'mutation:account/login/start']);
+  await app.close();
+});
+
+test('Codex app-server account read DTO redacts sensitive token fields', async () => {
+  const app = createCodexAppServerRouteTestApp({
+    service: {
+      withDiscoveryClient: async (callback) => callback({
+        readAccount: async () => ({
+          account: {
+            id: 'acct_1',
+            email: 'person@example.com',
+            accessToken: 'secret_access',
+            refreshToken: 'secret_refresh'
+          }
+        })
+      })
+    }
+  });
+  const response = await app.get('/api/codex-app-server/account');
+  const serialized = JSON.stringify(response.body);
+  assert.equal(response.status, 200);
+  assert.equal(serialized.includes('secret_access'), false);
+  assert.equal(serialized.includes('secret_refresh'), false);
   await app.close();
 });
 ```
@@ -1349,14 +1532,16 @@ Create `daemon/src/codex-app-server/audit.js`:
 function recordCodexAppServerAudit(auditLog, event, details) {
   if (!auditLog || typeof auditLog.record !== 'function') return;
   auditLog.record(`codex_app_server.${event}`, {
+    timestamp: new Date().toISOString(),
     method: details.method,
     workspaceId: details.workspaceId || null,
     threadId: details.threadId || null,
     deviceId: details.deviceId || null,
     risk: details.risk || null,
     decision: details.decision || null,
-    ok: details.ok === true,
-    error: details.error || null
+    result: details.result || (details.ok === true ? 'success' : 'failure'),
+    errorCode: details.errorCode || null,
+    correlationId: details.correlationId || null
   });
 }
 
@@ -1364,6 +1549,8 @@ module.exports = {
   recordCodexAppServerAudit
 };
 ```
+
+The concrete audit backend is the app SQLite audit log. Rows are append-only at the application layer and retained for at least 90 days. Minimum payload fields are timestamp, paired device id, workspace id, method, risk, decision, result, redacted error code, and request correlation id.
 
 - [ ] **Step 3: Add route tests for workspace authorization and audit**
 
@@ -1405,9 +1592,11 @@ Each route:
 
 1. Authenticates device through server.
 2. Resolves workspace through `getAuthorized`.
-3. Calls `withMutationClient`.
-4. Records audit success or failure.
-5. Returns redacted controlled errors on app-server JSON-RPC failures.
+3. Sends only the registry-resolved workspace root to app-server.
+4. Verifies thread metadata belongs to the authorized workspace before fork/archive/unarchive/rollback when app-server exposes that metadata; otherwise keeps the route `planned`.
+5. Calls `withMutationClient`.
+6. Records audit success or failure in the append-only app SQLite audit log.
+7. Returns redacted controlled errors on app-server JSON-RPC failures.
 
 - [ ] **Step 5: Update matrix**
 
@@ -1795,6 +1984,8 @@ git commit -m "Classify Codex app-server realtime APIs"
 
 **Files:**
 - Modify: `daemon/src/codex-app-server/capability-matrix.js`
+- Modify: `daemon/src/codex-app-server/methods.js`
+- Create or modify: `scripts/check-codex-app-server-fixture-drift.js`
 - Modify: `scripts/run-tests.js`
 - Modify: `docs/superpowers/specs/2026-06-04-codex-app-server-api-parity-design.md`
 
@@ -1845,7 +2036,36 @@ test('Codex app-server supported route methods have route coverage', () => {
 });
 ```
 
-- [ ] **Step 4: Update design spec**
+- [ ] **Step 4: Add rename/remove and fixture drift tests**
+
+Add matrix validation tests:
+
+```javascript
+test('Codex app-server removed or renamed rows keep explicit review metadata', () => {
+  const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
+  for (const row of CODEX_APP_SERVER_CAPABILITY_MATRIX) {
+    if (row.localStatus === 'intentionally-blocked' && row.removedInSchemaVersion) {
+      assert.equal(typeof row.rationale, 'string', `${row.method} missing removal rationale`);
+      assert.ok(row.rationale.length > 0, `${row.method} missing removal rationale`);
+    }
+    if (row.renamedFrom) {
+      assert.equal(typeof row.renamedFrom, 'string', `${row.method} renamedFrom must be a string`);
+      assert.notEqual(row.renamedFrom, row.method);
+    }
+  }
+});
+```
+
+Create `scripts/check-codex-app-server-fixture-drift.js` as a release-gate script. It should:
+
+- Run the real `codex` app-server schema generator when available.
+- Compare generated TypeScript/JSON schema method sets with committed fixtures.
+- Exit `0` with a clear skip message only when `codex` or the generator is unavailable.
+- Exit non-zero when the generator succeeds and fixtures differ.
+
+The normal `node scripts\run-tests.js` suite may keep using fixtures; this drift script is for scheduled CI or manual release validation so fixture staleness becomes visible.
+
+- [ ] **Step 5: Update design spec**
 
 In `docs/superpowers/specs/2026-06-04-codex-app-server-api-parity-design.md`, add a “Full Parity Completion” section:
 
@@ -1855,19 +2075,116 @@ In `docs/superpowers/specs/2026-06-04-codex-app-server-api-parity-design.md`, ad
 Full daemon parity means every official schema method is classified with a concrete risk and one of `supported`, `partial`, `diagnostic-only`, or `intentionally-blocked`. It does not mean every high-risk operation is silently available; high-risk support requires typed routes, authorization, approval or product policy, audit, and redacted errors. Unsupported/unknown rows are not allowed after the full parity plan lands.
 ```
 
-- [ ] **Step 5: Run and commit**
+- [ ] **Step 6: Run and commit**
 
 ```powershell
 node scripts\run-tests.js
 npm run lint
 node scripts\check-project-knowledge.js
-git add daemon/src/codex-app-server scripts/run-tests.js docs/superpowers/specs/2026-06-04-codex-app-server-api-parity-design.md
+node scripts\check-codex-app-server-fixture-drift.js
+git add daemon/src/codex-app-server scripts/run-tests.js scripts/check-codex-app-server-fixture-drift.js docs/superpowers/specs/2026-06-04-codex-app-server-api-parity-design.md
 git commit -m "Complete Codex app-server API parity matrix"
 ```
 
 ---
 
-### Task 12: Mobile Data Layer For Stable App-Server APIs
+### Task 12: Streaming Retention, Backpressure, Kill-Switch, And Metrics
+
+**Files:**
+- Create: `daemon/src/codex-app-server/streaming-policy.js`
+- Modify: `daemon/src/server.js`
+- Modify: `daemon/src/main.js`
+- Modify: `daemon/src/codex-app-server/service.js`
+- Modify: `scripts/run-tests.js`
+
+- [ ] **Step 1: Add bounded streaming and kill-switch tests**
+
+Add:
+
+```javascript
+test('Codex app-server streaming policy keeps raw partials but bounds live websocket queues', () => {
+  const { CODEX_APP_SERVER_STREAMING_POLICY } = require('../daemon/src/codex-app-server/streaming-policy');
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.persistRawDeltas, true);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.semanticCompression, false);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.maxWebSocketQueueEvents > 0, true);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.rawDeltaRetentionDays > 0, true);
+});
+
+test('Codex app-server kill-switch disables app-server routes without disabling CLI fallback', async () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerEnabled: false,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-disabled-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'disabled', 'device_disabled');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await request(app.server.address().port, 'GET', '/api/codex-app-server/capabilities', null, {
+      authorization: `Bearer ${paired.accessToken}`
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_DISABLED');
+  } finally {
+    app.server.close();
+    app.appSqliteStore.close();
+  }
+});
+```
+
+- [ ] **Step 2: Implement streaming policy constants**
+
+Create `daemon/src/codex-app-server/streaming-policy.js`:
+
+```javascript
+'use strict';
+
+const CODEX_APP_SERVER_STREAMING_POLICY = {
+  persistRawDeltas: true,
+  semanticCompression: false,
+  rawDeltaRetentionDays: 30,
+  derivedSnapshotAfterEvents: 500,
+  durableSnapshotTriggers: ['turn/completed', 'derivedSnapshotAfterEvents'],
+  maxWebSocketQueueEvents: 2000,
+  slowConsumerSignal: 'conversation.replay_required'
+};
+
+module.exports = {
+  CODEX_APP_SERVER_STREAMING_POLICY
+};
+```
+
+The policy does not filter or compress live `assistant.partial` data. It defines the daemon-side bounds that later EventStore/WebSocket work must enforce. Raw delta pruning is allowed only after a durable conversation snapshot is committed to the app database with the last included event sequence; pruning before that committed snapshot exists is a correctness bug.
+
+- [ ] **Step 3: Add kill-switch and metrics expectations**
+
+`createApp()` should treat `codexAppServerEnabled: false` as a runtime kill-switch for app-server route service creation and app-server adapter selection, while preserving existing CLI adapter fallback before side-effect boundaries. The kill-switch affects new provider selections and new app-server routes only. It must not forcibly terminate already-running app-server turns that crossed the side-effect boundary; those continue until completion, user interrupt, or provider failure.
+
+`CodexAppServerService` metrics must expose at least:
+
+```text
+codex_app_server_process_spawn_total{pool}
+codex_app_server_discovery_cache_hit_total
+codex_app_server_discovery_cache_miss_total
+codex_app_server_process_eviction_total{pool,reason}
+codex_app_server_method_latency_ms{method,pool}
+codex_app_server_method_error_total{method,pool}
+```
+
+- [ ] **Step 4: Run and commit**
+
+```powershell
+node scripts\run-tests.js
+npm run lint
+git add daemon/src/codex-app-server/streaming-policy.js daemon/src/codex-app-server/service.js daemon/src/main.js daemon/src/server.js scripts/run-tests.js
+git commit -m "Add Codex app-server operational safety gates"
+```
+
+---
+
+### Task 13: Mobile Data Layer For Stable App-Server APIs
 
 **Files:**
 - Create: `mobile/lib/src/domain/repositories/codex_app_server_repository.dart`
@@ -1949,7 +2266,7 @@ git commit -m "Add mobile Codex app-server data layer"
 
 ---
 
-### Task 13: Mobile UI For History And Discovery
+### Task 14: Mobile UI For History And Discovery
 
 **Files:**
 - Create: `mobile/lib/src/ui/features/codex_app_server/codex_app_server_page.dart`
@@ -2036,7 +2353,7 @@ git commit -m "Add mobile Codex app-server management UI"
 
 ---
 
-### Task 14: End-To-End Verification And Release Gate
+### Task 15: End-To-End Verification And Release Gate
 
 **Files:**
 - Modify: `scripts/run-tests.js`
@@ -2053,6 +2370,29 @@ test('Codex app-server full parity smoke gate is satisfied', () => {
   assert.equal(CODEX_APP_SERVER_CAPABILITY_MATRIX.some((row) => row.localStatus === 'unsupported'), false);
   assert.equal(CODEX_APP_SERVER_CAPABILITY_MATRIX.some((row) => row.risk === 'unknown'), false);
   assert.equal(CODEX_APP_SERVER_CAPABILITY_MATRIX.filter((row) => row.localStatus === 'supported').length > 100, true);
+});
+
+test('Codex app-server model normalization failure is isolated to that adapter', async () => {
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: async () => ({ data: [{ id: null, name: {} }] }),
+    appDbPath: tempConversationDbPath('app-server-model-isolation-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'models', 'device_models');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await request(app.server.address().port, 'GET', '/api/adapters', null, {
+      authorization: `Bearer ${paired.accessToken}`
+    });
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(response.body.adapters));
+    assert.ok(response.body.adapters.some((adapter) => adapter.id !== 'codex-app-server'));
+  } finally {
+    app.server.close();
+    app.appSqliteStore.close();
+  }
 });
 ```
 
@@ -2115,7 +2455,8 @@ Spec coverage:
 - Thread/history: Task 3 and Task 7.
 - Discovery: Task 4 and Task 5.
 - High-risk operations: Task 8 and Task 9.
-- Mobile consumption: Task 12 and Task 13.
-- Testing and release gate: Task 14.
+- Operational safety gates: Task 12.
+- Mobile consumption: Task 13 and Task 14.
+- Testing and release gate: Task 15.
 
 No raw RPC route is introduced. Every high-risk method is routed through typed service boundaries, authorization, approval/policy, audit, and controlled errors. The plan intentionally keeps some APIs `diagnostic-only` or `intentionally-blocked` when full product semantics require dedicated UX or security ownership; Task 11 ensures none remain `unsupported` or `unknown`.

@@ -6168,6 +6168,107 @@ void main() {
     expect(selected, isNull);
   });
 
+  testWidgets('open workbench model picker reflects adapter refresh',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const workspace = WorkspaceSummary(
+      id: 'workspace_1',
+      name: 'Current Project',
+      path: r'D:\AIProject\vibe-coding',
+    );
+    final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore());
+    final adapterRepository =
+        CliAdapterRepository(delegate: DaemonAdapterRepository(client: client))
+          ..replaceFromBootstrap(const <AdapterStatus>[
+            AdapterStatus(
+              adapter: 'codex-app-server',
+              available: true,
+              status: 'available',
+              canSelectModel: true,
+              models: <AdapterModelOption>[],
+            )
+          ]);
+    final conversationRepository = CachedConversationRepository(
+        delegate: _NewSessionConversationRepository())
+      ..replaceFromBootstrap(
+        workspaceId: workspace.id,
+        conversations: const <ConversationSummary>[],
+      );
+    final runRepository =
+        CachedRunRepository(delegate: DaemonRunRepository(client: client))
+          ..replaceFromBootstrap(
+            workspaceId: workspace.id,
+            runs: const <RunSummary>[],
+            queue: const <QueueItem>[],
+          );
+    final workspaceRepository = DaemonWorkspaceRepository(client: client)
+      ..applyBootstrapCatalog(
+        selectedWorkspace: workspace,
+        workspaces: const <WorkspaceSummary>[workspace],
+      );
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: WorkbenchDependencies(
+                  adapterRepository: adapterRepository,
+                  asrModelManager:
+                      AsrModelManager(client: client.createAsrModelClient()),
+                  conversationRepository: conversationRepository,
+                  diagnosticsRepository:
+                      DaemonDiagnosticsRepository(client: client),
+                  runRepository: runRepository,
+                  speechInputServiceBuilder: (_) =>
+                      const DisabledSpeechInputService(),
+                  workspaceRepository: workspaceRepository,
+                )))));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('session-new-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('composer-model-pill')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('model-option-default')), findsOneWidget);
+
+    adapterRepository.replaceFromBootstrap(const <AdapterStatus>[
+      AdapterStatus(
+        adapter: 'codex-app-server',
+        available: true,
+        status: 'available',
+        canSelectModel: true,
+        selectedModel: 'gpt-5.5',
+        models: <AdapterModelOption>[
+          AdapterModelOption(
+              id: 'gpt-5.5',
+              label: 'gpt-5.5',
+              source: 'codex_config',
+              selected: true),
+        ],
+      )
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('model-option-default')), findsNothing);
+    expect(find.byKey(const ValueKey('model-option-gpt-5.5')), findsOneWidget);
+    expect(find.text('gpt-5.5'), findsWidgets);
+  });
+
   testWidgets('model picker renders model source labels',
       (WidgetTester tester) async {
     String? selected;
@@ -6192,6 +6293,11 @@ void main() {
                       source: 'codex_catalog',
                       selected: false),
                   AdapterModelOption(
+                      id: 'gpt-5-app-server',
+                      label: 'GPT-5 App Server',
+                      source: 'app_server',
+                      selected: false),
+                  AdapterModelOption(
                       id: 'claude-sonnet',
                       label: 'Claude Sonnet',
                       source: 'claude_config',
@@ -6211,6 +6317,7 @@ void main() {
     expect(find.text('GPT-5 Codex'), findsOneWidget);
     expect(find.text('Codex config'), findsOneWidget);
     expect(find.text('Codex catalog'), findsOneWidget);
+    expect(find.text('App Server'), findsOneWidget);
     expect(find.text('Claude config'), findsOneWidget);
     expect(find.text('CLI default'), findsOneWidget);
     expect(find.text('Unknown source'), findsOneWidget);

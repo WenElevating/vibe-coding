@@ -253,11 +253,14 @@ String _modelSourceLabel(AppLocalizations l10n, String source) =>
     switch (source) {
       'codex_config' => l10n.modelPickerSourceCodexConfig,
       'codex_catalog' => l10n.modelPickerSourceCodexCatalog,
+      'app_server' => _modelPickerAppServerSourceText(l10n),
       'claude_config' => l10n.modelPickerSourceClaudeEnv,
       'claude_env' => l10n.modelPickerSourceClaudeEnv,
       'cli_default' => l10n.modelPickerSourceCliDefault,
       _ => l10n.modelPickerSourceUnknown,
     };
+
+String _modelPickerAppServerSourceText(AppLocalizations l10n) => 'App Server';
 
 String _modelPickerUpdatingText(BuildContext context) =>
     _modelPickerFallbackText(

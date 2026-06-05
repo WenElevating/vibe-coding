@@ -796,10 +796,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   void _showModelPicker() {
     if (_isModelSelectionLocked) return;
     _workbenchViewModel.clearModelNotice();
-    final status = _workbenchViewModel.selectedAdapterStatus;
-    final models = status?.canSelectModel == true
-        ? _workbenchViewModel.availableModels
-        : const <AdapterModelOption>[];
     showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -807,6 +803,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         builder: (sheetContext) => AnimatedBuilder(
             animation: _workbenchViewModel,
             builder: (context, _) {
+              final status = _workbenchViewModel.selectedAdapterStatus;
+              final models = status?.canSelectModel == true
+                  ? _workbenchViewModel.availableModels
+                  : const <AdapterModelOption>[];
               return ModelPickerSheet(
                   models: models,
                   selected: _workbenchViewModel.selectedModel,

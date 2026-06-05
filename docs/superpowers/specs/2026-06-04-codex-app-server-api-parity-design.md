@@ -129,6 +129,13 @@ The generated contract should be treated as the authority for:
 - Stable versus experimental API classification.
 - Deprecation or rename detection.
 
+Rename detection cannot be inferred from a plain method-name diff. Unless the
+official schema exposes a stable method id or alias, the sync script must treat
+every apparent delete/add pair as an explicit human review event. The matrix
+should support `renamedFrom` and `removedInSchemaVersion` fields so reviewers can
+preserve risk classification and rationale when an official method is renamed,
+deprecated, or removed.
+
 If a future local environment cannot run the generators, Phase 1 must not
 silently proceed with stale method knowledge. The fallback is:
 
@@ -139,6 +146,12 @@ silently proceed with stale method knowledge. The fallback is:
 4. Keep the matrix update test active against that fixture.
 5. Treat generator recovery as required before claiming parity with a newer
    installed Codex version.
+
+CI should also include a separate contract-drift job, suitable for nightly or
+manual release-gate execution, that runs the generator against the real
+installed `codex` binary and compares output with committed fixtures. The normal
+test suite may rely on committed fixtures for determinism, but fixture drift must
+be visible outside local developer machines.
 
 ## Architecture
 
@@ -152,6 +165,10 @@ Responsibilities:
 - Provide one method per supported official app-server operation.
 - Apply method-specific timeouts and error normalization.
 - Validate or normalize responses against generated schema where practical.
+  Notifications that drive persisted events must be schema-checked or explicitly
+  version-tolerant-normalized before insertion into `EventStore`; this is not
+  optional for `assistant.partial`, command output deltas, file deltas, approval
+  requests, or turn lifecycle notifications.
 - Centralize method names so conversation/listing adapters do not hard-code
   JSON-RPC strings.
 - Expose notification and server-request subscriptions without hiding raw
@@ -176,6 +193,25 @@ All callers waiting on a failed initialization receive the same rejection. They
 must not retry through the invalidated client; retry is an upper-layer concern
 that creates a new lifecycle process handle and client.
 
+Initialization readiness is defined as "the daemon has received a successful
+`initialize` response and has successfully written the matching `initialized`
+notification." If the request succeeds but writing `initialized` fails, the
+client is not ready and must be invalidated. This avoids a half-initialized
+transport being reused by listing, discovery, or conversation paths.
+
+Timeouts are classified by operation type:
+
+- Instant RPC: discovery, metadata reads, account status reads, and simple
+  config reads use bounded method-level timeouts.
+- Long-lived stream: `thread/start`, `thread/resume`, `turn/start`, realtime,
+  command/process streams, and any method that produces notifications use
+  startup timeout plus heartbeat/idle monitoring, not a single method timeout
+  for the whole turn.
+- Inbound server request: approval, token, elicitation, and tool-call requests
+  are timed independently from the outbound method that caused them. Approval
+  timeout must not cancel the parent turn unless the app-server protocol
+  requires cancellation and the daemon has written the cancellation request.
+
 ### Method Registry And Capability Matrix
 
 Add a daemon registry that compares generated official methods against local
@@ -186,14 +222,18 @@ Each method entry should track:
 - `method`: official JSON-RPC method name.
 - `direction`: request, notification, or server request.
 - `stability`: stable or experimental.
-- `category`: lifecycle, model, thread, turn, item, command, file, MCP, skill,
-  plugin, app, config, auth, sandbox, remote-control, diagnostics, or unknown.
+- `category`: lifecycle, model, thread, turn, item, command, process, file, MCP,
+  skill, plugin, marketplace, app, config, auth, sandbox, remote-control,
+  diagnostics, or unknown.
 - `localStatus`: supported, partial, planned, diagnostic-only, unsupported, or
   intentionally-blocked.
 - `daemonOwner`: client, conversation adapter, listing adapter, server route,
   diagnostics, or none.
 - `mobileStatus`: consumed, protocol-only, planned, or not planned.
-- `risk`: none, read, write, process, account, network, or permission.
+- `risk`: none, read, write, process, account, network, permission, or unknown.
+  `unknown` is a temporary classification used only for newly synced or
+  unreviewed rows; it is not a real runtime risk level and must never be
+  mobile-accessible.
 - `testRequirement`: unit, integration fake transport, route test, mobile
   contract test, or manual-only.
 
@@ -217,10 +257,40 @@ Matrix lifecycle rules:
   produced with `--experimental`; their `stability` field must remain
   `experimental`.
 - Deprecated or removed official methods should stay in the matrix for one
-  release cycle as `intentionally-blocked`, with a rationale that records the
-  schema version that deprecated or removed them, before deletion.
+  daemon release cycle as `intentionally-blocked`, with a rationale that records
+  the schema version that deprecated or removed them, before deletion. "One
+  daemon release cycle" means the next shipped daemon build after the removal is
+  visible in the matrix and diagnostics.
+- Route-level capability metadata is derived from matrix rows. Do not maintain a
+  second handwritten route capability source that can drift from `localStatus`,
+  `mobileStatus`, `risk`, and `daemonOwner`.
 - Tests should fail on missing rows, duplicate method rows, invalid enum values,
   and any `risk: unknown` row that is marked mobile-accessible.
+
+The machine `category` field is the normalized method taxonomy. The API Coverage
+Matrix table below is a human planning view. Planning rows map to machine
+categories as follows:
+
+| Planning row | Machine category |
+| --- | --- |
+| Lifecycle | lifecycle |
+| Models | model |
+| Thread lifecycle, Thread management | thread |
+| Turn lifecycle, Turn history/control | turn |
+| Item stream | item |
+| Command/process | command or process |
+| File operations | file |
+| Approvals/permissions | item, command, file, or auth with `risk: permission` |
+| MCP | MCP |
+| Skills | skill |
+| Plugins | plugin |
+| Marketplace | marketplace |
+| Apps | app |
+| Config | config |
+| Auth/account | auth |
+| Sandbox/platform | sandbox |
+| Remote control | remote-control |
+| Experimental APIs | the method's real category plus `stability: experimental` |
 
 ### Conversation Adapter
 
@@ -257,9 +327,37 @@ app-server thread or turn. For conversation startup, this means:
 
 This preserves provider identity and avoids creating a second CLI conversation
 after app-server may already have created or touched a thread.
+It is a conservative tradeoff with a UX cost: if the app-server process crashes
+after the daemon writes a request but before the peer reads it, the daemon still
+surfaces an app-server error instead of silently falling back to the CLI adapter.
+The product chooses this boundary because the daemon cannot prove the provider
+did not observe the write.
 
 It should keep streaming deltas unchanged. Dense `assistant.partial` history is
 a mobile replay/windowing concern, not a daemon filtering concern.
+
+That rule means the daemon must not drop, summarize, or semantically compress
+incremental deltas before persistence or live delivery. It does not mean the
+daemon can have unbounded storage or memory growth. The event pipeline must
+define:
+
+- Persistence granularity: exact deltas are stored as received for audit/replay;
+  optional later compaction may create derived snapshots but must not replace the
+  authoritative raw event stream inside the active retention window.
+- Retention: long-running delta streams need a configurable retention or pruning
+  policy for old raw deltas after durable conversation snapshots exist.
+- Snapshot trigger: a durable conversation snapshot is created after `turn/completed`
+  and after every `derivedSnapshotAfterEvents` raw deltas for long-running turns.
+  Snapshot creation is complete only after the snapshot row is committed to the
+  app database and references the last included event sequence. Raw delta pruning
+  must check that committed snapshot sequence first; pruning before a snapshot is
+  durable is a correctness bug.
+- WebSocket backpressure: each mobile connection needs a bounded outbound queue;
+  slow consumers receive a controlled reconnect/windowing signal instead of
+  letting daemon memory grow without limit.
+- Replay windowing: mobile history reads page by event sequence and can request
+  coalesced display text derived from raw deltas, while live WebSocket delivery
+  still preserves each incoming delta event.
 
 ### Listing And Capability Adapter
 
@@ -300,6 +398,11 @@ UI. `/api/codex-app-server/models`, if added, is an app-server-specific
 diagnostic or advanced discovery route that returns richer protocol metadata.
 Both routes must call the same typed app-server model service so selected model
 ids, labels, and availability cannot drift.
+Model normalization failure must be isolated per adapter/provider. A malformed
+or unexpected `model/list` response from `codex-app-server` can mark that
+adapter's models as unavailable with a controlled diagnostic error, but it must
+not break the entire `/api/adapters` response or hide models from unrelated
+adapters.
 
 ### Diagnostic Raw RPC
 
@@ -307,7 +410,10 @@ A restricted raw RPC endpoint may be added only for development diagnostics.
 
 Rules:
 
-- Disabled by default outside development mode.
+- Disabled unless both a compile/build-time development capability and an
+  explicit runtime environment flag are enabled.
+- Bound only to loopback. It must not be exposed on LAN/mobile listener
+  addresses even in development mode.
 - Requires paired device auth.
 - Denies high-risk method categories unless an explicit allowlist enables them.
 - Logs method name, category, risk, workspace id, and device id.
@@ -318,9 +424,32 @@ Rules:
 
 Discovery APIs should not blindly start a fresh app-server process for every
 request once Phase 4 adds frequent routes such as models, MCP servers, skills,
-plugins, apps, config, and sandbox discovery.
+plugins, apps, config, and sandbox discovery. The default reuse strategy is
+still conservative because app-server processes may carry global mutable state:
+configuration, auth sessions, MCP connections, sandbox policy, and cached
+workspace data.
 
-The service should support a small scoped process cache:
+The service should support physically separated process pools:
+
+- Passive discovery pool: read-only discovery and diagnostics.
+- Conversation pool: active `thread/*` and `turn/*` conversation processes.
+- Mutation pool: high-risk file, process, command, config, plugin, marketplace,
+  skills, account mutation, and remote-control operations.
+
+Initial pool limits:
+
+- Passive discovery pool: max 2 processes per app-server invocation key. If full,
+  queue for up to 2 seconds, then return `CODEX_APP_SERVER_BUSY`.
+- Conversation pool: max configured by `CODEX_APP_SERVER_MAX_PROCESSES`, default
+  4 active app-server conversation processes. If full before a provider-side
+  write, the daemon may fall back to CLI when the selected adapter policy allows
+  fallback; after the side-effect boundary, it must return a controlled busy
+  error instead of starting a second provider conversation.
+- Mutation pool: max 1 process per workspace by default. If full, queue for up to
+  5 seconds for idempotent reads promoted to mutation scope, otherwise return
+  `CODEX_APP_SERVER_BUSY` and audit the denial.
+
+The passive discovery pool may use a small scoped process cache:
 
 - Key by app-server invocation, workspace scope when required, and stability
   mode, including whether experimental methods are enabled.
@@ -328,14 +457,62 @@ The service should support a small scoped process cache:
 - A client with an active conversation turn, pending high-risk operation, or
   unresolved server request is not idle.
 - Use a short TTL, initially 30 seconds, for read-only discovery.
-- Never reuse a discovery client for active conversation turns.
-- Never share a high-risk operation process with passive discovery unless the
-  implementation proves state isolation.
+- Never reuse a discovery client for active conversation turns or high-risk
+  operations.
+- Only methods classified `risk: none` or `risk: read` may use the passive
+  discovery pool. `risk: account` reads may use the passive pool only if their
+  DTO redaction is tested and they do not refresh tokens or mutate auth state.
+- Do not share a mutation process with passive discovery. If a future
+  implementation wants broader reuse, it must first add tests that prove no
+  shared mutable state leaks across pools; until then, spend the extra process.
 - On transport close or protocol error, evict the process handle immediately.
+
+Metrics must be emitted for process spawn count, discovery cache hit/miss,
+evictions by reason, per-method latency, per-method error rate, and pool
+occupancy. TTL changes should be based on these metrics, not guesswork.
 
 Phase 1 and Phase 2 can keep one short-lived process per operation. Phase 4 must
 choose and test the reuse policy before adding frequently-polled discovery
 routes.
+
+The app-server path must have a runtime kill-switch that disables app-server
+selection and discovery routes without requiring a new build. When disabled, the
+daemon should keep the existing CLI fallback path available where the side-effect
+boundary has not been crossed.
+The kill-switch affects new provider selection, new discovery routes, and new
+mutation routes. It must not forcibly terminate already-running app-server
+conversation turns that have crossed the side-effect boundary. Those in-flight
+turns continue until completion, user interrupt, or provider failure; the UI
+should show that app-server has been disabled for new work while the existing
+turn drains.
+
+### Workspace Authorization Minimum
+
+Workspace authorization is a prerequisite for thread management and high-risk
+routes. The minimum semantics are:
+
+- A mobile device is authorized for a workspace only when its paired device id is
+  allowed for that workspace id in `WorkspaceRegistry`.
+- The route must resolve path-bearing requests through
+  `WorkspaceRegistry.getAuthorized(workspaceId, device)` before app-server is
+  called.
+- The daemon must send app-server the resolved workspace root from the registry,
+  not a client-provided path.
+- Any requested relative path must normalize inside the authorized workspace
+  root; traversal outside the root is rejected before app-server is called.
+- Thread mutations such as fork/archive/unarchive require either the thread's
+  stored workspace id to match the authorized workspace or a verified mapping
+  from app-server thread metadata to the authorized workspace root.
+
+If an API group cannot meet these semantics yet, its matrix rows stay `planned`
+with a blocking rationale.
+
+Audit records for high-risk and thread-mutation operations are stored in the app
+SQLite database through the daemon audit log. Minimum fields are event name,
+timestamp, paired device id, workspace id, method, risk, decision, result,
+redacted error code, and request correlation id. Retain audit rows for at least
+90 days. Audits are append-only at the application layer; update/delete code
+paths for these records are not exposed through mobile routes.
 
 ## API Coverage Matrix
 
@@ -373,11 +550,14 @@ status.
 - Build method registry from generated schema.
 - Add committed capability matrix with local status.
 - Add tests that fail when official methods are missing from the matrix.
+- Add or document the contract-drift CI job that compares committed fixtures
+  with schemas generated from the real `codex` binary.
 - Keep existing runtime behavior unchanged except for routing method constants
   through the registry where low-risk.
 - Acceptance tests must prove generator output or fixture loading works,
   generated methods are fully represented in the matrix, new methods get safe
-  default statuses, and invalid matrix enum values fail.
+  default statuses, invalid matrix enum values fail, and rename/remove events
+  require explicit matrix review metadata.
 
 ### Phase 2: Typed Client For Existing Behavior
 
@@ -389,7 +569,9 @@ status.
 - Keep all current event mappings and streaming deltas.
 - Acceptance tests must prove existing app-server conversation and model-list
   tests pass through the client, duplicate initialization is single-flight, and
-  fallback is disallowed after a thread request is written.
+  fallback is disallowed after a thread request is written. They must also cover
+  operation-type timeout classification and the readiness rule that `initialize`
+  response plus successful `initialized` notification is required before reuse.
 
 ### Phase 3: Thread And History Parity
 
@@ -411,10 +593,13 @@ status.
   discovery routes.
 - Prefer read-only discovery first.
 - Expose route-level capability metadata so mobile can hide unsupported controls
-  until UI work catches up.
+  until UI work catches up. This metadata must be generated from the capability
+  matrix instead of maintained as a second source.
 - Acceptance tests must cover discovery process reuse or explicit non-reuse,
   TTL eviction, transport-close eviction, shared model service behavior between
-  `/api/adapters` and app-server model routes, and read-only enforcement.
+  `/api/adapters` and app-server model routes, per-adapter model normalization
+  failure isolation, read-only enforcement, process-pool separation, kill-switch
+  behavior, and basic spawn/cache/latency/error metrics.
 
 ### Phase 5: High-Risk Operations
 
@@ -437,6 +622,8 @@ status.
   surfaces requires it.
 - Acceptance tests must cover repository DTO parsing, ViewModel state for each
   consumed route, and preservation of existing conversation/model-picker flows.
+  Mobile tests that consume dense partial history must prove paged replay works
+  without requiring daemon-side semantic filtering.
 
 ## Data Flow
 
@@ -483,6 +670,8 @@ status.
   request failure for direct method calls.
 - Unknown official notifications should remain persisted in raw diagnostic
   payloads until mapped or intentionally ignored.
+- Persisted event notifications that drive visible or hidden conversation state
+  must have schema coverage or an explicit tolerant normalizer.
 - Unsupported server requests should fail closed and produce visible run errors
   for active conversations.
 - Side-effect boundary rules must remain explicit for fallback behavior.
@@ -493,6 +682,9 @@ status.
 - Workspace-scoped methods require workspace authorization for the paired device.
 - Raw app-server RPC is disabled by default and development-only.
 - Account/auth/config endpoints are read-only until separately approved.
+  Account reads are still sensitive reads: they require paired-device auth,
+  DTO-level redaction of tokens, email/identifier fields where not needed, and
+  tests proving no bearer tokens or refresh tokens leave the daemon.
 - File write, command, process, remote-control, sandbox mutation, and permission
   mutation endpoints require explicit risk entries in the capability matrix.
 - Errors and diagnostics must redact API keys, bearer tokens, user-home paths,
@@ -513,9 +705,15 @@ authoritative checklist for each PR slice.
 - `model/list` still initializes app-server and normalizes model capability.
 - Availability probes stay cheap and avoid model/discovery RPCs.
 - Unknown notifications are preserved as diagnostics without breaking streams.
+- Dense partial event persistence and WebSocket backpressure have bounded
+  retention/queue tests.
 - Unsupported server requests fail closed.
 - High-risk methods are blocked unless explicitly allowed.
 - Raw diagnostic RPC is disabled outside development mode.
+- Contract-drift CI compares committed fixtures with output from the real Codex
+  app-server generator on a scheduled or release-gate job.
+- Kill-switch and metrics paths are covered for app-server discovery and
+  conversation selection.
 - Sanitization redacts secrets in app-server errors and metrics.
 
 Mobile tests are deferred unless daemon route DTOs change existing mobile
