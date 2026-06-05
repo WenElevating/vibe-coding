@@ -893,6 +893,61 @@ test('Codex app-server service never shares discovery, conversation, and mutatio
   assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
 });
 
+test('Codex app-server diagnostics expose sanitized operational metrics', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  let now = 1000;
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          now += 7;
+          if (method === 'initialize') return {};
+          if (method === 'model/list') return { data: [] };
+          if (method === 'account/logout') {
+            const error = new Error('secret-token-should-not-appear');
+            error.status = 500;
+            throw error;
+          }
+          return {};
+        };
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    },
+    now: () => now
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  await service.withDiscoveryClient((client) => client.listModels());
+  await assert.rejects(
+    () => service.withMutationClient({ method: 'account/logout' }, (client) => client.logoutAccount()),
+    /secret-token-should-not-appear/
+  );
+  const metrics = service.snapshotMetrics();
+  const samples = metrics.exported;
+  assert.deepEqual(metrics.metricSamples, samples);
+  assert.deepEqual(metrics.metricNames, Array.from(new Set(samples.map((sample) => sample.name))).sort());
+  const names = new Set(samples.map((sample) => sample.name));
+
+  for (const name of [
+    'codex_app_server_process_spawn_total',
+    'codex_app_server_discovery_cache_hit_total',
+    'codex_app_server_discovery_cache_miss_total',
+    'codex_app_server_process_eviction_total',
+    'codex_app_server_method_latency_ms',
+    'codex_app_server_method_error_total'
+  ]) {
+    assert.equal(names.has(name), true, `${name} missing`);
+  }
+  assert.equal(samples.some((sample) => sample.name === 'codex_app_server_process_spawn_total' && sample.labels.pool === 'discovery' && sample.value === 1), true);
+  assert.equal(samples.some((sample) => sample.name === 'codex_app_server_discovery_cache_hit_total' && sample.value === 1), true);
+  assert.equal(samples.some((sample) => sample.name === 'codex_app_server_discovery_cache_miss_total' && sample.value === 1), true);
+  assert.equal(samples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'model/list' && sample.labels.pool === 'discovery'), true);
+  assert.equal(samples.some((sample) => sample.name === 'codex_app_server_method_error_total' && sample.labels.method === 'account/logout' && sample.labels.pool === 'mutation' && sample.value === 1), true);
+  assert.equal(JSON.stringify(metrics).includes('secret-token-should-not-appear'), false);
+});
+
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
   const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
   const errors = [];
@@ -983,6 +1038,17 @@ test('Codex app-server method timeout classes distinguish streams and server req
   assert.equal(classifyCodexAppServerTimeout('item/commandExecution/requestApproval').kind, 'inbound-server-request');
 });
 
+test('Codex app-server streaming policy keeps raw partials but bounds live websocket queues', () => {
+  const { CODEX_APP_SERVER_STREAMING_POLICY } = require('../daemon/src/codex-app-server/streaming-policy');
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.persistRawDeltas, true);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.semanticCompression, false);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.rawDeltaRetentionDays, 30);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.derivedSnapshotAfterEvents, 500);
+  assert.deepEqual(CODEX_APP_SERVER_STREAMING_POLICY.durableSnapshotTriggers, ['turn/completed', 'derivedSnapshotAfterEvents']);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.maxWebSocketQueueEvents, 2000);
+  assert.equal(CODEX_APP_SERVER_STREAMING_POLICY.slowConsumerSignal, 'conversation.replay_required');
+});
+
 test('Codex app-server routes require authentication', async () => {
   const app = createApp({
     port: 0,
@@ -997,6 +1063,34 @@ test('Codex app-server routes require authentication', async () => {
     assert.equal(response.status, 401);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
+    app.appSqliteStore.close();
+  }
+});
+
+test('Codex app-server kill-switch disables app-server routes without disabling CLI fallback', async () => {
+  const app = createApp({
+    port: 0,
+    codexEnabled: true,
+    codexAppServerEnabled: false,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    appDbPath: tempConversationDbPath('app-server-disabled-')
+  });
+  const pair = app.auth.createPairingCode();
+  const paired = app.auth.pair(pair.code, 'test', 'device_disabled');
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const response = await request(port, 'GET', '/api/codex-app-server/capabilities', null, paired.token);
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_DISABLED');
+    assert.equal(app.codexAppServerService, null);
+    const adapters = await app.adapterRegistry.listCapabilities();
+    assert.equal(adapters.some((adapter) => adapter.name === 'codex-app-server'), false);
+    assert.ok(app.adapterRegistry.get('codex'));
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+    app.notificationHub.close();
     app.appSqliteStore.close();
   }
 });
@@ -11346,6 +11440,7 @@ async function createCodexAppServerRouteTestApp({
   service,
   approvalPolicy,
   auditLog,
+  codexAppServerEnabled = true,
   workspacePath = process.cwd(),
   workspaceName = 'Codex App Server Test',
   label = 'codex-app-server-route-test',
@@ -11354,6 +11449,7 @@ async function createCodexAppServerRouteTestApp({
   const forwardedAuditLog = auditLog;
   const app = createApp({
     port: 0,
+    codexAppServerEnabled,
     codexAppServerService: service,
     codexAppServerApprovalPolicy: approvalPolicy,
     auditLog: auditLog || new AuditLog(),

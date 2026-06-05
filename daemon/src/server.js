@@ -8,11 +8,12 @@ const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 const { tryHandleCodexAppServerRoute } = require('./codex-app-server/routes');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, auditLog = null }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, codexAppServerEnabled = true, auditLog = null }) {
   const serverContext = {
     auth,
     workspaces,
     codexAppServerService,
+    codexAppServerEnabled,
     auditLog
   };
   const server = http.createServer(async (req, res) => {
@@ -50,12 +51,18 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'GET' && url.pathname === '/api/asr-model/download') return asrModelAsset.streamDownload(req, res);
       if (method === 'POST' && url.pathname === '/api/diagnostics/export') return json(res, 200, await diagnosticBundle.exportBundle());
       if (method === 'POST' && url.pathname === '/api/exceptions') return json(res, 201, recordClientException(await readJson(req), { device, diagnosticBundle, req }));
+      if (codexAppServerEnabled === false && isCodexAppServerRoute(url.pathname)) {
+        throw Object.assign(new Error('Codex app-server is disabled by runtime kill-switch.'), {
+          status: 503,
+          code: 'CODEX_APP_SERVER_DISABLED'
+        });
+      }
       const handledCodexAppServer = await tryHandleCodexAppServerRoute({
         method,
         url,
         json: (status, body, headers) => json(res, status, body, headers),
         readJson: () => readJson(req),
-        context: { device, workspaces, codexAppServerService, approvalPolicy: codexAppServerApprovalPolicy, auditLog }
+        context: { device, workspaces, codexAppServerService, codexAppServerEnabled, approvalPolicy: codexAppServerApprovalPolicy, auditLog }
       });
       if (handledCodexAppServer) return;
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });
@@ -237,6 +244,10 @@ function recordClientException(body, { device, diagnosticBundle, req }) {
 
 function safeDeviceId(error) {
   return error && error.deviceId ? error.deviceId : null;
+}
+
+function isCodexAppServerRoute(pathname) {
+  return pathname === '/api/codex-app-server' || pathname.startsWith('/api/codex-app-server/');
 }
 
 function parseConversationEventPageRequest(searchParams) {

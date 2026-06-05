@@ -107,14 +107,15 @@ function createApp({
     experimentalApi: codexAppServerExperimentalApi,
     rolloutPercent: codexAppServerRolloutPercent
   });
+  const codexAppServerRouteEnabled = codexAppServerRuntime.availability.enabled === true;
   const codexAppServerAvailabilityState = { current: codexAppServerRuntime.availability };
   const codexAppServerMetrics = createCodexAppServerMetrics();
-  const codexAppServerLifecycle = codexAppServerEnabled ? createCodexAppServerLifecycle({
+  const codexAppServerLifecycle = codexAppServerRouteEnabled ? createCodexAppServerLifecycle({
     codexCommand,
     maxProcesses: codexAppServerMaxProcesses,
     metrics: codexAppServerMetrics
   }) : null;
-  if (codexAppServerEnabled) {
+  if (codexAppServerRouteEnabled) {
     adapters.push(new CodexAppServerListingAdapter({
       availabilityState: codexAppServerAvailabilityState,
       metrics: codexAppServerMetrics,
@@ -162,17 +163,17 @@ function createApp({
   const workspaceInspector = new WorkspaceInspector();
   const runQueue = new RunQueue();
   const attachmentScratchStore = new AttachmentScratchStore({ root: path.join(path.dirname(appDbPath), 'attachment-scratch') });
-  const effectiveCodexAppServerService = codexAppServerService !== undefined
+  const effectiveCodexAppServerService = !codexAppServerRouteEnabled
+    ? null
+    : codexAppServerService !== undefined
     ? codexAppServerService
-    : codexAppServerEnabled
-    ? new CodexAppServerService({
+    : new CodexAppServerService({
       lifecycle: codexAppServerLifecycle,
       poolLimits: {
         conversation: codexAppServerMaxProcesses
       },
       metrics: codexAppServerMetrics
-    })
-    : null;
+    });
   const config = { host, port, mode };
   const version = versionInfo({ mode });
   const migrationService = new MigrationService();
@@ -185,7 +186,7 @@ function createApp({
       claudeCommand,
       codexCommand,
       codexToolTimeoutSec,
-      codexAppServerEnabled,
+      codexAppServerEnabled: codexAppServerRouteEnabled,
       codexAppServerRuntime,
       codexAppServerMaxProcesses,
       codexAppServerAvailabilityState,
@@ -206,7 +207,7 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, codexAppServerApprovalPolicy, auditLog });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, codexAppServerApprovalPolicy, codexAppServerEnabled: codexAppServerRouteEnabled, auditLog });
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
   notificationHub.attach(server);
   notificationHub.start();

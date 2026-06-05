@@ -52,7 +52,7 @@ class CodexAppServerService {
       invocationKey: resolved.options.invocationKey || 'default'
     };
     const entry = await this.getDiscoveryEntry(scope);
-    return resolved.callback(entry.client);
+    return resolved.callback(wrapClientWithMetrics(entry.client, this.metrics, 'discovery', this.now));
   }
 
   async withWorkspaceClient(workspace, callback) {
@@ -72,7 +72,7 @@ class CodexAppServerService {
     let scoped = null;
     try {
       scoped = await this.createScopedClient(scope);
-      return await callback(scoped.client);
+      return await callback(wrapClientWithMetrics(scoped.client, this.metrics, 'conversation', this.now));
     } finally {
       this.activeConversationCount -= 1;
       if (scoped) await scoped.shutdown();
@@ -97,7 +97,7 @@ class CodexAppServerService {
     let scoped = null;
     try {
       scoped = await this.createScopedClient(scope);
-      return await callback(scoped.client);
+      return await callback(wrapClientWithMetrics(scoped.client, this.metrics, 'mutation', this.now));
     } finally {
       decrementMapCount(this.activeMutationCounts, workspaceKey);
       if (scoped) await scoped.shutdown();
@@ -219,7 +219,7 @@ class CodexAppServerService {
   }
 
   snapshotMetrics() {
-    return JSON.parse(JSON.stringify(this.metrics));
+    return sanitizeMetrics(this.metrics);
   }
 }
 
@@ -320,6 +320,232 @@ function incrementEvictionMetric(metrics, pool, reason) {
   if (!metrics.processEvictionTotal[pool]) metrics.processEvictionTotal[pool] = {};
   metrics.processEvictionTotal[pool][reason] = (metrics.processEvictionTotal[pool][reason] || 0) + 1;
 }
+
+function wrapClientWithMetrics(client, metrics, pool, now) {
+  if (!client || client.__codexAppServerMetricsWrapped) return client;
+  const proxy = new Proxy(client, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      return async (...args) => {
+        const method = inferClientMethod(property, args);
+        if (method === 'initialize') return value.apply(target, args);
+        const startedAt = now();
+        try {
+          const result = await value.apply(target, args);
+          recordMethodLatency(metrics, method, pool, now() - startedAt);
+          return result;
+        } catch (error) {
+          recordMethodLatency(metrics, method, pool, now() - startedAt);
+          recordMethodError(metrics, method, pool);
+          throw error;
+        }
+      };
+    }
+  });
+  Object.defineProperty(proxy, '__codexAppServerMetricsWrapped', {
+    value: true,
+    enumerable: false
+  });
+  return proxy;
+}
+
+function inferClientMethod(property, args) {
+  if (property === 'sendRequest' && typeof args[0] === 'string') return sanitizeMethodName(args[0]);
+  return sanitizeMethodName(CLIENT_METHOD_TO_APP_SERVER_METHOD[property] || property);
+}
+
+function recordMethodLatency(metrics, method, pool, latencyMs) {
+  metrics.methodLatencyMs.push({
+    name: 'codex_app_server_method_latency_ms',
+    method,
+    pool,
+    value: Math.max(0, Number(latencyMs) || 0)
+  });
+}
+
+function recordMethodError(metrics, method, pool) {
+  const sanitizedPool = sanitizeLabelValue(pool);
+  const sanitizedMethod = sanitizeMethodName(method);
+  if (!metrics.methodErrorTotal[sanitizedPool]) metrics.methodErrorTotal[sanitizedPool] = {};
+  metrics.methodErrorTotal[sanitizedPool][sanitizedMethod] = (metrics.methodErrorTotal[sanitizedPool][sanitizedMethod] || 0) + 1;
+}
+
+function sanitizeMetrics(metrics) {
+  const snapshot = JSON.parse(JSON.stringify(metrics));
+  normalizeMetricErrorTotals(snapshot);
+  const metricSamples = exportMetricSamples(snapshot);
+  return {
+    ...snapshot,
+    exported: metricSamples,
+    metricSamples,
+    metricNames: Array.from(new Set(metricSamples.map((sample) => sample.name))).sort()
+  };
+}
+
+function normalizeMetricErrorTotals(metrics) {
+  const normalized = {};
+  for (const [poolOrKey, value] of Object.entries(metrics.methodErrorTotal || {})) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const pool = sanitizeLabelValue(poolOrKey);
+      if (!normalized[pool]) normalized[pool] = {};
+      for (const [method, count] of Object.entries(value)) {
+        normalized[pool][sanitizeMethodName(method)] = Number(count) || 0;
+      }
+      continue;
+    }
+    const [pool, method] = splitMetricKey(poolOrKey);
+    if (!normalized[pool]) normalized[pool] = {};
+    normalized[pool][method] = (normalized[pool][method] || 0) + (Number(value) || 0);
+  }
+  metrics.methodErrorTotal = normalized;
+}
+
+function exportMetricSamples(metrics) {
+  const samples = [];
+  for (const [pool, value] of Object.entries(metrics.processSpawnTotal || {})) {
+    samples.push(metricSample('codex_app_server_process_spawn_total', { pool }, value));
+  }
+  samples.push(metricSample('codex_app_server_discovery_cache_hit_total', {}, metrics.discoveryCacheHitTotal || 0));
+  samples.push(metricSample('codex_app_server_discovery_cache_miss_total', {}, metrics.discoveryCacheMissTotal || 0));
+  for (const [pool, reasons] of Object.entries(metrics.processEvictionTotal || {})) {
+    for (const [reason, value] of Object.entries(reasons || {})) {
+      samples.push(metricSample('codex_app_server_process_eviction_total', { pool, reason }, value));
+    }
+  }
+  for (const latency of metrics.methodLatencyMs || []) {
+    samples.push(metricSample('codex_app_server_method_latency_ms', {
+      method: sanitizeMethodName(latency.method),
+      pool: sanitizeLabelValue(latency.pool)
+    }, latency.value));
+  }
+  for (const [pool, methods] of Object.entries(metrics.methodErrorTotal || {})) {
+    if (methods && typeof methods === 'object' && !Array.isArray(methods)) {
+      for (const [method, value] of Object.entries(methods)) {
+        samples.push(metricSample('codex_app_server_method_error_total', { method, pool }, value));
+      }
+      continue;
+    }
+    const [legacyPool, method] = splitMetricKey(pool);
+    samples.push(metricSample('codex_app_server_method_error_total', { method, pool: legacyPool }, methods));
+  }
+  return samples;
+}
+
+function metricSample(name, labels, value) {
+  return {
+    name,
+    labels: Object.fromEntries(Object.entries(labels).map(([key, item]) => [
+      key,
+      key === 'method' ? sanitizeMethodName(item) : sanitizeLabelValue(item)
+    ])),
+    value: Number(value) || 0
+  };
+}
+
+function splitMetricKey(key) {
+  const delimiter = String(key || '').indexOf(':');
+  if (delimiter < 0) return ['unknown', sanitizeMethodName(key)];
+  return [
+    sanitizeLabelValue(String(key).slice(0, delimiter)),
+    sanitizeMethodName(String(key).slice(delimiter + 1))
+  ];
+}
+
+function sanitizeMethodName(value) {
+  const normalized = String(value || 'unknown');
+  return /^[a-zA-Z0-9/_-]{1,120}$/.test(normalized) ? normalized : 'unknown';
+}
+
+function sanitizeLabelValue(value) {
+  const normalized = String(value || 'unknown');
+  return /^[a-zA-Z0-9_-]{1,80}$/.test(normalized) ? normalized : 'unknown';
+}
+
+const CLIENT_METHOD_TO_APP_SERVER_METHOD = Object.freeze({
+  listModels: 'model/list',
+  listThreads: 'thread/list',
+  listLoadedThreads: 'thread/loaded/list',
+  readConfig: 'config/read',
+  readConfigRequirements: 'configRequirements/read',
+  listMcpServerStatus: 'mcpServerStatus/list',
+  readMcpServerResource: 'mcpServer/resource/read',
+  listSkills: 'skills/list',
+  listPlugins: 'plugin/list',
+  readPlugin: 'plugin/read',
+  readPluginSkill: 'plugin/skill/read',
+  listPluginShares: 'plugin/share/list',
+  listApps: 'app/list',
+  listHooks: 'hooks/list',
+  listCollaborationModes: 'collaborationMode/list',
+  listExperimentalFeatures: 'experimentalFeature/list',
+  detectExternalAgentConfig: 'externalAgentConfig/detect',
+  listPermissionProfiles: 'permissionProfile/list',
+  readModelProviderCapabilities: 'modelProvider/capabilities/read',
+  readWindowsSandboxReadiness: 'windowsSandbox/readiness',
+  readAccount: 'account/read',
+  readAccountRateLimits: 'account/rateLimits/read',
+  getFileMetadata: 'fs/getMetadata',
+  readDirectory: 'fs/readDirectory',
+  readFile: 'fs/readFile',
+  watchFileSystem: 'fs/watch',
+  unwatchFileSystem: 'fs/unwatch',
+  copyFile: 'fs/copy',
+  createDirectory: 'fs/createDirectory',
+  removeFile: 'fs/remove',
+  writeFile: 'fs/writeFile',
+  spawnProcess: 'process/spawn',
+  killProcess: 'process/kill',
+  executeCommand: 'command/exec',
+  writeConfigValue: 'config/value/write',
+  batchWriteConfig: 'config/batchWrite',
+  reloadMcpServerConfig: 'config/mcpServer/reload',
+  addEnvironmentVariable: 'environment/add',
+  installPlugin: 'plugin/install',
+  uninstallPlugin: 'plugin/uninstall',
+  addMarketplaceItem: 'marketplace/add',
+  removeMarketplaceItem: 'marketplace/remove',
+  upgradeMarketplaceItem: 'marketplace/upgrade',
+  writeSkillsConfig: 'skills/config/write',
+  setSkillsExtraRoots: 'skills/extraRoots/set',
+  readRemoteControlStatus: 'remoteControl/status/read',
+  listRemoteControlClients: 'remoteControl/client/list',
+  enableRemoteControl: 'remoteControl/enable',
+  disableRemoteControl: 'remoteControl/disable',
+  startRemoteControlPairing: 'remoteControl/pairing/start',
+  revokeRemoteControlClient: 'remoteControl/client/revoke',
+  startAccountLogin: 'account/login/start',
+  cancelAccountLogin: 'account/login/cancel',
+  logoutAccount: 'account/logout',
+  sendAddCreditsNudgeEmail: 'account/sendAddCreditsNudgeEmail',
+  startMcpServerOauthLogin: 'mcpServer/oauth/login',
+  readThread: 'thread/read',
+  searchThreads: 'thread/search',
+  searchFuzzyFiles: 'fuzzyFileSearch',
+  startFuzzyFileSearchSession: 'fuzzyFileSearch/sessionStart',
+  updateFuzzyFileSearchSession: 'fuzzyFileSearch/sessionUpdate',
+  stopFuzzyFileSearchSession: 'fuzzyFileSearch/sessionStop',
+  startReview: 'review/start',
+  generateAttestation: 'attestation/generate',
+  listRealtimeVoices: 'thread/realtime/listVoices',
+  listThreadTurns: 'thread/turns/list',
+  listThreadTurnItems: 'thread/turns/items/list',
+  getThreadGoal: 'thread/goal/get',
+  forkThread: 'thread/fork',
+  archiveThread: 'thread/archive',
+  unarchiveThread: 'thread/unarchive',
+  rollbackThread: 'thread/rollback',
+  updateThreadMetadata: 'thread/metadata/update',
+  setThreadName: 'thread/name/set',
+  updateThreadSettings: 'thread/settings/update',
+  setThreadMemoryMode: 'thread/memoryMode/set',
+  setThreadGoal: 'thread/goal/set',
+  clearThreadGoal: 'thread/goal/clear',
+  startThread: 'thread/start',
+  resumeThread: 'thread/resume',
+  startTurn: 'turn/start',
+  interruptTurn: 'turn/interrupt'
+});
 
 module.exports = {
   CodexAppServerBusyError,
