@@ -460,6 +460,75 @@ test('Codex app-server removed or renamed rows keep explicit review metadata', (
   );
 });
 
+test('Codex app-server fixture drift gate fails when successful generator emits no schema fixtures', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { runFixtureDriftCheck } = require('./check-codex-app-server-fixture-drift');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-fixture-drift-empty-schema-'));
+  const previousExitCode = process.exitCode;
+  const errors = [];
+  const originalError = console.error;
+  console.error = (message) => errors.push(String(message));
+  process.exitCode = 0;
+  try {
+    runFixtureDriftCheck({
+      tempRootFactory: () => tempRoot,
+      removeTempRoot: false,
+      spawnSyncFn(command, args) {
+        if (command === 'where.exe' || command === 'which') return { status: 0, stdout: 'C:\\Tools\\codex\r\nC:\\Tools\\codex.cmd\r\n', stderr: '' };
+        assert.equal(command.toLowerCase().endsWith('cmd.exe'), true);
+        assert.equal(args.includes('/c'), true);
+        assert.equal(args.includes('/s'), false);
+        assert.equal(args[args.length - 1].startsWith('C:\\Tools\\codex.cmd '), true);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+    });
+    assert.equal(process.exitCode, 1);
+    assert.equal(errors.some((message) => message.includes('did not emit ClientRequest.json')), true);
+  } finally {
+    console.error = originalError;
+    process.exitCode = previousExitCode;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex app-server fixture drift gate fails when successful generator emits no TypeScript files', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { defaultCodexAppServerSchemaDir } = require('../daemon/src/codex-app-server/methods');
+  const { runFixtureDriftCheck } = require('./check-codex-app-server-fixture-drift');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-fixture-drift-empty-ts-'));
+  const previousExitCode = process.exitCode;
+  const errors = [];
+  const originalError = console.error;
+  console.error = (message) => errors.push(String(message));
+  process.exitCode = 0;
+  try {
+    runFixtureDriftCheck({
+      tempRootFactory: () => tempRoot,
+      removeTempRoot: false,
+      spawnSyncFn(command, args) {
+        if (command === 'where.exe' || command === 'which') return { status: 0, stdout: 'codex', stderr: '' };
+        if (args.includes('generate-json-schema')) {
+          const out = args[args.indexOf('--out') + 1];
+          for (const file of ['ClientRequest.json', 'ClientNotification.json', 'ServerRequest.json', 'ServerNotification.json']) {
+            fs.copyFileSync(path.join(defaultCodexAppServerSchemaDir(), file), path.join(out, file));
+          }
+        }
+        return { status: 0, stdout: '', stderr: '' };
+      }
+    });
+    assert.equal(process.exitCode, 1);
+    assert.equal(errors.some((message) => message.includes('emitted no TypeScript files')), true);
+  } finally {
+    console.error = originalError;
+    process.exitCode = previousExitCode;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('Codex app-server client initializes once for concurrent callers', async () => {
   const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
   const calls = [];

@@ -10,28 +10,35 @@ const {
 } = require('../daemon/src/codex-app-server/methods');
 
 function main() {
-  const codex = findCodex();
+  runFixtureDriftCheck();
+}
+
+function runFixtureDriftCheck(options = {}) {
+  const spawnSyncFn = options.spawnSyncFn || spawnSync;
+  const tempRootFactory = options.tempRootFactory || (() => fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-schema-')));
+  const removeTempRoot = options.removeTempRoot !== false;
+  const codex = findCodex(spawnSyncFn);
   if (!codex) return skip('codex executable is not available on PATH');
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-schema-'));
+  const tempRoot = tempRootFactory();
   const jsonOut = path.join(tempRoot, 'json');
   const tsOut = path.join(tempRoot, 'ts');
   fs.mkdirSync(jsonOut, { recursive: true });
   fs.mkdirSync(tsOut, { recursive: true });
 
   try {
-    const jsonResult = run(codex, ['app-server', 'generate-json-schema', '--experimental', '--out', jsonOut]);
+    const jsonResult = run(spawnSyncFn, codex, ['app-server', 'generate-json-schema', '--experimental', '--out', jsonOut]);
     if (jsonResult.status !== 0) {
       return skip(`codex app-server generate-json-schema is unavailable: ${formatProcessFailure(jsonResult)}`);
     }
-    const tsResult = run(codex, ['app-server', 'generate-ts', '--experimental', '--out', tsOut]);
+    const tsResult = run(spawnSyncFn, codex, ['app-server', 'generate-ts', '--experimental', '--out', tsOut]);
     if (tsResult.status !== 0) {
       return skip(`codex app-server generate-ts is unavailable: ${formatProcessFailure(tsResult)}`);
     }
 
     const generatedSchemaDir = findGeneratedSchemaDir(jsonOut);
     if (!generatedSchemaDir) {
-      return skip('codex app-server generate-json-schema did not emit ClientRequest.json/ServerNotification.json fixtures');
+      return fail('codex app-server generate-json-schema completed but did not emit ClientRequest.json/ServerNotification.json fixtures');
     }
 
     const fixtureMethods = loadCodexAppServerMethods(defaultCodexAppServerSchemaDir());
@@ -46,28 +53,48 @@ function main() {
 
     const generatedTsFiles = listFiles(tsOut).filter((file) => file.endsWith('.ts'));
     if (generatedTsFiles.length === 0) {
-      return skip('codex app-server generate-ts completed but emitted no TypeScript files');
+      return fail('codex app-server generate-ts completed but emitted no TypeScript files');
     }
 
     console.log('Codex app-server fixture drift check passed: generated method sets match committed fixtures.');
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    if (removeTempRoot) fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 
-function findCodex() {
+function findCodex(spawnSyncFn) {
   const command = process.platform === 'win32' ? 'where.exe' : 'which';
   const args = ['codex'];
-  const result = run(command, args);
+  const result = run(spawnSyncFn, command, args);
   if (result.status !== 0) return null;
-  return 'codex';
+  const resolvedPaths = String(result.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const resolved = selectExecutablePath(resolvedPaths);
+  return resolved || 'codex';
 }
 
-function run(command, args) {
-  return spawnSync(command, args, {
+function selectExecutablePath(paths) {
+  if (process.platform === 'win32') {
+    return paths.find((candidate) => /\.(cmd|bat|exe)$/i.test(candidate)) || paths[0];
+  }
+  return paths[0];
+}
+
+function run(spawnSyncFn, command, args) {
+  const options = {
     encoding: 'utf8',
     windowsHide: true
-  });
+  };
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(String(command))) {
+    const commandLine = [command, ...args.map(quoteWindowsCmdArgIfNeeded)].join(' ');
+    return spawnSyncFn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', commandLine], options);
+  }
+  return spawnSyncFn(command, args, options);
+}
+
+function quoteWindowsCmdArgIfNeeded(value) {
+  const text = String(value);
+  if (!/[\s&()^|<>"]/.test(text)) return text;
+  return `"${text.replace(/"/g, '\\"')}"`;
 }
 
 function findGeneratedSchemaDir(root) {
@@ -136,4 +163,16 @@ function skip(message) {
   process.exitCode = 0;
 }
 
-main();
+function fail(message) {
+  console.error(`Codex app-server fixture drift check failed: ${message}`);
+  process.exitCode = 1;
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  diffMethodSets,
+  runFixtureDriftCheck
+};
