@@ -39,11 +39,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/account/login/start') {
     const body = await readJson();
-    const provider = parseOptionalString(body?.provider);
+    const request = normalizeAccountLoginStartBody(body);
     return mutationRoute(context, json, {
       method: 'account/login/start',
       risk: 'account',
-      action: (client) => client.startAccountLogin(compactObject({ provider }))
+      action: (client) => client.startAccountLogin(request)
     });
   }
 
@@ -75,11 +75,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   const mcpOauthLogin = url.pathname.match(/^\/api\/codex-app-server\/mcp\/servers\/([^/]+)\/oauth\/login$/);
   if (method === 'POST' && mcpOauthLogin) {
-    const serverId = parseRequiredBodyString(decodePathParam(mcpOauthLogin[1]), 'serverId');
+    const body = await readJson();
+    const request = normalizeMcpOauthLoginBody(decodePathParam(mcpOauthLogin[1]), body);
     return mutationRoute(context, json, {
       method: 'mcpServer/oauth/login',
-      risk: 'network',
-      action: (client) => client.startMcpServerOauthLogin({ serverId })
+      risk: 'account',
+      action: (client) => client.startMcpServerOauthLogin(request)
     });
   }
 
@@ -335,9 +336,64 @@ async function mutationRoute(context, json, { method, risk, action }) {
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;
   } catch (error) {
-    recordAccountAudit(context, { method, risk, decision: 'allow', result: 'error', correlationId, error: error.message });
-    throw error;
+    const sanitized = sanitizeAccountMutationError(error);
+    recordAccountAudit(context, {
+      method,
+      risk,
+      decision: 'allow',
+      result: 'error',
+      correlationId,
+      error: sanitized.auditError,
+      downstreamStatus: sanitized.downstreamStatus,
+      downstreamCode: sanitized.downstreamCode
+    });
+    throw controlledAccountMutationError();
   }
+}
+
+function normalizeAccountLoginStartBody(body) {
+  const type = parseRequiredBodyString(body?.type, 'type');
+  if (type === 'apiKey') {
+    return {
+      type,
+      apiKey: parseRequiredBodyString(body?.apiKey, 'apiKey')
+    };
+  }
+  if (type === 'chatgpt') {
+    return compactObject({
+      type,
+      codexStreamlinedLogin: parseOptionalBoolean(body?.codexStreamlinedLogin, 'codexStreamlinedLogin')
+    });
+  }
+  if (type === 'chatgptDeviceCode') {
+    return { type };
+  }
+  if (type === 'chatgptAuthTokens') {
+    return compactObject({
+      type,
+      accessToken: parseRequiredBodyString(body?.accessToken, 'accessToken'),
+      chatgptAccountId: parseRequiredBodyString(body?.chatgptAccountId, 'chatgptAccountId'),
+      chatgptPlanType: parseOptionalNullableString(body?.chatgptPlanType, 'chatgptPlanType')
+    });
+  }
+  throw badRequest('type must be apiKey, chatgpt, chatgptDeviceCode, or chatgptAuthTokens');
+}
+
+function normalizeMcpOauthLoginBody(serverId, body) {
+  const request = {
+    name: parseRequiredBodyString(serverId, 'serverId')
+  };
+  if (body?.scopes !== undefined && body?.scopes !== null) {
+    if (!Array.isArray(body.scopes)) throw badRequest('scopes must be an array of strings');
+    request.scopes = body.scopes.map((scope) => parseRequiredStringValue(scope, 'scopes'));
+  }
+  if (body?.timeoutSecs !== undefined && body?.timeoutSecs !== null) {
+    if (!Number.isInteger(body.timeoutSecs) || body.timeoutSecs < 1) {
+      throw badRequest('timeoutSecs must be a positive integer');
+    }
+    request.timeoutSecs = body.timeoutSecs;
+  }
+  return request;
 }
 
 function parseLimit(value, fallback) {
@@ -360,6 +416,18 @@ function parseOptionalString(value) {
   return value;
 }
 
+function parseOptionalNullableString(value, name) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return parseRequiredBodyString(value, name);
+}
+
+function parseOptionalBoolean(value, name) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') throw badRequest(`${name} must be a boolean`);
+  return value;
+}
+
 function parseRequiredQueryString(value, name) {
   if (value === undefined || value === null || String(value).trim() === '') {
     throw badRequest(`${name} query parameter is required`);
@@ -372,6 +440,13 @@ function parseRequiredBodyString(value, name) {
     throw badRequest(`${name} is required`);
   }
   return String(value).trim();
+}
+
+function parseRequiredStringValue(value, name) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw badRequest(`${name} must be a nonblank string`);
+  }
+  return value.trim();
 }
 
 function decodePathParam(value) {
@@ -402,6 +477,41 @@ function badRequest(message) {
     status: 400,
     code: 'BAD_REQUEST'
   });
+}
+
+function controlledAccountMutationError() {
+  return Object.assign(new Error('Codex app-server account mutation failed.'), {
+    status: 502,
+    code: 'CODEX_APP_SERVER_ACCOUNT_MUTATION_FAILED'
+  });
+}
+
+function sanitizeAccountMutationError(error) {
+  return {
+    auditError: redactAccountSensitiveText(error?.message || 'Codex app-server account mutation failed.'),
+    downstreamStatus: safeDownstreamStatus(error?.status),
+    downstreamCode: safeDownstreamCode(error?.code)
+  };
+}
+
+function redactAccountSensitiveText(text) {
+  if (!text) return '[REDACTED]';
+  let value = String(text);
+  value = value.replace(/[A-Z]:\\[^\s"'`]+/gi, '[REDACTED]');
+  value = value.replace(/\/(?:[^\s"'`/]+\/)+[^\s"'`/]+/g, '[REDACTED]');
+  value = value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED]');
+  value = value.replace(/\b(?:sk|sess|access|refresh|bearer)[-_A-Za-z0-9.]{3,}\b/gi, '[REDACTED]');
+  if (/[\\/.](?:codex|config|json)|token|oauth|auth/i.test(value)) return '[REDACTED]';
+  return value.trim() || '[REDACTED]';
+}
+
+function safeDownstreamStatus(status) {
+  return Number.isInteger(status) && status >= 400 && status < 600 ? status : undefined;
+}
+
+function safeDownstreamCode(code) {
+  if (typeof code !== 'string' || !/^[A-Z0-9_:-]{1,80}$/.test(code)) return undefined;
+  return code;
 }
 
 function recordAccountAudit(context, payload) {

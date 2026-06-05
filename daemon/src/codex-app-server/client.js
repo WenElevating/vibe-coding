@@ -175,8 +175,13 @@ class CodexAppServerClient {
   }
 
   startAccountLogin(options = {}) {
-    return this.sendRequest('account/login/start', compactObject({
-      provider: options.provider
+    return this.sendRequest('account/login/start', compactDefinedObject({
+      type: options.type,
+      apiKey: options.apiKey,
+      codexStreamlinedLogin: options.codexStreamlinedLogin,
+      accessToken: options.accessToken,
+      chatgptAccountId: options.chatgptAccountId,
+      chatgptPlanType: options.chatgptPlanType
     }), options);
   }
 
@@ -196,7 +201,9 @@ class CodexAppServerClient {
 
   startMcpServerOauthLogin(options = {}) {
     return this.sendRequest('mcpServer/oauth/login', compactObject({
-      serverId: options.serverId
+      name: options.name,
+      scopes: options.scopes,
+      timeoutSecs: options.timeoutSecs
     }), options);
   }
 
@@ -281,6 +288,14 @@ function compactObject(value) {
   const result = {};
   for (const [key, current] of Object.entries(value || {})) {
     if (current !== undefined && current !== null) result[key] = current;
+  }
+  return result;
+}
+
+function compactDefinedObject(value) {
+  const result = {};
+  for (const [key, current] of Object.entries(value || {})) {
+    if (current !== undefined) result[key] = current;
   }
   return result;
 }

@@ -346,6 +346,7 @@ test('Codex app-server capability matrix covers generated methods', () => {
   assert.equal(rowByMethod.get('thread/start').localStatus, 'supported');
   assert.equal(rowByMethod.get('turn/interrupt').risk, 'write');
   assert.equal(rowByMethod.get('item/commandExecution/requestApproval').direction, 'serverRequest');
+  assert.equal(rowByMethod.get('mcpServer/oauth/login').risk, 'account');
 });
 
 test('Codex app-server capability matrix rejects unreviewed official method surfaces', () => {
@@ -552,20 +553,20 @@ test('Codex app-server client sends typed account and auth requests', async () =
 
   await client.readAccount();
   await client.readAccountRateLimits();
-  await client.startAccountLogin({ provider: 'chatgpt', ignored: 'nope' });
+  await client.startAccountLogin({ type: 'chatgptAuthTokens', accessToken: 'access-secret', chatgptAccountId: 'acct_1', chatgptPlanType: null, ignored: 'nope' });
   await client.cancelAccountLogin({ loginId: 'login_1', ignored: 'nope' });
   await client.logoutAccount({ ignored: 'nope' });
   await client.sendAddCreditsNudgeEmail({ ignored: 'nope' });
-  await client.startMcpServerOauthLogin({ serverId: 'server_1', ignored: 'nope' });
+  await client.startMcpServerOauthLogin({ name: 'server_1', scopes: ['repo', 'user'], timeoutSecs: 30, ignored: 'nope' });
 
   assert.deepEqual(calls, [
     { method: 'account/read', params: {} },
     { method: 'account/rateLimits/read', params: {} },
-    { method: 'account/login/start', params: { provider: 'chatgpt' } },
+    { method: 'account/login/start', params: { type: 'chatgptAuthTokens', accessToken: 'access-secret', chatgptAccountId: 'acct_1', chatgptPlanType: null } },
     { method: 'account/login/cancel', params: { loginId: 'login_1' } },
     { method: 'account/logout', params: {} },
     { method: 'account/sendAddCreditsNudgeEmail', params: {} },
-    { method: 'mcpServer/oauth/login', params: { serverId: 'server_1' } }
+    { method: 'mcpServer/oauth/login', params: { name: 'server_1', scopes: ['repo', 'user'], timeoutSecs: 30 } }
   ]);
 });
 
@@ -1190,7 +1191,7 @@ test('Codex app-server account mutation routes use mutation client and audit dec
       return callback({
         async startAccountLogin(options) {
           calls.push({ method: 'startAccountLogin', options });
-          return { login: { id: 'login_1', provider: options.provider } };
+          return { login: { id: 'login_1', type: options.type } };
         },
         async cancelAccountLogin(options) {
           calls.push({ method: 'cancelAccountLogin', options });
@@ -1206,7 +1207,7 @@ test('Codex app-server account mutation routes use mutation client and audit dec
         },
         async startMcpServerOauthLogin(options) {
           calls.push({ method: 'startMcpServerOauthLogin', options });
-          return { login: { serverId: options.serverId } };
+          return { login: { name: options.name } };
         }
       });
     }
@@ -1215,11 +1216,14 @@ test('Codex app-server account mutation routes use mutation client and audit dec
 
   try {
     const read = await app.get('/api/codex-app-server/account');
-    const login = await app.post('/api/codex-app-server/account/login/start', { provider: 'chatgpt' });
+    const login = await app.post('/api/codex-app-server/account/login/start', { type: 'apiKey', apiKey: 'sk-test-secret' });
     const cancel = await app.post('/api/codex-app-server/account/login/cancel', { loginId: 'login_1' });
     const logout = await app.post('/api/codex-app-server/account/logout');
     const nudge = await app.post('/api/codex-app-server/account/add-credits-email');
-    const oauth = await app.post('/api/codex-app-server/mcp/servers/server%2Fone/oauth/login');
+    const oauth = await app.post('/api/codex-app-server/mcp/servers/server%2Fone/oauth/login', {
+      scopes: ['repo', 'user'],
+      timeoutSecs: 30
+    });
 
     assert.equal(read.status, 200);
     assert.equal(login.status, 200);
@@ -1232,16 +1236,21 @@ test('Codex app-server account mutation routes use mutation client and audit dec
       { method: 'account/login/cancel', risk: 'account' },
       { method: 'account/logout', risk: 'account' },
       { method: 'account/sendAddCreditsNudgeEmail', risk: 'account' },
-      { method: 'mcpServer/oauth/login', risk: 'network' }
+      { method: 'mcpServer/oauth/login', risk: 'account' }
     ]);
-    assert.deepEqual(calls.filter((call) => call.method === 'startMcpServerOauthLogin')[0].options, { serverId: 'server/one' });
+    assert.deepEqual(calls.filter((call) => call.method === 'startAccountLogin')[0].options, { type: 'apiKey', apiKey: 'sk-test-secret' });
+    assert.deepEqual(calls.filter((call) => call.method === 'startMcpServerOauthLogin')[0].options, {
+      name: 'server/one',
+      scopes: ['repo', 'user'],
+      timeoutSecs: 30
+    });
     const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.account_mutation');
     assert.deepEqual(records.map((record) => [record.method, record.risk, record.decision, record.result, record.deviceId]), [
       ['account/login/start', 'account', 'allow', 'success', 'device_account_mutation'],
       ['account/login/cancel', 'account', 'allow', 'success', 'device_account_mutation'],
       ['account/logout', 'account', 'allow', 'success', 'device_account_mutation'],
       ['account/sendAddCreditsNudgeEmail', 'account', 'allow', 'success', 'device_account_mutation'],
-      ['mcpServer/oauth/login', 'network', 'allow', 'success', 'device_account_mutation']
+      ['mcpServer/oauth/login', 'account', 'allow', 'success', 'device_account_mutation']
     ]);
     assert.equal(records.every((record) => typeof record.correlationId === 'string' && record.correlationId.length > 0), true);
   } finally {
@@ -1262,8 +1271,19 @@ test('Codex app-server account mutation routes reject missing required fields be
 
   try {
     for (const [path, body] of [
+      ['/api/codex-app-server/account/login/start', {}],
+      ['/api/codex-app-server/account/login/start', { type: ' ' }],
+      ['/api/codex-app-server/account/login/start', { type: 'apiKey' }],
+      ['/api/codex-app-server/account/login/start', { type: 'apiKey', apiKey: ' ' }],
+      ['/api/codex-app-server/account/login/start', { type: 'chatgptAuthTokens', accessToken: 'access-secret' }],
+      ['/api/codex-app-server/account/login/start', { type: 'chatgptAuthTokens', chatgptAccountId: 'acct_1' }],
+      ['/api/codex-app-server/account/login/start', { type: 'unknown' }],
       ['/api/codex-app-server/account/login/cancel', {}],
       ['/api/codex-app-server/account/login/cancel', { loginId: ' ' }],
+      ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { scopes: 'repo' }],
+      ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { scopes: ['repo', 1] }],
+      ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { timeoutSecs: '30' }],
+      ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { timeoutSecs: 0 }],
       ['/api/codex-app-server/mcp/servers/%20/oauth/login', {}],
       ['/api/codex-app-server/mcp/servers/%E0%A4%A/oauth/login', {}]
     ]) {
@@ -1272,6 +1292,46 @@ test('Codex app-server account mutation routes reject missing required fields be
       assert.equal(response.body.error.code, 'BAD_REQUEST', path);
     }
     assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server account mutation failures return controlled redacted errors', async () => {
+  const sensitive = 'access token sk-secret for alice@example.test at C:\\Users\\Alice\\.codex\\auth.json during oauth';
+  const service = {
+    async withMutationClient(metadata, callback) {
+      const error = new Error(sensitive);
+      error.status = 409;
+      error.code = 'UPSTREAM_SECRET_FAILURE';
+      await callback({
+        async startAccountLogin() {
+          throw error;
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service, deviceId: 'device_account_failure' });
+
+  try {
+    const response = await app.post('/api/codex-app-server/account/login/start', { type: 'apiKey', apiKey: 'sk-test-secret' });
+    const responseText = JSON.stringify(response.body);
+    const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.account_mutation');
+    const auditText = JSON.stringify(records);
+
+    assert.equal(response.status, 502);
+    assert.equal(response.body.error.code, 'CODEX_APP_SERVER_ACCOUNT_MUTATION_FAILED');
+    assert.equal(response.body.error.message, 'Codex app-server account mutation failed.');
+    for (const secret of ['sk-secret', 'sk-test-secret', 'alice@example.test', 'Alice', '.codex', 'auth.json']) {
+      assert.equal(responseText.includes(secret), false, secret);
+      assert.equal(auditText.includes(secret), false, secret);
+    }
+    assert.deepEqual(records.map((record) => [record.method, record.risk, record.decision, record.result, record.deviceId]), [
+      ['account/login/start', 'account', 'allow', 'error', 'device_account_failure']
+    ]);
+    assert.equal(records[0].error, '[REDACTED]');
+    assert.equal(records[0].downstreamStatus, 409);
+    assert.equal(records[0].downstreamCode, 'UPSTREAM_SECRET_FAILURE');
   } finally {
     await app.close();
   }

@@ -86,7 +86,7 @@ const EXPLICIT_ROWS = [
   row('account/login/cancel', 'request', 'stable', 'auth', 'supported', 'server route', 'planned', 'account', 'route test', 'Task 5 audited account login cancellation route.'),
   row('account/logout', 'request', 'stable', 'auth', 'supported', 'server route', 'planned', 'account', 'route test', 'Task 5 audited account logout mutation route.'),
   row('account/sendAddCreditsNudgeEmail', 'request', 'stable', 'auth', 'supported', 'server route', 'planned', 'account', 'route test', 'Task 5 audited add-credits email nudge route.'),
-  row('mcpServer/oauth/login', 'request', 'stable', 'mcp', 'supported', 'server route', 'planned', 'network', 'route test', 'Task 5 audited MCP OAuth login route.'),
+  row('mcpServer/oauth/login', 'request', 'stable', 'mcp', 'supported', 'server route', 'planned', 'account', 'route test', 'Task 5 audited MCP OAuth login route.'),
   row('account/chatgptAuthTokens/refresh', 'serverRequest', 'stable', 'auth', 'intentionally-blocked', 'conversation adapter', 'not planned', 'account', 'unit', 'Token refresh requires an explicit secure token provider; daemon must not synthesize or expose account tokens.'),
   row('account/updated', 'notification', 'stable', 'auth', 'partial', 'server route', 'planned', 'account', 'matrix/event metadata only', 'Task 5 account notification metadata; not consumed by event sink yet.'),
   row('account/rateLimits/updated', 'notification', 'stable', 'auth', 'partial', 'server route', 'planned', 'account', 'matrix/event metadata only', 'Task 5 account rate-limit notification metadata; not consumed by event sink yet.'),
