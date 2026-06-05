@@ -7,6 +7,8 @@ export 'voice_input.dart';
 export 'coding_workbench_controller.dart';
 export 'controllers/slash_command_menu_controller.dart';
 export 'messages/assistant_markdown_body.dart';
+export 'messages/codex_command_run_card.dart'
+    show buildCommandRunGroupPreview, buildSingleCommandPreview;
 export 'messages/command_event_card.dart'
     show
         buildCompletedCommandCardPreview,
@@ -14,6 +16,7 @@ export 'messages/command_event_card.dart'
         buildLargeOutputCommandCardPreview,
         buildSubAgentCallCardPreview;
 export 'messages/pending_sentinel.dart';
+export 'messages/sweeping_status_text.dart';
 export 'messages/task_progress_card.dart' show buildTaskProgressCardPreview;
 export 'messages/workbench_message_card.dart';
 export 'sheets/model_picker_sheet.dart';
@@ -25,3 +28,7 @@ export 'widgets/workbench_header.dart';
 export 'widgets/workbench_inline_status.dart';
 export 'widgets/workbench_message_list.dart';
 export 'widgets/workbench_run_error_card.dart';
+export 'workbench_transcript_display_items.dart'
+    show
+        debugWorkbenchTranscriptDisplayItemRoles,
+        projectWorkbenchTranscriptDisplayItems;

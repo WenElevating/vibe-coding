@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../../domain/models/approval_response.dart';
 import '../../../../models/protocol.dart';
 import '../messages/pending_sentinel.dart';
+import '../messages/codex_command_run_card.dart';
 import '../messages/workbench_message_card.dart';
 import '../workbench_messages.dart';
+import '../workbench_transcript_display_items.dart';
 import 'workbench_inline_status.dart';
 import 'workbench_run_error_card.dart';
 
-class WorkbenchMessageList extends StatelessWidget {
+class WorkbenchMessageList extends StatefulWidget {
   const WorkbenchMessageList({
     super.key,
     required this.controller,
@@ -60,61 +62,64 @@ class WorkbenchMessageList extends StatelessWidget {
   final bool Function(ScrollNotification notification) onScrollNotification;
 
   @override
+  State<WorkbenchMessageList> createState() => _WorkbenchMessageListState();
+}
+
+class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
+  final Set<String> _expandedCommandRuns = <String>{};
+
+  @override
   Widget build(BuildContext context) {
-    final itemCount = (showStatus ? 1 : 0) +
-        messages.length +
-        (showError ? 1 : 0) +
-        (showPending ? 1 : 0);
+    final displayItems =
+        projectWorkbenchTranscriptDisplayItems(widget.messages);
+    final itemCount = (widget.showStatus ? 1 : 0) +
+        displayItems.length +
+        (widget.showError ? 1 : 0) +
+        (widget.showPending ? 1 : 0);
     return NotificationListener<ScrollNotification>(
-      onNotification: onScrollNotification,
+      onNotification: widget.onScrollNotification,
       child: ListView.builder(
         key: ValueKey(
-          'workbench-message-list-${useReverseTranscript ? 'reverse' : 'normal'}',
+          'workbench-message-list-${widget.useReverseTranscript ? 'reverse' : 'normal'}',
         ),
-        controller: controller,
-        reverse: useReverseTranscript,
+        controller: widget.controller,
+        reverse: widget.useReverseTranscript,
         padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
         itemCount: itemCount,
         itemBuilder: (context, index) {
           final logicalIndex =
-              useReverseTranscript ? itemCount - 1 - index : index;
+              widget.useReverseTranscript ? itemCount - 1 - index : index;
           var messageIndex = logicalIndex;
-          if (showStatus) {
+          if (widget.showStatus) {
             if (logicalIndex == 0) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: WorkbenchInlineStatus(
-                  adapter: adapter,
-                  runId: runId,
-                  eventCount: eventCount,
-                  terminal: terminal,
+                  adapter: widget.adapter,
+                  runId: widget.runId,
+                  eventCount: widget.eventCount,
+                  terminal: widget.terminal,
                 ),
               );
             }
             messageIndex -= 1;
           }
-          if (messageIndex < messages.length) {
-            final message = messages[messageIndex];
+          if (messageIndex < displayItems.length) {
+            final displayItem = displayItems[messageIndex];
             return Padding(
-              key: ValueKey('workbench-message-$messageIndex-${message.role}'),
+              key: ValueKey(_displayItemKey(messageIndex, displayItem)),
               padding: const EdgeInsets.only(bottom: 10),
-              child: WorkbenchMessageCard(
-                message: message,
-                expandThinking: expandThinking,
-                expandToolDetails: expandToolDetails,
-                onSuggestion: onSuggestion,
-                onApproval: (decision) => onApproval(message.event!, decision),
-              ),
+              child: _buildDisplayItem(displayItem),
             );
           }
-          messageIndex -= messages.length;
-          if (showError) {
+          messageIndex -= displayItems.length;
+          if (widget.showError) {
             if (messageIndex == 0) {
               return Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: WorkbenchRunErrorCard(
-                  error: runError ?? '',
-                  traceId: runErrorTraceId,
+                  error: widget.runError ?? '',
+                  traceId: widget.runErrorTraceId,
                 ),
               );
             }
@@ -123,14 +128,71 @@ class WorkbenchMessageList extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.only(top: 10),
             child: PendingSentinel(
-              adapter: adapter ?? 'CLI',
-              statusText: pendingStatusText,
-              startedAt: pendingStartedAt,
-              actions: pendingActions,
+              adapter: widget.adapter ?? 'CLI',
+              statusText: widget.pendingStatusText,
+              startedAt: widget.pendingStartedAt,
+              actions: widget.pendingActions,
             ),
           );
         },
       ),
     );
+  }
+
+  Widget _buildDisplayItem(WorkbenchTranscriptDisplayItem item) {
+    return switch (item) {
+      WorkbenchMessageDisplayItem(:final message) => WorkbenchMessageCard(
+          message: message,
+          expandThinking: widget.expandThinking,
+          expandToolDetails: widget.expandToolDetails,
+          onSuggestion: widget.onSuggestion,
+          onApproval: (decision) => widget.onApproval(message.event!, decision),
+        ),
+      SingleCommandDisplayItem(:final message) => SingleCommandRunCard(
+          message: message,
+          expanded: _expandedCommandRuns.contains(_singleCommandKey(message)),
+          onToggleExpanded: () => _toggle(_singleCommandKey(message)),
+        ),
+      CommandRunGroupDisplayItem(:final messages) => CommandRunGroupCard(
+          messages: messages,
+          expanded: _expandedCommandRuns.contains(_commandGroupKey(messages)),
+          onToggleExpanded: () => _toggle(_commandGroupKey(messages)),
+        ),
+    };
+  }
+
+  void _toggle(String key) {
+    setState(() {
+      if (!_expandedCommandRuns.add(key)) {
+        _expandedCommandRuns.remove(key);
+      }
+    });
+  }
+
+  String _displayItemKey(int index, WorkbenchTranscriptDisplayItem item) =>
+      switch (item) {
+        WorkbenchMessageDisplayItem(:final message) =>
+          'workbench-message-$index-${message.role}',
+        SingleCommandDisplayItem(:final message) =>
+          'workbench-single-command-${_singleCommandKey(message)}',
+        CommandRunGroupDisplayItem(:final messages) =>
+          'workbench-command-group-${_commandGroupKey(messages)}',
+      };
+
+  String _singleCommandKey(WorkbenchMessage message) {
+    final event = message.event;
+    if (event != null) return 'event-${event.runId}-${event.seq}';
+    return '${message.runId ?? 'run'}-${message.title}-${message.body}';
+  }
+
+  String _commandGroupKey(List<WorkbenchMessage> messages) {
+    final first = messages.first;
+    final last = messages.last;
+    final firstEvent = first.event;
+    final lastEvent = last.event;
+    if (firstEvent != null && lastEvent != null) {
+      return 'events-${firstEvent.runId}-${firstEvent.seq}-${lastEvent.seq}';
+    }
+    return '${first.runId ?? 'run'}-${messages.length}-${first.body}-${last.body}';
   }
 }

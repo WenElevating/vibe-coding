@@ -8109,6 +8109,73 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.byKey(const ValueKey('tool-status-ok')), findsOneWidget);
   });
 
+  test('continuous command messages project into Codex command display items',
+      () {
+    const assistant = WorkbenchMessage('assistant', 'CLI assistant', 'Done.');
+    const approval = WorkbenchMessage('approval', 'Needs approval', 'npm test');
+    const first =
+        WorkbenchMessage('command', 'Bash', 'Get-Content -Path pubspec.yaml');
+    const second = WorkbenchMessage('command', 'Bash', 'dart analyze');
+    const third = WorkbenchMessage('command', 'Bash', 'flutter test');
+
+    final items = projectWorkbenchTranscriptDisplayItems(
+        <WorkbenchMessage>[assistant, first, second, approval, third]);
+
+    expect(debugWorkbenchTranscriptDisplayItemRoles(items), const <String>[
+      'message:assistant',
+      'command_group:2',
+      'message:approval',
+      'single_command:flutter test',
+    ]);
+  });
+
+  testWidgets('running command group uses sweeping status text',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCommandRunGroupPreview(running: true));
+    await tester.pump();
+
+    expect(find.byType(SweepingStatusText), findsOneWidget);
+    expect(find.text('正在运行 2 条命令'), findsWidgets);
+    expect(find.byKey(const ValueKey('workbench-command-run-group-shell')),
+        findsNothing);
+  });
+
+  testWidgets(
+      'completed command group expands to shell blocks in command order',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCommandRunGroupPreview());
+    await tester.pumpAndSettle();
+
+    expect(find.text('已运行 2 条命令'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-command-run-group-shell')),
+        findsNothing);
+
+    await tester.tap(find.text('已运行 2 条命令'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workbench-command-run-group-shell')),
+        findsOneWidget);
+    expect(find.text('Shell'), findsNWidgets(2));
+    expect(find.text('Get-Content -Path pubspec.yaml'), findsWidgets);
+    expect(find.text('name: lan_ai_cli_control'), findsOneWidget);
+    expect(find.text('退出码 0'), findsNWidgets(2));
+  });
+
+  testWidgets('failed command summary stays compact and preserves output',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildSingleCommandPreview(failed: true));
+    await tester.pumpAndSettle();
+
+    expect(find.text('已失败 dart analyze'), findsOneWidget);
+    expect(find.text('analysis failed'), findsNothing);
+
+    await tester.tap(find.text('已失败 dart analyze'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('analysis failed'), findsOneWidget);
+    expect(find.text('退出码 2'), findsOneWidget);
+  });
+
   testWidgets('Agent tool call renders as a sub-agent card',
       (WidgetTester tester) async {
     await tester.pumpWidget(buildSubAgentCallCardPreview());

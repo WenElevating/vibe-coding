@@ -13,6 +13,7 @@ import 'question_event_card.dart';
 import 'task_progress_card.dart';
 import 'thinking_event_card.dart';
 import 'user_message_card.dart';
+import '../workbench_transcript_display_items.dart';
 
 class WorkbenchMessageCard extends StatelessWidget {
   const WorkbenchMessageCard(
@@ -38,7 +39,7 @@ class WorkbenchMessageCard extends StatelessWidget {
     if (message.role == 'task_progress') {
       return TaskProgressCard(message: message);
     }
-    if (isCommand && isSubAgentCommand(message)) {
+    if (isCommand && isSubAgentWorkbenchCommand(message)) {
       return SubAgentCallCard(
           message: message, expandByDefault: expandToolDetails);
     }

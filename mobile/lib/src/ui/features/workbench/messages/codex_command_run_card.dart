@@ -1,0 +1,376 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../../../models/protocol.dart';
+import '../../../core/theme/theme.dart' as theme;
+import '../workbench_messages.dart';
+import '../workbench_transcript_display_items.dart';
+import 'sweeping_status_text.dart';
+
+class SingleCommandRunCard extends StatelessWidget {
+  const SingleCommandRunCard({
+    super.key,
+    required this.message,
+    required this.expanded,
+    required this.onToggleExpanded,
+  });
+
+  final WorkbenchMessage message;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  @override
+  Widget build(BuildContext context) => _CommandRunFrame(
+        summary: _singleSummary(message),
+        running: !message.completed && !message.isError,
+        error: message.isError,
+        icon: Icons.terminal_rounded,
+        expanded: expanded,
+        onToggleExpanded: onToggleExpanded,
+        children: [_CommandShellBlock(message: message)],
+      );
+}
+
+class CommandRunGroupCard extends StatelessWidget {
+  const CommandRunGroupCard({
+    super.key,
+    required this.messages,
+    required this.expanded,
+    required this.onToggleExpanded,
+  });
+
+  final List<WorkbenchMessage> messages;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  @override
+  Widget build(BuildContext context) => _CommandRunFrame(
+        summary: _groupSummary(messages),
+        running:
+            messages.any((message) => !message.completed && !message.isError),
+        error: messages.any((message) => message.isError),
+        icon: Icons.account_tree_outlined,
+        expanded: expanded,
+        onToggleExpanded: onToggleExpanded,
+        children: messages
+            .map((message) => _CommandShellBlock(message: message))
+            .toList(),
+      );
+}
+
+class _CommandRunFrame extends StatelessWidget {
+  const _CommandRunFrame({
+    required this.summary,
+    required this.running,
+    required this.error,
+    required this.icon,
+    required this.expanded,
+    required this.onToggleExpanded,
+    required this.children,
+  });
+
+  final String summary;
+  final bool running;
+  final bool error;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = error
+        ? theme.red
+        : running
+            ? theme.purple2
+            : theme.green;
+    return Container(
+        decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: expanded
+                ? Border.all(color: Colors.white.withValues(alpha: .06))
+                : null),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggleExpanded,
+              child: Padding(
+                  padding: EdgeInsets.fromLTRB(2, 6, 2, expanded ? 8 : 6),
+                  child: Row(children: [
+                    Container(
+                        width: 23,
+                        height: 23,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                            color: accent.withValues(alpha: .10),
+                            borderRadius: BorderRadius.circular(7),
+                            border: Border.all(
+                                color: accent.withValues(alpha: .20))),
+                        child: Icon(icon, color: accent, size: 14)),
+                    const SizedBox(width: 9),
+                    Expanded(
+                        child: running
+                            ? SweepingStatusText(text: summary)
+                            : Text(summary,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: theme.muted,
+                                    fontSize: 12.8,
+                                    height: 1.2,
+                                    fontWeight: FontWeight.w800))),
+                    const SizedBox(width: 7),
+                    Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: theme.faint,
+                        size: 17),
+                  ]))),
+          if (expanded)
+            Container(
+                key: const ValueKey('workbench-command-run-group-shell'),
+                padding: const EdgeInsets.fromLTRB(9, 0, 9, 10),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _withSpacing(children))),
+        ]));
+  }
+}
+
+class _CommandShellBlock extends StatelessWidget {
+  const _CommandShellBlock({required this.message});
+
+  final WorkbenchMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final output = commandOutputText(message);
+    final status = _exitStatusText(message);
+    return Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+            color: const Color(0xFF0F1114),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: .06))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
+              child: Row(children: [
+                const Text('Shell',
+                    style: TextStyle(
+                        color: theme.faint,
+                        fontSize: 10,
+                        height: 1,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w900)),
+                const Spacer(),
+                IconButton(
+                    constraints:
+                        const BoxConstraints.tightFor(width: 28, height: 24),
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Copy command and output',
+                    onPressed: () => Clipboard.setData(ClipboardData(
+                        text: output.isEmpty
+                            ? commandDisplayTitle(message)
+                            : '${commandDisplayTitle(message)}\n\n$output')),
+                    icon: const Icon(Icons.copy_rounded,
+                        color: theme.faint, size: 13)),
+              ])),
+          _MonospacePanel(
+              key: const ValueKey('workbench-command-shell-command'),
+              text: commandDisplayTitle(message),
+              maxLines: 4,
+              color: theme.text),
+          if (output.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: SingleChildScrollView(
+                    padding: EdgeInsets.zero,
+                    child: _MonospacePanel(
+                        key: const ValueKey('workbench-command-shell-output'),
+                        text: output,
+                        color: theme.muted))),
+          ],
+          Padding(
+              padding: const EdgeInsets.fromLTRB(10, 7, 10, 9),
+              child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(status,
+                      style: TextStyle(
+                          color: message.isError ? theme.red : theme.faint,
+                          fontSize: 10.5,
+                          height: 1,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w800)))),
+        ]));
+  }
+}
+
+class _MonospacePanel extends StatelessWidget {
+  const _MonospacePanel({
+    super.key,
+    required this.text,
+    required this.color,
+    this.maxLines,
+  });
+
+  final String text;
+  final Color color;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+          color: const Color(0xFF090A0C),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: Colors.white.withValues(alpha: .045))),
+      child: SelectableText(text,
+          maxLines: maxLines,
+          style: TextStyle(
+              color: color,
+              fontSize: 11.8,
+              height: 1.38,
+              fontFamily: 'Consolas',
+              letterSpacing: 0)));
+}
+
+List<Widget> _withSpacing(List<Widget> children) {
+  final spaced = <Widget>[];
+  for (final child in children) {
+    if (spaced.isNotEmpty) spaced.add(const SizedBox(height: 9));
+    spaced.add(child);
+  }
+  return spaced;
+}
+
+String _singleSummary(WorkbenchMessage message) {
+  final command = commandDisplayTitle(message);
+  if (!message.completed && !message.isError) return '正在运行 $command';
+  if (message.isError) return '已失败 $command';
+  return '已运行 $command';
+}
+
+String _groupSummary(List<WorkbenchMessage> messages) {
+  final suffix = _usedCodeGraph(messages) ? ' 已使用 CodeGraph' : '';
+  if (messages.any((message) => !message.completed && !message.isError)) {
+    return '正在运行 ${messages.length} 条命令$suffix';
+  }
+  return '已运行 ${messages.length} 条命令$suffix';
+}
+
+bool _usedCodeGraph(List<WorkbenchMessage> messages) => messages.any((message) {
+      final title = commandDisplayTitle(message).toLowerCase();
+      final toolName = message.event?.raw['toolName'];
+      return title.contains('codegraph') ||
+          (toolName is String && toolName.toLowerCase().contains('codegraph'));
+    });
+
+String _exitStatusText(WorkbenchMessage message) {
+  final exitCode = commandExitCode(message);
+  if (exitCode != null) return '退出码 $exitCode';
+  if (message.isError) return '错误';
+  return commandStatusLabel(message);
+}
+
+@visibleForTesting
+Widget buildSingleCommandPreview({bool failed = false, bool running = false}) {
+  final message = WorkbenchMessage('command', 'Bash', 'dart analyze',
+      event: AgentEvent(
+          type: 'tool.completed',
+          seq: 1,
+          runId: 'run_preview',
+          createdAt: DateTime.parse('2026-05-03T00:00:00.000Z'),
+          name: 'Bash',
+          raw: <String, Object?>{
+            'toolName': 'Bash',
+            'output': failed ? 'analysis failed' : 'No issues found.',
+            'exitCode': failed ? 2 : 0,
+          }),
+      completed: !running,
+      isError: failed);
+  return _CommandPreviewHarness(
+      child: _PreviewExpansionHost(
+          child: (expanded, toggle) => SingleCommandRunCard(
+              message: message, expanded: expanded, onToggleExpanded: toggle)));
+}
+
+@visibleForTesting
+Widget buildCommandRunGroupPreview({bool running = false}) {
+  final messages = <WorkbenchMessage>[
+    WorkbenchMessage('command', 'Bash', 'Get-Content -Path pubspec.yaml',
+        event: AgentEvent(
+            type: 'tool.completed',
+            seq: 1,
+            runId: 'run_preview',
+            createdAt: DateTime.parse('2026-05-03T00:00:00.000Z'),
+            name: 'Bash',
+            raw: const <String, Object?>{
+              'toolName': 'Bash',
+              'output': 'name: lan_ai_cli_control',
+              'exitCode': 0,
+            }),
+        completed: !running),
+    WorkbenchMessage('command', 'Bash', 'dart analyze',
+        event: AgentEvent(
+            type: 'tool.completed',
+            seq: 2,
+            runId: 'run_preview',
+            createdAt: DateTime.parse('2026-05-03T00:00:01.000Z'),
+            name: 'Bash',
+            raw: const <String, Object?>{
+              'toolName': 'Bash',
+              'output': 'No issues found.',
+              'exitCode': 0,
+            }),
+        completed: !running),
+  ];
+  return _CommandPreviewHarness(
+      child: _PreviewExpansionHost(
+          child: (expanded, toggle) => CommandRunGroupCard(
+              messages: messages,
+              expanded: expanded,
+              onToggleExpanded: toggle)));
+}
+
+class _PreviewExpansionHost extends StatefulWidget {
+  const _PreviewExpansionHost({required this.child});
+
+  final Widget Function(bool expanded, VoidCallback toggle) child;
+
+  @override
+  State<_PreviewExpansionHost> createState() => _PreviewExpansionHostState();
+}
+
+class _PreviewExpansionHostState extends State<_PreviewExpansionHost> {
+  var _expanded = false;
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.child(_expanded, () => setState(() => _expanded = !_expanded));
+}
+
+class _CommandPreviewHarness extends StatelessWidget {
+  const _CommandPreviewHarness({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: theme.bg,
+          body: Padding(padding: const EdgeInsets.all(16), child: child)));
+}
