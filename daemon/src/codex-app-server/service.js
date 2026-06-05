@@ -25,7 +25,8 @@ class CodexAppServerService {
     requestTimeoutMs = 30000,
     poolLimits = {},
     now = () => Date.now(),
-    metrics = null
+    metrics = null,
+    approvalPolicy = null
   } = {}) {
     this.lifecycle = lifecycle;
     this.ttlMs = Math.max(0, Number(ttlMs) || 0);
@@ -38,6 +39,7 @@ class CodexAppServerService {
     };
     this.now = now;
     this.metrics = ensureMetrics(metrics);
+    this.approvalPolicy = approvalPolicy;
     this.discovery = new Map();
     this.discoveryCreating = new Map();
     this.activeConversationCount = 0;

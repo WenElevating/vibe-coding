@@ -8,7 +8,7 @@ const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 const { tryHandleCodexAppServerRoute } = require('./codex-app-server/routes');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, auditLog = null }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, auditLog = null }) {
   const serverContext = {
     auth,
     workspaces,
@@ -55,7 +55,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         url,
         json: (status, body, headers) => json(res, status, body, headers),
         readJson: () => readJson(req),
-        context: { device, workspaces, codexAppServerService, auditLog }
+        context: { device, workspaces, codexAppServerService, approvalPolicy: codexAppServerApprovalPolicy, auditLog }
       });
       if (handledCodexAppServer) return;
       if (method === 'GET' && url.pathname === '/api/adapters') return json(res, 200, { adapters: await adapterRegistry.listCapabilities() });

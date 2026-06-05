@@ -4,7 +4,7 @@ const path = require('node:path');
 const { recordCodexAppServerAudit } = require('./audit');
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
 const { buildCodexAppServerRouteCapabilities } = require('./capability-routes');
-const { redactCodexAppServerError, requireHighRiskApproval } = require('./high-risk-approval');
+const { requireHighRiskApproval } = require('./high-risk-approval');
 const {
   normalizeAccountRateLimitsResponse,
   normalizeAccountResponse,
@@ -899,7 +899,7 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
       errorCode: sanitized.downstreamCode || sanitized.errorCode,
       downstreamStatus: sanitized.downstreamStatus
     });
-    throw controlledHighRiskMutationError(sanitized.message);
+    throw controlledHighRiskMutationError();
   }
 }
 
@@ -1239,7 +1239,6 @@ function sanitizeThreadMutationError(error) {
 function sanitizeHighRiskMutationError(error) {
   return {
     errorCode: 'CODEX_APP_SERVER_HIGH_RISK_OPERATION_FAILED',
-    message: redactCodexAppServerError(error),
     downstreamStatus: safeDownstreamStatus(error?.status),
     downstreamCode: safeDownstreamCode(error?.code)
   };

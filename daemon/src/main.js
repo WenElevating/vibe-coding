@@ -77,6 +77,7 @@ function createApp({
   codexAppServerProbe = undefined,
   codexAppServerModelLister = undefined,
   codexAppServerService = undefined,
+  codexAppServerApprovalPolicy = undefined,
   opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -169,7 +170,8 @@ function createApp({
       poolLimits: {
         conversation: codexAppServerMaxProcesses
       },
-      metrics: codexAppServerMetrics
+      metrics: codexAppServerMetrics,
+      approvalPolicy: codexAppServerApprovalPolicy || null
     })
     : null;
   const config = { host, port, mode };
@@ -205,7 +207,7 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, auditLog });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, codexAppServerApprovalPolicy, auditLog });
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
   notificationHub.attach(server);
   notificationHub.start();

@@ -736,6 +736,14 @@ test('Codex app-server service never shares discovery, conversation, and mutatio
   assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
 });
 
+test('Codex app-server service exposes configured high-risk approval policy', () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const approvalPolicy = { allowHighRiskForTests: true };
+  const service = new CodexAppServerService({ approvalPolicy });
+
+  assert.equal(service.approvalPolicy, approvalPolicy);
+});
+
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
   const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
   const errors = [];
@@ -1935,7 +1943,7 @@ test('Codex app-server high-risk routes audit authorized downstream failures', a
         return callback({
           async writeFile() {
             assert.equal(method, 'fs/writeFile');
-            const error = new Error('provider write failed with token sk-secret');
+            const error = new Error('provider write failed for C:\\Users\\Alice\\.codex\\auth.json while running npm test with token sk-secret and Bearer abc.def');
             error.code = 'JSON_RPC_ERROR';
             throw error;
           }
@@ -1951,7 +1959,12 @@ test('Codex app-server high-risk routes audit authorized downstream failures', a
     });
 
     assert.equal(response.status, 502);
+    assert.equal(response.body.error.message, 'Codex app-server high-risk operation failed.');
     assert.equal(response.body.error.message.includes('sk-secret'), false);
+    assert.equal(response.body.error.message.includes('Alice'), false);
+    assert.equal(response.body.error.message.includes('auth.json'), false);
+    assert.equal(response.body.error.message.includes('npm test'), false);
+    assert.equal(response.body.error.message.includes('Bearer'), false);
     assert.equal(auditEvents.some((event) => event.event === 'codex_app_server.high_risk_failure' && event.payload.method === 'fs/writeFile'), true);
   } finally {
     await app.close();
@@ -10730,10 +10743,10 @@ async function createCodexAppServerRouteTestApp({
   deviceId = `device_${nodeCrypto.randomBytes(4).toString('hex')}`
 } = {}) {
   const forwardedAuditLog = auditLog;
-  if (service && approvalPolicy) service.approvalPolicy = approvalPolicy;
   const app = createApp({
     port: 0,
     codexAppServerService: service,
+    codexAppServerApprovalPolicy: approvalPolicy,
     auditLog: auditLog || new AuditLog(),
     codexAppServerProbe: false,
     codexAppServerModelLister: false,
