@@ -736,14 +736,6 @@ test('Codex app-server service never shares discovery, conversation, and mutatio
   assert.deepEqual(spawned.map((handle) => handle.scope.pool), ['discovery', 'conversation', 'mutation']);
 });
 
-test('Codex app-server service exposes configured high-risk approval policy', () => {
-  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
-  const approvalPolicy = { allowHighRiskForTests: true };
-  const service = new CodexAppServerService({ approvalPolicy });
-
-  assert.equal(service.approvalPolicy, approvalPolicy);
-});
-
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
   const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
   const errors = [];

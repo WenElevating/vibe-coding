@@ -170,8 +170,7 @@ function createApp({
       poolLimits: {
         conversation: codexAppServerMaxProcesses
       },
-      metrics: codexAppServerMetrics,
-      approvalPolicy: codexAppServerApprovalPolicy || null
+      metrics: codexAppServerMetrics
     })
     : null;
   const config = { host, port, mode };
