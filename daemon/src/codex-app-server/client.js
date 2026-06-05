@@ -448,6 +448,10 @@ class CodexAppServerClient {
     }), options);
   }
 
+  listRealtimeVoices(options = {}) {
+    return this.sendRequest('thread/realtime/listVoices', {}, options);
+  }
+
   listThreadTurns(options = {}) {
     return this.sendRequest('thread/turns/list', compactObject({
       threadId: options.threadId,

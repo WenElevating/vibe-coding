@@ -36,6 +36,7 @@ function isAccountReadMethod(method) {
 
 function routeGroupForMethod(method) {
   const value = String(method || '');
+  if (value.startsWith('thread/realtime/')) return 'realtime';
   if (value.startsWith('thread/')) return 'history';
   if (value.startsWith('model/') || value.startsWith('mcpServer/') || value.startsWith('skills/') || value.startsWith('plugin/') || value.startsWith('app/')) return 'discovery';
   if (value.startsWith('account/')) return 'account';

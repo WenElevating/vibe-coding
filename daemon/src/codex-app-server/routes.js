@@ -513,6 +513,39 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     });
   }
 
+  if (method === 'GET' && url.pathname === '/api/codex-app-server/realtime/voices') {
+    const response = await requireService(context).withDiscoveryClient((client) => client.listRealtimeVoices());
+    json(200, normalizeDiscoveryResponse(response, { collectionKey: 'voices', candidateKeys: ['voices', 'data', 'items'] }));
+    return true;
+  }
+
+  const workspaceRealtimeStart = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/realtime\/start$/);
+  if (method === 'POST' && workspaceRealtimeStart) {
+    context.workspaces.getAuthorized(decodePathParam(workspaceRealtimeStart[1]), context.device);
+    throw diagnosticOnlyRouteError('thread/realtime/start');
+  }
+
+  const workspaceRealtimeAppendText = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/realtime\/([^/]+)\/append-text$/);
+  if (method === 'POST' && workspaceRealtimeAppendText) {
+    context.workspaces.getAuthorized(decodePathParam(workspaceRealtimeAppendText[1]), context.device);
+    parseRequiredPathString(decodePathParam(workspaceRealtimeAppendText[2]), 'sessionId');
+    throw diagnosticOnlyRouteError('thread/realtime/appendText');
+  }
+
+  const workspaceRealtimeAppendAudio = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/realtime\/([^/]+)\/append-audio$/);
+  if (method === 'POST' && workspaceRealtimeAppendAudio) {
+    context.workspaces.getAuthorized(decodePathParam(workspaceRealtimeAppendAudio[1]), context.device);
+    parseRequiredPathString(decodePathParam(workspaceRealtimeAppendAudio[2]), 'sessionId');
+    throw diagnosticOnlyRouteError('thread/realtime/appendAudio');
+  }
+
+  const workspaceRealtimeStop = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/realtime\/([^/]+)\/stop$/);
+  if (method === 'POST' && workspaceRealtimeStop) {
+    context.workspaces.getAuthorized(decodePathParam(workspaceRealtimeStop[1]), context.device);
+    parseRequiredPathString(decodePathParam(workspaceRealtimeStop[2]), 'sessionId');
+    throw diagnosticOnlyRouteError('thread/realtime/stop');
+  }
+
   const workspaceThreadTurns = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/([^/]+)\/turns$/);
   if (method === 'GET' && workspaceThreadTurns) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadTurns[1]), context.device);
@@ -1368,6 +1401,13 @@ function controlledHighRiskMutationError(message) {
   return Object.assign(new Error(message || 'Codex app-server high-risk operation failed.'), {
     status: 502,
     code: 'CODEX_APP_SERVER_HIGH_RISK_OPERATION_FAILED'
+  });
+}
+
+function diagnosticOnlyRouteError(method) {
+  return Object.assign(new Error(`${method} is diagnostic-only until realtime streaming support is implemented.`), {
+    status: 409,
+    code: 'CODEX_APP_SERVER_DIAGNOSTIC_ONLY'
   });
 }
 

@@ -630,6 +630,7 @@ test('Codex app-server client sends typed filesystem requests', async () => {
   await client.stopFuzzyFileSearchSession({ sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' });
   await client.startReview({ workspacePath: 'D:\\Repo', maxItems: 20 });
   await client.generateAttestation({ workspacePath: 'D:\\Repo', challenge: 'nonce' });
+  await client.listRealtimeVoices();
 
   assert.deepEqual(calls, [
     { method: 'fs/getMetadata', params: { path: 'D:\\Repo\\README.md' } },
@@ -642,7 +643,8 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     { method: 'fuzzyFileSearch/sessionUpdate', params: { sessionId: 'fuzzy_1', query: 'daemon', workspacePath: 'D:\\Repo', limit: 5 } },
     { method: 'fuzzyFileSearch/sessionStop', params: { sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' } },
     { method: 'review/start', params: { workspacePath: 'D:\\Repo', maxItems: 20 } },
-    { method: 'attestation/generate', params: { workspacePath: 'D:\\Repo', challenge: 'nonce' } }
+    { method: 'attestation/generate', params: { workspacePath: 'D:\\Repo', challenge: 'nonce' } },
+    { method: 'thread/realtime/listVoices', params: {} }
   ]);
 });
 
@@ -1256,6 +1258,65 @@ test('Codex app-server fuzzy search validates authorization and query before ser
     assert.equal(missingPatchQuery.body.error.code, 'BAD_REQUEST');
     assert.equal(invalidPatchLimit.status, 400);
     assert.equal(invalidPatchLimit.body.error.code, 'BAD_REQUEST');
+    assert.equal(serviceCalls, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server realtime voices route uses discovery client', async () => {
+  const calls = [];
+  const service = {
+    async withDiscoveryClient(callback) {
+      calls.push({ method: 'withDiscoveryClient' });
+      return callback({
+        async listRealtimeVoices() {
+          calls.push({ method: 'listRealtimeVoices' });
+          return { voices: [{ id: 'alloy', name: 'Alloy' }] };
+        }
+      });
+    }
+  };
+  const app = await createCodexAppServerRouteTestApp({ service });
+
+  try {
+    const response = await app.get('/api/codex-app-server/realtime/voices');
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { voices: [{ id: 'alloy', name: 'Alloy' }] });
+    assert.deepEqual(calls, [
+      { method: 'withDiscoveryClient' },
+      { method: 'listRealtimeVoices' }
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Codex app-server realtime streaming routes are diagnostic-only until stream transport exists', async () => {
+  let serviceCalls = 0;
+  const app = await createCodexAppServerRouteTestApp({
+    service: {
+      async withWorkspaceClient() {
+        serviceCalls += 1;
+        throw new Error('must not call service for diagnostic-only realtime routes');
+      }
+    }
+  });
+
+  try {
+    const start = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/realtime/start`, {});
+    const appendText = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/realtime/session_1/append-text`, { text: 'hello' });
+    const appendAudio = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/realtime/session_1/append-audio`, { audio: 'AAAA' });
+    const stop = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/realtime/session_1/stop`, {});
+    const unauthorized = await app.post('/api/codex-app-server/workspaces/workspace_not_allowed/realtime/start', {});
+
+    for (const response of [start, appendText, appendAudio, stop]) {
+      assert.equal(response.status, 409);
+      assert.equal(response.body.error.code, 'CODEX_APP_SERVER_DIAGNOSTIC_ONLY');
+    }
+    assert.equal(unauthorized.status, 404);
+    assert.equal(unauthorized.body.error.code, 'WORKSPACE_NOT_FOUND');
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
@@ -2626,6 +2687,12 @@ test('Codex app-server capability route metadata is derived from matrix rows', (
   assert.equal(routeByMethod.get('review/start').requiresApproval, false);
   assert.equal(routeByMethod.get('attestation/generate').localStatus, 'diagnostic-only');
   assert.equal(routeByMethod.get('attestation/generate').requiresApproval, false);
+  assert.equal(routeByMethod.get('thread/realtime/listVoices').group, 'realtime');
+  assert.equal(routeByMethod.get('thread/realtime/listVoices').readOnly, true);
+  assert.equal(routeByMethod.get('thread/realtime/start').localStatus, 'diagnostic-only');
+  assert.equal(routeByMethod.get('thread/realtime/start').requiresApproval, false);
+  assert.equal(routeByMethod.get('thread/realtime/appendAudio').localStatus, 'diagnostic-only');
+  assert.equal(routeByMethod.get('thread/realtime/appendAudio').requiresApproval, false);
 });
 
 test('Codex app-server service returns controlled busy errors when pools are exhausted', async () => {
