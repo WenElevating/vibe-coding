@@ -1376,18 +1376,48 @@ test('Codex app-server fs read routes reject paths outside authorized workspace'
   });
 
   try {
-    const absolute = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('C:\\Windows\\win.ini')}`);
-    const posixAbsolute = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('/etc/passwd')}`);
-    const driveRelative = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('C:Windows\\win.ini')}`);
-    const traversal = await app.get(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/read-file?path=${encodeURIComponent('../outside.txt')}`);
+    const workspaceRoute = `/api/codex-app-server/workspaces/${app.workspace.id}`;
+    const cases = [
+      ['GET', `${workspaceRoute}/fs/metadata?path=${encodeURIComponent('../outside.txt')}`],
+      ['GET', `${workspaceRoute}/fs/directory?path=${encodeURIComponent('../outside.txt')}`],
+      ['GET', `${workspaceRoute}/fs/read-file?path=${encodeURIComponent('../outside.txt')}`],
+      ['GET', `${workspaceRoute}/fs/read-file?path=${encodeURIComponent('C:\\Windows\\win.ini')}`],
+      ['GET', `${workspaceRoute}/fs/read-file?path=${encodeURIComponent('/etc/passwd')}`],
+      ['GET', `${workspaceRoute}/fs/read-file?path=${encodeURIComponent('C:Windows\\win.ini')}`],
+      ['POST', `${workspaceRoute}/fs/watch`, { path: '../outside.txt' }]
+    ];
 
-    for (const response of [absolute, posixAbsolute, driveRelative, traversal]) {
+    for (const [method, route, body] of cases) {
+      const response = await (method === 'GET' ? app.get(route) : app.post(route, body));
       assert.equal(response.status, 403);
       assert.equal(response.body.error.code, 'FORBIDDEN');
     }
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
+  }
+});
+
+test('Codex app-server workspace path guard rejects prefix and platform path escapes', async () => {
+  const { resolveWorkspaceRelativePath } = require('../daemon/src/codex-app-server/routes');
+  const workspace = { path: path.join(os.tmpdir(), 'codex-app-server-workspace-guard', 'workspace') };
+  const inside = resolveWorkspaceRelativePath(workspace, 'src/../README.md');
+
+  assert.equal(inside, path.resolve(workspace.path, 'README.md'));
+  for (const candidate of [
+    '../workspace2/file.txt',
+    '..\\workspace2\\file.txt',
+    '\\\\server\\share\\file.txt',
+    '\\\\?\\C:\\Windows\\win.ini',
+    'C:\\Windows\\win.ini',
+    'C:Windows\\win.ini',
+    '/etc/passwd'
+  ]) {
+    assert.throws(
+      () => resolveWorkspaceRelativePath(workspace, candidate),
+      (error) => error.status === 403 && error.code === 'FORBIDDEN',
+      candidate
+    );
   }
 });
 
