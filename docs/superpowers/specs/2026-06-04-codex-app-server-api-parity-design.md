@@ -522,6 +522,15 @@ Mobile tests are deferred unless daemon route DTOs change existing mobile
 contracts. Later mobile phases should add repository and ViewModel tests for
 each consumed daemon route.
 
+## Full Parity Completion
+
+Full daemon parity means every official schema method is classified with a
+concrete risk and one of `supported`, `partial`, `diagnostic-only`, or
+`intentionally-blocked`. It does not mean every high-risk operation is silently
+available; high-risk support requires typed routes, authorization, approval or
+product policy, audit, and redacted errors. Unsupported/unknown rows are not
+allowed after the full parity plan lands.
+
 ## Verification Commands
 
 Commands in this document are written for the project's verified Windows

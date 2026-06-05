@@ -387,6 +387,79 @@ test('Codex app-server capability matrix rejects active unknown risk rows', () =
   assert.equal(result.errors.some((error) => error.includes('example/activeUnknownRisk') && error.includes('unknown risk')), true);
 });
 
+test('Codex app-server full parity has no unsupported unknown-risk rows', () => {
+  const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
+  const unfinished = CODEX_APP_SERVER_CAPABILITY_MATRIX
+    .filter((row) => row.localStatus === 'unsupported' || row.risk === 'unknown');
+  assert.deepEqual(unfinished.map((row) => `${row.localStatus}:${row.risk}:${row.method}`), []);
+});
+
+test('Codex app-server supported route methods have route coverage', () => {
+  const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
+  const { SUPPORTED_ROUTE_METHODS } = require('../daemon/src/codex-app-server/routes');
+  const routeOwned = CODEX_APP_SERVER_CAPABILITY_MATRIX
+    .filter((row) => row.daemonOwner === 'server route' && row.localStatus === 'supported');
+  for (const row of routeOwned) {
+    assert.equal(row.direction, 'request', `${row.method} supported server route rows must be request methods`);
+    assert.equal(SUPPORTED_ROUTE_METHODS.has(row.method), true, `${row.method} missing route coverage`);
+  }
+});
+
+test('Codex app-server removed or renamed rows keep explicit review metadata', () => {
+  const {
+    CODEX_APP_SERVER_CAPABILITY_MATRIX,
+    validateCodexAppServerCapabilityMatrix
+  } = require('../daemon/src/codex-app-server/capability-matrix');
+  for (const row of CODEX_APP_SERVER_CAPABILITY_MATRIX) {
+    if (row.localStatus === 'intentionally-blocked' && row.removedInSchemaVersion) {
+      assert.equal(typeof row.rationale, 'string', `${row.method} missing removal rationale`);
+      assert.ok(row.rationale.length > 0, `${row.method} missing removal rationale`);
+      assert.equal(typeof row.removedInSchemaVersion, 'string', `${row.method} removedInSchemaVersion must be a string`);
+    }
+    if (row.renamedFrom) {
+      assert.equal(typeof row.renamedFrom, 'string', `${row.method} renamedFrom must be a string`);
+      assert.notEqual(row.renamedFrom, row.method);
+    }
+  }
+  const removedInvalid = CODEX_APP_SERVER_CAPABILITY_MATRIX.map((row) => ({ ...row }));
+  removedInvalid.push({
+    method: 'example/removedWithoutRationale',
+    direction: 'request',
+    stability: 'stable',
+    category: 'diagnostics',
+    localStatus: 'intentionally-blocked',
+    daemonOwner: 'matrix only',
+    mobileStatus: 'not planned',
+    risk: 'none',
+    testRequirement: 'manual-only',
+    rationale: '',
+    removedInSchemaVersion: '2026-06-05'
+  });
+  assert.equal(
+    validateCodexAppServerCapabilityMatrix(removedInvalid).errors.some((error) => error.includes('example/removedWithoutRationale') && error.includes('removal rationale')),
+    true
+  );
+
+  const renamedInvalid = CODEX_APP_SERVER_CAPABILITY_MATRIX.map((row) => ({ ...row }));
+  renamedInvalid.push({
+    method: 'example/renamedSelf',
+    direction: 'request',
+    stability: 'stable',
+    category: 'diagnostics',
+    localStatus: 'intentionally-blocked',
+    daemonOwner: 'matrix only',
+    mobileStatus: 'not planned',
+    risk: 'none',
+    testRequirement: 'manual-only',
+    rationale: 'invalid rename fixture',
+    renamedFrom: 'example/renamedSelf'
+  });
+  assert.equal(
+    validateCodexAppServerCapabilityMatrix(renamedInvalid).errors.some((error) => error.includes('example/renamedSelf') && error.includes('renamedFrom')),
+    true
+  );
+});
+
 test('Codex app-server client initializes once for concurrent callers', async () => {
   const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
   const calls = [];

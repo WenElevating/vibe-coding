@@ -70,6 +70,8 @@ const EXPLICIT_ROWS = [
   row('collaborationMode/list', 'request', 'stable', 'remote-control', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
   row('experimentalFeature/list', 'request', 'experimental', 'diagnostics', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
   row('externalAgentConfig/detect', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
+  row('externalAgentConfig/import', 'request', 'stable', 'config', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 11 classified as configuration import; no product route exists until workspace authorization and import preview UX are explicit.'),
+  row('externalAgentConfig/import/completed', 'notification', 'stable', 'config', 'partial', 'matrix only', 'planned', 'read', 'matrix/event metadata only', 'Task 11 import completion metadata; not consumed by event sink yet.'),
   row('config/read', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
   row('configRequirements/read', 'request', 'stable', 'config', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 4 read-only discovery route.'),
   row('configWarning', 'notification', 'stable', 'config', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 4 discovery notification metadata; not consumed by event sink yet.'),
@@ -183,10 +185,11 @@ const EXPLICIT_ROWS = [
   row('thread/compact/start', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 7 classified as diagnostic-only metadata; no product route exists yet.'),
   row('thread/backgroundTerminals/clean', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'process', 'manual-only', 'Task 7 classified as diagnostic-only metadata; no product route exists yet.'),
   row('thread/approveGuardianDeniedAction', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'permission', 'manual-only', 'Task 7 classified as diagnostic-only metadata; no product route exists yet.'),
+  row('thread/shellCommand', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'process', 'manual-only', 'Task 11 classified as shell command control; no product route exists without explicit command approval UX.'),
   row('thread/increment_elicitation', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 7 classified as diagnostic-only metadata; no product route exists yet.'),
   row('thread/decrement_elicitation', 'request', 'stable', 'thread', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 7 classified as diagnostic-only metadata; no product route exists yet.'),
-  row('thread/status/changed', 'notification', 'stable', 'thread', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 3 read API parity event metadata.'),
-  row('thread/tokenUsage/updated', 'notification', 'stable', 'thread', 'supported', 'server route', 'planned', 'read', 'route test', 'Task 3 read API parity event metadata.'),
+  row('thread/status/changed', 'notification', 'stable', 'thread', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 3 read API parity event metadata; no route-level event stream yet.'),
+  row('thread/tokenUsage/updated', 'notification', 'stable', 'thread', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 3 read API parity event metadata; no route-level event stream yet.'),
   row('thread/archived', 'notification', 'stable', 'thread', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 7 thread mutation notification metadata; not consumed by event sink yet.'),
   row('thread/unarchived', 'notification', 'stable', 'thread', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 7 thread mutation notification metadata; not consumed by event sink yet.'),
   row('thread/name/updated', 'notification', 'stable', 'thread', 'partial', 'server route', 'planned', 'read', 'matrix/event metadata only', 'Task 7 thread mutation notification metadata; not consumed by event sink yet.'),
@@ -199,16 +202,20 @@ const EXPLICIT_ROWS = [
   row('thread/resume', 'request', 'stable', 'thread', 'supported', 'conversation adapter', 'consumed', 'write', 'integration fake transport', 'Existing conversation resume path.'),
   row('turn/start', 'request', 'stable', 'turn', 'supported', 'conversation adapter', 'consumed', 'write', 'integration fake transport', 'Existing user message path.'),
   row('turn/interrupt', 'request', 'stable', 'turn', 'supported', 'conversation adapter', 'consumed', 'write', 'integration fake transport', 'Existing cancel path; side-effecting after request write.'),
+  row('turn/steer', 'request', 'stable', 'turn', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 11 classified as in-flight turn mutation; no stable mobile steering UX exists yet.'),
   row('item/commandExecution/requestApproval', 'serverRequest', 'stable', 'command', 'supported', 'conversation adapter', 'consumed', 'permission', 'unit', 'Existing mobile approval request mapping.'),
   row('item/fileChange/requestApproval', 'serverRequest', 'stable', 'file', 'supported', 'conversation adapter', 'consumed', 'permission', 'unit', 'Existing file-change approval request mapping.'),
   row('item/permissions/requestApproval', 'serverRequest', 'stable', 'item', 'supported', 'conversation adapter', 'consumed', 'permission', 'unit', 'Existing permission approval request mapping.'),
   row('item/tool/requestUserInput', 'serverRequest', 'stable', 'mcp', 'intentionally-blocked', 'conversation adapter', 'not planned', 'permission', 'unit', 'Task 9 fails closed; interactive app-server tool input has no stable mobile UX yet.'),
   row('mcpServer/elicitation/request', 'serverRequest', 'stable', 'mcp', 'intentionally-blocked', 'conversation adapter', 'not planned', 'permission', 'unit', 'Task 9 fails closed; MCP elicitation requires explicit mobile UX before support.'),
+  row('mcpServer/tool/call', 'request', 'stable', 'mcp', 'diagnostic-only', 'matrix only', 'planned', 'permission', 'manual-only', 'Task 11 classified as direct MCP tool execution; no product route exists without tool approval and result UX.'),
   row('item/tool/call', 'serverRequest', 'stable', 'mcp', 'partial', 'conversation adapter', 'planned', 'permission', 'matrix/event metadata only', 'Server request exists in protocol but is not safely mapped to mobile approval/tool flow yet.'),
   row('applyPatchApproval', 'serverRequest', 'stable', 'file', 'partial', 'conversation adapter', 'planned', 'permission', 'matrix/event metadata only', 'Approval-shaped protocol method is not yet mapped to the existing mobile approval queue.'),
   row('execCommandApproval', 'serverRequest', 'stable', 'command', 'partial', 'conversation adapter', 'planned', 'permission', 'matrix/event metadata only', 'Approval-shaped protocol method is not yet mapped to the existing mobile approval queue.'),
   row('item/agentMessage/delta', 'notification', 'stable', 'item', 'supported', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Existing streaming assistant.partial mapping.'),
   row('item/commandExecution/outputDelta', 'notification', 'stable', 'command', 'supported', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Existing tool.delta mapping.'),
+  row('memory/reset', 'request', 'stable', 'config', 'diagnostic-only', 'matrix only', 'planned', 'write', 'manual-only', 'Task 11 classified as destructive memory mutation; no product route exists without explicit confirmation and audit policy.'),
+  row('serverRequest/resolved', 'notification', 'stable', 'diagnostics', 'partial', 'conversation adapter', 'planned', 'none', 'matrix/event metadata only', 'Task 11 server request resolution metadata; not mapped to stable mobile events yet.'),
   row('item/autoApprovalReview/started', 'notification', 'stable', 'item', 'partial', 'conversation adapter', 'planned', 'none', 'matrix/event metadata only', 'Task 9 rich item notification metadata only; not mapped to stable mobile events yet.'),
   row('item/autoApprovalReview/completed', 'notification', 'stable', 'item', 'partial', 'conversation adapter', 'planned', 'none', 'matrix/event metadata only', 'Task 9 rich item notification metadata only; not mapped to stable mobile events yet.'),
   row('item/commandExecution/terminalInteraction', 'notification', 'stable', 'command', 'partial', 'conversation adapter', 'planned', 'none', 'matrix/event metadata only', 'Task 9 rich command notification metadata only; not mapped to stable mobile events yet.'),
@@ -226,7 +233,8 @@ const EXPLICIT_ROWS = [
   row('turn/plan/updated', 'notification', 'stable', 'turn', 'partial', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Mapped to todo list events.'),
   row('item/started', 'notification', 'stable', 'item', 'partial', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Mapped through current Codex event bridge.'),
   row('item/completed', 'notification', 'stable', 'item', 'partial', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Mapped through current Codex event bridge.'),
-  row('error', 'notification', 'stable', 'diagnostics', 'supported', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Existing run error mapping.')
+  row('error', 'notification', 'stable', 'diagnostics', 'supported', 'conversation adapter', 'consumed', 'none', 'integration fake transport', 'Existing run error mapping.'),
+  row('windowsSandbox/setupStart', 'request', 'stable', 'sandbox', 'diagnostic-only', 'matrix only', 'planned', 'process', 'manual-only', 'Task 11 classified as sandbox setup operation; no product route exists without platform-specific policy and progress UX.')
 ];
 
 const CODEX_APP_SERVER_CAPABILITY_MATRIX = buildMatrix();
@@ -253,11 +261,11 @@ function addGeneratedDefaults(rows, methods, direction) {
       direction,
       inferStability(method),
       inferCategory(method),
-      'unsupported',
-      'none',
-      'not planned',
-      'unknown',
-      'unit',
+      'diagnostic-only',
+      'matrix only',
+      'planned',
+      inferRisk(method),
+      'manual-only',
       'Generated from official app-server schema; not classified yet.'
     ));
   }
@@ -291,6 +299,26 @@ function validateCodexAppServerCapabilityMatrix(rows = CODEX_APP_SERVER_CAPABILI
     }
     if (current.risk === 'unknown' && current.mobileStatus !== 'not planned') {
       errors.push(`${current.method} is mobile-accessible with unknown risk`);
+    }
+    if (current.localStatus === 'unsupported') {
+      errors.push(`${current.method} remains unsupported after full parity classification`);
+    }
+    if (current.risk === 'unknown') {
+      errors.push(`${current.method} has unknown risk after full parity classification`);
+    }
+    if (current.localStatus === 'intentionally-blocked' && current.removedInSchemaVersion) {
+      if (typeof current.removedInSchemaVersion !== 'string' || current.removedInSchemaVersion.trim() === '') {
+        errors.push(`${current.method} removedInSchemaVersion must be a nonblank string`);
+      }
+      if (typeof current.rationale !== 'string' || current.rationale.trim() === '') {
+        errors.push(`${current.method} missing removal rationale`);
+      }
+    }
+    if (current.renamedFrom) {
+      if (typeof current.renamedFrom !== 'string' || current.renamedFrom.trim() === '') {
+        errors.push(`${current.method} renamedFrom must be a nonblank string`);
+      }
+      if (current.renamedFrom === current.method) errors.push(`${current.method} renamedFrom must differ from method`);
     }
   }
   requireRows(errors, seen, methods.clientRequests || methods.requests, 'client request');
@@ -363,6 +391,25 @@ function inferCategory(method) {
   if (lower.startsWith('fs/')) return 'file';
   if (lower.includes('feedback') || lower.includes('warning') || lower.includes('deprecation')) return 'diagnostics';
   return 'unknown';
+}
+
+function inferRisk(method) {
+  const lower = String(method || '').toLowerCase();
+  if (lower.includes('approval') || lower.includes('permission') || lower.includes('elicitation')) return 'permission';
+  if (lower.includes('account') || lower.includes('auth') || lower.includes('login') || lower.includes('logout')) return 'account';
+  if (lower.includes('command') || lower.includes('process') || lower.includes('shell') || lower.includes('sandbox')) return 'process';
+  if (lower.includes('remotecontrol') || lower.includes('realtime')) return 'network';
+  if (lower.includes('write') || lower.includes('set') || lower.includes('add') || lower.includes('remove') ||
+      lower.includes('delete') || lower.includes('install') || lower.includes('uninstall') ||
+      lower.includes('reset') || lower.includes('import') || lower.includes('archive') ||
+      lower.includes('fork') || lower.includes('steer')) {
+    return 'write';
+  }
+  if (lower.includes('read') || lower.includes('list') || lower.includes('detect') ||
+      lower.includes('search') || lower.includes('status')) {
+    return 'read';
+  }
+  return 'none';
 }
 
 module.exports = {
