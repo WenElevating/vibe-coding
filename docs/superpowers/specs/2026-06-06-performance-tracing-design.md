@@ -130,7 +130,7 @@ New routes under:
 ```json
 {
   "enabled": true,
-  "runId": "perf_2026_06_06_001",
+  "runId": "perf_20260606T120001Z_a8f3c2",
   "sampleRate": 1,
   "maxQueueSize": 2000,
   "maxBatchSize": 200
@@ -145,8 +145,34 @@ When disabled:
 }
 ```
 
+`runId` is daemon-generated and must be unique without human coordination. Use a
+UUID or timestamp plus random suffix. Human-readable labels belong in the
+`scenario` column, not in the run id.
+
+`sampleRate` is reserved for later sampling policy. In this recording-only
+phase the daemon returns `1`, and mobile publishers/reporters must not implement
+sampling logic.
+
 `POST /api/perf/time-sync` supports clock offset estimation between mobile and
-daemon.
+daemon. Request:
+
+```json
+{
+  "runId": "perf_20260606T120001Z_a8f3c2",
+  "appSessionId": "mobile_session_xxx",
+  "mobileSendWallMs": 1791200005000,
+  "mobileSendMonoUs": 128000000
+}
+```
+
+Response:
+
+```json
+{
+  "daemonReceiveWallMs": 1791200005060,
+  "daemonSendWallMs": 1791200005062
+}
+```
 
 `POST /api/perf/mobile-marks` accepts batches from the mobile background
 reporter. It must require normal paired-device authentication.
@@ -197,6 +223,8 @@ class MobilePerformanceTraceMark extends MobileAppEvent {
     this.seq,
     this.eventType,
     this.correlationId,
+    this.critical = false,
+    this.clockDriftWarning = false,
     this.metadata = const <String, Object?>{},
   });
 
@@ -207,12 +235,17 @@ class MobilePerformanceTraceMark extends MobileAppEvent {
   final int? seq;
   final String? eventType;
   final String? correlationId;
+  final bool critical;
+  final bool clockDriftWarning;
   final Map<String, Object?> metadata;
 }
 ```
 
 This event type is the performance trace topic. No new event bus abstraction is
-needed.
+needed. `critical` is for chain-preserving marks that should be preferentially
+retained under queue pressure. `clockDriftWarning` is normally false at
+collection sites; the reporter may also set a batch-level warning when the most
+recent time-sync sample indicates unreliable cross-clock comparison.
 
 ### PerformanceTracePublisher
 
@@ -272,6 +305,12 @@ Responsibilities:
 - call `/api/perf/time-sync`;
 - upload batches to `/api/perf/mobile-marks`;
 - keep perf errors out of user-visible operation errors.
+- reuse the existing authenticated daemon HTTP path, or a shared equivalent
+  helper, with the same paired-device token and token-refresh behavior as normal
+  daemon APIs.
+
+Authentication failures follow the reporter failure policy. They must not show
+UI errors, toast notifications, or conversation-level failures.
 
 ## Mobile Queue Policy
 
@@ -279,14 +318,35 @@ Responsibilities:
 - Default capacity: 2000 marks.
 - Batch size: 200 marks or configured backend limit.
 - Flush interval: 2 seconds while tracing is enabled.
-- App lifecycle pause: attempt one best-effort flush without blocking.
-- Queue full: drop new marks and increment `droppedCount`.
-- Failed upload: retry the same batch once on the next flush.
+- App lifecycle pause: attempt one best-effort flush with a hard 1500 ms
+  timeout. Timeout abandons that lifecycle flush, does not count as an upload
+  failure, and does not schedule an immediate retry.
+- Queue full: preserve critical marks preferentially.
+- Failed upload: retry the same batch once on the next flush interval, not
+  immediately in the same interval.
 - Second failure: drop that batch and increment dropped counters.
+- Consecutive failures: after 3 consecutive failed upload cycles, pause uploads
+  until the next successful config check or explicit reporter restart. Collection
+  remains bounded by queue limits while paused.
 - Concurrency: only one in-flight upload at a time.
 
-Dropping new marks preserves ordering for already queued marks and makes loss
-visible through dropped counters.
+Queue pressure policy:
+
+- non-critical incoming mark and queue full: drop the incoming mark;
+- critical incoming mark and queue contains non-critical marks: drop the oldest
+  non-critical queued mark, then enqueue the critical mark in arrival order;
+- critical incoming mark and queue is all critical: drop the incoming critical
+  mark.
+
+Critical marks should be declared by the publisher call site instead of inferred
+solely from names. The first implementation should mark these as critical:
+`send.tap`, `send.http.completed`, `history.first_page.applied`,
+`history.backfill.completed`, `ws.event.received`, `reducer.applied`, and
+`event.frame.rendered`. Names containing `rendered` or `completed` are good
+review signals, but they are not the only retention rule.
+
+Dropping is visible through dropped counters, split by critical and non-critical
+loss where practical.
 
 ## Mobile Trace Marks
 
@@ -327,12 +387,14 @@ Suggested code boundaries:
 
 ```json
 {
-  "runId": "perf_2026_06_06_001",
+  "runId": "perf_20260606T120001Z_a8f3c2",
   "deviceId": "device_xxx",
   "appSessionId": "mobile_session_xxx",
   "mobileSentWallMs": 1791200005000,
   "mobileSentMonoUs": 128000000,
-  "droppedCountSinceLastFlush": 0,
+  "droppedCountSinceLastSuccessfulFlush": 0,
+  "droppedCriticalCountSinceLastSuccessfulFlush": 0,
+  "droppedNonCriticalCountSinceLastSuccessfulFlush": 0,
   "marks": [
     {
       "name": "ws.event.received",
@@ -343,11 +405,20 @@ Suggested code boundaries:
       "seq": 5485,
       "eventType": "assistant.message",
       "correlationId": "conv_xxx:5485",
+      "critical": true,
+      "clockDriftWarning": false,
       "metadata": {
         "bytes": 1200
       }
     }
-  ]
+  ],
+  "clockSync": {
+    "offsetEstimateMs": -12.4,
+    "roundTripMs": 18.7,
+    "ageMs": 1530,
+    "quality": "good",
+    "clockDriftWarning": false
+  }
 }
 ```
 
@@ -364,6 +435,44 @@ Response:
 
 The response timestamps allow the reporter to refine clock offset estimates
 without a separate time-sync request for every flush.
+
+`droppedCountSinceLastSuccessfulFlush` and the critical/non-critical split are
+reset only after a successful upload. If an upload fails and the batch remains
+eligible for retry, counters continue accumulating. If a retry also fails and
+the batch is discarded, the discarded mark count is folded into the next
+successful upload's dropped counters rather than silently reset.
+
+## Clock Alignment
+
+Mobile and daemon clocks are not assumed to be perfectly aligned. The reporter
+uses an NTP-style offset estimate from `/api/perf/time-sync` and from successful
+flush responses:
+
+- `t0`: mobile send wall-clock timestamp;
+- `t1`: daemon receive wall-clock timestamp;
+- `t2`: daemon send wall-clock timestamp;
+- `t3`: mobile receive wall-clock timestamp.
+
+Derived values:
+
+```text
+roundTripMs = (t3 - t0) - (t2 - t1)
+offsetEstimateMs = ((t1 - t0) + (t2 - t3)) / 2
+```
+
+The latest estimate is attached to reporter flushes as `clockSync`. Backend
+analysis should treat cross-device wall-clock latency as low confidence when:
+
+- `clockSync.ageMs` is too old;
+- `roundTripMs` exceeds the configured quality threshold;
+- mobile wall-clock delta and monotonic delta diverge unexpectedly;
+- the app crossed background, lock-screen, or lifecycle pause/resume while marks
+  were queued.
+
+The reporter sets `clockSync.clockDriftWarning` for suspicious batches. Marks
+may also carry `clockDriftWarning` when a specific capture window is known to be
+affected. Analysis must keep these rows but exclude or flag them for
+cross-device latency calculations.
 
 ## Correlation
 
@@ -399,13 +508,36 @@ CREATE TABLE IF NOT EXISTS perf_runs (
   metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS perf_mobile_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT,
+  device_id TEXT,
+  app_session_id TEXT,
+  mobile_sent_wall_ms INTEGER,
+  mobile_sent_mono_us INTEGER,
+  daemon_receive_wall_ms INTEGER,
+  daemon_send_wall_ms INTEGER,
+  clock_offset_estimate_ms REAL,
+  clock_round_trip_ms REAL,
+  clock_sync_age_ms INTEGER,
+  clock_sync_quality TEXT,
+  clock_drift_warning INTEGER NOT NULL DEFAULT 0,
+  dropped_count_since_last_successful_flush INTEGER NOT NULL DEFAULT 0,
+  dropped_critical_count_since_last_successful_flush INTEGER NOT NULL DEFAULT 0,
+  dropped_non_critical_count_since_last_successful_flush INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS perf_marks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT,
+  mobile_batch_id INTEGER,
   source TEXT NOT NULL,
   name TEXT NOT NULL,
   wall_time_ms INTEGER,
   monotonic_us INTEGER,
+  critical INTEGER NOT NULL DEFAULT 0,
+  clock_drift_warning INTEGER NOT NULL DEFAULT 0,
   daemon_receive_wall_ms INTEGER,
   conversation_id TEXT,
   seq INTEGER,
@@ -420,7 +552,14 @@ CREATE INDEX IF NOT EXISTS idx_perf_marks_run_name
 
 CREATE INDEX IF NOT EXISTS idx_perf_marks_correlation
   ON perf_marks(correlation_id, source, name);
+
+CREATE INDEX IF NOT EXISTS idx_perf_mobile_batches_run
+  ON perf_mobile_batches(run_id, app_session_id, created_at);
 ```
+
+Daemon-origin marks have `mobile_batch_id = NULL`. Mobile-origin marks uploaded
+in a batch reference `perf_mobile_batches.id`, so later analysis can apply the
+same clock-sync quality and dropped-count context to all marks in that batch.
 
 ## Privacy And Redaction
 
@@ -521,6 +660,9 @@ Integration checks:
 6. Add app startup and history loading marks.
 
 Each step should keep tracing disabled by default and pass existing tests.
+During step 3, published marks may have no reporter subscriber and be silently
+dropped by the event bus. That is expected during staged rollout; the reporter
+added in step 4 is the first durable consumer.
 
 ## Open Decisions
 
