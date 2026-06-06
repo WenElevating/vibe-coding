@@ -121,7 +121,9 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
             final displayItem = displayItems[messageIndex];
             return Padding(
               key: ValueKey(_displayItemKey(messageIndex, displayItem)),
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: EdgeInsets.only(
+                bottom: _displayItemBottomPadding(displayItem),
+              ),
               child: _buildDisplayItem(displayItem),
             );
           }
@@ -178,6 +180,12 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
         );
     }
   }
+
+  double _displayItemBottomPadding(WorkbenchTranscriptDisplayItem item) =>
+      switch (item) {
+        SingleCommandDisplayItem() || CommandRunGroupDisplayItem() => 4,
+        WorkbenchMessageDisplayItem() => 10,
+      };
 
   void _toggle(String key) {
     setState(() {

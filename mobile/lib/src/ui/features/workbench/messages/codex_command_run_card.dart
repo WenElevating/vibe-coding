@@ -53,7 +53,7 @@ class CommandRunGroupCard extends StatelessWidget {
         running:
             messages.any((message) => !message.completed && !message.isError),
         error: messages.any((message) => message.isError),
-        icon: Icons.account_tree_outlined,
+        icon: Icons.terminal_rounded,
         expanded: expanded,
         onToggleExpanded: onToggleExpanded,
         children: messages
@@ -111,17 +111,17 @@ class _CommandRunFrameState extends State<_CommandRunFrame> {
                   onTap: widget.onToggleExpanded,
                   child: Padding(
                       padding:
-                          EdgeInsets.fromLTRB(2, 6, 2, widget.expanded ? 8 : 6),
+                          EdgeInsets.fromLTRB(2, 2, 2, widget.expanded ? 6 : 2),
                       child: Row(children: [
                         Container(
-                            width: 23,
-                            height: 23,
+                            width: 21,
+                            height: 21,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                                 color: const Color(0xFF121418),
                                 borderRadius: BorderRadius.circular(7)),
                             child: Icon(widget.icon,
-                                color: const Color(0xFF7B818B), size: 14)),
+                                color: const Color(0xFF7B818B), size: 13)),
                         const SizedBox(width: 9),
                         Expanded(
                             child: widget.running
