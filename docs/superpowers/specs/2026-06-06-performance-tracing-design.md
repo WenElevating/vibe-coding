@@ -112,6 +112,8 @@ Responsibilities:
 
 - lazily create `data/app/perf.sqlite` only when tracing is enabled;
 - batch-write daemon and mobile marks;
+- write each uploaded mobile batch and its marks in one SQLite transaction;
+- enable `PRAGMA foreign_keys = ON` for perf database connections;
 - tolerate write failures by reporting a diagnostic warning only;
 - avoid touching `data/app/app.sqlite`.
 
@@ -244,8 +246,10 @@ class MobilePerformanceTraceMark extends MobileAppEvent {
 This event type is the performance trace topic. No new event bus abstraction is
 needed. `critical` is for chain-preserving marks that should be preferentially
 retained under queue pressure. `clockDriftWarning` is normally false at
-collection sites; the reporter may also set a batch-level warning when the most
-recent time-sync sample indicates unreliable cross-clock comparison.
+collection sites and is owned by the publisher call site. The reporter must not
+mutate mark objects or overwrite mark-level `clockDriftWarning`; it only sets
+the independent batch-level `clockSync.clockDriftWarning` when the most recent
+time-sync sample indicates unreliable cross-clock comparison.
 
 ### PerformanceTracePublisher
 
@@ -326,17 +330,28 @@ UI errors, toast notifications, or conversation-level failures.
   immediately in the same interval.
 - Second failure: drop that batch and increment dropped counters.
 - Consecutive failures: after 3 consecutive failed upload cycles, pause uploads
-  until the next successful config check or explicit reporter restart. Collection
-  remains bounded by queue limits while paused.
+  until the next successful config check or explicit reporter restart. During
+  the paused state, config checks continue on the same 2 second interval used by
+  normal flush scheduling. A successful config check resumes uploads without any
+  external lifecycle event. If config checks keep failing, the reporter stays
+  paused and the in-memory queue continues applying its capacity/drop policy.
 - Concurrency: only one in-flight upload at a time.
 
 Queue pressure policy:
 
+- internal structure: one bounded double-ended queue plus a non-critical count;
+  no locks or awaits are taken at publisher call sites;
 - non-critical incoming mark and queue full: drop the incoming mark;
 - critical incoming mark and queue contains non-critical marks: drop the oldest
   non-critical queued mark, then enqueue the critical mark in arrival order;
 - critical incoming mark and queue is all critical: drop the incoming critical
   mark.
+
+The reporter may scan the bounded queue to find the oldest non-critical mark.
+With the initial capacity of 2000 marks this cost is acceptable because it runs
+inside the reporter's event subscription path, not inside the collection point.
+If capacity grows materially, replace the scan with a secondary index of
+non-critical positions before increasing the limit.
 
 Critical marks should be declared by the publisher call site instead of inferred
 solely from names. The first implementation should mark these as critical:
@@ -474,6 +489,16 @@ may also carry `clockDriftWarning` when a specific capture window is known to be
 affected. Analysis must keep these rows but exclude or flag them for
 cross-device latency calculations.
 
+`clockSync.quality` uses this fixed enum:
+
+- `good`: `roundTripMs < 50` and no drift warning;
+- `degraded`: `50 <= roundTripMs < 200` and no drift warning;
+- `poor`: `roundTripMs >= 200` or any drift warning;
+- `unknown`: no valid time-sync estimate is available.
+
+Thresholds may become backend configuration later, but producers and consumers
+must keep the enum values stable.
+
 ## Correlation
 
 Correlation keys should be stable and content-free:
@@ -544,7 +569,8 @@ CREATE TABLE IF NOT EXISTS perf_marks (
   event_type TEXT,
   correlation_id TEXT,
   metadata_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(mobile_batch_id) REFERENCES perf_mobile_batches(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_perf_marks_run_name
@@ -560,6 +586,8 @@ CREATE INDEX IF NOT EXISTS idx_perf_mobile_batches_run
 Daemon-origin marks have `mobile_batch_id = NULL`. Mobile-origin marks uploaded
 in a batch reference `perf_mobile_batches.id`, so later analysis can apply the
 same clock-sync quality and dropped-count context to all marks in that batch.
+The store writes the batch row and all child marks atomically; if either side
+fails, the transaction rolls back and no partial batch is kept.
 
 ## Privacy And Redaction
 
@@ -617,6 +645,7 @@ Mobile:
 - mark collection failures are swallowed;
 - upload failures are invisible to the user;
 - queue overflow drops marks;
+- paused reporter continues config checks on the normal flush interval;
 - app termination loses queued marks;
 - reporter disposal cancels timers and subscriptions.
 
@@ -630,6 +659,9 @@ Daemon tests:
 - store writes marks in received order;
 - store failure does not affect API response;
 - stored rows can be inspected through direct SQL in tests.
+- mobile batch and marks are written in one transaction;
+- failed mobile batch write leaves no orphan `perf_marks` rows;
+- `clockSync.quality` accepts only `good`, `degraded`, `poor`, or `unknown`.
 
 Mobile tests:
 
@@ -639,7 +671,13 @@ Mobile tests:
 - reporter preserves FIFO order;
 - reporter enforces one in-flight upload;
 - queue overflow increments dropped count;
+- critical mark at full capacity evicts the oldest non-critical mark;
+- all-critical queue at full capacity drops the incoming critical mark and
+  increments the critical dropped count;
 - upload failure retries once and then drops;
+- 3 consecutive upload failures pause uploads;
+- successful config check while paused resumes uploads;
+- lifecycle flush timeout at 1500 ms does not schedule an immediate retry;
 - reporter disposal cancels subscription/timer.
 
 Integration checks:
