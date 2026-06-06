@@ -131,6 +131,27 @@ void main() {
       expect(viewModel.modelNotice, isNull);
     });
 
+    test('adapter refresh does not carry a model into a different adapter', () {
+      final adapterRepository = _FakeCliAdapterRepository(
+        adapters: const <AdapterStatus>[_claudeGlmModels],
+      );
+      final viewModel = _workbenchViewModel(
+        adapterRepository: adapterRepository,
+      );
+
+      expect(viewModel.selectedAdapter, 'claude');
+      expect(viewModel.selectedModel, 'glm-5.1');
+
+      adapterRepository.replaceAdapters(
+        const <AdapterStatus>[_codexAppServerModels],
+      );
+
+      expect(viewModel.selectedAdapter, 'codex-app-server');
+      expect(viewModel.selectedModel, 'gpt-5.5');
+      expect(
+          viewModel.modelNotice, WorkbenchModelNotice.changedToAvailableOption);
+    });
+
     test('existing conversation model update waits for repository success',
         () async {
       final repository = _FakeConversationRepository();
@@ -787,6 +808,44 @@ const _claudeAvailable = AdapterStatus(
   adapter: 'claude',
   available: true,
   status: 'available',
+);
+
+const _claudeGlmModels = AdapterStatus(
+  adapter: 'claude',
+  available: true,
+  status: 'available',
+  canSelectModel: true,
+  selectedModel: 'glm-5.1',
+  models: <AdapterModelOption>[
+    AdapterModelOption(
+      id: 'glm-5.1',
+      label: 'glm-5.1',
+      source: 'claude_config',
+      selected: true,
+    ),
+  ],
+);
+
+const _codexAppServerModels = AdapterStatus(
+  adapter: 'codex-app-server',
+  available: true,
+  status: 'available',
+  canSelectModel: true,
+  selectedModel: 'gpt-5.5',
+  models: <AdapterModelOption>[
+    AdapterModelOption(
+      id: 'gpt-5.5',
+      label: 'GPT-5.5',
+      source: 'app_server',
+      selected: true,
+    ),
+    AdapterModelOption(
+      id: 'glm-5.1',
+      label: 'glm-5.1',
+      source: 'app_server',
+      selected: false,
+    ),
+  ],
 );
 
 WorkbenchViewModel _workbenchViewModel({

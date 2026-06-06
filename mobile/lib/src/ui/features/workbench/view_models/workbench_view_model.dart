@@ -79,6 +79,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   late List<AdapterStatus> _adapters;
   String? _selectedAdapter;
   String? _draftModel;
+  String? _draftModelAdapter;
   String? _confirmedConversationModel;
   bool _modelUpdating = false;
   String? _modelUpdateError;
@@ -624,6 +625,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (_selectedAdapter == adapter) return;
     _selectedAdapter = adapter;
     _draftModel = preferredWorkbenchModelFor(selectedAdapterStatus);
+    _draftModelAdapter = adapter;
     _modelNotice = null;
     _revalidateDraftAttachments();
     _notifyListeners();
@@ -643,6 +645,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     if (conversationId == null) {
       final changed = _draftModel != normalized || _modelNotice != null;
       _draftModel = normalized;
+      _draftModelAdapter = _selectedAdapter;
       _modelNotice = null;
       _revalidateDraftAttachments();
       if (changed) _notifyListeners();
@@ -774,7 +777,8 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   void _reconcileSelectedModel() {
     final status = selectedAdapterStatus;
-    if (_draftModel != null &&
+    if (_draftModelAdapter == _selectedAdapter &&
+        _draftModel != null &&
         workbenchModelStillAvailable(_draftModel, status)) {
       return;
     }
@@ -782,6 +786,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     final fallback = preferredWorkbenchModelFor(status);
     if (previous == null && fallback == null) return;
     _draftModel = fallback;
+    _draftModelAdapter = _selectedAdapter;
     if (previous != null && fallback != null && previous != fallback) {
       _modelNotice = WorkbenchModelNotice.changedToAvailableOption;
     } else if (fallback == null) {
