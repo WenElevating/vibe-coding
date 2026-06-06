@@ -333,8 +333,12 @@ UI errors, toast notifications, or conversation-level failures.
   until the next successful config check or explicit reporter restart. During
   the paused state, config checks continue on the same 2 second interval used by
   normal flush scheduling. A successful config check resumes uploads without any
-  external lifecycle event. If config checks keep failing, the reporter stays
-  paused and the in-memory queue continues applying its capacity/drop policy.
+  external lifecycle event and resets the consecutive failure count to zero. If
+  config checks keep failing, the reporter stays paused and the in-memory queue
+  continues applying its capacity/drop policy.
+- HTTP 413 from `/api/perf/mobile-marks`: refresh `/api/perf/config`, update
+  `maxBatchSize`, split the retained batch according to the new limit, and retry
+  on the next flush interval. Do not count the first 413 as a dropped batch.
 - Concurrency: only one in-flight upload at a time.
 
 Queue pressure policy:
@@ -384,6 +388,24 @@ Mobile should record these marks when tracing is enabled:
 - `ws.event.received`
 - `reducer.applied`
 - `event.frame.rendered`
+
+Startup marks have special handling because tracing configuration, the event
+bus subscription, and the reporter are not ready at the earliest app entrypoint:
+
+- `app.main.started` captures the earliest available wall-clock and monotonic
+  timestamp in `main.dart` and stores it in a single pre-startup slot owned by
+  the composition root. It is not published through `MobileAppEventBus` at
+  capture time.
+- after `/api/perf/config` enables tracing and `PerformanceTraceReporter`
+  subscribes to the bus, the reporter drains the pre-startup slot into its queue
+  with the original captured timestamps;
+- if tracing is disabled by config, the pre-startup slot is discarded;
+- `app.first_frame` should use the normal publisher if the reporter is ready.
+  If first frame fires before reporter readiness, it uses the same pre-startup
+  slot mechanism with a maximum of two startup marks.
+
+The pre-startup buffer is intentionally tiny and only for app startup marks. It
+must not become a general queue or bypass the reporter upload path.
 
 Suggested code boundaries:
 
@@ -450,6 +472,26 @@ Response:
 
 The response timestamps allow the reporter to refine clock offset estimates
 without a separate time-sync request for every flush.
+
+`source` uses a fixed enum: `daemon` for daemon-origin marks and `mobile` for
+mobile-origin marks. Other values are invalid in this phase.
+
+`appSessionId` is generated once when the mobile process initializes app
+dependencies and remains stable across background/resume for that process. It
+changes after process death and restart.
+
+When tracing is disabled, `POST /api/perf/mobile-marks` returns 200 with:
+
+```json
+{
+  "accepted": 0,
+  "dropped": 0,
+  "disabled": true
+}
+```
+
+The reporter treats this as successful delivery and resets successful-flush
+counters. Disabled tracing is a backend decision, not an upload failure.
 
 `droppedCountSinceLastSuccessfulFlush` and the critical/non-critical split are
 reset only after a successful upload. If an upload fails and the batch remains
@@ -583,6 +625,13 @@ CREATE INDEX IF NOT EXISTS idx_perf_mobile_batches_run
   ON perf_mobile_batches(run_id, app_session_id, created_at);
 ```
 
+`perf_runs` is daemon-owned in this phase. The daemon inserts a run row lazily
+when tracing is enabled and the first daemon mark, mobile batch, or config
+request needs a `runId`. `started_at` is the daemon wall-clock time for that
+creation. `ended_at` is set on graceful daemon shutdown or when backend tracing
+is explicitly disabled by a future backend-only control. If the process exits
+without a graceful shutdown, `ended_at` may remain null.
+
 Daemon-origin marks have `mobile_batch_id = NULL`. Mobile-origin marks uploaded
 in a batch reference `perf_mobile_batches.id`, so later analysis can apply the
 same clock-sync quality and dropped-count context to all marks in that batch.
@@ -637,7 +686,8 @@ Daemon:
 - malformed mobile batches return controlled 400 errors;
 - oversized batches return 413;
 - unauthenticated requests return the normal auth error;
-- disabled perf route accepts config checks and ignores mark uploads.
+- disabled perf route accepts config checks and returns 200 disabled responses
+  for mark uploads without writing rows.
 
 Mobile:
 
@@ -656,6 +706,8 @@ Daemon tests:
 - disabled tracer is no-op and does not create `perf.sqlite`;
 - config route reflects enabled/disabled state;
 - mobile marks route validates authentication, batch size, and metadata size;
+- disabled mobile marks route returns 200 with `disabled: true` and writes no
+  rows;
 - store writes marks in received order;
 - store failure does not affect API response;
 - stored rows can be inspected through direct SQL in tests.
@@ -675,9 +727,14 @@ Mobile tests:
 - all-critical queue at full capacity drops the incoming critical mark and
   increments the critical dropped count;
 - upload failure retries once and then drops;
+- HTTP 413 refreshes config, updates `maxBatchSize`, and splits the retained
+  batch before retry;
 - 3 consecutive upload failures pause uploads;
 - successful config check while paused resumes uploads;
+- successful config check while paused resets the consecutive failure count;
 - lifecycle flush timeout at 1500 ms does not schedule an immediate retry;
+- startup marks captured before reporter readiness are drained with original
+  timestamps after tracing is enabled;
 - reporter disposal cancels subscription/timer.
 
 Integration checks:
@@ -708,3 +765,7 @@ added in step 4 is the first durable consumer.
 - Backend analysis service is deferred.
 - UI/dashboard is explicitly excluded.
 - Mobile local persistent queue is explicitly excluded.
+- `perf_runs.conversation_id` is a convenience field for single-conversation
+  scenarios. A run can still contain marks for multiple conversations through
+  `perf_marks.conversation_id`; if multi-conversation run analysis becomes
+  first-class, add a join table instead of overloading this column.
