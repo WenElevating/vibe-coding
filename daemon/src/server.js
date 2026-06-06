@@ -7,14 +7,18 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 const { tryHandleCodexAppServerRoute } = require('./codex-app-server/routes');
+const { handlePerfRoute } = require('./perf-routes');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, codexAppServerEnabled = true, auditLog = null }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, codexAppServerEnabled = true, auditLog = null, perfConfig = null, perfStore = null, perfTracer = null }) {
   const serverContext = {
     auth,
     workspaces,
     codexAppServerService,
     codexAppServerEnabled,
-    auditLog
+    auditLog,
+    perfConfig,
+    perfStore,
+    perfTracer
   };
   const server = http.createServer(async (req, res) => {
     try {
@@ -37,6 +41,17 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       }
 
       const device = auth.authenticate(req.headers.authorization);
+
+      const handledPerf = await handlePerfRoute({
+        method,
+        url,
+        device,
+        readJson: () => readJson(req),
+        json: (status, body, headers) => json(res, status, body, headers),
+        perfConfig,
+        perfStore
+      });
+      if (handledPerf) return;
 
       if (method === 'GET' && url.pathname === '/api/app-updates/android/latest') {
         await appUpdates.sendLatest(req, res);

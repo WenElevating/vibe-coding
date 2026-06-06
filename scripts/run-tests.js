@@ -58,6 +58,18 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'conversations.sqlite');
 }
 
+async function closeAppResources(app) {
+  if (app?.server?.listening) {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+  app?.notificationHub?.close?.();
+  app?.perfStore?.close?.();
+  if (app?.conversationSqliteStore && app.conversationSqliteStore !== app.appSqliteStore) {
+    app.conversationSqliteStore.close();
+  }
+  app?.appSqliteStore?.close?.();
+}
+
 function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
   root = root || fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-fixture-'));
   const apkName = `lan_ai_cli_control-1.4.0+${versionCode}.apk`;
@@ -1109,6 +1121,393 @@ test('Codex app-server routes require authentication', async () => {
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
     app.appSqliteStore.close();
+  }
+});
+
+test('perf config is disabled by default and does not create perf database', () => {
+  const { createPerfConfig } = require('../daemon/src/perf-config');
+  const { PerfSqliteStore } = require('../daemon/src/perf-sqlite-store');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perf-disabled-'));
+  const dbPath = path.join(dir, 'perf.sqlite');
+
+  const config = createPerfConfig({
+    env: {},
+    now: () => new Date('2026-06-06T00:00:00.000Z')
+  });
+  const store = new PerfSqliteStore({ dbPath, config });
+
+  try {
+    assert.equal(config.enabled, false);
+    assert.equal(fs.existsSync(dbPath), false);
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('perf routes require paired-device authentication', async () => {
+  const appDbPath = tempConversationDbPath('perf-auth-app-');
+  const perfDbPath = path.join(path.dirname(appDbPath), 'perf.sqlite');
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath,
+    perfDbPath,
+    perfEnv: { VIBE_PERF_TRACE: '1' }
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+
+  try {
+    const response = await request(port, 'GET', '/api/perf/config');
+    assert.equal(response.status, 401);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
+});
+
+test('enabled perf config creates one run row for the daemon process', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const appDbPath = tempConversationDbPath('perf-enabled-config-app-');
+  const perfDbPath = path.join(path.dirname(appDbPath), 'perf.sqlite');
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath,
+    perfDbPath,
+    perfEnv: { VIBE_PERF_TRACE: '1' }
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const pairing = await request(port, 'POST', '/api/pairing-code', {});
+  const paired = await request(port, 'POST', '/api/pair', {
+    code: pairing.body.code,
+    label: 'perf-config-test',
+    deviceId: 'perf_config_device'
+  });
+
+  try {
+    const first = await request(port, 'GET', '/api/perf/config', null, paired.body.token);
+    const second = await request(port, 'GET', '/api/perf/config', null, paired.body.token);
+    assert.equal(first.status, 200);
+    assert.equal(first.body.enabled, true);
+    assert.equal(typeof first.body.runId, 'string');
+    assert.equal(first.body.sampleRate, 1);
+    assert.equal(first.body.maxQueueSize, 2000);
+    assert.equal(first.body.maxBatchSize, 200);
+    assert.equal(second.body.runId, first.body.runId);
+
+    const db = new DatabaseSync(perfDbPath);
+    try {
+      const rows = db.prepare('SELECT id, started_at FROM perf_runs').all();
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, first.body.runId);
+      assert.equal(typeof rows[0].started_at, 'string');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
+});
+
+test('perf SQLite schema constrains mobile batch links without run id foreign keys', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const { createPerfConfig } = require('../daemon/src/perf-config');
+  const { PerfSqliteStore } = require('../daemon/src/perf-sqlite-store');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perf-schema-'));
+  const dbPath = path.join(dir, 'perf.sqlite');
+  const config = createPerfConfig({
+    env: { VIBE_PERF_TRACE: '1' },
+    now: () => new Date('2026-06-06T00:00:00.000Z'),
+    randomSuffix: () => 'schema'
+  });
+  const store = new PerfSqliteStore({ dbPath, config });
+
+  try {
+    store.ensureRun();
+    const db = new DatabaseSync(dbPath);
+    try {
+      const markForeignKeys = db.prepare('PRAGMA foreign_key_list(perf_marks)').all();
+      assert.deepEqual(markForeignKeys.map((row) => ({
+        from: row.from,
+        table: row.table,
+        to: row.to
+      })), [
+        { from: 'mobile_batch_id', table: 'perf_mobile_batches', to: 'id' }
+      ]);
+      assert.deepEqual(db.prepare('PRAGMA foreign_key_list(perf_mobile_batches)').all(), []);
+      assert.equal(markForeignKeys.some((row) => row.from === 'run_id'), false);
+    } finally {
+      db.close();
+    }
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('disabled perf mobile marks returns 200 disabled without rows', async () => {
+  const appDbPath = tempConversationDbPath('perf-disabled-route-app-');
+  const perfDbPath = path.join(path.dirname(appDbPath), 'perf.sqlite');
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath,
+    perfDbPath,
+    perfEnv: {}
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const pairing = await request(port, 'POST', '/api/pairing-code', {});
+  const paired = await request(port, 'POST', '/api/pair', {
+    code: pairing.body.code,
+    label: 'perf-disabled-upload',
+    deviceId: 'perf_disabled_device'
+  });
+
+  try {
+    const response = await request(port, 'POST', '/api/perf/mobile-marks', validPerfMobileBatch(), paired.body.token);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { accepted: 0, dropped: 0, disabled: true });
+    assert.equal(fs.existsSync(perfDbPath), false);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
+});
+
+test('perf time sync validates payload and does not create perf storage', async () => {
+  const appDbPath = tempConversationDbPath('perf-time-sync-app-');
+  const perfDbPath = path.join(path.dirname(appDbPath), 'perf.sqlite');
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath,
+    perfDbPath,
+    perfEnv: { VIBE_PERF_TRACE: '1' }
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const pairing = await request(port, 'POST', '/api/pairing-code', {});
+  const paired = await request(port, 'POST', '/api/pair', {
+    code: pairing.body.code,
+    label: 'perf-time-sync',
+    deviceId: 'perf_time_sync_device'
+  });
+
+  try {
+    const invalid = await request(port, 'POST', '/api/perf/time-sync', [], paired.body.token);
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error.code, 'PERF_BAD_REQUEST');
+
+    const response = await request(port, 'POST', '/api/perf/time-sync', {
+      runId: 'perf_time_sync_run',
+      appSessionId: 'mobile_session_sync',
+      mobileSendWallMs: 1791200005000,
+      mobileSendMonoUs: 128000000
+    }, paired.body.token);
+    assert.equal(response.status, 200);
+    assert.equal(typeof response.body.daemonReceiveWallMs, 'number');
+    assert.equal(typeof response.body.daemonSendWallMs, 'number');
+    assert.equal(fs.existsSync(perfDbPath), false);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+  }
+});
+
+test('perf mobile marks rejects unknown source and oversized metadata', async () => {
+  const fixture = await createPerfRouteTestApp('perf-validation-app-');
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    const wrongRun = await fixture.post('/api/perf/mobile-marks', validPerfMobileBatch({
+      runId: 'perf_wrong_run'
+    }));
+    assert.equal(wrongRun.status, 400);
+    assert.equal(wrongRun.body.error.code, 'PERF_BAD_REQUEST');
+
+    const unknownSource = validPerfMobileBatch({
+      runId: config.body.runId,
+      marks: [validPerfMark({ source: 'client' })]
+    });
+    const sourceResponse = await fixture.post('/api/perf/mobile-marks', unknownSource);
+    assert.equal(sourceResponse.status, 400);
+    assert.equal(sourceResponse.body.error.code, 'PERF_BAD_REQUEST');
+
+    const tooLargeMetadata = validPerfMobileBatch({
+      runId: config.body.runId,
+      marks: [validPerfMark({ metadata: { value: 'x'.repeat(1025) } })]
+    });
+    const metadataResponse = await fixture.post('/api/perf/mobile-marks', tooLargeMetadata);
+    assert.equal(metadataResponse.status, 400);
+    assert.equal(metadataResponse.body.error.code, 'PERF_BAD_REQUEST');
+
+    const invalidClockSyncQuality = validPerfMobileBatch({
+      runId: config.body.runId,
+      clockSync: {
+        offsetEstimateMs: 0,
+        roundTripMs: 10,
+        ageMs: 20,
+        quality: 'excellent',
+        clockDriftWarning: false
+      }
+    });
+    const clockResponse = await fixture.post('/api/perf/mobile-marks', invalidClockSyncQuality);
+    assert.equal(clockResponse.status, 400);
+    assert.equal(clockResponse.body.error.code, 'PERF_BAD_REQUEST');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('perf mobile marks rejects uploads for a different paired device id', async () => {
+  const fixture = await createPerfRouteTestApp('perf-device-mismatch-app-');
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    const response = await fixture.post('/api/perf/mobile-marks', validPerfMobileBatch({
+      runId: config.body.runId,
+      deviceId: 'spoofed_perf_device'
+    }));
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'PERF_BAD_REQUEST');
+    assert.match(response.body.error.message, /deviceId/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('perf mobile marks response is best-effort when store write fails', async () => {
+  const fixture = await createPerfRouteTestApp('perf-store-failure-api-');
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    fixture.app.perfStore.writeMobileBatch = () => {
+      throw new Error('perf write failed');
+    };
+
+    const response = await fixture.post('/api/perf/mobile-marks', validPerfMobileBatch({
+      runId: config.body.runId,
+      deviceId: fixture.deviceId
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.accepted, 1);
+    assert.equal(typeof response.body.daemonReceiveWallMs, 'number');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('failed perf mobile batch rolls back without orphan marks', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const { createPerfConfig } = require('../daemon/src/perf-config');
+  const { PerfSqliteStore } = require('../daemon/src/perf-sqlite-store');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perf-rollback-'));
+  const dbPath = path.join(dir, 'perf.sqlite');
+  const config = createPerfConfig({
+    env: { VIBE_PERF_TRACE: '1' },
+    now: () => new Date('2026-06-06T00:00:00.000Z'),
+    randomSuffix: () => 'rollback'
+  });
+  const store = new PerfSqliteStore({ dbPath, config });
+
+  try {
+    const run = store.ensureRun();
+    const originalInsertMark = store.insertMark.bind(store);
+    let insertCount = 0;
+    store.insertMark = (mark) => {
+      insertCount += 1;
+      if (insertCount === 2) throw new Error('synthetic mark write failure');
+      return originalInsertMark(mark);
+    };
+
+    const result = store.writeMobileBatch(validPerfMobileBatch({
+      runId: run.id,
+      marks: [
+        validPerfMark({ name: 'mark.first' }),
+        validPerfMark({ name: 'mark.second' })
+      ]
+    }));
+
+    assert.equal(result, null);
+    const db = new DatabaseSync(dbPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_mobile_batches').get().count, 0);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_marks').get().count, 0);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_runs').get().count, 1);
+    } finally {
+      db.close();
+    }
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('perf mobile marks rejects oversized batch with 413', async () => {
+  const fixture = await createPerfRouteTestApp('perf-oversized-app-');
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    const response = await fixture.post('/api/perf/mobile-marks', validPerfMobileBatch({
+      runId: config.body.runId,
+      marks: Array.from({ length: 201 }, (_, index) => validPerfMark({ name: `mark.${index}` }))
+    }));
+    assert.equal(response.status, 413);
+    assert.equal(response.body.error.code, 'PERF_BATCH_TOO_LARGE');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('successful perf mobile batch writes run, batch, and mark rows', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const fixture = await createPerfRouteTestApp('perf-success-app-');
+
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    const payload = validPerfMobileBatch({
+      runId: config.body.runId,
+      deviceId: fixture.deviceId,
+      appSessionId: 'mobile_session_success',
+      marks: [
+        validPerfMark({
+          name: 'ws.event.received',
+          seq: 42,
+          metadata: { bytes: 1200 }
+        })
+      ]
+    });
+    const response = await fixture.post('/api/perf/mobile-marks', payload);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.accepted, 1);
+    assert.equal(response.body.dropped, 0);
+    assert.equal(typeof response.body.daemonReceiveWallMs, 'number');
+    assert.equal(typeof response.body.daemonSendWallMs, 'number');
+
+    const db = new DatabaseSync(fixture.perfDbPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_runs').get().count, 1);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_mobile_batches').get().count, 1);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_marks').get().count, 1);
+      const row = db.prepare('SELECT run_id, source, name, seq, metadata_json FROM perf_marks').get();
+      assert.equal(row.run_id, config.body.runId);
+      assert.equal(row.source, 'mobile');
+      assert.equal(row.name, 'ws.event.received');
+      assert.equal(row.seq, 42);
+      assert.deepEqual(JSON.parse(row.metadata_json), { bytes: 1200 });
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
   }
 });
 
@@ -11608,6 +12007,76 @@ async function createCodexAppServerRouteTestApp({
       app.notificationHub.close();
       app.appSqliteStore.close();
     }
+  };
+}
+
+async function createPerfRouteTestApp(prefix = 'perf-route-app-') {
+  const appDbPath = tempConversationDbPath(prefix);
+  const perfDbPath = path.join(path.dirname(appDbPath), 'perf.sqlite');
+  const app = createApp({
+    port: 0,
+    devAdapters: false,
+    appDbPath,
+    perfDbPath,
+    perfEnv: { VIBE_PERF_TRACE: '1' }
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  const pairing = await request(port, 'POST', '/api/pairing-code', {});
+  const paired = await request(port, 'POST', '/api/pair', {
+    code: pairing.body.code,
+    label: 'perf-route-test',
+    deviceId: 'perf_route_device'
+  });
+  return {
+    app,
+    port,
+    token: paired.body.token,
+    deviceId: paired.body.deviceId,
+    perfDbPath,
+    get: (pathValue) => request(port, 'GET', pathValue, null, paired.body.token),
+    post: (pathValue, body = {}) => request(port, 'POST', pathValue, body, paired.body.token),
+    close: async () => {
+      await closeAppResources(app);
+      fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    }
+  };
+}
+
+function validPerfMobileBatch(overrides = {}) {
+  return {
+    runId: overrides.runId || 'perf_20260606T000000Z_test',
+    deviceId: overrides.deviceId || 'perf_route_device',
+    appSessionId: overrides.appSessionId || 'mobile_session_1',
+    mobileSentWallMs: overrides.mobileSentWallMs ?? 1791200005000,
+    mobileSentMonoUs: overrides.mobileSentMonoUs ?? 128000000,
+    droppedCountSinceLastSuccessfulFlush: overrides.droppedCountSinceLastSuccessfulFlush ?? 0,
+    droppedCriticalCountSinceLastSuccessfulFlush: overrides.droppedCriticalCountSinceLastSuccessfulFlush ?? 0,
+    droppedNonCriticalCountSinceLastSuccessfulFlush: overrides.droppedNonCriticalCountSinceLastSuccessfulFlush ?? 0,
+    clockSync: overrides.clockSync || {
+      offsetEstimateMs: -12.4,
+      roundTripMs: 18.7,
+      ageMs: 1530,
+      quality: 'good',
+      clockDriftWarning: false
+    },
+    marks: overrides.marks || [validPerfMark()]
+  };
+}
+
+function validPerfMark(overrides = {}) {
+  return {
+    name: overrides.name || 'send.tap',
+    source: overrides.source || 'mobile',
+    wallTimeMs: overrides.wallTimeMs ?? 1791200002500,
+    monotonicUs: overrides.monotonicUs ?? 125500000,
+    conversationId: overrides.conversationId ?? 'conv_perf',
+    seq: overrides.seq ?? 1,
+    eventType: overrides.eventType ?? 'assistant.message',
+    correlationId: overrides.correlationId ?? 'conv_perf:1',
+    critical: overrides.critical ?? true,
+    clockDriftWarning: overrides.clockDriftWarning ?? false,
+    metadata: overrides.metadata || { bytes: 1200 }
   };
 }
 
