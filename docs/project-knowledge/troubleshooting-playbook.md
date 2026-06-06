@@ -596,9 +596,10 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening la
 - Symptom: tapping a historical conversation navigates to the transcript route,
   then shows a blank message area before the history suddenly appears.
 - Action: keep full-history expansion for reopened conversations, but render
-  the first fetched event page before fetching older pages. Older pages may
-  continue loading immediately in the background; do not block the initial
-  message window on every `hasMoreBefore` page. If this regresses, inspect
+  the first fetched event page before fetching older pages. Older pages should
+  continue loading immediately in the background, then apply the completed
+  backfill in one transcript rebuild instead of rebuilding after every
+  `hasMoreBefore` page. If this regresses, inspect
   `WorkbenchViewModel.loadInitialConversationEventPage` and ensure the page
   applies the tail page before `_expandInitialConversationHistory` continues.
 - Related file:

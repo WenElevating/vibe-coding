@@ -1187,13 +1187,15 @@ class WorkbenchViewModel extends ChangeNotifier {
     var page = initialPage;
     var changed = false;
     try {
+      if (page.hasMoreBefore) {
+        _loadingOlderConversationEvents = true;
+        _historicalConversationLoadError = null;
+        _notifyListeners();
+      }
       while (isCurrent() && page.hasMoreBefore) {
         final beforeSeq = page.oldestSeq ??
             (page.events.isEmpty ? null : page.events.first.seq);
         if (beforeSeq == null) break;
-        _loadingOlderConversationEvents = true;
-        _historicalConversationLoadError = null;
-        _notifyListeners();
         final olderPage =
             await _requireConversationRepository().fetchConversationEventPage(
           conversationId,
@@ -1215,22 +1217,22 @@ class WorkbenchViewModel extends ChangeNotifier {
           newestSeq: page.newestSeq ?? merged.last.seq,
           hasMoreBefore: olderPage.hasMoreBefore,
         );
-        changed = _applyInitialConversationEventPage(
+        changed = true;
+      }
+      if (changed && isCurrent()) {
+        _applyInitialConversationEventPage(
           page,
           streamOutput: streamOutput,
           notify: true,
-        ) || changed;
-        _loadingOlderConversationEvents = page.hasMoreBefore;
-        _notifyListeners();
+        );
         final previewChanged = await _bindAndResolveAttachmentPreviews(
-          olderPage.events,
+          page.events,
           isCurrent: isCurrent,
         );
         if (!isCurrent()) return changed;
         if (previewChanged) {
           _rebuildMessagesFromConversationState();
           _notifyListeners();
-          changed = true;
         }
       }
       return changed;
