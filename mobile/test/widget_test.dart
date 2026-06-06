@@ -1288,6 +1288,31 @@ class _PagedHistoryConversationRepository extends _LazyConversationRepository {
   }
 }
 
+class _DelayedOlderPageConversationRepository
+    extends _PagedHistoryConversationRepository {
+  _DelayedOlderPageConversationRepository({
+    required ConversationEventPage firstPage,
+  }) : super(pages: Queue<ConversationEventPage>.from(
+          <ConversationEventPage>[firstPage],
+        ));
+
+  final Completer<ConversationEventPage> olderPageCompleter =
+      Completer<ConversationEventPage>();
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    pageCalls.add('$conversationId:$beforeSeq:$limit');
+    if (beforeSeq != null) {
+      return olderPageCompleter.future;
+    }
+    return pages.removeFirst();
+  }
+}
+
 class _StoredHistoryConversationRepository extends _LazyConversationRepository {
   _StoredHistoryConversationRepository(super.messages);
 
@@ -4001,6 +4026,70 @@ void main() {
     expect(find.text('oldest answer'), findsOneWidget);
     expect(find.text('latest sentinel'), findsOneWidget);
     expect(find.text('recent prompt'), findsOneWidget);
+  });
+
+  testWidgets('opening paged conversation shows tail before older pages finish',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final repository = _DelayedOlderPageConversationRepository(
+      firstPage: ConversationEventPage(
+        events: <ConversationEvent>[
+          _pagedConversationEvent(
+              seq: 119, type: 'user.message', text: 'recent prompt'),
+          _pagedConversationEvent(seq: 120, text: 'latest sentinel'),
+        ],
+        oldestSeq: 119,
+        newestSeq: 120,
+        hasMoreBefore: true,
+      ),
+    );
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_paged',
+          workspaceId: 'workspace_1',
+          status: 'idle',
+          sessionBinding: 'confirmed',
+          userMessageCount: 120,
+          title: 'Paged history conversation',
+        ),
+      ],
+    ));
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paged history conversation'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.pageCalls, <String>[
+      'conv_paged:null:80',
+      'conv_paged:119:80',
+    ]);
+    expect(repository.watchAfterSeqs, isEmpty);
+    expect(find.text('recent prompt'), findsOneWidget);
+    expect(find.text('latest sentinel'), findsOneWidget);
+    expect(find.text('oldest prompt'), findsNothing);
+
+    repository.olderPageCompleter.complete(ConversationEventPage(
+      events: <ConversationEvent>[
+        _pagedConversationEvent(
+            seq: 1, type: 'user.message', text: 'oldest prompt'),
+        _pagedConversationEvent(seq: 2, text: 'oldest answer'),
+      ],
+      oldestSeq: 1,
+      newestSeq: 2,
+      hasMoreBefore: false,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(repository.watchAfterSeqs, <int>[120]);
+    expect(find.text('oldest prompt'), findsOneWidget);
+    expect(find.text('oldest answer'), findsOneWidget);
   });
 
   testWidgets('empty tail starts conversation watch from zero',

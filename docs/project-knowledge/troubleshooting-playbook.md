@@ -591,6 +591,28 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening la
 
 - Last verified: 2026-06-06
 
+## Symptom: Reopened Workbench History Shows Blank Before Appearing
+
+- Symptom: tapping a historical conversation navigates to the transcript route,
+  then shows a blank message area before the history suddenly appears.
+- Action: keep full-history expansion for reopened conversations, but render
+  the first fetched event page before fetching older pages. Older pages may
+  continue loading immediately in the background; do not block the initial
+  message window on every `hasMoreBefore` page. If this regresses, inspect
+  `WorkbenchViewModel.loadInitialConversationEventPage` and ensure the page
+  applies the tail page before `_expandInitialConversationHistory` continues.
+- Related file:
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
+- Verification:
+
+```powershell
+cd D:\AiProject\vibe-coding\mobile
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening paged conversation shows tail before older pages finish"
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening large historical conversation loads every history page"
+```
+
+- Last verified: 2026-06-06
+
 ## Symptom: Codex App Server History Shows Maximum Process Limit Error
 
 - Symptom: the mobile Codex app-server History, Discovery, or Risk Control page

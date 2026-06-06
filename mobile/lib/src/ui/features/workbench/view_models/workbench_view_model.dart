@@ -1132,16 +1132,37 @@ class WorkbenchViewModel extends ChangeNotifier {
     var page = await _requireConversationRepository()
         .fetchConversationEventPage(conversationId, limit: limit);
     if (!stillCurrent()) return false;
-    page = await _expandInitialConversationHistory(
-      conversationId: conversationId,
-      initialPage: page,
-      limit: limit,
+    var changed = _applyInitialConversationEventPage(
+      page,
+      streamOutput: streamOutput,
+      notify: true,
+    );
+    var previewChanged = await _bindAndResolveAttachmentPreviews(
+      page.events,
       isCurrent: stillCurrent,
     );
     if (!stillCurrent()) return false;
-    final historicalEvents = _compactHistoricalConversationEvents(
-      page.events,
-    );
+    if (previewChanged) {
+      _rebuildMessagesFromConversationState();
+      _notifyListeners();
+      changed = true;
+    }
+    changed = await _expandInitialConversationHistory(
+      conversationId: conversationId,
+      initialPage: page,
+      limit: limit,
+      streamOutput: streamOutput,
+      isCurrent: stillCurrent,
+    ) || changed;
+    return changed;
+  }
+
+  bool _applyInitialConversationEventPage(
+    ConversationEventPage page, {
+    required bool streamOutput,
+    required bool notify,
+  }) {
+    final historicalEvents = _compactHistoricalConversationEvents(page.events);
     _oldestLoadedConversationSeq =
         page.oldestSeq ?? (page.events.isEmpty ? null : page.events.first.seq);
     _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
@@ -1150,47 +1171,80 @@ class WorkbenchViewModel extends ChangeNotifier {
       historicalEvents,
       streamOutput: streamOutput,
     );
-    _notifyListeners();
-    final previewChanged = await _bindAndResolveAttachmentPreviews(
-      historicalEvents,
-      isCurrent: stillCurrent,
-    );
-    if (!stillCurrent()) return false;
-    if (previewChanged) {
-      _rebuildMessagesFromConversationState();
+    if (notify) {
       _notifyListeners();
     }
-    return page.events.isNotEmpty || previewChanged;
+    return page.events.isNotEmpty;
   }
 
-  Future<ConversationEventPage> _expandInitialConversationHistory({
+  Future<bool> _expandInitialConversationHistory({
     required String conversationId,
     required ConversationEventPage initialPage,
     required int limit,
+    required bool streamOutput,
     required WorkbenchEventApplicationIsCurrent isCurrent,
   }) async {
     var page = initialPage;
-    while (isCurrent() && page.hasMoreBefore) {
-      final beforeSeq = page.oldestSeq ??
-          (page.events.isEmpty ? null : page.events.first.seq);
-      if (beforeSeq == null) break;
-      final olderPage =
-          await _requireConversationRepository().fetchConversationEventPage(
-        conversationId,
-        beforeSeq: beforeSeq,
-        limit: limit,
-      );
-      if (!isCurrent() || olderPage.events.isEmpty) break;
-      final merged =
-          _mergeConversationEventPages(olderPage.events, page.events);
-      page = ConversationEventPage(
-        events: merged,
-        oldestSeq: olderPage.oldestSeq ?? merged.first.seq,
-        newestSeq: page.newestSeq ?? merged.last.seq,
-        hasMoreBefore: olderPage.hasMoreBefore,
-      );
+    var changed = false;
+    try {
+      while (isCurrent() && page.hasMoreBefore) {
+        final beforeSeq = page.oldestSeq ??
+            (page.events.isEmpty ? null : page.events.first.seq);
+        if (beforeSeq == null) break;
+        _loadingOlderConversationEvents = true;
+        _historicalConversationLoadError = null;
+        _notifyListeners();
+        final olderPage =
+            await _requireConversationRepository().fetchConversationEventPage(
+          conversationId,
+          beforeSeq: beforeSeq,
+          limit: limit,
+        );
+        if (!isCurrent()) return changed;
+        if (olderPage.events.isEmpty) {
+          _hasMoreHistoricalConversationEvents = false;
+          _loadingOlderConversationEvents = false;
+          _notifyListeners();
+          break;
+        }
+        final merged =
+            _mergeConversationEventPages(olderPage.events, page.events);
+        page = ConversationEventPage(
+          events: merged,
+          oldestSeq: olderPage.oldestSeq ?? merged.first.seq,
+          newestSeq: page.newestSeq ?? merged.last.seq,
+          hasMoreBefore: olderPage.hasMoreBefore,
+        );
+        changed = _applyInitialConversationEventPage(
+          page,
+          streamOutput: streamOutput,
+          notify: true,
+        ) || changed;
+        _loadingOlderConversationEvents = page.hasMoreBefore;
+        _notifyListeners();
+        final previewChanged = await _bindAndResolveAttachmentPreviews(
+          olderPage.events,
+          isCurrent: isCurrent,
+        );
+        if (!isCurrent()) return changed;
+        if (previewChanged) {
+          _rebuildMessagesFromConversationState();
+          _notifyListeners();
+          changed = true;
+        }
+      }
+      return changed;
+    } catch (error) {
+      if (isCurrent()) {
+        _historicalConversationLoadError = error;
+      }
+      rethrow;
+    } finally {
+      if (isCurrent() && _loadingOlderConversationEvents) {
+        _loadingOlderConversationEvents = false;
+        _notifyListeners();
+      }
     }
-    return page;
   }
 
   Future<bool> loadOlderConversationEventPage({
