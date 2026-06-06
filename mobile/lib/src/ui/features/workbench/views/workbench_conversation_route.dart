@@ -6,6 +6,10 @@ import '../coding_composer.dart';
 import '../voice_input.dart';
 import '../widgets/workbench_header.dart';
 
+const _codexWorkbenchBackground = Color(0xFF151515);
+const _codexWorkbenchHeader = Color(0xF2181818);
+const _codexWorkbenchDivider = Color(0xFF2A2A2A);
+
 class WorkbenchConversationRoute extends StatelessWidget {
   const WorkbenchConversationRoute({
     super.key,
@@ -74,61 +78,64 @@ class WorkbenchConversationRoute extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(key: const ValueKey('coding-workbench-detail'), children: [
-      Container(
-        padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),
-        decoration: BoxDecoration(
-          color: const Color(0xEE0A0B0D),
-          border: Border(
-            bottom: BorderSide(color: Colors.white.withValues(alpha: .075)),
+    return ColoredBox(
+      color: _codexWorkbenchBackground,
+      child: Column(key: const ValueKey('coding-workbench-detail'), children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),
+          decoration: const BoxDecoration(
+            color: _codexWorkbenchHeader,
+            border: Border(
+              bottom: BorderSide(color: _codexWorkbenchDivider),
+            ),
+          ),
+          child: WorkbenchHeader(
+            title: title,
+            workspace: workspace,
+            adapter: adapter,
+            running: running,
+            onBack: onBack,
           ),
         ),
-        child: WorkbenchHeader(
-          title: title,
+        Expanded(child: messageList),
+        approvalPrompt ??
+            CodingComposer(
+              controller: promptController,
+              adapter: adapter,
+              model: modelLabel,
+              modelNotice: modelNotice,
+              workspace: workspace,
+              running: running,
+              cliLocked: cliLocked,
+              modelLocked: modelLocked,
+              canSend: canSend,
+              sending: sending,
+              voiceState: voiceState,
+              voiceEnabled: voiceEnabled,
+              voiceError: null,
+              draftAttachments: draftAttachments,
+              slashCommands: slashCommands,
+              onSlashCommandSelected: onSlashCommandSelected,
+              onAttachmentTap: onAttachmentTap,
+              onRemoveAttachment: onRemoveAttachment,
+              onCliTap: onCliTap,
+              onModelTap: onModelTap,
+              onVoiceStart: onVoiceStart,
+              onVoiceStop: onVoiceStop,
+              onVoiceCancel: onVoiceCancel,
+              onTextChanged: onTextChanged,
+              onSend: onSend,
+              onCancel: onCancel,
+            ),
+        ComposerWorkspaceCloud(
           workspace: workspace,
           adapter: adapter,
           running: running,
-          onBack: onBack,
+          cliLocked: cliLocked,
+          onCliTap: onCliTap,
+          onTap: onWorkspaceTap,
         ),
-      ),
-      Expanded(child: messageList),
-      approvalPrompt ??
-          CodingComposer(
-            controller: promptController,
-            adapter: adapter,
-            model: modelLabel,
-            modelNotice: modelNotice,
-            workspace: workspace,
-            running: running,
-            cliLocked: cliLocked,
-            modelLocked: modelLocked,
-            canSend: canSend,
-            sending: sending,
-            voiceState: voiceState,
-            voiceEnabled: voiceEnabled,
-            voiceError: null,
-            draftAttachments: draftAttachments,
-            slashCommands: slashCommands,
-            onSlashCommandSelected: onSlashCommandSelected,
-            onAttachmentTap: onAttachmentTap,
-            onRemoveAttachment: onRemoveAttachment,
-            onCliTap: onCliTap,
-            onModelTap: onModelTap,
-            onVoiceStart: onVoiceStart,
-            onVoiceStop: onVoiceStop,
-            onVoiceCancel: onVoiceCancel,
-            onTextChanged: onTextChanged,
-            onSend: onSend,
-            onCancel: onCancel,
-          ),
-      ComposerWorkspaceCloud(
-        workspace: workspace,
-        adapter: adapter,
-        running: running,
-        cliLocked: cliLocked,
-        onCliTap: onCliTap,
-        onTap: onWorkspaceTap,
-      ),
-    ]);
+      ]),
+    );
   }
 }

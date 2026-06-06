@@ -10,6 +10,12 @@ import '../workspace_picker/workspace_picker.dart';
 import 'attachments/draft_attachment.dart';
 import 'voice_input.dart';
 
+const _codexComposerBackground = Color(0xFF151515);
+const _codexComposerSurface = Color(0xFF2D2D2D);
+const _codexComposerSurfaceBorder = Color(0xFF333333);
+const _codexComposerPill = Color(0xFF252525);
+const _codexComposerMenu = Color(0xFF2A2A2A);
+
 class CodingComposer extends StatefulWidget {
   const CodingComposer(
       {super.key,
@@ -180,26 +186,16 @@ class _CodingComposerState extends State<CodingComposer>
   }) {
     return Container(
         key: _surfaceKey,
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-        decoration: BoxDecoration(
-            color: const Color(0xF608090B),
-            border: Border(
-                top: BorderSide(color: Colors.white.withValues(alpha: .06))),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: .28),
-                  blurRadius: 24,
-                  offset: const Offset(0, -10))
-            ]),
+        padding: const EdgeInsets.fromLTRB(29, 8, 29, 4),
+        decoration: const BoxDecoration(color: _codexComposerBackground),
         child: SafeArea(
             top: false,
             child: Container(
-                padding: const EdgeInsets.fromLTRB(13, 9, 8, 7),
+                padding: const EdgeInsets.fromLTRB(13, 10, 9, 8),
                 decoration: BoxDecoration(
-                    color: const Color(0xFF161719),
+                    color: _codexComposerSurface,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: .085))),
+                    border: Border.all(color: _codexComposerSurfaceBorder)),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   if (widget.draftAttachments.isNotEmpty) ...[
                     _AttachmentTray(
@@ -233,7 +229,7 @@ class _CodingComposerState extends State<CodingComposer>
                                     ? l10n.workbenchAttachmentAddInstruction
                                     : l10n.workbenchComposerPromptHint,
                         hintStyle: theme.appTextStyle.copyWith(
-                            color: theme.faint,
+                            color: const Color(0xFF8C8C8C),
                             fontSize: 14.5,
                             fontWeight: FontWeight.w400),
                         contentPadding: EdgeInsets.zero),
@@ -349,16 +345,11 @@ class _SlashCommandMenuState extends State<_SlashCommandMenu> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final outline = colorScheme.onSurface.withValues(alpha: .10);
-    final menuSurface = Color.alphaBlend(
-        colorScheme.primary.withValues(alpha: .025), colorScheme.surface);
-
     return DecoratedBox(
         decoration: BoxDecoration(
-            color: menuSurface,
+            color: _codexComposerMenu,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: outline),
+            border: Border.all(color: const Color(0xFF383838)),
             boxShadow: [
               BoxShadow(
                   color: Colors.black.withValues(alpha: .30),
@@ -804,9 +795,9 @@ class _ComposerPillShell extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 168),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-              color: const Color(0xFF111214),
+              color: _codexComposerPill,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.white.withValues(alpha: .075))),
+              border: Border.all(color: const Color(0xFF383838))),
           child: child));
 }
 
