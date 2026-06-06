@@ -210,7 +210,7 @@ void main() {
     });
 
     test(
-        'older event page prepends events without duplicating existing messages',
+        'initial event pages include older events without duplicating messages',
         () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[
@@ -265,15 +265,10 @@ void main() {
         limit: 2,
         streamOutput: false,
       );
-      final loaded = await viewModel.loadOlderConversationEventPage(
-        conversationId: 'c1',
-        limit: 2,
-        streamOutput: false,
-      );
 
-      expect(loaded, isTrue);
       expect(viewModel.conversationEvents.map((event) => event.seq),
           const <int>[1, 2, 3]);
+      expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
       expect(viewModel.messages.map((message) => message.body).toSet().length,
           viewModel.messages.length);
     });
@@ -379,7 +374,84 @@ void main() {
     });
 
     test(
-        'older event page compacts dense assistant partials before rebuilding transcript',
+        'initial event page keeps expanding dense partial history until user context is visible',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _FakeCachedConversationRepository(
+        eventPages: <ConversationEventPage>[
+          for (var page = 0; page < 3; page++)
+            ConversationEventPage(
+              events: <ConversationEvent>[
+                for (var i = 0; i < 80; i++)
+                  _event(
+                    seq: 87 + page * 80 + i,
+                    type: 'assistant.partial',
+                    text: 'tail partial ${87 + page * 80 + i}',
+                  ),
+                _event(
+                  seq: 167 + page * 80,
+                  type: 'assistant.message',
+                  text: page == 2 ? 'final answer' : 'intermediate answer',
+                ),
+              ],
+              oldestSeq: 87 + page * 80,
+              newestSeq: 167 + page * 80,
+              hasMoreBefore: true,
+            ),
+          ConversationEventPage(
+            events: <ConversationEvent>[
+              _event(seq: 1, type: 'user.message', text: 'first prompt'),
+              _event(
+                seq: 2,
+                type: 'tool.started',
+                toolUseId: 'tool_1',
+                toolName: 'command_execution',
+                input: const <String, Object?>{'command': 'pwd'},
+              ),
+              _event(
+                seq: 3,
+                type: 'tool.completed',
+                toolUseId: 'tool_1',
+                toolName: 'command_execution',
+                text: r'D:\one',
+              ),
+              for (var seq = 4; seq <= 86; seq++)
+                _event(
+                  seq: seq,
+                  type: 'assistant.partial',
+                  text: 'early partial $seq',
+                ),
+            ],
+            oldestSeq: 1,
+            newestSeq: 86,
+            hasMoreBefore: false,
+          ),
+        ],
+      );
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+
+      await viewModel.loadInitialConversationEventPage(
+        conversationId: 'c1',
+        limit: 80,
+        streamOutput: false,
+      );
+
+      expect(viewModel.messages.map((message) => message.body),
+          containsAllInOrder(const <String>['first prompt', 'pwd']));
+      expect(viewModel.messages.last.body, 'final answer');
+      expect(viewModel.oldestLoadedConversationSeq, 1);
+      expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+    });
+
+    test(
+        'initial event pages compact dense assistant partials before rebuilding transcript',
         () async {
       final workspaceRepository = _FakeWorkspaceRepository(
         workspaces: const <WorkspaceSummary>[
@@ -428,13 +500,7 @@ void main() {
         limit: 80,
         streamOutput: false,
       );
-      final loaded = await viewModel.loadOlderConversationEventPage(
-        conversationId: 'c1',
-        limit: 80,
-        streamOutput: false,
-      );
 
-      expect(loaded, isTrue);
       expect(viewModel.oldestLoadedConversationSeq, 1);
       expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
       expect(

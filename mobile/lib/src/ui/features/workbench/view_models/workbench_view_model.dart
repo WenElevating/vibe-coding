@@ -37,7 +37,6 @@ class WorkbenchViewModel extends ChangeNotifier {
   static const int _defaultImageBytesLimit = 10 * 1024 * 1024;
   static const int _textDocumentBytesLimit = 1024 * 1024;
   static const int _totalMultipartBytesLimit = 20 * 1024 * 1024;
-  static const int _initialHistoryContextMaxPages = 3;
 
   WorkbenchViewModel({
     required WorkspaceRepository workspaceRepository,
@@ -1133,7 +1132,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     var page = await _requireConversationRepository()
         .fetchConversationEventPage(conversationId, limit: limit);
     if (!stillCurrent()) return false;
-    page = await _expandInitialConversationContext(
+    page = await _expandInitialConversationHistory(
       conversationId: conversationId,
       initialPage: page,
       limit: limit,
@@ -1164,19 +1163,14 @@ class WorkbenchViewModel extends ChangeNotifier {
     return page.events.isNotEmpty || previewChanged;
   }
 
-  Future<ConversationEventPage> _expandInitialConversationContext({
+  Future<ConversationEventPage> _expandInitialConversationHistory({
     required String conversationId,
     required ConversationEventPage initialPage,
     required int limit,
     required WorkbenchEventApplicationIsCurrent isCurrent,
   }) async {
     var page = initialPage;
-    for (var i = 0;
-        i < _initialHistoryContextMaxPages &&
-            isCurrent() &&
-            page.hasMoreBefore &&
-            _needsEarlierInitialContext(page.events);
-        i++) {
+    while (isCurrent() && page.hasMoreBefore) {
       final beforeSeq = page.oldestSeq ??
           (page.events.isEmpty ? null : page.events.first.seq);
       if (beforeSeq == null) break;
@@ -1289,28 +1283,6 @@ class WorkbenchViewModel extends ChangeNotifier {
   ) {
     if (partial == null || (partial.text ?? '').trim().isEmpty) return;
     events.add(partial);
-  }
-
-  bool _needsEarlierInitialContext(List<ConversationEvent> events) {
-    var hasAssistantMessage = false;
-    var hasUserOrToolContext = false;
-    for (final event in events) {
-      switch (event.type) {
-        case 'assistant.message':
-          hasAssistantMessage = true;
-          break;
-        case 'user.message':
-        case 'tool.started':
-        case 'tool.output':
-        case 'tool.completed':
-        case 'approval.requested':
-        case 'assistant.question':
-        case 'task.progress.updated':
-          hasUserOrToolContext = true;
-          break;
-      }
-    }
-    return hasAssistantMessage && !hasUserOrToolContext;
   }
 
   List<ConversationEvent> _mergeConversationEventPages(

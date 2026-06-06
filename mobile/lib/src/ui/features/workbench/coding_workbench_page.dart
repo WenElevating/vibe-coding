@@ -1058,80 +1058,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     });
   }
 
-  bool _isNearOlderTranscriptEdge() {
-    if (!_scrollController.hasClients) return false;
-    final position = _scrollController.position;
-    if (_useReverseTranscript) {
-      return position.pixels >= position.maxScrollExtent - 160;
-    }
-    return position.pixels <= position.minScrollExtent + 160;
-  }
-
-  void _maybeLoadOlderConversationEvents() {
-    final conversationId = _activeConversationId;
-    final runId = _activeRunId;
-    if (conversationId == null || runId == null) return;
-    if (!_isNearOlderTranscriptEdge()) return;
-    if (!_workbenchViewModel.hasMoreHistoricalConversationEvents ||
-        _workbenchViewModel.loadingOlderConversationEvents) {
-      return;
-    }
-    unawaited(_loadOlderConversationEvents(
-      conversationId: conversationId,
-      runId: runId,
-      generation: _conversationEventSubscriptionGeneration,
-    ));
-  }
-
-  Future<void> _loadOlderConversationEvents({
-    required String conversationId,
-    required String runId,
-    required int generation,
-  }) async {
-    if (!_scrollController.hasClients) return;
-    final oldOffset = _scrollController.offset;
-    final oldMaxExtent = _scrollController.position.maxScrollExtent;
-    try {
-      final changed = await _workbenchViewModel.loadOlderConversationEventPage(
-        conversationId: conversationId,
-        limit: _conversationHistoryPageSize,
-        streamOutput: widget.streamOutput,
-        isCurrent: () => _isCurrentConversationEventTarget(
-          conversationId: conversationId,
-          runId: runId,
-          generation: generation,
-        ),
-      );
-      if (!changed || !mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted ||
-            !_scrollController.hasClients ||
-            !_isCurrentConversationEventTarget(
-              conversationId: conversationId,
-              runId: runId,
-              generation: generation,
-            )) {
-          return;
-        }
-        final newMaxExtent = _scrollController.position.maxScrollExtent;
-        final target = oldOffset + (newMaxExtent - oldMaxExtent);
-        _scrollController.jumpTo(
-          target.clamp(
-            _scrollController.position.minScrollExtent,
-            _scrollController.position.maxScrollExtent,
-          ),
-        );
-      });
-    } catch (error, stack) {
-      await _recordWorkbenchException(
-        error,
-        stack,
-        operation: 'loadOlderConversationEvents',
-        path: '/api/conversations/$conversationId/events',
-      );
-    }
-  }
-
   Future<void> _sendPrompt() async {
     await _finishVoiceInputForSend();
     if (!mounted) return;
@@ -1804,12 +1730,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               _showPendingDuringInitialConversationLoad),
       onApproval: _respondApproval,
       onSuggestion: (text) => unawaited(_useQuestionSuggestion(text)),
-      onScrollNotification: (notification) {
-        if (notification.metrics.axis == Axis.vertical) {
-          _maybeLoadOlderConversationEvents();
-        }
-        return false;
-      },
+      onScrollNotification: (_) => false,
     );
   }
 
