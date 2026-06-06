@@ -127,7 +127,9 @@ New routes under:
 /api/perf/mobile-marks
 ```
 
-`GET /api/perf/config` returns whether mobile should start tracing:
+All perf HTTP routes require the same normal paired-device authentication as
+other daemon mobile APIs. `GET /api/perf/config` returns whether mobile should
+start tracing:
 
 ```json
 {
@@ -177,7 +179,7 @@ Response:
 ```
 
 `POST /api/perf/mobile-marks` accepts batches from the mobile background
-reporter. It must require normal paired-device authentication.
+reporter.
 
 ## Daemon Trace Marks
 
@@ -339,6 +341,8 @@ UI errors, toast notifications, or conversation-level failures.
 - HTTP 413 from `/api/perf/mobile-marks`: refresh `/api/perf/config`, update
   `maxBatchSize`, split the retained batch according to the new limit, and retry
   on the next flush interval. Do not count the first 413 as a dropped batch.
+  If a split retry fails with a non-413 upload error, that failure counts toward
+  the normal consecutive failure count.
 - Concurrency: only one in-flight upload at a time.
 
 Queue pressure policy:
@@ -359,7 +363,8 @@ non-critical positions before increasing the limit.
 
 Critical marks should be declared by the publisher call site instead of inferred
 solely from names. The first implementation should mark these as critical:
-`send.tap`, `send.http.completed`, `history.first_page.applied`,
+`app.main.started`, `app.first_frame`, `send.tap`, `send.http.completed`,
+`history.first_page.applied`,
 `history.backfill.completed`, `ws.event.received`, `reducer.applied`, and
 `event.frame.rendered`. Names containing `rendered` or `completed` are good
 review signals, but they are not the only retention rule.
@@ -389,20 +394,34 @@ Mobile should record these marks when tracing is enabled:
 - `reducer.applied`
 - `event.frame.rendered`
 
+`daemon.health.loaded` is a mobile-view mark for when the health response is
+available to the app. It does not require a paired daemon-side mark in this
+phase, so analysis should treat it as mobile-local latency unless a later daemon
+health boundary mark is added.
+
 Startup marks have special handling because tracing configuration, the event
 bus subscription, and the reporter are not ready at the earliest app entrypoint:
 
 - `app.main.started` captures the earliest available wall-clock and monotonic
-  timestamp in `main.dart` and stores it in a single pre-startup slot owned by
+  timestamp in `main.dart` and stores it in a tiny pre-startup buffer owned by
   the composition root. It is not published through `MobileAppEventBus` at
   capture time.
 - after `/api/perf/config` enables tracing and `PerformanceTraceReporter`
-  subscribes to the bus, the reporter drains the pre-startup slot into its queue
-  with the original captured timestamps;
-- if tracing is disabled by config, the pre-startup slot is discarded;
+  subscribes to the bus, the reporter actively reads and drains the pre-startup
+  buffer into its queue with the original captured timestamps;
+- if `/api/perf/config` fails or times out, the pre-startup buffer is retained
+  until the next successful config check. If config later returns disabled, the
+  pre-startup buffer is discarded.
 - `app.first_frame` should use the normal publisher if the reporter is ready.
   If first frame fires before reporter readiness, it uses the same pre-startup
   slot mechanism with a maximum of two startup marks.
+- if the pre-startup buffer is full, later startup marks are dropped and the
+  dropped startup count is folded into the first successful reporter flush.
+  Dropped startup marks are counted by their `critical` flag into the normal
+  critical or non-critical dropped bucket.
+- the pre-startup buffer is append-only until drained; when full, it drops later
+  marks by arrival order and does not apply the main queue's critical eviction
+  policy.
 
 The pre-startup buffer is intentionally tiny and only for app startup marks. It
 must not become a general queue or bypass the reporter upload path.
@@ -492,6 +511,8 @@ When tracing is disabled, `POST /api/perf/mobile-marks` returns 200 with:
 
 The reporter treats this as successful delivery and resets successful-flush
 counters. Disabled tracing is a backend decision, not an upload failure.
+`accepted` and `dropped` are both zero only to keep the response shape stable;
+in disabled responses, `dropped` is not a loss counter for ignored marks.
 
 `droppedCountSinceLastSuccessfulFlush` and the critical/non-critical split are
 reset only after a successful upload. If an upload fails and the batch remains
@@ -525,6 +546,25 @@ analysis should treat cross-device wall-clock latency as low confidence when:
 - mobile wall-clock delta and monotonic delta diverge unexpectedly;
 - the app crossed background, lock-screen, or lifecycle pause/resume while marks
   were queued.
+
+Time-sync cadence:
+
+- Reporter initialization triggers one immediate `/api/perf/time-sync` after
+  config enables tracing.
+- Flushes do not wait for the first time-sync response. If the first flush wins
+  the race, it sends `clockSync.quality = "unknown"`.
+- Successful flush responses passively refresh the current clock estimate.
+- If `clockSync.ageMs` exceeds 30000 ms and no flush response has refreshed the
+  estimate, the reporter sends a standalone `/api/perf/time-sync` on the next
+  flush interval.
+- While reporter uploads are paused after consecutive failures, standalone
+  time-sync is paused too. The clock estimate age continues increasing during
+  the paused state; after uploads resume, the first flush may report
+  `clockSync.quality = "poor"` or `"unknown"`. That is expected and should be
+  handled by analysis filters.
+- Time-sync request failures are swallowed, do not count toward the consecutive
+  upload failure count, and are retried on the next flush interval if
+  `clockSync.ageMs` still exceeds 30000 ms.
 
 The reporter sets `clockSync.clockDriftWarning` for suspicious batches. Marks
 may also carry `clockDriftWarning` when a specific capture window is known to be
@@ -625,18 +665,27 @@ CREATE INDEX IF NOT EXISTS idx_perf_mobile_batches_run
   ON perf_mobile_batches(run_id, app_session_id, created_at);
 ```
 
-`perf_runs` is daemon-owned in this phase. The daemon inserts a run row lazily
-when tracing is enabled and the first daemon mark, mobile batch, or config
-request needs a `runId`. `started_at` is the daemon wall-clock time for that
-creation. `ended_at` is set on graceful daemon shutdown or when backend tracing
-is explicitly disabled by a future backend-only control. If the process exits
-without a graceful shutdown, `ended_at` may remain null.
+`perf_runs` is daemon-owned in this phase. When tracing is enabled, the daemon
+creates one active run per daemon process lifetime before returning `runId` from
+`GET /api/perf/config`. Repeated config requests in the same daemon process
+return the same `runId`; a daemon process restart creates a new run. `started_at`
+is the daemon wall-clock time for run creation. Daemon marks and mobile batches
+must only use a `runId` that already has a `perf_runs` row. `ended_at` is set on
+graceful daemon shutdown or when backend tracing is explicitly disabled by a
+future backend-only control. If the process exits without a graceful shutdown,
+`ended_at` may remain null.
 
 Daemon-origin marks have `mobile_batch_id = NULL`. Mobile-origin marks uploaded
 in a batch reference `perf_mobile_batches.id`, so later analysis can apply the
 same clock-sync quality and dropped-count context to all marks in that batch.
 The store writes the batch row and all child marks atomically; if either side
 fails, the transaction rolls back and no partial batch is kept.
+
+`run_id` is intentionally not declared as a SQLite foreign key in child tables.
+The config route creates the run row before returning `runId`, and the store
+validates the active run in application code. This keeps manual inspection and
+future import/export flows simple while preserving the runtime ordering
+guarantee.
 
 ## Privacy And Redaction
 
@@ -658,6 +707,14 @@ Allowed metadata:
 - dropped count;
 - status code;
 - coarse error code.
+
+Limits:
+
+- each mark's serialized `metadata` must be at most 1024 bytes;
+- metadata keys must be short ASCII identifiers and values must be primitive
+  JSON values or null;
+- collection sites should prefer counters and coarse categories over nested
+  objects.
 
 ## Metrics To Derive Later
 
@@ -706,11 +763,13 @@ Daemon tests:
 - disabled tracer is no-op and does not create `perf.sqlite`;
 - config route reflects enabled/disabled state;
 - mobile marks route validates authentication, batch size, and metadata size;
+- mobile marks route rejects unknown `source` values;
+- config and time-sync routes require paired-device authentication;
 - disabled mobile marks route returns 200 with `disabled: true` and writes no
   rows;
 - store writes marks in received order;
 - store failure does not affect API response;
-- stored rows can be inspected through direct SQL in tests.
+- stored rows can be inspected through direct SQL in tests;
 - mobile batch and marks are written in one transaction;
 - failed mobile batch write leaves no orphan `perf_marks` rows;
 - `clockSync.quality` accepts only `good`, `degraded`, `poor`, or `unknown`.
@@ -729,18 +788,29 @@ Mobile tests:
 - upload failure retries once and then drops;
 - HTTP 413 refreshes config, updates `maxBatchSize`, and splits the retained
   batch before retry;
+- failed split retry after 413 counts toward the consecutive failure count;
 - 3 consecutive upload failures pause uploads;
 - successful config check while paused resumes uploads;
 - successful config check while paused resets the consecutive failure count;
+- first flush before time-sync completion sends `clockSync.quality = "unknown"`;
+- stale `clockSync.ageMs` triggers standalone time-sync on the next flush
+  interval;
+- failed standalone time-sync is swallowed and retried only when the stale-age
+  condition still applies;
 - lifecycle flush timeout at 1500 ms does not schedule an immediate retry;
 - startup marks captured before reporter readiness are drained with original
   timestamps after tracing is enabled;
+- startup marks are retained across failed config checks and discarded when a
+  successful config response disables tracing;
+- full pre-startup buffer drops later startup marks and reports the drop on the
+  next successful flush;
 - reporter disposal cancels subscription/timer.
 
 Integration checks:
 
 - start daemon with `VIBE_PERF_TRACE=1`;
-- open mobile app and verify `/api/perf/config` enables tracing;
+- after the daemon is listening, open or restart the mobile app and verify
+  `/api/perf/config` enables tracing;
 - send a short conversation message;
 - verify daemon records mobile and daemon marks in `perf.sqlite`;
 - inspect captured rows directly in `perf.sqlite`.
@@ -755,6 +825,9 @@ Integration checks:
 6. Add app startup and history loading marks.
 
 Each step should keep tracing disabled by default and pass existing tests.
+After step 1, enabling tracing can create `perf_runs` rows without daemon-side
+marks because daemon mark sites are added in step 2. That empty-run state is an
+expected rollout intermediate, not a perf store bug.
 During step 3, published marks may have no reporter subscriber and be silently
 dropped by the event bus. That is expected during staged rollout; the reporter
 added in step 4 is the first durable consumer.
