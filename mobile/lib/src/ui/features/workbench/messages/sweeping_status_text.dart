@@ -12,6 +12,7 @@ class SweepingStatusText extends StatefulWidget {
     this.baseColor,
     this.highlightColor,
     this.highlightFraction = .16,
+    this.progressKey,
   });
 
   final String text;
@@ -21,6 +22,7 @@ class SweepingStatusText extends StatefulWidget {
   final Color? baseColor;
   final Color? highlightColor;
   final double highlightFraction;
+  final Key? progressKey;
 
   @override
   State<SweepingStatusText> createState() => _SweepingStatusTextState();
@@ -87,13 +89,20 @@ class _SweepingStatusTextState extends State<SweepingStatusText>
                             width * widget.highlightFraction.clamp(.12, .18);
                         final x = -bandWidth +
                             (width + bandWidth * 2) * _controller.value;
-                        return ClipRect(
-                            clipper:
-                                _HighlightClipper(left: x, width: bandWidth),
-                            child: Text(widget.text,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: highlightStyle));
+                        return Stack(children: [
+                          if (widget.progressKey != null)
+                            SizedBox(
+                                key: widget.progressKey,
+                                width: _controller.value,
+                                height: 0),
+                          ClipRect(
+                              clipper:
+                                  _HighlightClipper(left: x, width: bandWidth),
+                              child: Text(widget.text,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: highlightStyle)),
+                        ]);
                       }),
                 ])));
   }

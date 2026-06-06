@@ -6,6 +6,7 @@ import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
+import 'transcript_typography.dart';
 
 class CommandEventCard extends StatelessWidget {
   const CommandEventCard(
@@ -86,22 +87,12 @@ class SubAgentCallCardState extends State<SubAgentCallCard> {
                       Text(title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: theme.text,
-                              fontSize: 13.2,
-                              height: 1.18,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0)),
+                          style: WorkbenchTranscriptTypography.toolTitle),
                       const SizedBox(height: 3),
                       Text(_subAgentMeta(message),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: theme.faint,
-                              fontSize: 10.5,
-                              fontFamily: 'Consolas',
-                              height: 1.2,
-                              letterSpacing: 0)),
+                          style: WorkbenchTranscriptTypography.toolMeta),
                     ])),
                 const SizedBox(width: 8),
                 _SubAgentStatePill(message: message),
@@ -169,7 +160,7 @@ class _SubAgentStatePill extends StatelessWidget {
         child: Text(label,
             style: TextStyle(
                 color: color,
-                fontSize: 10.5,
+                fontSize: WorkbenchTranscriptTypography.toolMeta.fontSize,
                 height: 1,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0)));
@@ -324,11 +315,7 @@ class _ToolLogFoldoutState extends State<_ToolLogFoldout> {
                         child: Text(_toolTargetTitle(message),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: theme.text,
-                                fontSize: 12.9,
-                                fontWeight: FontWeight.w700,
-                                height: 1.2))),
+                            style: WorkbenchTranscriptTypography.toolTitle)),
                     if (ok || message.isError) ...[
                       const SizedBox(width: 7),
                       _InlineEventTrailing(ok: ok, error: message.isError),
@@ -398,8 +385,9 @@ class _ToolKindBadge extends StatelessWidget {
       child: Text(kind,
           style: TextStyle(
               color: _toolKindColor(kind),
-              fontSize: 9.5,
-              fontFamily: 'Consolas',
+              fontSize: WorkbenchTranscriptTypography.shellLabel.fontSize,
+              fontFamily: WorkbenchTranscriptTypography.shellLabel.fontFamily,
+              fontFamilyFallback: workbenchMonoFontFallback,
               fontWeight: FontWeight.w900,
               letterSpacing: 0)));
 }
@@ -424,12 +412,7 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
             Padding(
                 padding: const EdgeInsets.only(left: 1, bottom: 4),
                 child: Text(widget.label,
-                    style: const TextStyle(
-                        color: theme.faint,
-                        fontSize: 9.5,
-                        fontFamily: 'Consolas',
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0))),
+                    style: WorkbenchTranscriptTypography.shellLabel)),
             Material(
                 color: Colors.transparent,
                 child: InkWell(
@@ -450,11 +433,9 @@ class _ToolDetailBlockState extends State<_ToolDetailBlock> {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   softWrap: true,
-                                  style: const TextStyle(
-                                      color: theme.muted,
-                                      fontSize: 12,
-                                      fontFamily: 'Consolas',
-                                      height: 1.35))),
+                                  style: WorkbenchTranscriptTypography
+                                      .shellOutput
+                                      .copyWith(fontSize: 12))),
                           const SizedBox(width: 8),
                           const Icon(Icons.open_in_full_rounded,
                               color: theme.faint, size: 12),
@@ -528,8 +509,7 @@ class _CommandExpandedMeta extends StatelessWidget {
     return Text(parts.join(' / '),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-            color: theme.faint, fontSize: 10.5, fontFamily: 'Consolas'));
+        style: WorkbenchTranscriptTypography.toolMeta);
   }
 }
 
@@ -624,7 +604,8 @@ class _CommandDetailSheet extends StatelessWidget {
                             style: const TextStyle(
                                 color: theme.faint,
                                 fontSize: 11,
-                                fontFamily: 'Consolas')),
+                                fontFamily: 'Cascadia Mono',
+                                fontFamilyFallback: workbenchMonoFontFallback)),
                       ])),
                   IconButton(
                       tooltip:
@@ -662,9 +643,11 @@ class _CommandDetailSheet extends StatelessWidget {
                             child: SelectableText(text,
                                 textWidthBasis: TextWidthBasis.parent,
                                 style: const TextStyle(
-                                    color: theme.muted,
+                                    color: Color(0xFFB7BEC9),
                                     fontSize: 12.5,
-                                    fontFamily: 'Consolas',
+                                    fontFamily: 'Cascadia Mono',
+                                    fontFamilyFallback:
+                                        workbenchMonoFontFallback,
                                     height: 1.45))))))
           ])));
 }

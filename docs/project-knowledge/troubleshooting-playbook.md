@@ -55,6 +55,31 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening ex
 
 - Last verified: 2026-05-22
 
+## Symptom: Workbench Command Group Expansion Jumps Up In History
+
+- Symptom: in an existing bottom-anchored conversation, expanding a folded
+  command group makes the transcript content move upward and leaves the user
+  near the bottom of the expanded command output instead of keeping the tapped
+  header in place.
+- Action: preserve the `ListView.builder(reverse: true)` bottom-anchor decision
+  and keep the command group on the simple inline expand/collapse path for now.
+  The attempted offstage measurement plus temporary translate/padding workaround
+  was rejected after real-app inspection because it still produced visible
+  flicker when tapped. If this is optimized later, prefer a non-height-changing
+  details surface such as a bottom sheet/detail panel, or require real rendered
+  visual verification before accepting a new reverse-list scroll strategy.
+- Related files:
+  [workbench_message_list.dart](../../mobile/lib/src/ui/features/workbench/widgets/workbench_message_list.dart),
+  [codex_command_run_card.dart](../../mobile/lib/src/ui/features/workbench/messages/codex_command_run_card.dart)
+- Verification:
+
+```powershell
+cd D:\AiProject\vibe-coding\mobile
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name command
+```
+
+- Last verified: 2026-06-05
+
 ## Symptom: Workbench Shows Completed Command As Still Running
 
 - Symptom: a command card can show completed while the bottom pending sentinel
@@ -545,14 +570,13 @@ npm run lint
   reopening the conversation only shows the final assistant answer.
 - Action: first inspect persisted `conversation_events` to distinguish storage
   loss from replay projection. Long app-server turns can emit many
-  `assistant.partial` rows; the initial tail page can then contain only dense
-  partials plus the final answer, pushing earlier `tool.started` /
-  `tool.completed` rows outside the first page. Historical open should fetch a
-  small amount of earlier context when the tail has a final assistant message
-  but no user/tool/question/task context. When loading older pages, compact
-  historical `assistant.partial` runs before merging them into the mobile event
-  window so upward pagination does not inflate the transcript and destabilize
-  scroll compensation.
+  `assistant.partial` rows; a tail page can then contain only dense partials
+  plus the final answer, pushing earlier `user.message`, `tool.started`, and
+  `tool.completed` rows outside the first page. Historical open should fetch
+  every earlier page up front instead of relying on upward scroll pagination.
+  Compact historical `assistant.partial` runs before rebuilding the mobile event
+  window so full-history loading does not inflate the transcript with invisible
+  partial chunks.
 - Related file:
   [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
 - Verification:
@@ -560,10 +584,12 @@ npm run lint
 ```powershell
 cd mobile
 flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "initial event page expands past dense partial tail to keep command context"
-flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "older event page compacts dense assistant partials"
+flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "initial event page keeps expanding dense partial history until user context is visible"
+flutter test --no-pub test\workbench_view_model_repository_state_test.dart -r expanded --plain-name "initial event pages compact dense assistant partials"
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "opening large historical conversation loads every history page"
 ```
 
-- Last verified: 2026-06-05
+- Last verified: 2026-06-06
 
 ## Symptom: Codex App Server History Shows Maximum Process Limit Error
 

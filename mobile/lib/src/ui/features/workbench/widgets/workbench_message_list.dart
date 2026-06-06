@@ -153,25 +153,30 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
   }
 
   Widget _buildDisplayItem(WorkbenchTranscriptDisplayItem item) {
-    return switch (item) {
-      WorkbenchMessageDisplayItem(:final message) => WorkbenchMessageCard(
+    switch (item) {
+      case WorkbenchMessageDisplayItem(:final message):
+        return WorkbenchMessageCard(
           message: message,
           expandThinking: widget.expandThinking,
           expandToolDetails: widget.expandToolDetails,
           onSuggestion: widget.onSuggestion,
           onApproval: (decision) => widget.onApproval(message.event!, decision),
-        ),
-      SingleCommandDisplayItem(:final message) => SingleCommandRunCard(
+        );
+      case SingleCommandDisplayItem(:final message):
+        final key = _singleCommandKey(message);
+        return SingleCommandRunCard(
           message: message,
-          expanded: _expandedCommandRuns.contains(_singleCommandKey(message)),
-          onToggleExpanded: () => _toggle(_singleCommandKey(message)),
-        ),
-      CommandRunGroupDisplayItem(:final messages) => CommandRunGroupCard(
+          expanded: _expandedCommandRuns.contains(key),
+          onToggleExpanded: () => _toggle(key),
+        );
+      case CommandRunGroupDisplayItem(:final messages):
+        final key = _commandGroupKey(messages);
+        return CommandRunGroupCard(
           messages: messages,
-          expanded: _expandedCommandRuns.contains(_commandGroupKey(messages)),
-          onToggleExpanded: () => _toggle(_commandGroupKey(messages)),
-        ),
-    };
+          expanded: _expandedCommandRuns.contains(key),
+          onToggleExpanded: () => _toggle(key),
+        );
+    }
   }
 
   void _toggle(String key) {
@@ -200,13 +205,11 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
 
   String _commandGroupKey(List<WorkbenchMessage> messages) {
     final first = messages.first;
-    final last = messages.last;
     final firstEvent = first.event;
-    final lastEvent = last.event;
-    if (firstEvent != null && lastEvent != null) {
-      return 'events-${firstEvent.runId}-${firstEvent.seq}-${lastEvent.seq}';
+    if (firstEvent != null) {
+      return 'events-${firstEvent.runId}-${firstEvent.seq}';
     }
-    return '${first.runId ?? 'run'}-${messages.length}-${first.body}-${last.body}';
+    return '${first.runId ?? 'run'}-${messages.length}-${first.title}-${first.body}';
   }
 }
 
@@ -250,3 +253,5 @@ class _HistoryLoadingRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}

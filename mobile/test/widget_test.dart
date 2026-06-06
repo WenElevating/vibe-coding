@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -67,6 +68,91 @@ import 'support/daemon_connection_controller.dart';
 void _noopString(String _) {}
 
 void _noopApproval(ApprovalResponse _) {}
+
+WorkbenchMessage _runningCommandMessage({
+  required int seq,
+  required String body,
+}) =>
+    WorkbenchMessage('command', 'Run command', body,
+        event: AgentEvent(
+            type: 'tool.started',
+            seq: seq,
+            runId: 'run_sweep',
+            createdAt: DateTime.parse('2026-05-03T00:00:0$seq.000Z'),
+            name: 'Bash',
+            raw: <String, Object?>{
+              'toolName': 'Bash',
+              'input': <String, Object?>{'command': body},
+            }),
+        runId: 'run_sweep');
+
+class _WorkbenchMessageListHarness extends StatefulWidget {
+  const _WorkbenchMessageListHarness({
+    required this.messages,
+  });
+
+  final List<WorkbenchMessage> messages;
+
+  @override
+  State<_WorkbenchMessageListHarness> createState() =>
+      _WorkbenchMessageListHarnessState();
+}
+
+class _WorkbenchMessageListHarnessState
+    extends State<_WorkbenchMessageListHarness> {
+  late final ScrollController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+      locale: theme.zhHansCnLocale,
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+          backgroundColor: theme.bg,
+          body: SizedBox(
+              width: 420,
+              height: 260,
+              child: WorkbenchMessageList(
+                  controller: _controller,
+                  messages: widget.messages,
+                  adapter: 'codex-app-server',
+                  runId: 'run_sweep',
+                  eventCount: widget.messages.length,
+                  terminal: false,
+                  runError: null,
+                  runErrorTraceId: null,
+                  pendingStatusText: '',
+                  pendingStartedAt: null,
+                  pendingActions: const <String>[],
+                  expandThinking: false,
+                  expandToolDetails: false,
+                  useReverseTranscript: false,
+                  loadingOlderConversationEvents: false,
+                  showPendingDuringInitialConversationLoad: false,
+                  showStatus: false,
+                  showError: false,
+                  showPending: false,
+                  onApproval: (_, __) async {},
+                  onSuggestion: _noopString,
+                  onScrollNotification: (_) => false))));
+}
 
 Widget _approvalComposerHarness({
   required ApprovalRequestOptions approvalOptions,
@@ -3857,7 +3943,7 @@ void main() {
     expect(find.text('00:00'), findsNothing);
   });
 
-  testWidgets('opening large historical conversation loads tail page first',
+  testWidgets('opening large historical conversation loads every history page',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -3872,6 +3958,16 @@ void main() {
           oldestSeq: 119,
           newestSeq: 120,
           hasMoreBefore: true,
+        ),
+        ConversationEventPage(
+          events: <ConversationEvent>[
+            _pagedConversationEvent(
+                seq: 1, type: 'user.message', text: 'oldest prompt'),
+            _pagedConversationEvent(seq: 2, text: 'oldest answer'),
+          ],
+          oldestSeq: 1,
+          newestSeq: 2,
+          hasMoreBefore: false,
         ),
       ]),
     );
@@ -3896,8 +3992,13 @@ void main() {
     await tester.tap(find.text('Paged history conversation'));
     await tester.pumpAndSettle();
 
-    expect(repository.pageCalls, <String>['conv_paged:null:80']);
+    expect(repository.pageCalls, <String>[
+      'conv_paged:null:80',
+      'conv_paged:119:80',
+    ]);
     expect(repository.watchAfterSeqs, <int>[120]);
+    expect(find.text('oldest prompt'), findsOneWidget);
+    expect(find.text('oldest answer'), findsOneWidget);
     expect(find.text('latest sentinel'), findsOneWidget);
     expect(find.text('recent prompt'), findsOneWidget);
   });
@@ -3941,7 +4042,7 @@ void main() {
     expect(repository.watchAfterSeqs, <int>[0]);
   });
 
-  testWidgets('scrolling to older edge loads previous conversation page once',
+  testWidgets('opening paged conversation loads previous history immediately',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(480, 900);
     tester.view.devicePixelRatio = 1;
@@ -3996,8 +4097,12 @@ void main() {
     await tester.tap(find.text('Paged history conversation'));
     await tester.pumpAndSettle();
 
-    await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
-    await tester.pump();
+    expect(repository.pageCalls, <String>[
+      'conv_paged:null:80',
+      'conv_paged:21:80',
+    ]);
+    expect(repository.watchAfterSeqs, <int>[120]);
+
     await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
     await tester.pump();
     await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
@@ -4005,8 +4110,6 @@ void main() {
     await tester.fling(_workbenchMessageList(), const Offset(0, 5000), 10000);
     await tester.pumpAndSettle();
 
-    expect(repository.pageCalls.where((call) => call == 'conv_paged:21:80'),
-        hasLength(1));
     expect(find.text('older prompt'), findsOneWidget);
   });
 
@@ -7150,12 +7253,8 @@ void main() {
     expect(find.text('00:02'), findsOneWidget);
   });
 
-  testWidgets('pending sentinel slowly pulses localized waiting text',
+  testWidgets('pending sentinel sweeps localized waiting text',
       (WidgetTester tester) async {
-    int opaqueRgb(Color color) =>
-        color.withValues(alpha: 1).toARGB32() & 0x00ffffff;
-    int alphaChannel(Color color) => (color.toARGB32() >> 24) & 0xff;
-
     final zh = lookupAppLocalizations(theme.zhHansCnLocale);
     await tester.pumpWidget(MaterialApp(
         locale: theme.zhHansCnLocale,
@@ -7173,20 +7272,19 @@ void main() {
 
     expect(find.text('酝酿中...'), findsOneWidget);
     expect(find.text('正在等待下一个事件...'), findsNothing);
-    final firstColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
+    expect(find.byType(SweepingStatusText), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 250));
 
-    final quickColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
-    expect(opaqueRgb(quickColor!), opaqueRgb(firstColor!));
-    expect((alphaChannel(quickColor) - alphaChannel(firstColor)).abs(),
-        lessThan(10));
+    final progressFinder =
+        find.byKey(const ValueKey('workbench-pending-status-sweep-progress'));
+    expect(progressFinder, findsOneWidget);
+    final progress = tester.getSize(progressFinder).width;
+    expect(progress, greaterThan(0));
 
     await tester.pump(const Duration(milliseconds: 900));
 
-    final pulsedColor = tester.widget<Text>(find.text('酝酿中...')).style?.color;
-    expect(opaqueRgb(pulsedColor!), opaqueRgb(firstColor));
-    expect(alphaChannel(pulsedColor), greaterThan(alphaChannel(firstColor)));
+    expect(tester.getSize(progressFinder).width, greaterThan(progress));
 
     await tester.pump(const Duration(seconds: 5));
 
@@ -7478,6 +7576,22 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(copyButton, findsOneWidget);
     expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
 
+    final feedbackFinder =
+        find.byKey(const Key('workbench-markdown-code-copy-feedback'));
+    expect(tester.getSize(feedbackFinder), const Size(24, 24));
+
+    final codeBlockFinder =
+        find.byKey(const Key('workbench-markdown-code-block'));
+    final codeTextFinder =
+        find.byKey(const Key('workbench-markdown-code-text'));
+    expect(tester.getBottomRight(feedbackFinder).dy,
+        lessThanOrEqualTo(tester.getTopLeft(codeTextFinder).dy + 1));
+    final topInset = tester.getTopLeft(codeTextFinder).dy -
+        tester.getTopLeft(codeBlockFinder).dy;
+    final bottomInset = tester.getBottomRight(codeBlockFinder).dy -
+        tester.getBottomRight(codeTextFinder).dy;
+    expect((topInset - bottomInset).abs(), lessThanOrEqualTo(1));
+
     await tester.tap(copyButton);
     await tester.pump();
 
@@ -7485,8 +7599,7 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.byIcon(Icons.check_rounded), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
 
-    final feedbackShell = tester.widget<AnimatedContainer>(
-        find.byKey(const Key('workbench-markdown-code-copy-feedback')));
+    final feedbackShell = tester.widget<AnimatedContainer>(feedbackFinder);
     final decoration = feedbackShell.decoration as BoxDecoration;
     expect(decoration.color, const Color(0xFFE7ECF8));
     expect(decoration.border, isNotNull);
@@ -8113,9 +8226,11 @@ diff --git a/lib/main.dart b/lib/main.dart
       () {
     const assistant = WorkbenchMessage('assistant', 'CLI assistant', 'Done.');
     const approval = WorkbenchMessage('approval', 'Needs approval', 'npm test');
-    const first =
-        WorkbenchMessage('command', 'Bash', 'Get-Content -Path pubspec.yaml');
-    const second = WorkbenchMessage('command', 'Bash', 'dart analyze');
+    const first = WorkbenchMessage(
+        'command', 'Bash', 'Get-Content -Path pubspec.yaml',
+        completed: true);
+    const second =
+        WorkbenchMessage('command', 'Bash', 'dart analyze', completed: true);
     const third = WorkbenchMessage('command', 'Bash', 'flutter test');
 
     final items = projectWorkbenchTranscriptDisplayItems(
@@ -8140,6 +8255,33 @@ diff --git a/lib/main.dart b/lib/main.dart
         findsNothing);
   });
 
+  testWidgets('running command group keeps sweep progress across new events',
+      (WidgetTester tester) async {
+    await tester
+        .pumpWidget(_WorkbenchMessageListHarness(messages: <WorkbenchMessage>[
+      _runningCommandMessage(seq: 1, body: 'Get-Content pubspec.yaml'),
+      _runningCommandMessage(seq: 2, body: 'dart analyze'),
+    ]));
+    await tester.pump(const Duration(milliseconds: 900));
+
+    final progressFinder =
+        find.byKey(const ValueKey('workbench-command-run-sweep-progress'));
+    expect(progressFinder, findsOneWidget);
+    final progressBeforeUpdate = tester.getSize(progressFinder).width;
+    expect(progressBeforeUpdate, greaterThan(0));
+
+    await tester
+        .pumpWidget(_WorkbenchMessageListHarness(messages: <WorkbenchMessage>[
+      _runningCommandMessage(seq: 1, body: 'Get-Content pubspec.yaml'),
+      _runningCommandMessage(seq: 2, body: 'dart analyze'),
+      _runningCommandMessage(seq: 3, body: 'flutter test'),
+    ]));
+    await tester.pump();
+
+    expect(tester.getSize(progressFinder).width,
+        greaterThan(progressBeforeUpdate * .8));
+  });
+
   testWidgets(
       'completed command group expands to shell blocks in command order',
       (WidgetTester tester) async {
@@ -8156,9 +8298,57 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.byKey(const ValueKey('workbench-command-run-group-shell')),
         findsOneWidget);
     expect(find.text('Shell'), findsNWidgets(2));
-    expect(find.text('Get-Content -Path pubspec.yaml'), findsWidgets);
+    expect(find.text(r'$ Get-Content -Path pubspec.yaml'), findsWidgets);
     expect(find.text('name: lan_ai_cli_control'), findsOneWidget);
     expect(find.text('退出码 0'), findsNWidgets(2));
+  });
+
+  testWidgets('command shell blocks use distinguishable charcoal surfaces',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCommandRunGroupPreview());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('已运行 2 条命令'));
+    await tester.pumpAndSettle();
+
+    final shellBlock = tester.widget<Container>(
+        find.byKey(const ValueKey('workbench-command-shell-block')).first);
+    final shellDecoration = shellBlock.decoration! as BoxDecoration;
+    expect(shellDecoration.color, const Color(0xFF2C2D30));
+
+    final commandPanelFinder =
+        find.byKey(const ValueKey('workbench-command-shell-command')).first;
+    final panelContainer = tester.widget<Container>(find.descendant(
+        of: commandPanelFinder,
+        matching: find.byWidgetPredicate((widget) => widget is Container)));
+    final panelDecoration = panelContainer.decoration! as BoxDecoration;
+    expect(panelDecoration.color, const Color(0xFF25262A));
+  });
+
+  testWidgets('command group toggle appears on hover and points down expanded',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildCommandRunGroupPreview());
+    await tester.pumpAndSettle();
+
+    final opacityFinder =
+        find.byKey(const ValueKey('workbench-command-run-toggle-opacity'));
+    expect(opacityFinder, findsOneWidget);
+    expect(tester.widget<AnimatedOpacity>(opacityFinder).opacity, 0);
+    expect(find.byIcon(Icons.keyboard_arrow_right_rounded), findsOneWidget);
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    await gesture.moveTo(tester.getCenter(find.text('已运行 2 条命令')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AnimatedOpacity>(opacityFinder).opacity, 1);
+
+    await tester.tap(find.text('已运行 2 条命令'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
+    expect(tester.widget<AnimatedOpacity>(opacityFinder).opacity, 1);
+    await gesture.removePointer();
   });
 
   testWidgets('failed command summary stays compact and preserves output',

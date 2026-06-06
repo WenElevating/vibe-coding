@@ -6,6 +6,10 @@ import '../../../core/theme/theme.dart' as theme;
 import '../workbench_messages.dart';
 import '../workbench_transcript_display_items.dart';
 import 'sweeping_status_text.dart';
+import 'transcript_typography.dart';
+
+const _commandShellSurface = Color(0xFF2C2D30);
+const _commandShellPanelSurface = Color(0xFF25262A);
 
 class SingleCommandRunCard extends StatelessWidget {
   const SingleCommandRunCard({
@@ -58,7 +62,7 @@ class CommandRunGroupCard extends StatelessWidget {
       );
 }
 
-class _CommandRunFrame extends StatelessWidget {
+class _CommandRunFrame extends StatefulWidget {
   const _CommandRunFrame({
     required this.summary,
     required this.running,
@@ -78,64 +82,81 @@ class _CommandRunFrame extends StatelessWidget {
   final List<Widget> children;
 
   @override
+  State<_CommandRunFrame> createState() => _CommandRunFrameState();
+}
+
+class _CommandRunFrameState extends State<_CommandRunFrame> {
+  var _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final accent = error
-        ? theme.red
-        : running
-            ? theme.purple2
-            : theme.green;
-    return Container(
-        decoration: BoxDecoration(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: expanded
-                ? Border.all(color: Colors.white.withValues(alpha: .06))
-                : null),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onToggleExpanded,
-              child: Padding(
-                  padding: EdgeInsets.fromLTRB(2, 6, 2, expanded ? 8 : 6),
-                  child: Row(children: [
-                    Container(
-                        width: 23,
-                        height: 23,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                            color: accent.withValues(alpha: .10),
-                            borderRadius: BorderRadius.circular(7),
-                            border: Border.all(
-                                color: accent.withValues(alpha: .20))),
-                        child: Icon(icon, color: accent, size: 14)),
-                    const SizedBox(width: 9),
-                    Expanded(
-                        child: running
-                            ? SweepingStatusText(text: summary)
-                            : Text(summary,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: theme.muted,
-                                    fontSize: 12.8,
-                                    height: 1.2,
-                                    fontWeight: FontWeight.w800))),
-                    const SizedBox(width: 7),
-                    Icon(
-                        expanded
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        color: theme.faint,
-                        size: 17),
-                  ]))),
-          if (expanded)
-            Container(
-                key: const ValueKey('workbench-command-run-group-shell'),
-                padding: const EdgeInsets.fromLTRB(9, 0, 9, 10),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _withSpacing(children))),
-        ]));
+    final showToggle = widget.expanded || _hovered;
+    final toggleIcon = widget.expanded
+        ? Icons.keyboard_arrow_down_rounded
+        : Icons.keyboard_arrow_right_rounded;
+    return MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Container(
+            decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: widget.expanded
+                    ? Border.all(color: Colors.white.withValues(alpha: .045))
+                    : null),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onToggleExpanded,
+                  child: Padding(
+                      padding:
+                          EdgeInsets.fromLTRB(2, 6, 2, widget.expanded ? 8 : 6),
+                      child: Row(children: [
+                        Container(
+                            width: 23,
+                            height: 23,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                                color: const Color(0xFF121418),
+                                borderRadius: BorderRadius.circular(7)),
+                            child: Icon(widget.icon,
+                                color: const Color(0xFF7B818B), size: 14)),
+                        const SizedBox(width: 9),
+                        Expanded(
+                            child: widget.running
+                                ? SweepingStatusText(
+                                    text: widget.summary,
+                                    style: WorkbenchTranscriptTypography
+                                        .commandSummaryActive,
+                                    baseColor: const Color(0xFF747B86),
+                                    highlightColor: const Color(0xFFC5CBD5),
+                                    progressKey: const ValueKey(
+                                        'workbench-command-run-sweep-progress'),
+                                  )
+                                : Text(widget.summary,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: WorkbenchTranscriptTypography
+                                        .commandSummary)),
+                        const SizedBox(width: 7),
+                        AnimatedOpacity(
+                            key: const ValueKey(
+                                'workbench-command-run-toggle-opacity'),
+                            opacity: showToggle ? 1 : 0,
+                            duration: const Duration(milliseconds: 120),
+                            curve: Curves.easeOutCubic,
+                            child:
+                                Icon(toggleIcon, color: theme.faint, size: 17)),
+                      ]))),
+              if (widget.expanded)
+                Container(
+                    key: const ValueKey('workbench-command-run-group-shell'),
+                    padding: const EdgeInsets.fromLTRB(9, 0, 9, 10),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: _withSpacing(widget.children))),
+            ])));
   }
 }
 
@@ -149,22 +170,18 @@ class _CommandShellBlock extends StatelessWidget {
     final output = commandOutputText(message);
     final status = _exitStatusText(message);
     return Container(
+        key: const ValueKey('workbench-command-shell-block'),
         width: double.infinity,
         decoration: BoxDecoration(
-            color: const Color(0xFF0F1114),
+            color: _commandShellSurface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withValues(alpha: .06))),
+            border: Border.all(color: Colors.white.withValues(alpha: .07))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
               child: Row(children: [
                 const Text('Shell',
-                    style: TextStyle(
-                        color: theme.faint,
-                        fontSize: 10,
-                        height: 1,
-                        fontFamily: 'Consolas',
-                        fontWeight: FontWeight.w900)),
+                    style: WorkbenchTranscriptTypography.shellLabel),
                 const Spacer(),
                 IconButton(
                     constraints:
@@ -180,9 +197,9 @@ class _CommandShellBlock extends StatelessWidget {
               ])),
           _MonospacePanel(
               key: const ValueKey('workbench-command-shell-command'),
-              text: commandDisplayTitle(message),
+              text: r'$ ' + commandDisplayTitle(message),
               maxLines: 4,
-              color: theme.text),
+              style: WorkbenchTranscriptTypography.shellCommand),
           if (output.isNotEmpty) ...[
             const SizedBox(height: 7),
             ConstrainedBox(
@@ -192,7 +209,7 @@ class _CommandShellBlock extends StatelessWidget {
                     child: _MonospacePanel(
                         key: const ValueKey('workbench-command-shell-output'),
                         text: output,
-                        color: theme.muted))),
+                        style: WorkbenchTranscriptTypography.shellOutput))),
           ],
           Padding(
               padding: const EdgeInsets.fromLTRB(10, 7, 10, 9),
@@ -201,10 +218,13 @@ class _CommandShellBlock extends StatelessWidget {
                   child: Text(status,
                       style: TextStyle(
                           color: message.isError ? theme.red : theme.faint,
-                          fontSize: 10.5,
+                          fontSize:
+                              WorkbenchTranscriptTypography.toolMeta.fontSize,
                           height: 1,
-                          fontFamily: 'Consolas',
-                          fontWeight: FontWeight.w800)))),
+                          fontFamily:
+                              WorkbenchTranscriptTypography.toolMeta.fontFamily,
+                          fontFamilyFallback: workbenchMonoFontFallback,
+                          fontWeight: FontWeight.w700)))),
         ]));
   }
 }
@@ -213,12 +233,12 @@ class _MonospacePanel extends StatelessWidget {
   const _MonospacePanel({
     super.key,
     required this.text,
-    required this.color,
+    required this.style,
     this.maxLines,
   });
 
   final String text;
-  final Color color;
+  final TextStyle style;
   final int? maxLines;
 
   @override
@@ -227,17 +247,10 @@ class _MonospacePanel extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 10),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-          color: const Color(0xFF090A0C),
+          color: _commandShellPanelSurface,
           borderRadius: BorderRadius.circular(7),
           border: Border.all(color: Colors.white.withValues(alpha: .045))),
-      child: SelectableText(text,
-          maxLines: maxLines,
-          style: TextStyle(
-              color: color,
-              fontSize: 11.8,
-              height: 1.38,
-              fontFamily: 'Consolas',
-              letterSpacing: 0)));
+      child: SelectableText(text, maxLines: maxLines, style: style));
 }
 
 List<Widget> _withSpacing(List<Widget> children) {

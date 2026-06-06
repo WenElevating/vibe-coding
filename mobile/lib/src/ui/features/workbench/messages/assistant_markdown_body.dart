@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/theme/theme.dart' as theme;
 import 'code_block.dart';
+import 'transcript_typography.dart';
 
 class AssistantMarkdownBody extends StatefulWidget {
   const AssistantMarkdownBody({super.key, required this.markdown});
@@ -47,36 +48,29 @@ String normalizeAssistantMarkdown(String markdown) {
 MarkdownStyleSheet buildAssistantMarkdownStyleSheet(BuildContext context) {
   const codeBg = Color(0x66101824);
   const codeBorder = Color(0x22FFFFFF);
-  final base = Theme.of(context).textTheme;
   return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      p: base.bodyMedium
-          ?.copyWith(color: theme.muted, fontSize: 14.5, height: 1.68),
-      strong: const TextStyle(color: theme.text, fontWeight: FontWeight.w700),
+      p: WorkbenchTranscriptTypography.assistantBody,
+      strong: WorkbenchTranscriptTypography.assistantStrong,
       em: const TextStyle(
-          color: Color(0xFFD3DAE8), fontStyle: FontStyle.italic),
+          color: Color(0xFFD0D6E2), fontStyle: FontStyle.italic),
       h1: const TextStyle(
           color: theme.text,
-          fontSize: 17,
+          fontSize: 16.8,
           height: 1.35,
           fontWeight: FontWeight.w800),
       h2: const TextStyle(
           color: theme.text,
-          fontSize: 15.5,
+          fontSize: 15.4,
           height: 1.35,
           fontWeight: FontWeight.w800),
       h3: const TextStyle(
           color: theme.text,
-          fontSize: 14,
+          fontSize: 14.2,
           height: 1.4,
           fontWeight: FontWeight.w800),
       listBullet:
           const TextStyle(color: theme.green, fontSize: 12, height: 1.55),
-      code: const TextStyle(
-          color: Color(0xFFE7ECF8),
-          backgroundColor: Color(0xFF18191C),
-          fontFamily: 'Consolas',
-          fontSize: 13,
-          height: 1.45),
+      code: WorkbenchTranscriptTypography.inlineCode,
       codeblockDecoration: BoxDecoration(
           color: codeBg,
           borderRadius: BorderRadius.circular(10),
@@ -84,7 +78,7 @@ MarkdownStyleSheet buildAssistantMarkdownStyleSheet(BuildContext context) {
       blockquote: const TextStyle(color: Color(0xFFBBC5D6), fontSize: 13),
       blockquoteDecoration: BoxDecoration(
           color: Colors.white.withValues(alpha: .04),
-          border: const Border(left: BorderSide(color: theme.purple, width: 3)),
+          border: Border.all(color: theme.purple.withValues(alpha: .16)),
           borderRadius: BorderRadius.circular(8)),
       a: const TextStyle(color: Color(0xFF7C8CFF), fontWeight: FontWeight.w800),
       horizontalRuleDecoration: BoxDecoration(

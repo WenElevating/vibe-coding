@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../l10n/app_localizations.dart';
 import '../../../core/theme/theme.dart' as theme;
+import 'sweeping_status_text.dart';
 
 @visibleForTesting
 Widget buildPendingSentinelPreview() => MaterialApp(
@@ -126,8 +127,13 @@ class _PendingSentinelState extends State<PendingSentinel>
                               child: SlideTransition(
                                   position: slide, child: child));
                         },
-                        child: _PulsingStatusText(
-                            key: ValueKey(displayStatus), text: displayStatus)),
+                        child: SweepingStatusText(
+                            key: ValueKey(displayStatus),
+                            text: displayStatus,
+                            style: const TextStyle(fontSize: 12, height: 1.3),
+                            baseColor: _stableStatusTextColor(displayStatus),
+                            progressKey: const ValueKey(
+                                'workbench-pending-status-sweep-progress'))),
                   ])),
               const SizedBox(width: 10),
               _ElapsedTimerPill(text: _formatPendingElapsed(_elapsedSeconds)),
@@ -168,56 +174,6 @@ class _PendingSentinelState extends State<PendingSentinel>
     final elapsed = _now().difference(startedAt).inSeconds;
     return elapsed < 0 ? 0 : elapsed;
   }
-}
-
-class _PulsingStatusText extends StatefulWidget {
-  const _PulsingStatusText({
-    super.key,
-    required this.text,
-  });
-
-  final String text;
-
-  @override
-  State<_PulsingStatusText> createState() => _PulsingStatusTextState();
-}
-
-class _PulsingStatusTextState extends State<_PulsingStatusText>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800))
-      ..repeat(reverse: true);
-    _pulse = CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-      animation: _pulse,
-      builder: (context, _) {
-        final base = _stableStatusTextColor(widget.text);
-        final wave = _pulse.value;
-        final color = base.withValues(alpha: .76 + wave * .16);
-        return Text(widget.text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: color, fontSize: 12, height: 1.3, shadows: [
-              BoxShadow(
-                  color: base.withValues(alpha: .04 + wave * .08),
-                  blurRadius: 6 + wave * 5)
-            ]));
-      });
 }
 
 Color _stableStatusTextColor(String text) {
