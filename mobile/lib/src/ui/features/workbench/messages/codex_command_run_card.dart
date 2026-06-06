@@ -98,6 +98,7 @@ class _CommandRunFrameState extends State<_CommandRunFrame> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: Container(
+            margin: const EdgeInsets.only(left: 16),
             decoration: BoxDecoration(
                 color: Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
