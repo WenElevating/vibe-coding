@@ -168,12 +168,25 @@ Lifecycle modes:
 | Mode | Trigger | Behavior |
 | --- | --- | --- |
 | External | `OPENCODE_SERVER_URL` is set | Connect to that server, never stop it, and report configuration errors if health fails. |
-| Managed | No external URL is set | Start `opencode serve --hostname 127.0.0.1 --port 0`, parse the selected port from startup output, and stop the child when the daemon shuts down. |
+| Managed | No external URL is set | Start a local `opencode serve` child on an explicit daemon-selected loopback port, health-check it, and stop the child when the daemon shuts down. |
 
 The first implementation can start one managed server per daemon process and
 use `POST /session?directory=...` per workspace. If smoke testing shows
 directory isolation is unreliable for any supported OpenCode version, use one
 managed server per workspace path instead.
+
+Managed startup should avoid depending on `--port 0` output parsing. The
+preferred path is:
+
+1. Pick an available loopback port in daemon code.
+2. Start `opencode serve --hostname 127.0.0.1 --port <port>`.
+3. Probe `GET /global/health` until it succeeds or startup times out.
+4. If the port is already in use, retry with a new port and a new child.
+
+If a future implementation uses `--port 0`, stdout/stderr parsing must be
+version-aware and the parsed port must still be confirmed with
+`GET /global/health`. Parsed output alone is not sufficient evidence that the
+server is ready.
 
 Managed lifecycle must:
 
@@ -182,7 +195,9 @@ Managed lifecycle must:
 - Avoid mDNS for daemon-managed local servers.
 - Keep the server bound to `127.0.0.1`.
 - Record lifecycle failures in adapter diagnostics.
-- Clean up the child process on daemon shutdown.
+- Clean up the child process on daemon shutdown. On Windows, use a process-tree
+  terminator such as `taskkill /PID <pid> /T /F` after a short graceful wait;
+  on POSIX, send `SIGTERM`, wait, then send `SIGKILL` if needed.
 
 ### `daemon/src/opencode-conversation-adapter.js`
 
@@ -198,8 +213,8 @@ Responsibilities:
   `dispose`.
 - Bind OpenCode session ids through `event.sessionId` so
   `ConversationManager.confirmSessionBinding()` persists `cliSessionId`.
-- Filter the shared SSE stream by `sessionID` before emitting events to a
-  conversation.
+- Filter the shared SSE stream by a normalized session id before emitting
+  events to a conversation.
 - Preserve provider session metadata only through the existing
   `providerSession` field.
 
@@ -227,10 +242,14 @@ Initial capabilities:
 }
 ```
 
-Image and PDF should stay `unsupported` until real OpenCode server message
-payloads have been verified. Text documents may use the existing
-`textAttachmentWrapper` extraction path because it degrades to plain prompt
-text and does not depend on provider-native attachment support.
+These are conservative first-version capabilities. Image and PDF should stay
+`unsupported` until real OpenCode server message payloads have been verified.
+Text documents may use the existing `textAttachmentWrapper` extraction path
+because it degrades to plain prompt text and does not depend on
+provider-native attachment support. When smoke testing proves that OpenCode
+server accepts a stable base64 image message body or file attachment body, the
+adapter can upgrade image support through the existing capability enrichment
+path without mobile-side API changes.
 
 ### `daemon/src/opencode-event-mapper.js`
 
@@ -259,9 +278,61 @@ Initial mapping:
 | `file.watcher.updated` | Hidden `system.notice`. |
 | `project.updated` | Hidden `system.notice`. |
 
-The mapper must normalize `sessionID`, `messageID`, `partID`, permission ids,
-tool call ids, paths, and error payloads without leaking absolute paths outside
-the authorized workspace.
+The mapper must normalize `sessionID`, `sessionId`, `session_id`, `messageID`,
+`messageId`, `message_id`, `partID`, `partId`, `part_id`, permission ids, tool
+call ids, paths, and error payloads without leaking absolute paths outside the
+authorized workspace.
+
+Critical session-scoped event families must carry a normalized session id before
+they are allowed to reach a daemon conversation:
+
+- `message.*`
+- `permission.*`
+- `session.status`
+- `session.idle`
+- `session.error`
+- `session.diff`
+
+If a critical event lacks a session id, the adapter must drop it from
+conversation dispatch and record a bounded audit/protocol warning. It must not
+broadcast the event to all active conversations. The real-server smoke must
+verify field names for at least message, permission, status, idle, error, and
+diff events before implementation relies on the shared `/global/event` stream.
+
+## Event Stream Reliability
+
+`/global/event` is a shared SSE stream. The adapter must treat it as an
+observable transport, not as the source of conversation authority.
+
+Reconnect policy:
+
+- Reconnect only for transport failures, not for malformed event payloads.
+- Use at most 3 reconnect attempts per disconnect.
+- Use deterministic backoff delays of 250 ms, 1000 ms, and 3000 ms.
+- Keep at most one active SSE connection per OpenCode server client.
+- Pause new `prompt_async` sends while the event stream is disconnected.
+- Emit `run.error` with code `OPENCODE_EVENT_STREAM_INTERRUPTED` after the
+  reconnect budget is exhausted for an active conversation.
+
+Recovery after reconnect is allowed only if the implementation can reconcile
+the OpenCode session state through a verified read route or equivalent stable
+server state. Reconciliation must prove:
+
+- the session still exists;
+- the session directory is still inside the authorized workspace;
+- the current turn is still active, idle, errored, or waiting for the same
+  permission id already shown to mobile.
+
+If the adapter cannot prove those facts after reconnect, it must fail the
+active turn with `OPENCODE_EVENT_STREAM_INTERRUPTED` instead of assuming that
+no `session.idle`, `session.error`, or `permission.asked` event was missed.
+
+When a disconnect happens while `ConversationManager` is in
+`waiting_approval`, the existing blocking item may remain visible only during
+the reconnect budget. If reconnect is exhausted or reconciliation cannot prove
+the same permission request is still pending, the adapter emits `run.error`.
+That clears the blocking item through the existing conversation error path, so
+the mobile approval UI must not hang indefinitely.
 
 ## Data Flow
 
@@ -291,8 +362,19 @@ the authorized workspace.
 Later messages reuse the stored `cliSessionId`. The adapter should verify that
 the session still belongs to the requested workspace directory before sending.
 If the session is missing or belongs to a different directory, the adapter must
-fail the turn with a recoverable `run.error`; it must not silently create a new
-provider session under the same daemon conversation.
+follow these recovery rules before sending the prompt:
+
+| Condition | Behavior |
+| --- | --- |
+| Stored session is missing, expired, or unreadable before prompt dispatch | Clear `cliSessionId`, mark session binding unknown, create a replacement OpenCode session in the authorized workspace, append a hidden `provider_session_replaced` notice, and send the current prompt once. |
+| Stored session exists but its directory is outside the authorized workspace | Clear `cliSessionId`, mark session binding drifted, fail the current turn with `run.error` code `OPENCODE_SESSION_DIRECTORY_MISMATCH`, and do not send the prompt. |
+| Newly created replacement session returns a mismatched directory | Fail closed with `OPENCODE_SESSION_DIRECTORY_MISMATCH`; do not retry in the same turn. |
+
+This avoids a retry dead loop where every later message reuses the same invalid
+`cliSessionId`. It also avoids replaying a prompt into a session that may
+belong to a different workspace. Implementing this requires a narrow internal
+`ConversationManager` helper for clearing or marking provider session bindings;
+the OpenCode adapter must not mutate stored conversation fields directly.
 
 ### Cancellation
 
@@ -327,6 +409,10 @@ Mobile decisions map back to OpenCode replies:
 | `deny` | `reject` |
 | `cancel` | `reject` plus daemon-side cancellation if the user requested interrupt/cancel semantics. |
 
+Terminology boundary: mobile and daemon approval scopes remain `once` and
+`session`. OpenCode's `always` value is only the provider reply corresponding
+to daemon `scope: session`. Do not expose `always` as a mobile approval scope.
+
 The exact permission response body must be verified against the local server
 before implementation. The route existence is verified; the accepted payload
 shape is the remaining smoke prerequisite.
@@ -335,7 +421,8 @@ shape is the remaining smoke prerequisite.
 For the first version, OpenCode should advertise only the default permission
 mode unless a per-session, non-global server API for auto approval is verified.
 If a caller requests `permissionMode: auto`, the adapter should fail clearly
-with an unsupported-permission-mode error rather than downgrading silently.
+with status `422` and code `OPENCODE_PERMISSION_MODE_UNSUPPORTED` rather than
+downgrading silently.
 
 ## Model Handling
 
@@ -376,9 +463,9 @@ OpenCode model picker.
 | Managed server spawn fails | Conversation start fails before provider request; status becomes failed with a safe error. |
 | Health probe fails | Adapter unavailable; no session is created. |
 | Session create fails | Turn fails before prompt dispatch; no fallback to another adapter. |
-| Session directory mismatch | Turn fails with a recoverable protocol error. |
+| Session directory mismatch | Clear the invalid `cliSessionId`, mark binding drifted, and fail the current turn with `OPENCODE_SESSION_DIRECTORY_MISMATCH`. |
 | Prompt dispatch fails | Turn fails with `run.error`; user may retry. |
-| SSE disconnects during active turn | Adapter attempts bounded reconnect; if the session cannot be observed again, emit `run.error`. |
+| SSE disconnects during active turn | Attempt 3 reconnects with 250 ms, 1000 ms, and 3000 ms delays; if reconciliation cannot prove no critical event was missed, emit `run.error` code `OPENCODE_EVENT_STREAM_INTERRUPTED`. |
 | Unknown event type | Hidden `system.notice` with bounded raw payload. |
 | Permission response fails | Conversation returns to failed state and clears the blocking item. |
 | Abort fails | Record audit warning; preserve daemon-side cancellation semantics. |
@@ -415,7 +502,11 @@ the same `ConversationEvent` DTOs used by Claude and Codex.
 - Unknown events become hidden bounded notices.
 - Permission decisions produce the expected OpenCode reply payloads after the
   route body is smoke-verified.
-- Workspace directory mismatch fails closed.
+- Workspace directory mismatch clears invalid session binding and fails closed.
+- SSE reconnect backoff, exhausted reconnect, and waiting-approval disconnect
+  paths are covered with fake timers.
+- Critical events without normalized session ids are dropped from conversation
+  dispatch and recorded as bounded warnings.
 - Attachment capabilities remain conservative.
 
 ### Daemon Integration Tests
@@ -429,7 +520,8 @@ the same `ConversationEvent` DTOs used by Claude and Codex.
 - Fake permission events create blocking items and resolve through the
   existing approval endpoint.
 - Cancellation calls the fake abort route.
-- External server diagnostics and managed server spawn failures are covered.
+- External server diagnostics, managed server spawn failures, explicit-port
+  health probing, and Windows process-tree cleanup are covered.
 
 ### Mobile Tests
 
@@ -447,7 +539,7 @@ installed OpenCode version:
 
 ```powershell
 opencode --version
-opencode serve --hostname 127.0.0.1 --port 0
+opencode serve --hostname 127.0.0.1 --port <free-loopback-port>
 ```
 
 Verify:
@@ -457,7 +549,11 @@ Verify:
 - `prompt_async` accepted request body;
 - abort route;
 - permission response body with a controlled fake or harmless permission;
-- `/global/event` SSE framing and event shape.
+- `/global/event` SSE framing and event shape;
+- consistent session id field names for message, permission, status, idle,
+  error, and diff events;
+- a reconnect scenario, including whether any stable read route can reconcile
+  active or waiting-permission state.
 
 Do not run a model-consuming prompt smoke unless the user explicitly asks for
 it or a test account/runtime is configured for that purpose.
@@ -472,17 +568,7 @@ npm run lint
 node scripts/check-project-knowledge.js
 ```
 
-For mobile-visible changes:
-
-```powershell
-cd mobile
-& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' run tool\check_architecture_imports.dart
-& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' analyze
-flutter test --no-pub
-```
-
-Cross-platform CI may use forward-slash paths and omit the Windows-specific
-direct Dart SDK path:
+For mobile-visible changes, CI should prefer cross-platform commands:
 
 ```bash
 cd mobile
@@ -491,18 +577,34 @@ dart analyze
 flutter test --no-pub
 ```
 
+Local Windows/Codex runs may use the repository guidance's direct Dart SDK path
+to avoid Flutter wrapper/cache-lock stalls:
+
+```powershell
+cd mobile
+& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' run tool\check_architecture_imports.dart
+& 'D:\flutter_windows_3.41.9-stable\flutter\bin\cache\dart-sdk\bin\dart.exe' analyze
+flutter test --no-pub
+```
+
 ## Implementation Sequence
 
-1. Add a local OpenCode server smoke helper or test fake that verifies the
-   session, prompt, abort, permission, and SSE route contracts.
-2. Add pure event mapping tests and `opencode-event-mapper`.
-3. Add `OpenCodeServerClient` with fake-server tests.
-4. Add server lifecycle for external URL first, then managed local server.
-5. Add `OpenCodeConversationAdapter` and replace the placeholder in
+1. Add a local OpenCode server smoke script that launches the real installed
+   `opencode serve` and records the verified session, prompt, abort,
+   permission, SSE, session-id-field, and reconnect contracts.
+2. Add a fake OpenCode server for deterministic unit/integration tests based
+   on the smoke findings, not assumptions.
+3. Add pure event mapping tests and `opencode-event-mapper`.
+4. Add `OpenCodeServerClient` with fake-server tests.
+5. Add server lifecycle for external URL first, then managed local server with
+   explicit-port health probing and platform-specific process-tree cleanup.
+6. Add the narrow `ConversationManager` session-binding clear/mark helper
+   needed for invalid OpenCode session recovery.
+7. Add `OpenCodeConversationAdapter` and replace the placeholder in
    `createConversationAdapters()`.
-6. Add conversation integration tests for session binding, events, permission,
+8. Add conversation integration tests for session binding, events, permission,
    cancellation, and failure states.
-7. Add mobile localization/test changes only for visible strings or behavior.
+9. Add mobile localization/test changes only for visible strings or behavior.
 
 ## Acceptance Criteria
 
@@ -517,6 +619,7 @@ flutter test --no-pub
 - New visible strings are localized.
 - Tests cover success, cancellation, permission, unknown events, and key
   failure modes.
+- SSE disconnects cannot leave a mobile blocking item hanging indefinitely.
 
 ## Remaining Risks
 
@@ -524,8 +627,12 @@ flutter test --no-pub
   listed in the local `/doc` OpenAPI output. The implementation must lock the
   exact request bodies with smoke tests before relying on them.
 - Event payload structure may change across OpenCode versions. The mapper must
-  fail soft for unknown events and keep raw payloads bounded.
+  fail soft for unknown events, require normalized session ids for critical
+  events, and keep raw payloads bounded.
 - Permission semantics may not exactly match the current mobile approval model.
   The first version should prefer conservative deny/once/session mapping over
   broad auto-approval.
-- Managed server lifecycle on Windows needs careful child process cleanup.
+- If no stable session read/reconcile route exists, SSE reconnect during an
+  active turn must remain fail-fast after the reconnect budget.
+- Managed server lifecycle on Windows needs process-tree cleanup rather than
+  relying on plain `child.kill()`.
