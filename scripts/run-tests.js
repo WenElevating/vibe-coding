@@ -264,6 +264,72 @@ test('OpenCode server smoke manifest has explicit gate results', () => {
   }
 });
 
+test('OpenCode smoke helper parses SSE events', () => {
+  const { parseOpenCodeSseFrames } = require('./smoke-opencode-server');
+  const frames = parseOpenCodeSseFrames([
+    'event: message',
+    'data: {"type":"session.idle","sessionID":"sess_1"}',
+    '',
+    'data: {"type":"permission.asked","session_id":"sess_1","id":"perm_1"}',
+    ''
+  ].join('\n'));
+
+  assert.deepEqual(frames.map((frame) => frame.type), ['session.idle', 'permission.asked']);
+  assert.equal(frames[0].sessionID, 'sess_1');
+  assert.equal(frames[1].session_id, 'sess_1');
+});
+
+test('fake OpenCode server supports session, prompt, abort, permission, and SSE', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const baseUrl = fake.url;
+    const health = await fetchJsonForTest(`${baseUrl}/global/health`);
+    assert.equal(health.ok, true);
+
+    const session = await fetchJsonForTest(`${baseUrl}/session?directory=${encodeURIComponent(process.cwd())}`, {
+      method: 'POST',
+      body: '{}'
+    });
+    assert.equal(session.directory, process.cwd());
+    assert.ok(session.id);
+
+    const prompt = await fetchJsonForTest(`${baseUrl}/session/${session.id}/prompt_async`, {
+      method: 'POST',
+      body: JSON.stringify({ parts: [{ type: 'text', text: 'hello' }] })
+    });
+    assert.equal(prompt.ok, true);
+
+    const abort = await fetchJsonForTest(`${baseUrl}/session/${session.id}/abort`, {
+      method: 'POST',
+      body: '{}'
+    });
+    assert.equal(abort, true);
+
+    const permission = await fetchJsonForTest(`${baseUrl}/session/${session.id}/permissions/perm_1`, {
+      method: 'POST',
+      body: JSON.stringify({ response: 'once' })
+    });
+    assert.deepEqual(permission, { ok: true });
+    assert.equal(fake.permissionReplies[0].sessionId, session.id);
+    assert.equal(fake.permissionReplies[0].permissionId, 'perm_1');
+    assert.deepEqual(fake.permissionReplies[0].body, { response: 'once' });
+
+    const sseText = await readSseEventForTest(`${baseUrl}/global/event`, async () => {
+      await waitForConditionForTest(() => fake.sseClients.size === 1, 'fake OpenCode SSE client to connect');
+      fake.emitEvent({ type: 'session.idle', sessionID: session.id });
+    });
+    assert.match(sseText, /"type":"session\.idle"/);
+    assert.match(sseText, new RegExp(`"sessionID":"${session.id}"`));
+    assert.equal(fake.events.length, 1);
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'fake OpenCode SSE client to close');
+  } finally {
+    await fake.close();
+    assert.equal(fake.sseClients.size, 0);
+  }
+});
+
 test('Codex app-server availability marks disabled adapter unselectable', () => {
   const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
   const status = buildCodexAppServerAvailability({ enabled: false });
@@ -12367,6 +12433,92 @@ async function request(port, method, path, body, token) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+async function fetchJsonForTest(url, options = {}) {
+  const parsed = new URL(url);
+  const payload = options.body || '';
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: options.method || 'GET',
+      headers: payload ? {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      } : undefined
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(text ? JSON.parse(text) : null);
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function readSseEventForTest(url, trigger) {
+  const parsed = new URL(url);
+  return new Promise((resolve, reject) => {
+    let req;
+    let response;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error(`timed out waiting for SSE event from ${url}`));
+    }, 1000);
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      response?.destroy();
+      req?.destroy();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+
+    req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+      headers: { accept: 'text/event-stream' }
+    }, (res) => {
+      response = res;
+      if (res.statusCode !== 200) {
+        finish(new Error(`expected SSE status 200, got ${res.statusCode}`));
+        return;
+      }
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        text += chunk;
+        if (text.includes('\n\n') && text.includes('data:')) finish(null, text);
+      });
+      res.on('error', finish);
+      Promise.resolve().then(trigger).catch(finish);
+    });
+    req.on('error', (error) => {
+      if (!settled) finish(error);
+    });
+    req.end();
+  });
+}
+
+async function waitForConditionForTest(predicate, description, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${description}`);
 }
 
 async function createCodexAppServerRouteTestApp({
