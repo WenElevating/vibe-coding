@@ -38,6 +38,32 @@ class MobileApprovalResolved extends MobileAppEvent {
   final String? approvalId;
 }
 
+class MobilePerformanceTraceMark extends MobileAppEvent {
+  const MobilePerformanceTraceMark({
+    required this.name,
+    required this.monotonicUs,
+    required this.wallTimeMs,
+    this.conversationId,
+    this.seq,
+    this.eventType,
+    this.correlationId,
+    this.critical = false,
+    this.clockDriftWarning = false,
+    this.metadata = const <String, Object?>{},
+  });
+
+  final String name;
+  final int monotonicUs;
+  final int wallTimeMs;
+  final String? conversationId;
+  final int? seq;
+  final String? eventType;
+  final String? correlationId;
+  final bool critical;
+  final bool clockDriftWarning;
+  final Map<String, Object?> metadata;
+}
+
 class MobileAppEventBus {
   MobileAppEventBus();
 

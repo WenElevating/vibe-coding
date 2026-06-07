@@ -137,6 +137,7 @@ class DaemonClient
   Future<void>? _refreshTask;
   bool _closed = false;
 
+  String? get currentDeviceId => _deviceId;
   String? get currentToken => _token;
 
   AsrModelClient createAsrModelClient() => AsrModelClient(
@@ -161,6 +162,13 @@ class DaemonClient
 
   Future<Map<String, Object?>> getAuthorizedJson(String path) {
     return _get(path);
+  }
+
+  Future<Map<String, Object?>> postAuthorizedJson(
+    String path,
+    Map<String, Object?> body,
+  ) {
+    return _post(path, body);
   }
 
   Future<http.StreamedResponse> sendAuthorizedStream(

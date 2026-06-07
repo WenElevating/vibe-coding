@@ -28,12 +28,13 @@ const { mapCodexEvent } = require('./codex-conversation-adapter');
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
 
 class ConversationManager {
-  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null }) {
+  constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null, perfTracer = null }) {
     this.workspaces = workspaces;
     this.eventStore = eventStore;
     this.auditLog = auditLog;
     this.adapters = adapters;
     this.persistentStore = persistentStore;
+    this.perfTracer = perfTracer;
     this.idleTtlMs = idleTtlMs;
     this.now = now;
     this.attachmentScratchStore = attachmentScratchStore || new AttachmentScratchStore({ root: path.join(os.tmpdir(), 'vibe-coding-attachment-scratch') });
@@ -341,6 +342,9 @@ class ConversationManager {
 
   async commitAndDispatchMessage(conversation, message, device, { files = [], scratch = null } = {}) {
     this.assertConversationCanStartMessage(conversation);
+    this.markPerf('conversation.send.received', {
+      conversationId: conversation.id
+    });
     const hasAttachments = files.length > 0 || message.attachments.length > 0;
     let attachmentCapabilities = null;
     if (hasAttachments) {
@@ -402,18 +406,38 @@ class ConversationManager {
         });
       }
       this.touch(conversation);
-      this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, {
+      const userEvent = this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, {
         text: message.text,
         ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
         ...(payloadHash ? { payloadHash } : {}),
         ...(hasAttachments ? { attachments: attachmentMetadata } : {})
+      });
+      this.markPerf('conversation.user.persisted', {
+        conversationId: conversation.id,
+        seq: userEvent.seq,
+        eventType: userEvent.type,
+        metadata: {
+          eventType: userEvent.type
+        }
       });
       if (hasAttachments) rememberMessageIdempotency(conversation.messageIdempotency, message.clientMessageId, payloadHash, this.messageIdempotencyMaxEntries);
       committed = true;
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await this.ensureStarted(conversation);
       if (hasAttachments) conversation.attachmentDispatchRedactionContext = attachmentDispatchRedactionContext(files);
+      this.markPerf('adapter.send.started', {
+        conversationId: conversation.id,
+        metadata: {
+          adapter: effectiveAdapterName(conversation)
+        }
+      });
       await conversation.handle.sendUserMessage(hasAttachments ? adapterUserMessage(message, files) : message.text);
+      this.markPerf('adapter.send.accepted', {
+        conversationId: conversation.id,
+        metadata: {
+          adapter: effectiveAdapterName(conversation)
+        }
+      });
       if (hasAttachments && scratch) await this.cleanupDispatchedAttachmentScratch(conversation, scratch, files);
       this.auditLog.record('conversation.message', { conversationId: conversation.id, deviceId: device.id, textLength: message.text.length });
       return publicConversation(conversation);
@@ -652,6 +676,14 @@ class ConversationManager {
 
   recordAdapterEvent(conversation, event) {
     if (!event || typeof event !== 'object') return;
+    this.markPerf('adapter.raw_event.received', {
+      conversationId: conversation.id,
+      eventType: typeof event.type === 'string' ? event.type : null,
+      metadata: {
+        eventType: typeof event.type === 'string' ? event.type : 'unknown',
+        byteLength: safeJsonByteLength(event)
+      }
+    });
     if (event.sessionId) {
       const persisted = this.confirmSessionBinding(conversation, event.sessionId);
       if (!persisted) return;
@@ -714,6 +746,13 @@ class ConversationManager {
       return;
     }
     const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    this.markPerf('adapter.event.normalized', {
+      conversationId: conversation.id,
+      eventType: eventToAppend.type || conversationEventTypes.PROTOCOL_WARNING,
+      metadata: {
+        eventType: eventToAppend.type || conversationEventTypes.PROTOCOL_WARNING
+      }
+    });
     if (eventToAppend.type === 'system.notice') {
       const { type, ...payload } = eventToAppend;
       this.eventStore.append(conversation.id, type, payload);
@@ -846,6 +885,22 @@ class ConversationManager {
         : null,
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
+  }
+
+  markPerf(name, input = {}) {
+    if (!this.perfTracer || typeof this.perfTracer.mark !== 'function') return;
+    try {
+      this.perfTracer.mark({
+        name,
+        conversationId: input.conversationId ?? null,
+        seq: input.seq ?? null,
+        eventType: input.eventType ?? null,
+        correlationId: input.correlationId ?? null,
+        metadata: input.metadata ?? {}
+      });
+    } catch {
+      // Perf tracing is best-effort and must not affect conversations.
+    }
   }
 
   setBlockingItem(conversation, blockingItem, status, event) {
@@ -1399,6 +1454,14 @@ function collectDiagnosticStringValues(value) {
     if (typeof value.code === 'string') strings.push(value.code);
   }
   return strings;
+}
+
+function safeJsonByteLength(value) {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 function isPathLikeAttachmentDispatchError(error, files) {

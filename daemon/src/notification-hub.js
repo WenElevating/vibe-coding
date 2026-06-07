@@ -29,7 +29,8 @@ class NotificationHub {
     maxBufferedBytes = 1024 * 1024,
     maxQueuedFrames = 500,
     websocketMaxConnectionAgeMs = 60 * 60 * 1000,
-    now = () => new Date()
+    now = () => new Date(),
+    perfTracer = null
   }) {
     this.auth = auth;
     this.conversations = conversations;
@@ -42,6 +43,7 @@ class NotificationHub {
     this.maxQueuedFrames = maxQueuedFrames;
     this.websocketMaxConnectionAgeMs = websocketMaxConnectionAgeMs;
     this.now = now;
+    this.perfTracer = perfTracer;
     this.connections = new Map();
     this.conversationSubscriptions = new Map();
     this.serializedFrames = new WeakMap();
@@ -242,7 +244,9 @@ class NotificationHub {
     }
     connection.pendingFrameCount = (connection.pendingFrameCount || 0) + 1;
     try {
-      connection.ws.send(this.serializeFrame(frame), () => {
+      const serialized = this.serializeFrame(frame);
+      this.markSentFrame(connection, frame, serialized);
+      connection.ws.send(serialized, () => {
         connection.pendingFrameCount = Math.max(0, (connection.pendingFrameCount || 0) - 1);
       });
     } catch (error) {
@@ -409,6 +413,11 @@ class NotificationHub {
       if (!this.isLiveSubscriptionAuthorized(connection, subscription)) continue;
       if (subscription.replaying) {
         subscription.queuedLiveEvents.push(event);
+        this.markConversationFrame('ws.event.enqueued', {
+          connection,
+          event,
+          queueDepth: subscription.queuedLiveEvents.length
+        });
         continue;
       }
       this.send(connection, frame);
@@ -463,6 +472,36 @@ class NotificationHub {
       this.removeSubscription(connection, key);
     }
     connection.subscriptions.clear();
+  }
+
+  markSentFrame(connection, frame, serialized) {
+    const event = frame?.payload;
+    if (!event || frame.type !== 'event') return;
+    this.markConversationFrame('ws.event.sent', {
+      connection,
+      event,
+      byteLength: Buffer.byteLength(serialized, 'utf8'),
+      queueDepth: connection.pendingFrameCount || 0
+    });
+  }
+
+  markConversationFrame(name, { connection, event, byteLength = null, queueDepth = null }) {
+    if (!this.perfTracer || typeof this.perfTracer.mark !== 'function') return;
+    try {
+      this.perfTracer.mark({
+        name,
+        conversationId: event.conversationId,
+        seq: event.seq ?? null,
+        eventType: event.type || null,
+        metadata: {
+          eventType: event.type || 'unknown',
+          queueDepth,
+          byteLength
+        }
+      });
+    } catch {
+      // Perf tracing is best-effort and must not affect notification delivery.
+    }
   }
 }
 

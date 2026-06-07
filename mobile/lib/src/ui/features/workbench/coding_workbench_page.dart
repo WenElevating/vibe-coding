@@ -117,6 +117,66 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   bool get _useReverseTranscript =>
       _bottomAnchorTranscript && !_bottomAnchorTranscriptUnderflow;
 
+  void _markTrace(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    widget.dependencies.performanceTracePublisher?.mark(
+      name,
+      conversationId: conversationId,
+      seq: seq,
+      eventType: eventType,
+      correlationId: correlationId,
+      critical: critical,
+      metadata: metadata,
+    );
+  }
+
+  void _markTraceForEvent(
+    String name,
+    ConversationEvent event, {
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    _markTrace(
+      name,
+      conversationId: event.conversationId,
+      seq: event.seq,
+      eventType: event.type,
+      correlationId: _conversationEventCorrelationId(event),
+      critical: critical,
+      metadata: metadata,
+    );
+  }
+
+  void _markTraceAfterFrame(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _markTrace(
+        name,
+        conversationId: conversationId,
+        seq: seq,
+        eventType: eventType,
+        correlationId: correlationId,
+        critical: critical,
+        metadata: metadata,
+      );
+    });
+  }
+
   Future<bool> handleSystemBack() async {
     if (_currentRoute == _routeWorkspaces) return false;
     final navigator = _navigatorKey.currentState;
@@ -229,6 +289,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
         _routeConversation, (route) => route.settings.name == _routeSessions);
+    _markTrace(
+      'conversation.page.opened',
+      conversationId: _activeConversationId,
+      metadata: <String, Object?>{
+        'route': _routeConversation,
+      },
+    );
   }
 
   void _resetConversationState({bool bottomAnchorTranscript = false}) {
@@ -345,6 +412,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     required int generation,
     required bool streamOutput,
   }) async {
+    _markTrace(
+      'history.first_page.started',
+      conversationId: conversationId,
+      metadata: const <String, Object?>{
+        'pageSize': _conversationHistoryPageSize,
+      },
+    );
     await _workbenchViewModel.loadInitialConversationEventPage(
       conversationId: conversationId,
       limit: _conversationHistoryPageSize,
@@ -354,6 +428,46 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         runId: runId,
         generation: generation,
       ),
+      onFirstPageApplied: () {
+        if (!_isCurrentConversationEventTarget(
+          conversationId: conversationId,
+          runId: runId,
+          generation: generation,
+        )) {
+          return;
+        }
+        _markTrace(
+          'history.first_page.applied',
+          conversationId: conversationId,
+          critical: true,
+          metadata: <String, Object?>{
+            'eventCount': _conversationEvents.length,
+          },
+        );
+        _markTraceAfterFrame(
+          'event.frame.rendered',
+          conversationId: conversationId,
+          critical: true,
+          metadata: <String, Object?>{
+            'eventCount': _conversationEvents.length,
+          },
+        );
+      },
+    );
+    if (!_isCurrentConversationEventTarget(
+      conversationId: conversationId,
+      runId: runId,
+      generation: generation,
+    )) {
+      return;
+    }
+    _markTrace(
+      'history.backfill.completed',
+      conversationId: conversationId,
+      critical: true,
+      metadata: <String, Object?>{
+        'eventCount': _conversationEvents.length,
+      },
     );
   }
 
@@ -1078,17 +1192,38 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _goToWorkspaces();
       return;
     }
+    final validDraftAttachmentCount = _workbenchViewModel.draftAttachments
+        .where((item) => item.isValid)
+        .length;
+    final sendRoute = _activeConversationId == null
+        ? 'new'
+        : pendingQuestionId != null && pendingQuestionId.isNotEmpty
+            ? 'answer'
+            : 'existing';
+    _markTrace(
+      'send.tap',
+      conversationId: _activeConversationId,
+      critical: true,
+      metadata: <String, Object?>{
+        'route': sendRoute,
+      },
+    );
     setState(() {
       _clearInitialConversationLoadingGate();
       _workbenchViewModel.beginOperation(notify: false);
-      final hasDraftAttachment =
-          _workbenchViewModel.draftAttachments.any((item) => item.isValid);
-      if (prompt.isNotEmpty || hasDraftAttachment) {
+      if (prompt.isNotEmpty || validDraftAttachmentCount > 0) {
         _workbenchViewModel.addUserMessage(prompt,
             includeDraftAttachments: true, notify: false);
       }
       _prompt.clear();
     });
+    _markTraceAfterFrame(
+      'send.optimistic.rendered',
+      conversationId: _activeConversationId,
+      metadata: <String, Object?>{
+        'route': sendRoute,
+      },
+    );
     _scrollToBottom();
     ConversationSummary? restoreConversationAfterExistingSendFailure;
     try {
@@ -1099,6 +1234,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                 ? _workbenchViewModel.selectedModel
                 : null;
         final sendStartSeq = _workbenchViewModel.lastSeq;
+        _markTrace(
+          'send.http.started',
+          conversationId: existingConversationId,
+          metadata: const <String, Object?>{'route': 'new'},
+        );
         final result = await _workbenchViewModel.createAndSend(
           workspace: routeWorkspace!,
           prompt: prompt,
@@ -1117,6 +1257,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         await _restartConversationEventSubscription();
         final updated = await result.updatedConversation;
         if (mounted) {
+          _markTrace(
+            'send.http.completed',
+            conversationId: updated.id,
+            critical: true,
+            metadata: <String, Object?>{
+              'route': 'new',
+            },
+          );
           setState(() {
             _applyConversationSendAcknowledgement(
               updated,
@@ -1125,6 +1273,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           });
         }
       } else if (pendingQuestionId != null && pendingQuestionId.isNotEmpty) {
+        _markTrace(
+          'send.http.started',
+          conversationId: existingConversationId,
+          metadata: const <String, Object?>{'route': 'answer'},
+        );
         final conversation =
             await _workbenchViewModel.answerConversationQuestion(
           conversationId: existingConversationId,
@@ -1132,6 +1285,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           text: prompt,
         );
         if (!mounted) return;
+        _markTrace(
+          'send.http.completed',
+          conversationId: conversation.id,
+          critical: true,
+          metadata: <String, Object?>{
+            'route': 'answer',
+          },
+        );
         setState(() {
           _workbenchViewModel.updateActiveConversation(conversation,
               notify: false);
@@ -1144,12 +1305,25 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         setState(() {
           _workbenchViewModel.markConversationRunning(notify: false);
         });
+        _markTrace(
+          'send.http.started',
+          conversationId: existingConversationId,
+          metadata: const <String, Object?>{'route': 'existing'},
+        );
         final conversation =
             await _workbenchViewModel.sendExistingConversationPrompt(
           conversationId: existingConversationId,
           prompt: prompt,
         );
         if (mounted) {
+          _markTrace(
+            'send.http.completed',
+            conversationId: conversation.id,
+            critical: true,
+            metadata: <String, Object?>{
+              'route': 'existing',
+            },
+          );
           setState(() {
             _applyConversationSendAcknowledgement(
               conversation,
@@ -1326,8 +1500,27 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     if (changed) {
+      _markTraceForEvent(
+        'reducer.applied',
+        event,
+        critical: true,
+        metadata: <String, Object?>{
+          'eventCount': _conversationEvents.length,
+        },
+      );
       _publishApprovalNotificationEvent(event);
       _scrollToBottom();
+      _markTraceAfterFrame(
+        'event.frame.rendered',
+        conversationId: event.conversationId,
+        seq: event.seq,
+        eventType: event.type,
+        correlationId: _conversationEventCorrelationId(event),
+        critical: true,
+        metadata: <String, Object?>{
+          'eventCount': _conversationEvents.length,
+        },
+      );
     }
   }
 
@@ -1763,6 +1956,9 @@ class _WorkbenchTraceError {
   final String message;
   final String? traceId;
 }
+
+String _conversationEventCorrelationId(ConversationEvent event) =>
+    '${event.conversationId}:${event.seq}';
 
 class _CodingRouteObserver extends NavigatorObserver {
   _CodingRouteObserver(this.onRouteChanged);

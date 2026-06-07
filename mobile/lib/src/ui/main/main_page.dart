@@ -13,6 +13,8 @@ import '../../models/protocol.dart';
 import '../../services/approval_notification_handler.dart';
 import '../../services/local_approval_notification_service.dart';
 import '../../services/mobile_app_event_bus.dart';
+import '../../services/performance_trace_publisher.dart';
+import '../../services/performance_trace_reporter.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../features/codex_app_server/codex_app_server.dart';
@@ -60,6 +62,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   SettingsViewModel? _settingsViewModel;
   late final MobileAppEventBus _mobileAppEventBus;
   late final ApprovalNotificationHandler _approvalNotificationHandler;
+  PerformanceTracePublisher? _performanceTracePublisher;
+  PerformanceTraceReporter? _performanceTraceReporter;
   StreamSubscription<ApprovalNotificationTap>?
       _approvalNotificationTapSubscription;
   late ConnectedDataDependencies _connectedData;
@@ -86,9 +90,16 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     );
     _approvalNotificationTapSubscription = _approvalNotificationHandler.taps
         .listen(_handleApprovalNotificationTap);
+    _createPerformanceTraceReporter();
     _connectedData = widget.pageDependencies.connectedData;
     _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-        .copyWith(mobileAppEventBus: _mobileAppEventBus);
+        .copyWith(
+          mobileAppEventBus: _mobileAppEventBus,
+          performanceTracePublisher: _performanceTracePublisher,
+        );
+    _connectedData.setNotificationTraceMarkRecorder(
+      _recordNotificationTraceMark,
+    );
     widget.pageDependencies.codingPreferencesRepository.addListener(
       _handleCodingPreferencesRepositoryChanged,
     );
@@ -113,10 +124,20 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
           _handleCodingPreferencesRepositoryChanged,
         );
       }
+      _disposePerformanceTraceReporter();
+      oldWidget.pageDependencies.connectedData
+          .setNotificationTraceMarkRecorder(null);
+      _createPerformanceTraceReporter();
       final oldWorkbenchDependencies = _workbenchDependencies;
       _connectedData = widget.pageDependencies.connectedData;
       _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-          .copyWith(mobileAppEventBus: _mobileAppEventBus);
+          .copyWith(
+            mobileAppEventBus: _mobileAppEventBus,
+            performanceTracePublisher: _performanceTracePublisher,
+          );
+      _connectedData.setNotificationTraceMarkRecorder(
+        _recordNotificationTraceMark,
+      );
       _disposeAppUpdateViewModel();
       _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
@@ -160,6 +181,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     );
     unawaited(_approvalNotificationTapSubscription?.cancel());
     unawaited(_approvalNotificationHandler.dispose());
+    _connectedData.setNotificationTraceMarkRecorder(null);
+    _disposePerformanceTraceReporter();
     unawaited(_mobileAppEventBus.dispose());
     _disposeWorkbenchDependencies(_workbenchDependencies);
     _disposeRepositoryBackedViewModels();
@@ -175,6 +198,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       unawaited(_handleAppUpdateForeground(AppUpdateCheckTrigger.appResumed));
       return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      unawaited(_performanceTraceReporter?.flushForLifecyclePause());
     }
     final viewModel = _appUpdateViewModel;
     if (viewModel != null) {
@@ -262,6 +289,50 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         'reason': reason,
       },
       path: 'app_update',
+    );
+  }
+
+  void _createPerformanceTraceReporter() {
+    final publisher = PerformanceTracePublisher(eventBus: _mobileAppEventBus);
+    final reporter = PerformanceTraceReporter(
+      eventBus: _mobileAppEventBus,
+      publisher: publisher,
+      client: widget.pageDependencies.performanceTraceClient,
+      startupBuffer: widget.pageDependencies.performanceTraceStartupBuffer,
+      appSessionId: widget.pageDependencies.performanceTraceAppSessionId,
+      deviceIdProvider:
+          widget.pageDependencies.performanceTraceDeviceIdProvider,
+    );
+    _performanceTracePublisher = publisher;
+    _performanceTraceReporter = reporter;
+    unawaited(reporter.start());
+  }
+
+  void _disposePerformanceTraceReporter() {
+    final reporter = _performanceTraceReporter;
+    _performanceTraceReporter = null;
+    _performanceTracePublisher?.setEnabled(false);
+    _performanceTracePublisher = null;
+    unawaited(reporter?.dispose());
+  }
+
+  void _recordNotificationTraceMark(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    _performanceTracePublisher?.mark(
+      name,
+      conversationId: conversationId,
+      seq: seq,
+      eventType: eventType,
+      correlationId: correlationId,
+      critical: critical,
+      metadata: metadata,
     );
   }
 

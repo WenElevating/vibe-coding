@@ -7,14 +7,18 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { eventTypes, errorCodes } = require('./protocol');
 const { tryHandleCodexAppServerRoute } = require('./codex-app-server/routes');
+const { handlePerfRoute } = require('./perf-routes');
 
-function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, codexAppServerEnabled = true, auditLog = null }) {
+function createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService = null, codexAppServerApprovalPolicy = null, codexAppServerEnabled = true, auditLog = null, perfConfig = null, perfStore = null, perfTracer = null }) {
   const serverContext = {
     auth,
     workspaces,
     codexAppServerService,
     codexAppServerEnabled,
-    auditLog
+    auditLog,
+    perfConfig,
+    perfStore,
+    perfTracer
   };
   const server = http.createServer(async (req, res) => {
     try {
@@ -37,6 +41,17 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       }
 
       const device = auth.authenticate(req.headers.authorization);
+
+      const handledPerf = await handlePerfRoute({
+        method,
+        url,
+        device,
+        readJson: () => readJson(req),
+        json: (status, body, headers) => json(res, status, body, headers),
+        perfConfig,
+        perfStore
+      });
+      if (handledPerf) return;
 
       if (method === 'GET' && url.pathname === '/api/app-updates/android/latest') {
         await appUpdates.sendLatest(req, res);
@@ -171,15 +186,29 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       }
       const conversationMessages = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (method === 'POST' && conversationMessages) {
+        markPerf(serverContext.perfTracer, 'http.conversation.request.received', {
+          conversationId: conversationMessages[1],
+          metadata: { route: '/api/conversations/:conversationId/messages' }
+        });
         const contentType = String(req.headers['content-type'] || '').toLowerCase();
         if (contentType.startsWith('multipart/form-data')) {
-          return json(res, 200, {
+          const body = {
             conversation: await conversations.sendMultipartMessage(conversationMessages[1], req, device)
+          };
+          markPerf(serverContext.perfTracer, 'http.conversation.response.sent', {
+            conversationId: conversationMessages[1],
+            metadata: { route: '/api/conversations/:conversationId/messages', statusCode: 200 }
           });
+          return json(res, 200, body);
         }
-        return json(res, 200, {
+        const body = {
           conversation: await conversations.sendMessage(conversationMessages[1], await readJson(req), device)
+        };
+        markPerf(serverContext.perfTracer, 'http.conversation.response.sent', {
+          conversationId: conversationMessages[1],
+          metadata: { route: '/api/conversations/:conversationId/messages', statusCode: 200 }
         });
+        return json(res, 200, body);
       }
       const conversationQuestion = url.pathname.match(/^\/api\/conversations\/([^/]+)\/questions\/respond$/);
       if (method === 'POST' && conversationQuestion) return json(res, 200, { conversation: await conversations.answerQuestion(conversationQuestion[1], await readJson(req), device) });
@@ -360,6 +389,21 @@ async function listDirectory(targetPath, allowedRoots) {
   return { path: resolved, parent: path.dirname(resolved) === resolved ? null : path.dirname(resolved), directories };
 }
 function json(res, status, body, headers = {}) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(body)); }
+function markPerf(perfTracer, name, input = {}) {
+  if (!perfTracer || typeof perfTracer.mark !== 'function') return;
+  try {
+    perfTracer.mark({
+      name,
+      conversationId: input.conversationId ?? null,
+      seq: input.seq ?? null,
+      eventType: input.eventType ?? null,
+      correlationId: input.correlationId ?? null,
+      metadata: input.metadata ?? {}
+    });
+  } catch {
+    // Perf marks are best-effort and must not affect HTTP handling.
+  }
+}
 async function readJson(req) {
   const chunks = [];
   let total = 0;
