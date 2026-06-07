@@ -754,13 +754,7 @@ class _ImmediateConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
   }
 }
 
-class _PendingAdapterClient extends DaemonClient {
-  _PendingAdapterClient()
-      : super(
-            baseUri: Uri.parse('http://127.0.0.1:4317'),
-            tokenStore: MemoryTokenStore());
-
-  int listAdaptersCalls = 0;
+class _PendingAdapterClient extends _AdapterRefreshClient {
   bool completeCatalogWithError = false;
   Completer<List<AdapterStatus>> adaptersCompleter =
       Completer<List<AdapterStatus>>();
@@ -2972,7 +2966,7 @@ void main() {
 
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Current Project'));
+    await tester.tap(find.text('Current Project').last);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -3593,7 +3587,7 @@ void main() {
 
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Current Project'));
+    await tester.tap(find.text('Current Project').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Codex task lazy'));
     await tester.pumpAndSettle();
@@ -6235,7 +6229,7 @@ void main() {
     expect(find.text('synthetic-text'), findsNothing);
   });
 
-  testWidgets('coding waits for pending adapter preload',
+  testWidgets('coding keeps workspace UI visible during adapter preload',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -6249,8 +6243,8 @@ void main() {
     await tester.tap(find.text('Coding'));
     await tester.pump();
 
-    expect(find.text('Loading CLI...'), findsOneWidget);
-    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+    expect(find.text('Loading CLI...'), findsNothing);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
     expect(find.text('New Session'), findsNothing);
     expect(client.listAdaptersCalls, 1);
@@ -6258,7 +6252,6 @@ void main() {
     client.completeWithAdapters();
     await tester.pumpAndSettle();
 
-    expect(find.text('Loading CLI...'), findsNothing);
     expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
   });
 
@@ -6276,21 +6269,28 @@ void main() {
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Unable to load CLI adapters'), findsOneWidget);
-    expect(find.text('Retry loading CLI'), findsOneWidget);
+    expect(find.text('Unable to load CLI adapters'), findsNothing);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
 
     client.resetCompleter();
-    await tester.tap(find.text('Retry loading CLI'));
+    await tester.tap(find.text('Current Project').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(find.text(l10n.workbenchAdapterUnavailableTitle), findsOneWidget);
+
+    await tester.tap(find.text(l10n.workbenchAdapterRetryAction));
     await tester.pump();
 
-    expect(find.text('Loading CLI...'), findsOneWidget);
+    expect(find.text(l10n.workbenchAdapterLoadingTitle), findsOneWidget);
     expect(client.listAdaptersCalls, 2);
 
     client.completeWithAdapters();
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
-    expect(find.text('Unable to load CLI adapters'), findsNothing);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(find.text(l10n.workbenchAdapterUnavailableTitle), findsNothing);
+    expect(find.text(l10n.workbenchAdapterLoadingTitle), findsNothing);
   });
 
   testWidgets('coding gate ignores command catalog failure after adapters load',

@@ -11,6 +11,7 @@ class WorkbenchSessionRoute extends StatelessWidget {
     required this.onNewSession,
     required this.onSelectItem,
     required this.onBackToWorkspaces,
+    this.adapterStatusBanner,
   });
 
   final List<SessionItem> items;
@@ -18,6 +19,7 @@ class WorkbenchSessionRoute extends StatelessWidget {
   final VoidCallback onNewSession;
   final ValueChanged<SessionItem> onSelectItem;
   final VoidCallback onBackToWorkspaces;
+  final Widget? adapterStatusBanner;
 
   @override
   Widget build(BuildContext context) => CodingSessionListPage(
@@ -26,5 +28,6 @@ class WorkbenchSessionRoute extends StatelessWidget {
         onNewSession: onNewSession,
         onSelectItem: onSelectItem,
         onBackToWorkspaces: onBackToWorkspaces,
+        headerBanner: adapterStatusBanner,
       );
 }

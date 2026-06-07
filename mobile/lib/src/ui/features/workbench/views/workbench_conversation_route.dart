@@ -30,6 +30,7 @@ class WorkbenchConversationRoute extends StatelessWidget {
     required this.promptController,
     required this.messageList,
     this.approvalPrompt,
+    this.adapterStatusBanner,
     required this.onBack,
     required this.onSlashCommandSelected,
     required this.onAttachmentTap,
@@ -62,6 +63,7 @@ class WorkbenchConversationRoute extends StatelessWidget {
   final TextEditingController promptController;
   final Widget messageList;
   final Widget? approvalPrompt;
+  final Widget? adapterStatusBanner;
   final VoidCallback onBack;
   final ValueChanged<SlashCommand> onSlashCommandSelected;
   final VoidCallback onAttachmentTap;
@@ -98,6 +100,11 @@ class WorkbenchConversationRoute extends StatelessWidget {
           ),
         ),
         Expanded(child: messageList),
+        if (approvalPrompt == null && adapterStatusBanner != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(29, 0, 29, 6),
+            child: adapterStatusBanner!,
+          ),
         approvalPrompt ??
             CodingComposer(
               controller: promptController,

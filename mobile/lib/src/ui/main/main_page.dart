@@ -26,7 +26,6 @@ import '../features/settings/settings.dart'
         SettingsViewModel;
 import '../features/workbench/workbench.dart';
 import '../pages/coding/coding_page.dart';
-import 'coding_adapter_gate.dart';
 import 'connected_main_shell.dart';
 import 'main_shell_view_model.dart';
 
@@ -92,11 +91,11 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         .listen(_handleApprovalNotificationTap);
     _createPerformanceTraceReporter();
     _connectedData = widget.pageDependencies.connectedData;
-    _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-        .copyWith(
-          mobileAppEventBus: _mobileAppEventBus,
-          performanceTracePublisher: _performanceTracePublisher,
-        );
+    _workbenchDependencies =
+        widget.pageDependencies.workbenchDependencies.copyWith(
+      mobileAppEventBus: _mobileAppEventBus,
+      performanceTracePublisher: _performanceTracePublisher,
+    );
     _connectedData.setNotificationTraceMarkRecorder(
       _recordNotificationTraceMark,
     );
@@ -130,11 +129,11 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       _createPerformanceTraceReporter();
       final oldWorkbenchDependencies = _workbenchDependencies;
       _connectedData = widget.pageDependencies.connectedData;
-      _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-          .copyWith(
-            mobileAppEventBus: _mobileAppEventBus,
-            performanceTracePublisher: _performanceTracePublisher,
-          );
+      _workbenchDependencies =
+          widget.pageDependencies.workbenchDependencies.copyWith(
+        mobileAppEventBus: _mobileAppEventBus,
+        performanceTracePublisher: _performanceTracePublisher,
+      );
       _connectedData.setNotificationTraceMarkRecorder(
         _recordNotificationTraceMark,
       );
@@ -639,13 +638,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   Widget _buildCodingTabContent(MainShellViewModel viewModel) {
     final adapterRepo = _repositories.cliAdapterRepository;
-    if (adapterRepo.loading || adapterRepo.error != null) {
-      return CodingAdapterGate(
-        failed: adapterRepo.error != null,
-        error: adapterRepo.error,
-        onRetry: _retryCodingAdapters,
-      );
-    }
     return CodingPage(
       workbenchDependencies: _workbenchDependencies,
       workbenchKey: _codingWorkbenchKey,
@@ -656,6 +648,9 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       expandThinking: viewModel.expandThinking,
       expandToolDetails: viewModel.expandToolDetails,
       permissionMode: viewModel.permissionMode,
+      adapterLoading: adapterRepo.loading,
+      adapterError: adapterRepo.error,
+      onRetryAdapters: _retryCodingAdapters,
     );
   }
 }

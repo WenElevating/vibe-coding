@@ -15,12 +15,14 @@ class CodingSessionListPage extends StatelessWidget {
       required this.currentWorkspace,
       required this.onNewSession,
       required this.onSelectItem,
-      required this.onBackToWorkspaces});
+      required this.onBackToWorkspaces,
+      this.headerBanner});
   final List<SessionItem> items;
   final WorkspaceSummary currentWorkspace;
   final VoidCallback onNewSession;
   final ValueChanged<SessionItem> onSelectItem;
   final VoidCallback onBackToWorkspaces;
+  final Widget? headerBanner;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +76,10 @@ class CodingSessionListPage extends StatelessWidget {
           child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
               children: [
+            if (headerBanner != null) ...[
+              headerBanner!,
+              const SizedBox(height: 12),
+            ],
             const _SessionSearchBox(),
             const SizedBox(height: 14),
             _SessionGroupHeader(

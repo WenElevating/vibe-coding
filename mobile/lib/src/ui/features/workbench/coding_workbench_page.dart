@@ -43,6 +43,9 @@ class CodingWorkbenchPage extends StatefulWidget {
     required this.expandThinking,
     this.expandToolDetails = false,
     required this.permissionMode,
+    this.adapterLoading = false,
+    this.adapterError,
+    this.onRetryAdapters,
     required this.dependencies,
     this.speechInputService,
   });
@@ -53,6 +56,9 @@ class CodingWorkbenchPage extends StatefulWidget {
   final bool expandThinking;
   final bool expandToolDetails;
   final String permissionMode;
+  final bool adapterLoading;
+  final Object? adapterError;
+  final VoidCallback? onRetryAdapters;
   final SpeechInputService? speechInputService;
   final WorkbenchDependencies dependencies;
 
@@ -1775,6 +1781,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       onNewSession: _startNewSessionFromList,
       onSelectItem: _openSession,
       onBackToWorkspaces: _returnToWorkspaceList,
+      adapterStatusBanner: _adapterStatusBanner(),
     );
   }
 
@@ -1854,6 +1861,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
                 }
               },
             ),
+      adapterStatusBanner: _adapterStatusBanner(compact: true),
       onBack: () => _navigatorKey.currentState
           ?.popUntil((route) => route.settings.name == _routeSessions),
       onSlashCommandSelected: _insertSlashCommand,
@@ -1868,6 +1876,30 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       onSend: _sendPrompt,
       onCancel: _cancelActiveRun,
       onWorkspaceTap: _showWorkspacePicker,
+    );
+  }
+
+  Widget? _adapterStatusBanner({bool compact = false}) {
+    final l10n = AppLocalizations.of(context);
+    final error = widget.adapterError;
+    if (error != null) {
+      return _AdapterStatusBanner(
+        key: const ValueKey('coding-adapter-status-banner'),
+        icon: Icons.error_outline_rounded,
+        title: l10n.workbenchAdapterUnavailableTitle,
+        detail: '$error',
+        actionLabel: l10n.workbenchAdapterRetryAction,
+        onAction: widget.onRetryAdapters,
+        compact: compact,
+      );
+    }
+    if (!widget.adapterLoading) return null;
+    return _AdapterStatusBanner(
+      key: const ValueKey('coding-adapter-status-banner'),
+      icon: Icons.sync_rounded,
+      title: l10n.workbenchAdapterLoadingTitle,
+      detail: l10n.workbenchAdapterLoadingDetail,
+      compact: compact,
     );
   }
 
@@ -1955,6 +1987,97 @@ class _WorkbenchTraceError {
 
   final String message;
   final String? traceId;
+}
+
+class _AdapterStatusBanner extends StatelessWidget {
+  const _AdapterStatusBanner({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.detail,
+    this.actionLabel,
+    this.onAction,
+    this.compact = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding:
+            EdgeInsets.fromLTRB(12, compact ? 9 : 10, 10, compact ? 9 : 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101113),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: .075)),
+        ),
+        child: Row(children: [
+          Icon(icon, color: theme.muted, size: 17),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: theme.muted,
+                      fontSize: 11.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(width: 10),
+            InkWell(
+              onTap: onAction,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                height: 30,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .055),
+                  borderRadius: BorderRadius.circular(10),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .08)),
+                ),
+                child: Text(
+                  actionLabel!,
+                  style: const TextStyle(
+                    color: theme.text,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ]),
+      );
 }
 
 String _conversationEventCorrelationId(ConversationEvent event) =>

@@ -13,6 +13,9 @@ class CodingPage extends StatelessWidget {
     required this.expandThinking,
     this.expandToolDetails = false,
     required this.permissionMode,
+    required this.adapterLoading,
+    required this.adapterError,
+    required this.onRetryAdapters,
   });
 
   final VoidCallback onBack;
@@ -24,6 +27,9 @@ class CodingPage extends StatelessWidget {
   final bool expandThinking;
   final bool expandToolDetails;
   final String permissionMode;
+  final bool adapterLoading;
+  final Object? adapterError;
+  final VoidCallback onRetryAdapters;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +42,9 @@ class CodingPage extends StatelessWidget {
       expandThinking: expandThinking,
       expandToolDetails: expandToolDetails,
       permissionMode: permissionMode,
+      adapterLoading: adapterLoading,
+      adapterError: adapterError,
+      onRetryAdapters: onRetryAdapters,
       dependencies: workbenchDependencies,
     );
   }
