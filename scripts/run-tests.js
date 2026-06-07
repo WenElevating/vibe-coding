@@ -279,6 +279,1744 @@ test('OpenCode smoke helper parses SSE events', () => {
   assert.equal(frames[1].session_id, 'sess_1');
 });
 
+test('OpenCode event mapper maps idle, errors, assistant deltas, and permissions', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+
+  assert.deepEqual(mapOpenCodeEvent({ type: 'session.idle', sessionID: 'sess_1' }), {
+    type: conversationEventTypes.CONVERSATION_COMPLETED,
+    sessionId: 'sess_1',
+    rawType: 'session.idle'
+  });
+
+  const sessionError = mapOpenCodeEvent({
+    type: 'session.error',
+    sessionID: 'sess_1',
+    message: 'provider failed',
+    error: {
+      message: 'provider failed',
+      detail: 'x'.repeat(10000),
+      path: path.join(os.tmpdir(), 'opencode-secret', 'error.txt')
+    }
+  });
+  assert.equal(sessionError.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(sessionError.sessionId, 'sess_1');
+  assert.equal(sessionError.message, 'provider failed');
+  assert.equal(sessionError.code, 'OPENCODE_SESSION_ERROR');
+  assert.equal(sessionError.rawType, 'session.error');
+  assert.equal(sessionError.details.message, 'provider failed');
+  assert.equal(sessionError.details.detail.length <= 512, true);
+  assert.equal(sessionError.details.path, '[Redacted path]');
+
+  assert.deepEqual(mapOpenCodeEvent({
+    type: 'message.part.delta',
+    session_id: 'sess_1',
+    part: { type: 'text', text: 'hello' }
+  }), {
+    type: conversationEventTypes.ASSISTANT_PARTIAL,
+    sessionId: 'sess_1',
+    text: 'hello',
+    rawType: 'message.part.delta'
+  });
+
+  const approval = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_1',
+    toolCallID: 'tool_1',
+    tool: 'bash',
+    command: 'npm test'
+  });
+  assert.equal(approval.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(approval.sessionId, 'sess_1');
+  assert.equal(approval.approvalId, 'perm_1');
+  assert.equal(approval.toolUseId, 'tool_1');
+  assert.equal(approval.approvalOptions.kind, 'command');
+  assert.equal(approval.approvalOptions.supportsSessionScope, true);
+  assert.equal(approval.approvalOptions.supportsCancel, false);
+});
+
+test('OpenCode event mapper maps part kind reasoning deltas as thinking', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    part: { kind: 'reasoning', text: 'thinking out loud' }
+  });
+
+  assert.equal(event.type, conversationEventTypes.ASSISTANT_THINKING);
+  assert.equal(event.sessionId, 'sess_1');
+  assert.equal(event.text, 'thinking out loud');
+});
+
+test('OpenCode event mapper prefers reasoning kind over text part type', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    part: { type: 'text', kind: 'reasoning', text: 'reasoning token' }
+  });
+
+  assert.equal(event.type, conversationEventTypes.ASSISTANT_THINKING);
+  assert.equal(event.text, 'reasoning token');
+});
+
+test('OpenCode event mapper maps session lifecycle events as known hidden notices', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const created = mapOpenCodeEvent({
+    type: 'session.created',
+    session: { id: 'sess_1', status: 'idle', title: 'OpenCode task' }
+  });
+  const updated = mapOpenCodeEvent({
+    type: 'session.updated',
+    sessionID: 'sess_1',
+    session: { id: 'sess_1', status: 'busy', title: 'OpenCode task' }
+  });
+
+  assert.equal(created.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(created.noticeKind, 'opencode_session_created');
+  assert.equal(created.visible, false);
+  assert.equal(created.sessionId, 'sess_1');
+  assert.equal(created.session.id, 'sess_1');
+  assert.equal(created.session.status, 'idle');
+  assert.equal(updated.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(updated.noticeKind, 'opencode_session_updated');
+  assert.equal(updated.visible, false);
+  assert.equal(updated.sessionId, 'sess_1');
+  assert.equal(updated.session.status, 'busy');
+});
+
+test('OpenCode session lifecycle notices redact path-like metadata', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const event = mapOpenCodeEvent({
+    type: 'session.updated',
+    sessionID: 'sess_1',
+    session: { id: 'sess_1', directory: outsideDir }
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_session_updated');
+  assert.equal(retained.includes(outsideDir), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper maps tool deltas and carries message part ids', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    messageID: 'msg_1',
+    partID: 'part_1',
+    part: {
+      kind: 'tool_call',
+      toolCallID: 'tool_1',
+      tool: 'bash',
+      text: 'stdout chunk'
+    }
+  });
+
+  assert.equal(event.type, conversationEventTypes.TOOL_DELTA);
+  assert.equal(event.sessionId, 'sess_1');
+  assert.equal(event.messageId, 'msg_1');
+  assert.equal(event.partId, 'part_1');
+  assert.equal(event.toolUseId, 'tool_1');
+  assert.equal(event.toolName, 'bash');
+  assert.equal(event.text, 'stdout chunk');
+});
+
+test('OpenCode event mapper maps message updates by role and part kind', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const assistant = mapOpenCodeEvent({
+    type: 'message.updated',
+    sessionID: 'sess_1',
+    message_id: 'msg_assistant',
+    message: { role: 'assistant', text: 'final answer' }
+  });
+  const toolStarted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    part_id: 'part_tool',
+    part: { type: 'tool_call', tool: 'bash', command: 'npm test', status: 'running' }
+  });
+  const toolCompleted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    partID: 'part_result',
+    part: { type: 'tool_result', toolCallID: 'tool_1', text: 'ok', status: 'completed' }
+  });
+  const userText = mapOpenCodeEvent({
+    type: 'message.updated',
+    sessionID: 'sess_1',
+    messageID: 'msg_user',
+    message: { role: 'user', text: 'do not echo as assistant' }
+  });
+
+  assert.equal(assistant.type, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.equal(assistant.messageId, 'msg_assistant');
+  assert.equal(assistant.text, 'final answer');
+  assert.equal(toolStarted.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(toolStarted.messageId, 'msg_tool');
+  assert.equal(toolStarted.partId, 'part_tool');
+  assert.equal(toolStarted.toolUseId, 'part_tool');
+  assert.equal(toolStarted.toolName, 'bash');
+  assert.equal(toolStarted.input.command, 'npm test');
+  assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(toolCompleted.partId, 'part_result');
+  assert.equal(toolCompleted.toolUseId, 'tool_1');
+  assert.equal(toolCompleted.text, 'ok');
+  assert.equal(toolCompleted.isError, false);
+  assert.equal(userText.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(userText.noticeKind, 'opencode_message_update');
+  assert.equal(userText.visible, false);
+});
+
+test('OpenCode tool update input paths are redacted and workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const outsidePath = path.join(outsideDir, 'tool-input.txt');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    part_id: 'part_tool',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command: `cat ${outsidePath}`,
+      status: 'running',
+      input: {
+        file_path: outsidePath,
+        cwd: outsideDir,
+        command: `cat ${outsidePath}`
+      }
+    }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper maps removals, watcher, and project events as known hidden notices', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const removedPart = mapOpenCodeEvent({
+    type: 'message.part.removed',
+    sessionID: 'sess_1',
+    messageID: 'msg_1',
+    partID: 'part_1'
+  });
+  const removedMessage = mapOpenCodeEvent({
+    type: 'message.removed',
+    sessionID: 'sess_1',
+    message_id: 'msg_2'
+  });
+  const watcher = mapOpenCodeEvent({
+    type: 'file.watcher.updated',
+    sessionID: 'sess_1',
+    path: 'src/index.js'
+  });
+  const project = mapOpenCodeEvent({
+    type: 'project.updated',
+    sessionID: 'sess_1',
+    project: { id: 'project_1', name: 'demo' }
+  });
+
+  assert.equal(removedPart.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(removedPart.noticeKind, 'opencode_message_part_removed');
+  assert.equal(removedPart.messageId, 'msg_1');
+  assert.equal(removedPart.partId, 'part_1');
+  assert.equal(removedMessage.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(removedMessage.noticeKind, 'opencode_message_removed');
+  assert.equal(removedMessage.messageId, 'msg_2');
+  assert.equal(watcher.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(watcher.noticeKind, 'opencode_file_watcher_updated');
+  assert.equal(watcher.visible, false);
+  assert.equal(project.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(project.noticeKind, 'opencode_project_updated');
+  assert.equal(project.visible, false);
+});
+
+test('OpenCode known hidden notices redact retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'watched.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.watcher.updated',
+    sessionID: 'sess_1',
+    path: outsidePath,
+    file: { path: outsidePath }
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_file_watcher_updated');
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff requires usable file diffs', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const invalid = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: 'changed.txt' }]
+  });
+  const valid = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: 'changed.txt', diff: '@@ -1 +1 @@\n-old\n+new' }]
+  });
+
+  assert.equal(invalid.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(invalid.noticeKind, 'opencode_session_diff');
+  assert.equal(invalid.visible, true);
+  assert.equal(valid.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(valid.sessionId, 'sess_1');
+  assert.equal(valid.files.length, 1);
+  assert.equal(valid.files[0].path, 'changed.txt');
+});
+
+test('OpenCode session.diff bounds file paths and redacts retained raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'diff.txt');
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{
+      path: outsidePath,
+      diff: `--- ${outsidePath}\n+++ ${outsidePath}\n@@ -1 +1 @@\n-old\n+new`
+    }]
+  }, { workspacePath });
+  const retained = JSON.stringify(event.raw);
+  const files = JSON.stringify(event.files);
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.files[0].path, 'diff.txt');
+  assert.equal(files.includes(outsidePath), false);
+  assert.equal(files.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff redacts Windows paths with spaces in diff and raw output', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{
+      path: 'changed.txt',
+      diff: `--- ${windowsPath}\n+++ ${windowsPath}\n@@ -1 +1 @@\n-old\n+new`
+    }]
+  });
+  const files = JSON.stringify(event.files);
+  const retained = JSON.stringify(event.raw);
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(files.includes(windowsPath), false);
+  assert.equal(files.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff caps summary and diff before path redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const hugePrefix = 'x'.repeat(5000);
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('diff redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'session.diff',
+        sessionID: 'sess_1',
+        summary: `${hugePrefix} ${windowsPath}`,
+        files: [{
+          path: 'changed.txt',
+          diff: `${hugePrefix} ${windowsPath}`
+        }]
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.summary.length <= 512, true);
+  assert.equal(event.files[0].diff.length <= 512, true);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(event.files[0].diff.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff bounds sparse file scanning and unsafe getters', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const files = [];
+  files.length = 1000;
+  files[0] = { path: 'changed.txt', diff: '@@ -1 +1 @@\n-old\n+new' };
+  Object.defineProperty(files, '5', {
+    enumerable: true,
+    get() {
+      throw new Error('file getter should be ignored');
+    }
+  });
+  Object.defineProperty(files, '30', {
+    enumerable: true,
+    get() {
+      throw new Error('file scan should be bounded');
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent({ type: 'session.diff', sessionID: 'sess_1', files });
+  });
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.files.length, 1);
+  assert.equal(event.files[0].path, 'changed.txt');
+});
+
+test('OpenCode unusable session.diff visible notice redacts retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'diff-metadata.txt');
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: outsidePath }]
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_session_diff');
+  assert.equal(event.visible, true);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper drops critical events without session id', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({ type: 'permission.asked', id: 'perm_missing' });
+  assert.equal(event.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(event.warning, 'opencode_critical_event_missing_session_id');
+  assert.equal(event.dispatchable, false);
+});
+
+test('OpenCode critical missing session warnings redact retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'missing-session.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    id: 'perm_missing',
+    input: { path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(event.dispatchable, false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper ignores inherited event fields', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = Object.create({ type: 'session.idle', sessionID: 'sess_inherited' });
+  const event = mapOpenCodeEvent(raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.visible, false);
+  assert.equal(event.sessionId, undefined);
+});
+
+test('OpenCode event mapper does not throw on unsafe event getters', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = {};
+  Object.defineProperty(raw, 'type', {
+    enumerable: true,
+    get() {
+      throw new Error('getter should not escape');
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent(raw);
+  });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.visible, false);
+});
+
+test('OpenCode permission input sanitizes prototype pollution keys', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const input = Object.create(null);
+  input.command = 'npm test';
+  Object.defineProperty(input, '__proto__', {
+    enumerable: true,
+    value: { polluted: true }
+  });
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_1',
+    input
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.input.command, 'npm test');
+  assert.equal(Object.getPrototypeOf(event.input), null);
+  assert.equal(Object.prototype.hasOwnProperty.call(event.input, '__proto__'), false);
+  assert.equal(event.input.polluted, undefined);
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test('OpenCode permission file paths are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_file',
+    filePath: outsidePath
+  }, { workspacePath });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'permission.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission nested file aliases are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'nested.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_nested_file',
+    file: { filePath: outsidePath }
+  }, { workspacePath });
+  const snakeCase = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_nested_file_snake',
+    file: { file_path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+  const retainedSnakeCase = JSON.stringify(snakeCase);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'nested.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+  assert.equal(snakeCase.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(snakeCase.approvalOptions.kind, 'file_change');
+  assert.equal(snakeCase.input.path, 'nested.txt');
+  assert.equal(retainedSnakeCase.includes(outsidePath), false);
+  assert.equal(retainedSnakeCase.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission input paths are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'input-permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_input_file',
+    input: { path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'input-permission.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission input path-like aliases are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const outsidePath = path.join(outsideDir, 'input-permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_input_alias_file',
+    input: { filePath: outsidePath, cwd: outsideDir }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'input-permission.txt');
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command and cwd redact outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'command-input.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_command_path',
+    command: `cat ${outsidePath}`,
+    cwd: path.dirname(outsidePath)
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'command');
+  assert.equal(event.approvalOptions.command.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.cwd.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.cwd.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(event.input.command.includes(outsidePath), false);
+  assert.equal(event.input.command.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command fields redact Windows paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsDir = 'C:\\Program Files\\opencode-secret';
+  const windowsPath = `${windowsDir}\\tool.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_path',
+    command: `type ${windowsPath}`,
+    cwd: windowsDir,
+    reason: `needs ${windowsPath}`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.cwd.includes(windowsDir), false);
+  assert.equal(event.approvalOptions.cwd.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.reason.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.reason.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(windowsPath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command redaction preserves trailing shell operations', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\file.txt';
+  const command = `type ${windowsPath} && del important.txt`;
+  const semicolonCommand = `type ${windowsPath}; echo done`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_tail',
+    command
+  });
+  const semicolon = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_semicolon_tail',
+    command: semicolonCommand
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.command.includes('&& del important.txt'), true);
+  assert.equal(event.summary.includes('&& del important.txt'), true);
+  assert.equal(semicolon.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(semicolon.approvalOptions.command.includes('; echo done'), true);
+  assert.equal(semicolon.summary.includes('; echo done'), true);
+});
+
+test('OpenCode command redaction preserves ordinary trailing arguments', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script.py';
+  const command = `python ${windowsPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_args',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_args',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('--delete important.txt'), true);
+  assert.equal(tool.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves arguments after extensionless Windows paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script';
+  const command = `python ${windowsPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_extensionless_args',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_extensionless_args',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('--delete important.txt'), true);
+  assert.equal(tool.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves positional args after extensionless Windows paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script';
+  const command = `python ${windowsPath} important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_extensionless_positional',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_extensionless_positional',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('important.txt'), true);
+  assert.equal(permission.summary.includes('important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('important.txt'), true);
+  assert.equal(tool.summary.includes('important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves approval context after switches and interpreter flags', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'robocopy_switches',
+      command: 'robocopy C:\\src D:\\dst /MIR',
+      visible: ['/MIR'],
+      hidden: ['C:\\src', 'D:\\dst']
+    },
+    {
+      id: 'cmd_slash_c',
+      command: 'cmd /c del important.txt',
+      visible: ['/c del important.txt'],
+      hidden: []
+    },
+    {
+      id: 'python_flagged_script',
+      command: 'python -u C:\\opencode-secret\\script ProductionDatabase --delete',
+      visible: ['ProductionDatabase --delete'],
+      hidden: ['C:\\opencode-secret\\script', 'opencode-secret']
+    }
+  ];
+
+  for (const item of cases) {
+    const permission = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: `perm_${item.id}`,
+      command: item.command
+    });
+    const tool = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      partID: `part_${item.id}`,
+      part: {
+        type: 'tool_call',
+        tool: 'bash',
+        command: item.command,
+        status: 'running'
+      }
+    });
+    const retained = JSON.stringify({ permission, tool });
+
+    assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+    for (const visible of item.visible) {
+      assert.equal(permission.approvalOptions.command.includes(visible), true, `${item.id} permission lost ${visible}`);
+      assert.equal(permission.summary.includes(visible), true, `${item.id} summary lost ${visible}`);
+      assert.equal(tool.input.command.includes(visible), true, `${item.id} tool input lost ${visible}`);
+      assert.equal(tool.summary.includes(visible), true, `${item.id} tool summary lost ${visible}`);
+    }
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} leaked ${hidden}`);
+    }
+  }
+});
+
+test('OpenCode command redaction fully redacts POSIX paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const posixPath = '/Users/John Doe/secret.txt';
+  const posixDir = '/Users/John Doe';
+  const multiWordPath = '/Users/John Q Doe';
+  const command = `cat ${posixPath} --delete`;
+  const multiWordCommand = `cat ${multiWordPath} --delete`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_posix_spaced_path',
+    command,
+    cwd: posixDir,
+    reason: `needs ${posixPath} --delete`
+  });
+  const multiWordPermission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_posix_multiword_path',
+    command: multiWordCommand,
+    cwd: multiWordPath,
+    reason: `needs ${multiWordPath} --delete`
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_posix_spaced_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      input: { command, cwd: posixDir },
+      status: 'running'
+    }
+  });
+  const multiWordTool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_posix_multiword_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command: multiWordCommand,
+      input: { command: multiWordCommand, cwd: multiWordPath },
+      status: 'running'
+    }
+  });
+  const unknown = mapOpenCodeEvent({
+    type: 'future.event',
+    command,
+    cwd: posixDir,
+    nested: { reason: `needs ${posixPath}` }
+  });
+  const retained = JSON.stringify({ permission, multiWordPermission, tool, multiWordTool, unknown });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes('--delete'), true);
+  assert.equal(permission.approvalOptions.reason.includes('--delete'), true);
+  assert.equal(permission.summary.includes('--delete'), true);
+  assert.equal(permission.input.command.includes('--delete'), true);
+  assert.equal(multiWordPermission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(multiWordPermission.approvalOptions.command.includes('--delete'), true);
+  assert.equal(multiWordPermission.approvalOptions.reason.includes('--delete'), true);
+  assert.equal(multiWordPermission.summary.includes('--delete'), true);
+  assert.equal(multiWordPermission.input.command.includes('--delete'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes('--delete'), true);
+  assert.equal(tool.summary.includes('--delete'), true);
+  assert.equal(multiWordTool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(multiWordTool.input.command.includes('--delete'), true);
+  assert.equal(multiWordTool.summary.includes('--delete'), true);
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  for (const text of [
+    permission.approvalOptions.command,
+    permission.approvalOptions.cwd,
+    permission.approvalOptions.reason,
+    permission.summary,
+    permission.input.command,
+    multiWordPermission.approvalOptions.command,
+    multiWordPermission.approvalOptions.cwd,
+    multiWordPermission.approvalOptions.reason,
+    multiWordPermission.summary,
+    multiWordPermission.input.command,
+    tool.input.command,
+    tool.input.cwd,
+    tool.summary,
+    multiWordTool.input.command,
+    multiWordTool.input.cwd,
+    multiWordTool.summary,
+    JSON.stringify(unknown.raw),
+    retained
+  ]) {
+    assert.equal(text.includes(posixPath), false);
+    assert.equal(text.includes(posixDir), false);
+    assert.equal(text.includes('/Users'), false);
+    assert.equal(text.includes('John Doe'), false);
+    assert.equal(text.includes('Doe/secret.txt'), false);
+    assert.equal(text.includes('secret.txt'), false);
+    assert.equal(text.includes(multiWordPath), false);
+    assert.equal(text.includes('John Q Doe'), false);
+    assert.equal(text.includes('Q Doe'), false);
+    assert.equal(text.includes('[Redacted path] Doe'), false);
+  }
+});
+
+test('OpenCode redaction fully redacts multi-word final path components across mapped fields', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'posix_multiword_file',
+      providerPath: '/Users/John Q Doe/Secret File.txt',
+      command: 'cat /Users/John Q Doe/Secret File.txt --delete',
+      hidden: [
+        '/Users/John Q Doe/Secret File.txt',
+        'File.txt',
+        'Secret File.txt',
+        'John Q Doe',
+        'Q Doe',
+        '[Redacted path] File.txt'
+      ]
+    },
+    {
+      id: 'windows_multiword_final_dir',
+      providerPath: 'C:\\Users\\John Q Doe',
+      command: 'type C:\\Users\\John Q Doe --delete',
+      hidden: [
+        'C:\\Users\\John Q Doe',
+        'Doe',
+        '[Redacted path] Doe'
+      ]
+    },
+    {
+      id: 'unc_multiword_final_dir',
+      providerPath: '\\\\server\\share\\Team Q Folder',
+      command: 'type \\\\server\\share\\Team Q Folder --delete',
+      hidden: [
+        '\\\\server\\share\\Team Q Folder',
+        'Folder',
+        '[Redacted path] Folder'
+      ]
+    }
+  ];
+
+  for (const item of cases) {
+    const permission = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: item.providerPath,
+      id: item.providerPath,
+      toolCallID: item.providerPath,
+      command: item.command,
+      cwd: item.providerPath,
+      reason: `needs ${item.providerPath} --delete`,
+      input: { command: item.command, cwd: item.providerPath }
+    });
+    const toolStarted = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: item.providerPath,
+      messageID: item.providerPath,
+      partID: item.providerPath,
+      part: {
+        type: 'tool_call',
+        toolCallID: item.providerPath,
+        tool: 'bash',
+        command: item.command,
+        input: { command: item.command, cwd: item.providerPath },
+        status: 'running'
+      }
+    });
+    const toolCompleted = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: item.providerPath,
+      messageID: item.providerPath,
+      partID: item.providerPath,
+      part: {
+        type: 'tool_result',
+        toolCallID: item.providerPath,
+        tool: 'bash',
+        status: item.providerPath,
+        text: 'done'
+      }
+    });
+    const resolved = mapOpenCodeEvent({
+      type: 'permission.replied',
+      sessionID: item.providerPath,
+      id: item.providerPath,
+      decision: item.providerPath
+    });
+    const status = mapOpenCodeEvent({
+      type: 'session.status',
+      sessionID: item.providerPath,
+      status: item.providerPath
+    });
+    const mappedTexts = [
+      permission.approvalOptions.command,
+      permission.approvalOptions.cwd,
+      permission.approvalOptions.reason,
+      permission.summary,
+      permission.input.command,
+      permission.input.cwd,
+      toolStarted.input.command,
+      toolStarted.input.cwd,
+      toolStarted.summary
+    ];
+    const providerFields = [
+      permission.sessionId,
+      permission.approvalId,
+      permission.toolUseId,
+      toolStarted.sessionId,
+      toolStarted.messageId,
+      toolStarted.partId,
+      toolStarted.toolUseId,
+      toolCompleted.sessionId,
+      toolCompleted.messageId,
+      toolCompleted.partId,
+      toolCompleted.toolUseId,
+      toolCompleted.status,
+      resolved.sessionId,
+      resolved.approvalId,
+      resolved.decision,
+      status.sessionId,
+      status.status
+    ];
+    const retained = JSON.stringify({ permission, toolStarted, toolCompleted, resolved, status });
+
+    assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(toolStarted.type, conversationEventTypes.TOOL_STARTED);
+    assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+    assert.equal(resolved.type, conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(status.type, conversationEventTypes.SYSTEM_NOTICE);
+    for (const text of [permission.approvalOptions.command, permission.summary, toolStarted.input.command, toolStarted.summary]) {
+      assert.equal(text.includes('--delete'), true, `${item.id} lost trailing approval context`);
+    }
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} retained ${hidden}`);
+      for (const text of mappedTexts) {
+        assert.equal(String(text || '').includes(hidden), false, `${item.id} mapped text retained ${hidden}`);
+      }
+      for (const field of providerFields) {
+        assert.equal(String(field || '').includes(hidden), false, `${item.id} provider field retained ${hidden}`);
+      }
+    }
+  }
+});
+
+test('OpenCode command redaction handles UNC paths and preserves trailing arguments', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const uncPath = '\\\\server\\share\\opencode-secret\\file.txt';
+  const command = `type ${uncPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_unc_path',
+    command
+  });
+  const retained = JSON.stringify(permission);
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(uncPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes(uncPath), false);
+  assert.equal(permission.summary.includes('opencode-secret'), false);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(uncPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves URLs while scanning UNC paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const command = 'curl https://example.com/api --delete important.txt';
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_url_not_unc',
+    command
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('https://example.com/api'), true);
+  assert.equal(event.approvalOptions.command.includes('https:[Redacted path]'), false);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('https://example.com/api'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+});
+
+test('OpenCode command redaction redacts final Windows path segments with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Users\\John Doe';
+  const command = `type ${windowsPath} --delete important.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_spaced_final',
+    command,
+    cwd: windowsPath,
+    reason: `needs ${windowsPath} --delete important.txt`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+  assert.equal(event.approvalOptions.command.includes('John Doe'), false);
+  assert.equal(event.approvalOptions.cwd.includes('John Doe'), false);
+  assert.equal(event.approvalOptions.reason.includes('John Doe'), false);
+  assert.equal(retained.includes('John Doe'), false);
+  assert.equal(retained.includes('Doe'), false);
+  assert.equal(retained.includes('Users'), false);
+});
+
+test('OpenCode command redaction redacts final UNC path segments with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const uncPath = '\\\\server\\share\\Team Folder';
+  const command = `type ${uncPath} --delete important.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_unc_spaced_final',
+    command,
+    reason: `needs ${uncPath} --delete important.txt`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+  assert.equal(event.approvalOptions.command.includes('Team Folder'), false);
+  assert.equal(event.approvalOptions.reason.includes('Team Folder'), false);
+  assert.equal(retained.includes('Team Folder'), false);
+  assert.equal(retained.includes('Folder'), false);
+  assert.equal(retained.includes('server'), false);
+  assert.equal(retained.includes('share'), false);
+});
+
+test('OpenCode direct command fields are bounded before redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const tail = 'x'.repeat(5000);
+  const windowsPath = 'C:\\opencode-secret\\script.py';
+  let permission;
+  let tool;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('command redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      permission = mapOpenCodeEvent({
+        type: 'permission.asked',
+        sessionID: 'sess_1',
+        id: 'perm_huge_direct_fields',
+        command: `python ${windowsPath} ${tail}`,
+        cwd: `${windowsPath} ${tail}`,
+        reason: `because ${windowsPath} ${tail}`,
+        toolName: `Tool ${windowsPath} ${tail}`
+      });
+      tool = mapOpenCodeEvent({
+        type: 'message.part.updated',
+        sessionID: 'sess_1',
+        partID: 'part_huge_direct_fields',
+        part: {
+          type: 'tool_call',
+          tool: `Tool ${windowsPath} ${tail}`,
+          command: `python ${windowsPath} ${tail}`,
+          status: 'running'
+        }
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(permission.approvalOptions.command.length <= 512, true);
+  assert.equal(permission.approvalOptions.cwd.length <= 512, true);
+  assert.equal(permission.approvalOptions.reason.length <= 512, true);
+  assert.equal(permission.toolName.length <= 512, true);
+  assert.equal(tool.input.command.length <= 512, true);
+  assert.equal(tool.summary.length <= 512, true);
+  assert.equal(JSON.stringify({ permission, tool }).includes('opencode-secret'), false);
+});
+
+test('OpenCode mapped approval and tool inputs copy bounded own keys', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const permissionInput = Object.create(null);
+  const toolInput = Object.create(null);
+  for (let index = 0; index < 100000; index += 1) {
+    permissionInput[`key_${index}`] = `value_${index}`;
+    toolInput[`key_${index}`] = `value_${index}`;
+  }
+
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_many_input_keys',
+    input: permissionInput
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_many_input_keys',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      status: 'running',
+      input: toolInput
+    }
+  });
+
+  assert.equal(Object.keys(permission.input).length <= 18, true);
+  assert.equal(Object.keys(tool.input).length <= 18, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(permission.input, 'key_99999'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(tool.input, 'key_99999'), false);
+});
+
+test('OpenCode direct file path metadata is bounded for permissions, files, and tools', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const hugeName = `${'x'.repeat(1024 * 1024)}.txt`;
+  const hugePath = path.join(os.tmpdir(), hugeName);
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_huge_file_path',
+    filePath: hugePath
+  });
+  const fileEdited = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    filePath: hugePath
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_huge_file_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      status: 'running',
+      filePath: hugePath
+    }
+  });
+  const retained = JSON.stringify({ permission, fileEdited, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.input.path.length <= 512, true);
+  assert.equal(permission.summary.length <= 512, true);
+  assert.equal(fileEdited.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(fileEdited.path.length <= 512, true);
+  assert.equal(fileEdited.text.length <= 512, true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.path.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(hugePath), false);
+});
+
+test('OpenCode mapped provider metadata fields are bounded outside raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const huge = 'x'.repeat(1024 * 1024);
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: huge,
+    id: huge,
+    toolCallID: huge,
+    command: 'npm test'
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: huge,
+    messageID: huge,
+    partID: huge,
+    part: {
+      type: 'tool_call',
+      toolCallID: huge,
+      tool: huge,
+      command: 'npm test',
+      status: 'running'
+    }
+  });
+  const session = mapOpenCodeEvent({
+    type: 'session.updated',
+    session: { id: huge }
+  });
+  const retained = JSON.stringify({ permission, tool, session });
+
+  assert.equal(permission.sessionId.length <= 512, true);
+  assert.equal(permission.approvalId.length <= 512, true);
+  assert.equal(permission.toolUseId.length <= 512, true);
+  assert.equal(tool.sessionId.length <= 512, true);
+  assert.equal(tool.messageId.length <= 512, true);
+  assert.equal(tool.partId.length <= 512, true);
+  assert.equal(tool.toolUseId.length <= 512, true);
+  assert.equal(tool.toolName.length <= 512, true);
+  assert.equal(session.sessionId.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(huge), false);
+});
+
+test('OpenCode mapped provider metadata ids and statuses redact path text', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const providerPath = 'C:\\opencode-secret\\id.txt';
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: providerPath,
+    id: providerPath,
+    toolCallID: providerPath,
+    command: 'npm test'
+  });
+  const toolDelta = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: providerPath,
+    messageID: providerPath,
+    partID: providerPath,
+    part: {
+      type: 'tool_call',
+      toolCallID: providerPath,
+      tool: 'bash',
+      text: 'running'
+    }
+  });
+  const toolCompleted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: providerPath,
+    messageID: providerPath,
+    partID: providerPath,
+    part: {
+      type: 'tool_result',
+      toolCallID: providerPath,
+      tool: 'bash',
+      status: providerPath,
+      text: 'done'
+    }
+  });
+  const resolved = mapOpenCodeEvent({
+    type: 'permission.replied',
+    sessionID: providerPath,
+    id: providerPath,
+    decision: providerPath
+  });
+  const status = mapOpenCodeEvent({
+    type: 'session.status',
+    sessionID: providerPath,
+    status: providerPath
+  });
+  const retained = JSON.stringify({ permission, toolDelta, toolCompleted, resolved, status });
+  const fields = [
+    permission.sessionId,
+    permission.approvalId,
+    permission.toolUseId,
+    toolDelta.sessionId,
+    toolDelta.messageId,
+    toolDelta.partId,
+    toolDelta.toolUseId,
+    toolCompleted.sessionId,
+    toolCompleted.messageId,
+    toolCompleted.partId,
+    toolCompleted.toolUseId,
+    toolCompleted.status,
+    resolved.sessionId,
+    resolved.approvalId,
+    resolved.decision,
+    status.sessionId,
+    status.status
+  ];
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(toolDelta.type, conversationEventTypes.TOOL_DELTA);
+  assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(resolved.type, conversationEventTypes.APPROVAL_RESOLVED);
+  assert.equal(status.type, conversationEventTypes.SYSTEM_NOTICE);
+  for (const field of fields) {
+    assert.equal(field.length <= 512, true);
+    assert.equal(field.includes(providerPath), false);
+    assert.equal(field.includes('opencode-secret'), false);
+  }
+  assert.equal(retained.includes(providerPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode unknown and critical warning raw types are bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const huge = 'x'.repeat(1024 * 1024);
+  const unknown = mapOpenCodeEvent({ type: `future.${huge}` });
+  const warning = mapOpenCodeEvent({ type: `permission.${huge}`, id: huge });
+  const retained = JSON.stringify({ unknown, warning });
+
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(unknown.rawType.length <= 512, true);
+  assert.equal(warning.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.rawType.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(huge), false);
+});
+
+test('OpenCode unknown and critical warning raw types redact path text', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\secret.txt';
+  const unknown = mapOpenCodeEvent({ type: windowsPath });
+  const warning = mapOpenCodeEvent({ type: `permission.${windowsPath}`, id: 'p' });
+  const retained = JSON.stringify({ unknown, warning });
+
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(unknown.rawType.includes(windowsPath), false);
+  assert.equal(unknown.rawType.includes('opencode-secret'), false);
+  assert.equal(unknown.text.includes(windowsPath), false);
+  assert.equal(unknown.text.includes('opencode-secret'), false);
+  assert.equal(warning.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.rawType.includes(windowsPath), false);
+  assert.equal(warning.rawType.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission reason redacts outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'reason.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_reason_path',
+    command: 'npm test',
+    reason: `needs ${outsidePath}`
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.reason.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.reason.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode redaction handles ambiguous unquoted Windows and UNC paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'perm_lower_spaced_user',
+      command: 'type C:\\Users\\john doe important.txt',
+      hidden: ['john doe', 'Users'],
+      visible: 'important.txt'
+    },
+    {
+      id: 'perm_upper_spaced_user_database',
+      command: 'type C:\\Users\\John ProductionDatabase',
+      hidden: ['John', 'Users', 'ProductionDatabase'],
+      visible: '[Redacted path]'
+    },
+    {
+      id: 'perm_documents_settings',
+      command: 'type C:\\Documents and Settings\\opencode-secret\\file.txt --delete important.txt',
+      hidden: ['Documents and Settings', 'opencode-secret', 'file.txt'],
+      visible: '--delete important.txt'
+    },
+    {
+      id: 'perm_production_database_arg',
+      command: 'python C:\\opencode-secret\\script ProductionDatabase',
+      hidden: ['opencode-secret'],
+      visible: 'ProductionDatabase'
+    },
+    {
+      id: 'perm_production_database_arg_with_url',
+      command: 'python C:\\opencode-secret\\script prod https://example.com/api --delete',
+      hidden: ['opencode-secret'],
+      visible: 'prod https://example.com/api --delete'
+    },
+    {
+      id: 'perm_unc_team_folder',
+      command: 'type \\\\server\\share\\Team Folder important.txt',
+      hidden: ['Team Folder', 'server', 'share'],
+      visible: 'important.txt'
+    },
+    {
+      id: 'perm_unc_team_database',
+      command: 'type \\\\server\\share\\Team ProductionDatabase',
+      hidden: ['Team', 'ProductionDatabase', 'server', 'share'],
+      visible: '[Redacted path]'
+    }
+  ];
+
+  for (const item of cases) {
+    const event = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: item.id,
+      command: item.command
+    });
+    const retained = JSON.stringify(event);
+
+    assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(event.approvalOptions.command.includes(item.visible), true);
+    assert.equal(event.summary.includes(item.visible), true);
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} leaked ${hidden}`);
+    }
+  }
+});
+
+test('OpenCode permission fallback summary sanitizes tool names', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_tool_name_path',
+    toolName: `Tool ${windowsPath}`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.toolName.includes(windowsPath), false);
+  assert.equal(event.toolName.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(windowsPath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session errors redact visible outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'failure.log');
+  const event = mapOpenCodeEvent({
+    type: 'session.error',
+    sessionID: 'sess_1',
+    message: `failed reading ${outsidePath}`,
+    error: {
+      message: `failed reading ${outsidePath}`,
+      code: `ERR_${outsidePath}`
+    }
+  });
+  const retained = JSON.stringify(event.details);
+
+  assert.equal(event.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(event.message.includes(outsidePath), false);
+  assert.equal(event.message.includes('opencode-secret'), false);
+  assert.equal(event.code.includes(outsidePath), false);
+  assert.equal(event.code.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session error message and code are bounded before redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const windowsPath = 'C:\\opencode-secret\\failure.log';
+  const tail = 'x'.repeat(5000);
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('session error redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'session.error',
+        sessionID: 'sess_1',
+        message: `failed reading ${windowsPath} ${tail}`,
+        code: `ERR_${windowsPath}_${tail}`
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(event.message.length <= 512, true);
+  assert.equal(event.code.length <= 512, true);
+  assert.equal(event.message.includes('opencode-secret'), false);
+  assert.equal(event.code.includes('opencode-secret'), false);
+});
+
+test('OpenCode unknown event raw payload is bounded and cycle safe', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = {
+    type: 'future.event',
+    payload: 'x'.repeat(10000),
+    nested: { child: { child: { child: { child: { value: 'too deep' } } } } },
+    items: Array.from({ length: 40 }, (_, index) => ({ index }))
+  };
+  raw.self = raw;
+
+  const event = mapOpenCodeEvent(raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.raw.type, 'future.event');
+  assert.equal(event.raw.payload.length <= 512, true);
+  assert.equal(event.raw.items.length <= 20, true);
+  assert.equal(event.raw.self, '[Circular]');
+  assert.equal(JSON.stringify(event.raw).length <= 4096, true);
+});
+
+test('OpenCode unknown event raw object bounds descriptor reads', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const target = { type: 'future.event', keep: 'safe' };
+  for (let index = 0; index < 40; index += 1) {
+    target[`key_${index}`] = `value_${index}`;
+  }
+  const keys = [
+    'type',
+    'keep',
+    ...Array.from({ length: 40 }, (_, index) => `key_${index}`),
+    'lateBoom'
+  ];
+  const raw = new Proxy(target, {
+    ownKeys() {
+      return keys;
+    },
+    getOwnPropertyDescriptor(source, key) {
+      if (key === 'lateBoom') throw new Error('late descriptor should not be read');
+      return Object.getOwnPropertyDescriptor(source, key);
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent(raw);
+  });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.raw.keep, 'safe');
+  assert.equal(event.raw.truncated, true);
+});
+
+test('OpenCode unknown event raw string is capped before path redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'future.event',
+        payload: `${'x'.repeat(5000)} C:\\Program Files\\opencode-secret\\tool.txt`
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.raw.payload.length <= 512, true);
+  assert.equal(event.raw.payload.includes('opencode-secret'), false);
+});
+
+test('OpenCode file edited notice bounds outside workspace paths and redacts retained raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'outside.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    path: outsidePath,
+    filePath: outsidePath
+  }, { workspacePath });
+  const retained = JSON.stringify(event.raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.visible, true);
+  assert.equal(event.path, 'outside.txt');
+  assert.match(event.text, /outside\.txt/);
+  assert.equal(event.text.includes(outsidePath), false);
+  assert.equal(event.path.includes('..'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode file edited notice uses nested file path aliases', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'nested-outside.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    file: { filePath: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_file_edited');
+  assert.equal(event.visible, true);
+  assert.equal(event.path, 'nested-outside.txt');
+  assert.match(event.text, /nested-outside\.txt/);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.status does not complete until terminal whitelist is configured', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({ type: 'session.status', sessionID: 'sess_1', status: 'done' });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.visible, false);
+  assert.equal(event.noticeKind, 'opencode_session_status');
+});
+
 test('fake OpenCode server supports session, prompt, abort, permission, and SSE', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
