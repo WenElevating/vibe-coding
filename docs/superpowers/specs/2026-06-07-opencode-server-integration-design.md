@@ -270,7 +270,7 @@ Initial mapping:
 | `session.error` | `run.error` with sanitized provider error details. |
 | `message.part.delta` | `assistant.partial`, `assistant.thinking`, or `tool.delta` depending on part metadata. |
 | `message.part.updated`, `message.updated` | `assistant.message`, `tool.started`, `tool.completed`, or hidden notice depending on role/part kind. |
-| `message.part.removed`, `message.removed` | Hidden `system.notice` unless needed to cancel a pending blocking item. |
+| `message.part.removed`, `message.removed` | Hidden `system.notice`; the adapter may turn it into `blocking.request_cancelled` only when it can correlate the removed message/part to pending handle state. |
 | `permission.asked` | `approval.requested`. |
 | `permission.replied` | `approval.resolved`. |
 | `session.diff` | `diff.summary` when the payload contains usable file diffs; otherwise visible `system.notice`. |
@@ -304,7 +304,7 @@ diff events before implementation relies on the shared `/global/event` stream.
 `/global/event` is a shared SSE stream. The adapter must treat it as an
 observable transport, not as the source of conversation authority.
 
-Reconnect policy:
+Reconnect policy when a stable reconciliation route has been smoke-verified:
 
 - Reconnect only for transport failures, not for malformed event payloads.
 - Use at most 3 reconnect attempts per disconnect.
@@ -326,6 +326,14 @@ server state. Reconciliation must prove:
 If the adapter cannot prove those facts after reconnect, it must fail the
 active turn with `OPENCODE_EVENT_STREAM_INTERRUPTED` instead of assuming that
 no `session.idle`, `session.error`, or `permission.asked` event was missed.
+
+If the real-server smoke does not verify a stable session read/reconcile route,
+set the adapter's internal `supportsEventReconciliation` flag to false. In
+that mode, reconnect is allowed only while no daemon conversation has an active
+OpenCode turn. Any `/global/event` disconnect during `running` or
+`waiting_approval` must fail the active turn immediately with
+`OPENCODE_EVENT_STREAM_INTERRUPTED`; the implementation must not attempt to
+resume and guess whether critical events were missed.
 
 When a disconnect happens while `ConversationManager` is in
 `waiting_approval`, the existing blocking item may remain visible only during
@@ -366,7 +374,8 @@ follow these recovery rules before sending the prompt:
 
 | Condition | Behavior |
 | --- | --- |
-| Stored session is missing, expired, or unreadable before prompt dispatch | Clear `cliSessionId`, mark session binding unknown, create a replacement OpenCode session in the authorized workspace, append a hidden `provider_session_replaced` notice, and send the current prompt once. |
+| Stored session is missing, expired, or unreadable before prompt dispatch and no verified history replay/reconstruction path exists | Clear `cliSessionId`, mark session binding unknown, append a visible `opencode_session_expired` notice, fail the current turn with `run.error` code `OPENCODE_SESSION_MISSING`, and do not send the current prompt. |
+| Stored session is missing, expired, or unreadable before prompt dispatch and a future verified history replay path exists | Recreate a session only after replaying enough daemon-persisted conversation history to preserve model context, append a visible `opencode_session_recreated` notice, then send the current prompt once. This replay path is not part of the first implementation. |
 | Stored session exists but its directory is outside the authorized workspace | Clear `cliSessionId`, mark session binding drifted, fail the current turn with `run.error` code `OPENCODE_SESSION_DIRECTORY_MISMATCH`, and do not send the prompt. |
 | Newly created replacement session returns a mismatched directory | Fail closed with `OPENCODE_SESSION_DIRECTORY_MISMATCH`; do not retry in the same turn. |
 
@@ -375,6 +384,56 @@ This avoids a retry dead loop where every later message reuses the same invalid
 belong to a different workspace. Implementing this requires a narrow internal
 `ConversationManager` helper for clearing or marking provider session bindings;
 the OpenCode adapter must not mutate stored conversation fields directly.
+
+The first implementation must not silently create a replacement session for a
+later message. A missing OpenCode session usually means provider-side context
+has been lost. Sending the user's next prompt to a fresh session would look like
+an unexplained memory reset. Until a replay design is implemented and verified,
+the user-visible notice is required and the turn must fail before prompt
+dispatch.
+
+### ConversationManager Session Binding Helpers
+
+OpenCode is the first adapter that needs to invalidate a stored provider
+session before dispatch. Keep this authority in `ConversationManager`, not in
+adapter code.
+
+Add narrow internal helpers with this shape:
+
+```js
+clearSessionBinding(conversation, {
+  expectedSessionId,
+  reason,
+  code,
+  noticeKind,
+  visible
+})
+
+markSessionBindingDrifted(conversation, {
+  expectedSessionId,
+  receivedSessionId,
+  reason,
+  code,
+  clear
+})
+```
+
+Behavior:
+
+- `expectedSessionId` is optional but, when provided, must match the current
+  `conversation.cliSessionId`; otherwise the helper must leave state unchanged
+  and report a conflict to the caller.
+- `clearSessionBinding` sets `cliSessionId` to null, sets
+  `sessionBinding` to `unknown`, clears `providerSession` only when it belongs
+  to the cleared provider session, persists the conversation, and appends a
+  `system.notice`.
+- `markSessionBindingDrifted` sets `sessionBinding` to `drifted`, persists the
+  conversation, and appends a bounded `protocol.warning`. If `clear` is true,
+  it also clears `cliSessionId` after recording the drift.
+- Helpers must be internal methods, not new mobile API routes.
+- Adapters may request these transitions through the start/dispatch path, but
+  must not directly mutate `conversation.cliSessionId`, `sessionBinding`, or
+  `providerSession`.
 
 ### Cancellation
 
@@ -412,6 +471,16 @@ Mobile decisions map back to OpenCode replies:
 Terminology boundary: mobile and daemon approval scopes remain `once` and
 `session`. OpenCode's `always` value is only the provider reply corresponding
 to daemon `scope: session`. Do not expose `always` as a mobile approval scope.
+
+`approval.supportsCancel` means "the provider exposes a distinct cancellation
+reply for this approval prompt." It does not refer to whole-conversation
+cancellation, which is still available through the existing conversation cancel
+endpoint. Because OpenCode's first-version approval mapping only has
+`once`/`always`/`reject`, `supportsCancel` stays false and mobile should show
+allow/deny approval actions. If a client still submits approval decision
+`cancel`, the daemon treats it as `reject` and may additionally cancel the
+whole conversation through the normal conversation-cancel path; that path is
+defensive and should not be advertised by approval options.
 
 The exact permission response body must be verified against the local server
 before implementation. The route existence is verified; the accepted payload
@@ -463,9 +532,11 @@ OpenCode model picker.
 | Managed server spawn fails | Conversation start fails before provider request; status becomes failed with a safe error. |
 | Health probe fails | Adapter unavailable; no session is created. |
 | Session create fails | Turn fails before prompt dispatch; no fallback to another adapter. |
+| Stored session missing before later-message dispatch | Clear `cliSessionId`, mark binding unknown, append visible `opencode_session_expired`, and fail the current turn with `OPENCODE_SESSION_MISSING`; do not send the prompt unless a future verified replay path exists. |
 | Session directory mismatch | Clear the invalid `cliSessionId`, mark binding drifted, and fail the current turn with `OPENCODE_SESSION_DIRECTORY_MISMATCH`. |
 | Prompt dispatch fails | Turn fails with `run.error`; user may retry. |
-| SSE disconnects during active turn | Attempt 3 reconnects with 250 ms, 1000 ms, and 3000 ms delays; if reconciliation cannot prove no critical event was missed, emit `run.error` code `OPENCODE_EVENT_STREAM_INTERRUPTED`. |
+| SSE disconnects during active turn with verified reconciliation | Attempt 3 reconnects with 250 ms, 1000 ms, and 3000 ms delays; if reconciliation cannot prove no critical event was missed, emit `run.error` code `OPENCODE_EVENT_STREAM_INTERRUPTED`. |
+| SSE disconnects during active turn without verified reconciliation | Fail immediately with `OPENCODE_EVENT_STREAM_INTERRUPTED`; do not reconnect and guess. |
 | Unknown event type | Hidden `system.notice` with bounded raw payload. |
 | Permission response fails | Conversation returns to failed state and clears the blocking item. |
 | Abort fails | Record audit warning; preserve daemon-side cancellation semantics. |
@@ -488,6 +559,9 @@ Mobile changes should be limited to:
 - Keeping fallback text such as "not available", "unsupported permission mode",
   and "OpenCode server unavailable" in ARB files if they are surfaced by UI
   code.
+- Localizing visible session recovery notices such as
+  `opencode_session_expired` and any future `opencode_session_recreated`
+  message.
 
 The mobile UI must not branch on raw OpenCode event names. It should consume
 the same `ConversationEvent` DTOs used by Claude and Codex.
@@ -502,9 +576,12 @@ the same `ConversationEvent` DTOs used by Claude and Codex.
 - Unknown events become hidden bounded notices.
 - Permission decisions produce the expected OpenCode reply payloads after the
   route body is smoke-verified.
+- Missing stored sessions clear session binding, append a visible
+  `opencode_session_expired` notice, and fail before prompt dispatch.
 - Workspace directory mismatch clears invalid session binding and fails closed.
-- SSE reconnect backoff, exhausted reconnect, and waiting-approval disconnect
-  paths are covered with fake timers.
+- SSE reconnect backoff, no-reconciliation immediate failure, exhausted
+  reconnect, and waiting-approval disconnect paths are covered with fake
+  timers.
 - Critical events without normalized session ids are dropped from conversation
   dispatch and recorded as bounded warnings.
 - Attachment capabilities remain conservative.
@@ -520,6 +597,8 @@ the same `ConversationEvent` DTOs used by Claude and Codex.
 - Fake permission events create blocking items and resolve through the
   existing approval endpoint.
 - Cancellation calls the fake abort route.
+- Missing OpenCode sessions do not silently continue in a fresh provider
+  session.
 - External server diagnostics, managed server spawn failures, explicit-port
   health probing, and Windows process-tree cleanup are covered.
 
@@ -591,7 +670,8 @@ flutter test --no-pub
 
 1. Add a local OpenCode server smoke script that launches the real installed
    `opencode serve` and records the verified session, prompt, abort,
-   permission, SSE, session-id-field, and reconnect contracts.
+   permission, SSE, session-id-field, reconnect, session-read, and history
+   replay contracts.
 2. Add a fake OpenCode server for deterministic unit/integration tests based
    on the smoke findings, not assumptions.
 3. Add pure event mapping tests and `opencode-event-mapper`.
@@ -620,6 +700,8 @@ flutter test --no-pub
 - Tests cover success, cancellation, permission, unknown events, and key
   failure modes.
 - SSE disconnects cannot leave a mobile blocking item hanging indefinitely.
+- A missing OpenCode provider session cannot silently turn a later message into
+  a memoryless fresh-session prompt.
 
 ## Remaining Risks
 
@@ -632,7 +714,9 @@ flutter test --no-pub
 - Permission semantics may not exactly match the current mobile approval model.
   The first version should prefer conservative deny/once/session mapping over
   broad auto-approval.
-- If no stable session read/reconcile route exists, SSE reconnect during an
-  active turn must remain fail-fast after the reconnect budget.
+- If no stable session read/reconcile route exists, SSE disconnect during an
+  active turn must fail immediately.
+- Historical replay into a replacement OpenCode session is intentionally out
+  of scope for the first implementation.
 - Managed server lifecycle on Windows needs process-tree cleanup rather than
   relying on plain `child.kill()`.
