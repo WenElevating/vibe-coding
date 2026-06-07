@@ -222,6 +222,48 @@ test('Codex app-server smoke manifest has no unknown gates after Phase 1', () =>
   assert.ok(manifest.samples.length > 0);
 });
 
+test('OpenCode server smoke manifest has explicit gate results', () => {
+  const expectedGateNames = [
+    'health',
+    'doc',
+    'sessionCreateDirectory',
+    'promptAsyncBody',
+    'abort',
+    'permissionResponseBody',
+    'globalEventSse',
+    'sessionIdFieldNames',
+    'sessionReadReconcile',
+    'sessionStatusTerminalValues',
+    'historyReplay'
+  ];
+  const manifestPath = path.join(
+    __dirname,
+    '..',
+    'docs',
+    'superpowers',
+    'fixtures',
+    'opencode-server',
+    'manifest.json'
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.adapter, 'opencode');
+  assert.ok(['not_run', 'pass', 'fail', 'blocked'].includes(manifest.status));
+  assert.ok(Array.isArray(manifest.samples));
+  assert.ok(manifest.gates && typeof manifest.gates === 'object' && !Array.isArray(manifest.gates));
+  assert.deepEqual(
+    Object.keys(manifest.gates).sort(),
+    [...expectedGateNames].sort()
+  );
+  const allowedGateResults = manifest.status === 'not_run'
+    ? ['not_run', 'blocked']
+    : ['pass', 'fail', 'blocked'];
+  for (const gate of expectedGateNames) {
+    const result = manifest.gates[gate];
+    assert.ok(allowedGateResults.includes(result), `${gate} has invalid result ${result}`);
+  }
+});
+
 test('Codex app-server availability marks disabled adapter unselectable', () => {
   const { buildCodexAppServerAvailability } = require('../daemon/src/codex-app-server-availability');
   const status = buildCodexAppServerAvailability({ enabled: false });

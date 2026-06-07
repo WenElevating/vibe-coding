@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "adapter": "opencode",
+  "status": "not_run",
+  "verifiedAt": null,
+  "opencodeVersion": null,
+  "gates": {
+    "health": "not_run",
+    "doc": "not_run",
+    "sessionCreateDirectory": "not_run",
+    "promptAsyncBody": "not_run",
+    "abort": "not_run",
+    "permissionResponseBody": "not_run",
+    "globalEventSse": "not_run",
+    "sessionIdFieldNames": "not_run",
+    "sessionReadReconcile": "not_run",
+    "sessionStatusTerminalValues": "not_run",
+    "historyReplay": "blocked"
+  },
+  "samples": []
+}
