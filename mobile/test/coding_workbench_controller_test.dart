@@ -377,6 +377,47 @@ void main() {
     expect(viewModel.messages.single.body, 'inspect image');
   });
 
+  test('terminal conversation events override stale running summary status',
+      () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'tool.started',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+          input: const <String, Object?>{
+            'command': 'git add server\\db.ts vite.config.ts',
+          },
+        ),
+        _event(
+          seq: 2,
+          type: 'tool.completed',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+        ),
+        _event(seq: 3, type: 'conversation.completed'),
+        _event(
+          seq: 4,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'idle'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'idle');
+    expect(viewModel.effectiveConversationStatus, 'idle');
+    expect(viewModel.isTerminalConversation, isTrue);
+  });
+
   test('committed attachment event binds cache identity', () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',
@@ -467,6 +508,32 @@ void main() {
     expect(
       conversationPendingStatusText(l10n, 'running', events),
       contains('flutter test test\\voice_input_controller_test.dart'),
+    );
+    expect(
+      conversationPendingStatusText(l10n, 'idle', <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'tool.started',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+          input: const <String, Object?>{
+            'command': 'git add server\\db.ts vite.config.ts',
+          },
+        ),
+        _event(
+          seq: 2,
+          type: 'tool.completed',
+          toolUseId: 'cmd_1',
+          toolName: 'command_execution',
+        ),
+        _event(seq: 3, type: 'conversation.completed'),
+        _event(
+          seq: 4,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'idle'},
+        ),
+      ]),
+      isEmpty,
     );
     expect(
       conversationPendingStatusText(l10n, 'running', <ConversationEvent>[

@@ -14,9 +14,11 @@ void main() {
 
     expect(find.byKey(const ValueKey('workbench-history-loading-row')),
         findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-history-loading-spinner')),
+        findsOneWidget);
     expect(find.text('正在加载更早的事件...'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.more_horiz_rounded), findsNothing);
   });
 }
 

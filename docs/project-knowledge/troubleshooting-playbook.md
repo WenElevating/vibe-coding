@@ -90,6 +90,10 @@ flutter test --no-pub test\widget_test.dart -r expanded --plain-name command
   status text must correlate `tool.started` and `tool.completed` by
   `toolUseId`, and send acknowledgements must not overwrite terminal state that
   arrived through the conversation event stream.
+  Cached mobile conversation summaries must also project streamed terminal
+  events such as `conversation.completed` and `conversation.status_changed` so
+  reopening the page cannot reuse an old `running` summary after the reducer has
+  already applied `idle`.
 - Verification:
 
 ```powershell
@@ -101,7 +105,7 @@ $env:FLUTTER_STORAGE_BASE_URL='https://storage.flutter-io.cn'
 flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded --plain-name "pending status does not report completed tool activity"
 ```
 
-- Last verified: 2026-05-22
+- Last verified: 2026-06-07
 
 ## Symptom: Codex Conversation Hides File Changes And Looks Stalled
 

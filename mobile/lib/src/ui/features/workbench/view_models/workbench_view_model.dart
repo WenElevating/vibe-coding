@@ -194,8 +194,15 @@ class WorkbenchViewModel extends ChangeNotifier {
     return null;
   }
 
-  String get effectiveConversationStatus =>
-      _activeConversation?.status ?? _conversationState.status;
+  String get effectiveConversationStatus {
+    final stateStatus = _conversationState.status;
+    if (_conversationEvents.isNotEmpty &&
+        !isActiveConversationStatus(stateStatus)) {
+      return stateStatus;
+    }
+    return _activeConversation?.status ?? stateStatus;
+  }
+
   bool get isTerminalConversation =>
       !isActiveConversationStatus(effectiveConversationStatus);
   bool get sending => _sending;
@@ -1156,12 +1163,13 @@ class WorkbenchViewModel extends ChangeNotifier {
       changed = true;
     }
     changed = await _expandInitialConversationHistory(
-      conversationId: conversationId,
-      initialPage: page,
-      limit: limit,
-      streamOutput: streamOutput,
-      isCurrent: stillCurrent,
-    ) || changed;
+          conversationId: conversationId,
+          initialPage: page,
+          limit: limit,
+          streamOutput: streamOutput,
+          isCurrent: stillCurrent,
+        ) ||
+        changed;
     return changed;
   }
 

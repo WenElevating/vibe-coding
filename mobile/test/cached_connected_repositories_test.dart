@@ -499,6 +499,46 @@ void main() {
         const <int>[9],
       );
     });
+
+    test('streamed terminal events update cached conversation status',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(id: 'c1', status: 'running'),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 1,
+          type: 'tool.started',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 2,
+          type: 'tool.completed',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 3,
+          type: 'conversation.completed',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 4,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'idle'},
+        ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'idle');
+    });
   });
 
   group('CachedRunRepository', () {
@@ -1289,13 +1329,16 @@ ConversationSummary _copyConversation(
 ConversationEvent _conversationEvent({
   required String conversationId,
   required int seq,
+  String type = 'assistant.message',
+  Map<String, Object?> raw = const <String, Object?>{},
 }) =>
     ConversationEvent(
       seq: seq,
       conversationId: conversationId,
-      type: 'assistant.message',
+      type: type,
       createdAt: DateTime.parse('2026-05-30T00:00:00.000Z'),
       text: 'event $seq',
+      raw: raw,
     );
 
 class _MemoryConversationEventCacheStore

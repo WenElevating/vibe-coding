@@ -13,6 +13,7 @@ class ConversationMessage {
     this.summary,
     this.taskId,
     this.source,
+    this.noticeKind,
     this.taskItems = const <TaskProgressItem>[],
     this.completedCount,
     this.totalCount,
@@ -40,6 +41,7 @@ class ConversationMessage {
   final String? summary;
   final String? taskId;
   final String? source;
+  final String? noticeKind;
   final List<TaskProgressItem> taskItems;
   final int? completedCount;
   final int? totalCount;
@@ -326,6 +328,11 @@ class ConversationViewState {
             role: 'notice',
             text: event.text ?? event.summary ?? '',
             eventSeq: event.seq,
+            summary: event.summary,
+            input: event.input,
+            source: event.source,
+            noticeKind: event.raw['noticeKind'] as String?,
+            isError: event.isError,
           ));
           break;
         case 'tool.started':

@@ -1292,7 +1292,8 @@ class _DelayedOlderPageConversationRepository
     extends _PagedHistoryConversationRepository {
   _DelayedOlderPageConversationRepository({
     required ConversationEventPage firstPage,
-  }) : super(pages: Queue<ConversationEventPage>.from(
+  }) : super(
+            pages: Queue<ConversationEventPage>.from(
           <ConversationEventPage>[firstPage],
         ));
 
@@ -7597,13 +7598,52 @@ diff --git a/lib/main.dart b/lib/main.dart
                     expandThinking: false)))));
     await tester.pumpAndSettle();
 
-    expect(find.text('Claude authentication failed'), findsOneWidget);
-    expect(find.text('provider auth'), findsOneWidget);
+    expect(find.text('服务商认证异常'), findsOneWidget);
+    expect(find.text('认证'), findsOneWidget);
     expect(find.text('Claude API 401 authentication_failed (retry 1/10)'),
         findsOneWidget);
     expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
     expect(find.text('System notice'), findsNothing);
+    expect(find.text('provider auth'), findsNothing);
     expect(find.text('non-blocking'), findsNothing);
+  });
+
+  testWidgets('Codex policy notice uses localized compact styling',
+      (WidgetTester tester) async {
+    final message = workbenchMessageFromConversation(const ConversationMessage(
+      role: 'notice',
+      text: 'Codex CLI blocked this command under the current local policy.',
+      noticeKind: 'codex_policy_blocked',
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopApproval,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('已被本地策略阻止'), findsOneWidget);
+    expect(find.text('策略'), findsOneWidget);
+    expect(find.text('当前本地审批策略不允许执行这条命令。'), findsOneWidget);
+    expect(find.byIcon(Icons.gpp_maybe_outlined), findsOneWidget);
+    expect(find.text('System notice'), findsNothing);
+    expect(find.text('notice'), findsNothing);
+    expect(
+        find.text(
+            'Codex CLI blocked this command under the current local policy.'),
+        findsNothing);
   });
 
   testWidgets('thinking card title uses active locale',

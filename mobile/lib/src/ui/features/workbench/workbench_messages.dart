@@ -22,6 +22,7 @@ String conversationPendingStatusText(
   if (status == 'waiting_approval') {
     return l10n.workbenchPendingWaitingApproval;
   }
+  if (status != 'running' && status != 'sending') return '';
   final list = events.toList(growable: false);
   if (list.isEmpty) return l10n.workbenchPendingStarting;
   final activeToolUseIds = <String>{};
@@ -230,6 +231,7 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
         'summary': message.summary,
         'taskId': message.taskId,
         'source': message.source,
+        'noticeKind': message.noticeKind,
         'isError': message.isError,
         if (message.input.isNotEmpty) 'input': message.input,
         if (message.role == 'approval')
@@ -268,7 +270,8 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
           runId: 'conversation',
           suggestions: message.suggestions);
     case 'notice':
-      return WorkbenchMessage('notice', _noticeTitle(message), message.text,
+      return WorkbenchMessage(
+          'notice', _noticeTitleFallback(message), message.text,
           event: event, runId: 'conversation', isError: message.isError);
     case 'file_change':
       return WorkbenchMessage('file_change', 'File changes', message.text,
@@ -309,7 +312,7 @@ Duration? _conversationCommandDuration(ConversationMessage message) {
   return completedAt.difference(startedAt);
 }
 
-String _noticeTitle(ConversationMessage message) {
+String _noticeTitleFallback(ConversationMessage message) {
   if (!message.isError) return 'System notice';
   final text = message.text.toLowerCase();
   if (text.contains('claude') &&

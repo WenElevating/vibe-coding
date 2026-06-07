@@ -243,10 +243,8 @@ class _HistoryLoadingRow extends StatelessWidget {
                 width: 14,
                 height: 14,
                 child: RepaintBoundary(
-                  child: Icon(
-                    Icons.more_horiz_rounded,
+                  child: _HistoryLoadingSpinner(
                     color: theme.text.withValues(alpha: .82),
-                    size: 16,
                   ),
                 ),
               ),
@@ -265,4 +263,83 @@ class _HistoryLoadingRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HistoryLoadingSpinner extends StatefulWidget {
+  const _HistoryLoadingSpinner({required this.color});
+
+  final Color color;
+
+  @override
+  State<_HistoryLoadingSpinner> createState() => _HistoryLoadingSpinnerState();
+}
+
+class _HistoryLoadingSpinnerState extends State<_HistoryLoadingSpinner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        key: const ValueKey('workbench-history-loading-spinner'),
+        painter: _HistoryLoadingSpinnerPainter(
+          progress: _controller,
+          color: widget.color,
+        ),
+      );
+}
+
+class _HistoryLoadingSpinnerPainter extends CustomPainter {
+  _HistoryLoadingSpinnerPainter({
+    required Animation<double> progress,
+    required this.color,
+  })  : _progress = progress,
+        super(repaint: progress);
+
+  final Animation<double> _progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - 2) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final trackPaint = Paint()
+      ..color = color.withValues(alpha: .18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    final arcPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawCircle(center, radius, trackPaint);
+    canvas.drawArc(
+      rect,
+      _progress.value * 6.283185307179586,
+      4.1887902047863905,
+      false,
+      arcPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _HistoryLoadingSpinnerPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

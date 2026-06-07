@@ -244,6 +244,7 @@ class CachedConversationRepository extends ChangeNotifier
           conversationId,
           <ConversationEvent>[event],
         ));
+        _applyConversationEventStatus(event);
         return event;
       });
 
@@ -357,6 +358,95 @@ class CachedConversationRepository extends ChangeNotifier
     _error = error;
     _notifyIfActive();
   }
+
+  void _applyConversationEventStatus(ConversationEvent event) {
+    final nextStatus = _statusFromConversationEvent(event);
+    if (nextStatus == null) return;
+    final index =
+        _conversations.indexWhere((item) => item.id == event.conversationId);
+    if (index < 0) return;
+    final current = _conversations[index];
+    final updated = _copyConversationStatus(
+      current,
+      nextStatus,
+      blockingItem: _blockingItemFromConversationEvent(event),
+    );
+    final conversations = <ConversationSummary>[..._conversations];
+    conversations[index] = updated;
+    _conversations = List<ConversationSummary>.unmodifiable(conversations);
+    _notifyIfActive();
+  }
+
+  String? _statusFromConversationEvent(ConversationEvent event) {
+    if (event.type == 'conversation.status_changed') {
+      return event.raw['status'] as String?;
+    }
+    if (conversationEventCompletesTurn(event)) return 'idle';
+    if (event.type == 'conversation.cancelled') {
+      return event.raw['status'] as String? ?? 'cancelled';
+    }
+    if (event.type == 'run.error') return 'failed';
+    if (event.type == 'assistant.question') return 'waiting_input';
+    if (event.type == 'approval.requested') return 'waiting_approval';
+    if (event.type == 'approval.resolved') return 'running';
+    return null;
+  }
+
+  ConversationBlockingItem? _blockingItemFromConversationEvent(
+    ConversationEvent event,
+  ) {
+    if (event.type == 'assistant.question') {
+      return ConversationBlockingItem(
+        type: 'input_request',
+        questionId: event.questionId,
+        toolUseId: event.toolUseId,
+        text: event.text,
+        suggestions: event.suggestions,
+        input: event.input,
+      );
+    }
+    if (event.type == 'approval.requested') {
+      return ConversationBlockingItem(
+        type: 'approval_request',
+        approvalId: event.approvalId,
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        summary: event.summary,
+        input: event.input,
+      );
+    }
+    return null;
+  }
+
+  ConversationSummary _copyConversationStatus(
+    ConversationSummary conversation,
+    String status, {
+    ConversationBlockingItem? blockingItem,
+  }) =>
+      ConversationSummary(
+        id: conversation.id,
+        workspaceId: conversation.workspaceId,
+        adapter: conversation.adapter,
+        model: conversation.model,
+        status: status,
+        capabilities: conversation.capabilities,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        protocolVersion: conversation.protocolVersion,
+        requestedPermissionMode: conversation.requestedPermissionMode,
+        effectivePermissionMode: conversation.effectivePermissionMode,
+        permissionSupport: conversation.permissionSupport,
+        requestedAdapter: conversation.requestedAdapter,
+        effectiveAdapter: conversation.effectiveAdapter,
+        effectiveCapabilities: conversation.effectiveCapabilities,
+        fallbackNotice: conversation.fallbackNotice,
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        title: conversation.title,
+        userMessageCount: conversation.userMessageCount,
+        blockingItem: blockingItem,
+        idleExpiresAt: conversation.idleExpiresAt,
+      );
 
   Future<ConversationEventPage?> _readCachedPage(
     String conversationId, {
