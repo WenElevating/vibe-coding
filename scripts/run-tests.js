@@ -2017,6 +2017,235 @@ test('OpenCode session.status does not complete until terminal whitelist is conf
   assert.equal(event.noticeKind, 'opencode_session_status');
 });
 
+test('OpenCode server client builds prompt_async text body exactly', () => {
+  const { buildPromptAsyncBody } = require('../daemon/src/opencode-server-client');
+
+  assert.deepEqual(buildPromptAsyncBody('hello'), {
+    parts: [{ type: 'text', text: 'hello' }]
+  });
+  assert.deepEqual(buildPromptAsyncBody(42), {
+    parts: [{ type: 'text', text: '42' }]
+  });
+  assert.deepEqual(buildPromptAsyncBody(null), {
+    parts: [{ type: 'text', text: '' }]
+  });
+});
+
+test('OpenCode server client calls fake server JSON endpoints', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    const health = await client.health();
+    assert.deepEqual(health, { ok: true, version: 'fake-opencode' });
+
+    const directory = path.join(os.tmpdir(), 'opencode client dir ?x=1');
+    const session = await client.createSession({ directory });
+    assert.equal(session.directory, directory);
+    assert.ok(session.id);
+
+    assert.deepEqual(await client.promptAsync({ sessionId: session.id, text: 42 }), { ok: true });
+    assert.deepEqual(fake.promptBodies[0], {
+      sessionId: session.id,
+      body: { parts: [{ type: 'text', text: '42' }] }
+    });
+
+    assert.equal(await client.abortSession({ sessionId: session.id }), true);
+
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_once', decision: 'allow' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_session', decision: 'allow', scope: 'session' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_deny', decision: 'deny' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_cancel', decision: 'cancel' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_unknown', decision: 'refuse' });
+
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_once', { response: 'once' }],
+      ['perm_session', { response: 'always' }],
+      ['perm_deny', { response: 'reject' }],
+      ['perm_cancel', { response: 'reject' }],
+      ['perm_unknown', { response: 'reject' }]
+    ]);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode server client reads sessions by encoded path', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  let observedRequest = null;
+  const fixture = await listenHttpServerForTest((req, res) => {
+    observedRequest = { method: req.method, url: req.url };
+    sendJsonForTest(res, 200, { id: 'sess read/1', status: 'idle' });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    const session = await client.readSession({ sessionId: 'sess read/1' });
+
+    assert.deepEqual(session, { id: 'sess read/1', status: 'idle' });
+    assert.deepEqual(observedRequest, { method: 'GET', url: '/session/sess%20read%2F1' });
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client parses chunked SSE frames and closes the subscription', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const events = [];
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    handle = client.subscribeEvents(
+      (event) => events.push(event),
+      (error) => errors.push(error)
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode client SSE connection');
+    const [sseResponse] = fake.sseClients;
+
+    sseResponse.write(': ignored comment\n\n');
+    sseResponse.write('\n\n');
+    sseResponse.write('data: {"type":"session.');
+    sseResponse.write('idle","sessionID":"sess_1"}\n\n');
+    sseResponse.write('data: {"type":"message.part.delta",\n');
+    sseResponse.write('data: "text":"hello"}\n\n');
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.length === 2 && errors.length === 1,
+      'OpenCode client SSE events and parse error'
+    );
+    assert.deepEqual(events[0], { type: 'session.idle', sessionID: 'sess_1' });
+    assert.deepEqual(events[1], { type: 'message.part.delta', text: 'hello' });
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_SSE_BAD_JSON');
+    assert.equal(errors[0].details.data.length <= 512, true);
+
+    handle.close();
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode client SSE close');
+  } finally {
+    handle?.close();
+    await fake.close();
+  }
+});
+
+test('OpenCode server client bounds non-ending SSE HTTP error bodies', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest((req, res) => {
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.write('{"error":{"code":"SSE_UNAVAILABLE","message":"partial');
+  });
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 50 });
+    handle = client.subscribeEvents(
+      () => {},
+      (error) => errors.push(error)
+    );
+
+    await waitForConditionForTest(() => errors.length === 1, 'bounded OpenCode SSE HTTP error', 500);
+    assert.equal(errors[0].status, 503);
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(errors[0].details.status, 503);
+    assert.equal(errors[0].details.method, 'GET');
+    assert.equal(errors[0].details.path, '/global/event');
+    assert.equal(errors[0].details.bodyText.length <= 2048, true);
+  } finally {
+    handle?.close();
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client reports bounded structured HTTP errors', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const giantBody = 'x'.repeat(5000);
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 503, {
+      error: { code: 'UPSTREAM_FAILED', message: giantBody },
+      details: giantBody
+    });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    await assert.rejects(() => client.health(), (error) => {
+      assert.equal(error.status, 503);
+      assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+      assert.equal(error.details.status, 503);
+      assert.equal(error.details.method, 'GET');
+      assert.equal(error.details.path, '/global/health');
+      assert.equal(error.details.body.error.code, 'UPSTREAM_FAILED');
+      assert.equal(error.details.body.error.message.length <= 512, true);
+      assert.equal(JSON.stringify(error.details).includes(giantBody), false);
+      return true;
+    });
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client reports structured network errors', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 200, { ok: true });
+  });
+  await closeHttpServerForTest(fixture.server);
+
+  const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 100 });
+  await assert.rejects(() => client.health(), (error) => {
+    assert.equal(error.status, undefined);
+    assert.equal(error.code, 'OPENCODE_SERVER_NETWORK_ERROR');
+    assert.equal(error.details.method, 'GET');
+    assert.equal(error.details.path, '/global/health');
+    assert.ok(error.details.code);
+    return true;
+  });
+});
+
+test('OpenCode server client rejects missing required inputs without sending requests', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const requests = [];
+  const fixture = await listenHttpServerForTest((req, res) => {
+    requests.push({ method: req.method, url: req.url });
+    sendJsonForTest(res, 200, { ok: true });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    const cases = [
+      ['createSession missing directory', () => client.createSession({}), 'directory'],
+      ['createSession blank directory', () => client.createSession({ directory: '   ' }), 'directory'],
+      ['readSession missing sessionId', () => client.readSession({}), 'sessionId'],
+      ['readSession blank sessionId', () => client.readSession({ sessionId: '   ' }), 'sessionId'],
+      ['promptAsync missing sessionId', () => client.promptAsync({ text: 'hello' }), 'sessionId'],
+      ['abortSession missing sessionId', () => client.abortSession({}), 'sessionId'],
+      [
+        'replyPermission missing sessionId',
+        () => client.replyPermission({ permissionId: 'perm_1', decision: 'allow' }),
+        'sessionId'
+      ],
+      [
+        'replyPermission missing permissionId',
+        () => client.replyPermission({ sessionId: 'sess_1', decision: 'allow' }),
+        'permissionId'
+      ]
+    ];
+
+    for (const [name, action, field] of cases) {
+      await assert.rejects(action, (error) => {
+        assert.equal(error.code, 'OPENCODE_SERVER_INVALID_REQUEST', name);
+        assert.equal(error.details.field, field, name);
+        return true;
+      }, name);
+    }
+    assert.deepEqual(requests, []);
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
 test('fake OpenCode server supports session, prompt, abort, permission, and SSE', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
@@ -14198,6 +14427,31 @@ async function fetchJsonForTest(url, options = {}) {
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+function listenHttpServerForTest(handler) {
+  const server = http.createServer(handler);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve({
+        server,
+        url: `http://127.0.0.1:${server.address().port}`
+      });
+    });
+  });
+}
+
+function closeHttpServerForTest(server) {
+  return new Promise((resolve) => server.close(resolve));
+}
+
+function sendJsonForTest(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload)
+  });
+  res.end(payload);
 }
 
 async function readSseEventForTest(url, trigger) {
