@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/app/app_localization.dart';
-import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/features/workbench/widgets/workbench_message_list.dart';
@@ -16,7 +15,8 @@ void main() {
     expect(find.byKey(const ValueKey('workbench-history-loading-row')),
         findsOneWidget);
     expect(find.text('正在加载更早的事件...'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
   });
 }
 

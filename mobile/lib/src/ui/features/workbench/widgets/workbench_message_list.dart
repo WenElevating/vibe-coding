@@ -231,27 +231,30 @@ class _HistoryLoadingRow extends StatelessWidget {
       height: 36,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: const Color(0x66111B2A),
+          color: const Color(0xCC111214),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: .075)),
+          border: Border.all(color: Colors.white.withValues(alpha: .085)),
         ),
         child: Center(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(
+              SizedBox(
                 width: 14,
                 height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: theme.purple2,
+                child: RepaintBoundary(
+                  child: Icon(
+                    Icons.more_horiz_rounded,
+                    color: theme.text.withValues(alpha: .82),
+                    size: 16,
+                  ),
                 ),
               ),
               const SizedBox(width: 9),
               Text(
                 l10n.workbenchLoadingEarlierEvents,
-                style: const TextStyle(
-                  color: theme.muted,
+                style: TextStyle(
+                  color: theme.text.withValues(alpha: .82),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),

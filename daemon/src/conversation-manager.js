@@ -745,6 +745,29 @@ class ConversationManager {
       });
       return;
     }
+    if (event.type === conversationEventTypes.APPROVAL_RESOLVED) {
+      const matchesApproval = conversation.blockingItem?.type === 'approval_request' &&
+        conversation.blockingItem.approvalId === event.approvalId;
+      if (matchesApproval) {
+        const blockingPayload = { ...conversation.blockingItem };
+        delete blockingPayload.type;
+        delete blockingPayload.createdAt;
+        delete blockingPayload.expiresAt;
+        conversation.status = conversationStatuses.RUNNING;
+        conversation.blockingItem = null;
+        conversation.idleExpiresAt = null;
+        this.touch(conversation);
+        const { type, ...payload } = sanitizeAdapterEvent({
+          ...blockingPayload,
+          ...event
+        }, conversation.attachmentDispatchRedactionContext);
+        this.eventStore.append(conversation.id, type, payload);
+        this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+        this.promoteNextBlockingItem(conversation);
+        return;
+      }
+      if (this.removeQueuedResolvedApproval(conversation, event)) return;
+    }
     const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
     this.markPerf('adapter.event.normalized', {
       conversationId: conversation.id,
@@ -950,6 +973,24 @@ class ConversationManager {
     queue.splice(index, 1);
     conversation.blockingQueue = queue;
     const { type, ...payload } = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    this.eventStore.append(conversation.id, type, payload);
+    return true;
+  }
+
+  removeQueuedResolvedApproval(conversation, event) {
+    const queue = Array.isArray(conversation.blockingQueue) ? conversation.blockingQueue : [];
+    const index = queue.findIndex((item) => resolvedApprovalMatches(item.blockingItem, event));
+    if (index < 0) return false;
+    const [removed] = queue.splice(index, 1);
+    conversation.blockingQueue = queue;
+    const blockingPayload = { ...(removed?.blockingItem || {}) };
+    delete blockingPayload.type;
+    delete blockingPayload.createdAt;
+    delete blockingPayload.expiresAt;
+    const { type, ...payload } = sanitizeAdapterEvent({
+      ...blockingPayload,
+      ...event
+    }, conversation.attachmentDispatchRedactionContext);
     this.eventStore.append(conversation.id, type, payload);
     return true;
   }
@@ -1599,6 +1640,14 @@ function blockingCancellationMatches(blockingItem, event) {
   if (blockingItem.type === 'approval_request') return !!blockingItem.approvalId && blockingItem.approvalId === event.approvalId;
   if (blockingItem.type === 'input_request') return !!blockingItem.questionId && blockingItem.questionId === event.questionId;
   return false;
+}
+
+function resolvedApprovalMatches(blockingItem, event) {
+  return !!blockingItem &&
+    !!event &&
+    blockingItem.type === 'approval_request' &&
+    !!blockingItem.approvalId &&
+    blockingItem.approvalId === event.approvalId;
 }
 
 function snapshotPreCommitState(conversation) {

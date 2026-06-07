@@ -13,15 +13,17 @@ abstract class PerformanceTraceTransport {
 
 class PerformanceTraceClient implements PerformanceTraceTransport {
   const PerformanceTraceClient({required DaemonClient daemonClient})
-    : _daemonClient = daemonClient;
+      : _daemonClient = daemonClient;
 
   final DaemonClient _daemonClient;
 
+  @override
   Future<PerformanceTraceConfig> fetchConfig() async {
     final response = await _daemonClient.getAuthorizedJson('/api/perf/config');
     return PerformanceTraceConfig.fromJson(response);
   }
 
+  @override
   Future<PerformanceTimeSyncResponse> timeSync(
     PerformanceTimeSyncRequest request,
   ) async {
@@ -32,6 +34,7 @@ class PerformanceTraceClient implements PerformanceTraceTransport {
     return PerformanceTimeSyncResponse.fromJson(response);
   }
 
+  @override
   Future<PerformanceTraceUploadResponse> upload(
     PerformanceTraceUploadRequest request,
   ) async {
@@ -92,11 +95,11 @@ class PerformanceTimeSyncRequest {
   final int mobileSendMonoUs;
 
   Map<String, Object?> toJson() => <String, Object?>{
-    'runId': runId,
-    'appSessionId': appSessionId,
-    'mobileSendWallMs': mobileSendWallMs,
-    'mobileSendMonoUs': mobileSendMonoUs,
-  };
+        'runId': runId,
+        'appSessionId': appSessionId,
+        'mobileSendWallMs': mobileSendWallMs,
+        'mobileSendMonoUs': mobileSendMonoUs,
+      };
 }
 
 class PerformanceTimeSyncResponse {
@@ -139,12 +142,12 @@ class PerformanceTraceClockSync {
   final bool clockDriftWarning;
 
   Map<String, Object?> toJson() => <String, Object?>{
-    'offsetEstimateMs': offsetEstimateMs,
-    'roundTripMs': roundTripMs,
-    'ageMs': ageMs,
-    'quality': quality,
-    'clockDriftWarning': clockDriftWarning,
-  };
+        'offsetEstimateMs': offsetEstimateMs,
+        'roundTripMs': roundTripMs,
+        'ageMs': ageMs,
+        'quality': quality,
+        'clockDriftWarning': clockDriftWarning,
+      };
 }
 
 class PerformanceTraceUploadRequest {
@@ -173,20 +176,20 @@ class PerformanceTraceUploadRequest {
   final PerformanceTraceClockSync clockSync;
 
   Map<String, Object?> toJson() => <String, Object?>{
-    'runId': runId,
-    'deviceId': deviceId,
-    'appSessionId': appSessionId,
-    'mobileSentWallMs': mobileSentWallMs,
-    'mobileSentMonoUs': mobileSentMonoUs,
-    'droppedCountSinceLastSuccessfulFlush':
-        droppedCountSinceLastSuccessfulFlush,
-    'droppedCriticalCountSinceLastSuccessfulFlush':
-        droppedCriticalCountSinceLastSuccessfulFlush,
-    'droppedNonCriticalCountSinceLastSuccessfulFlush':
-        droppedNonCriticalCountSinceLastSuccessfulFlush,
-    'marks': marks.map(_markToJson).toList(growable: false),
-    'clockSync': clockSync.toJson(),
-  };
+        'runId': runId,
+        'deviceId': deviceId,
+        'appSessionId': appSessionId,
+        'mobileSentWallMs': mobileSentWallMs,
+        'mobileSentMonoUs': mobileSentMonoUs,
+        'droppedCountSinceLastSuccessfulFlush':
+            droppedCountSinceLastSuccessfulFlush,
+        'droppedCriticalCountSinceLastSuccessfulFlush':
+            droppedCriticalCountSinceLastSuccessfulFlush,
+        'droppedNonCriticalCountSinceLastSuccessfulFlush':
+            droppedNonCriticalCountSinceLastSuccessfulFlush,
+        'marks': marks.map(_markToJson).toList(growable: false),
+        'clockSync': clockSync.toJson(),
+      };
 }
 
 class PerformanceTraceUploadResponse {
