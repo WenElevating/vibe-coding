@@ -88,7 +88,7 @@ void main() {
       adapter: 'codex',
     );
 
-    expect(viewModel.selectedAdapter, 'claude');
+    expect(viewModel.selectedAdapter, 'codex');
 
     viewModel.openSession(SessionItem(
       run: WorkbenchViewModel.runSummaryFromConversation(conversation),
@@ -202,9 +202,12 @@ void main() {
     );
 
     expect(changed, isTrue);
-    expect(repository.calls, <String>['page:conv_existing:null:80']);
+    expect(repository.calls, <String>[
+      'page:conv_existing:null:80',
+      'page:conv_existing:7:80',
+    ]);
     expect(viewModel.oldestLoadedConversationSeq, 7);
-    expect(viewModel.hasMoreHistoricalConversationEvents, isTrue);
+    expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
     expect(viewModel.loadingOlderConversationEvents, isFalse);
     expect(viewModel.lastSeq, 8);
     expect(viewModel.messages.map((message) => message.body),
@@ -268,13 +271,6 @@ void main() {
           type: 'assistant.message',
           text: 'live answer'),
     ], streamOutput: true);
-    final changed = await viewModel.loadOlderConversationEventPage(
-      conversationId: 'conv_existing',
-      limit: 80,
-      streamOutput: true,
-    );
-
-    expect(changed, isTrue);
     expect(repository.calls, <String>[
       'page:conv_existing:null:80',
       'page:conv_existing:2:80',

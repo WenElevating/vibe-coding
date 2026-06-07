@@ -244,7 +244,7 @@ Future<DaemonClient> _pairedClient(FakeHttpHandler handler) async {
     'device-1',
     TokenSession(
       token: 'access-1',
-      expiresAt: DateTime.parse('2026-06-06T08:00:00.000Z'),
+      expiresAt: DateTime.parse('2099-06-06T08:00:00.000Z'),
     ),
   );
   final client = DaemonClient(
