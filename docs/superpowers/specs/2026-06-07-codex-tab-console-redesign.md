@@ -123,6 +123,12 @@ This is feature-local state, not a global route overlay. Back behavior inside
 the Codex page should return from thread detail to overview before leaving the
 Codex tab.
 
+The selected thread detail state is not sticky across bottom-tab switches. When
+the user leaves the Codex bottom tab for Coding or Settings and later returns
+to Codex, the page should show the overview. This keeps a diagnostic review
+state from feeling like a persistent global destination and avoids showing a
+stale thread after the active workspace changes in another tab.
+
 ## Overview UI
 
 The overview is a single scrollable console.
@@ -135,6 +141,19 @@ The overview is a single scrollable console.
 - If no workspace is selected, show a workspace-scoped empty state and do not
   render fake resource or thread data.
 
+The status chip is a ViewModel-derived UI status, not a direct daemon heartbeat
+field. Derive it from the Codex app-server overview load state:
+
+- `syncing`: any overview load is currently in flight.
+- `ready`: the latest overview load completed and capabilities were available.
+- `busy`: the latest overview load failed with a recognized app-server busy or
+  pool-limit condition.
+- `unavailable`: capabilities cannot be loaded because app-server is disabled,
+  unauthorized, not configured, or otherwise unavailable.
+
+Unknown load failures should render the unavailable visual state with a
+localized diagnostic detail.
+
 ### Status Panel
 
 The status panel shows three compact metrics:
@@ -142,7 +161,9 @@ The status panel shows three compact metrics:
 - `Threads`: count from the workspace thread list.
 - `Resources`: count from model providers, MCP servers, skills, plugins, apps,
   and config availability.
-- `Guarded`: count of app-server routes that are high-risk or require approval.
+- `Guarded`: count of unique app-server routes that are not read-only. This is
+  the union of high-risk routes and approval-required routes, not a sum that
+  double-counts routes that belong to both groups.
 
 The panel should feel like a compact operational control surface, not a
 marketing hero. Use dense labels, restrained color, and stable dimensions.
@@ -186,8 +207,9 @@ Safety boundary replaces the current Risk tab as a visible overview summary.
 It shows:
 
 - read-only route count;
-- guarded route count;
-- approval-required route count;
+- guarded route count, using the same unique-route definition as the Status
+  Panel;
+- approval-required route count, a subset of guarded routes;
 - a localized note that enforcement is daemon-owned.
 
 This section is explanatory and status-oriented. It does not expose mutation
@@ -264,18 +286,8 @@ Required localization coverage includes:
 - "daemon enforced" wording;
 - "not provided" fallback.
 
-Suggested Chinese labels:
-
-- `Codex`
-- `Codex 控制台`
-- `最近会话`
-- `运行资源`
-- `安全边界`
-- `守护路由`
-- `需要批准`
-- `当前工作区`
-- `线程详情`
-- `未提供`
+Chinese copy must be complete for every new localization key added by the
+implementation. Do not rely on a partial suggested vocabulary list.
 
 English copy should use product-facing language. Avoid making the overview feel
 like raw implementation diagnostics. `Recent sessions` is preferred in the
@@ -326,6 +338,26 @@ Recent session tap
 The repository can implement `loadThreadReview` by composing existing
 workspace-scoped daemon routes for thread read, goal, turns, and items. Mobile
 must consume daemon DTOs, not upstream app-server JSON-RPC shapes.
+
+### Thread Review Aggregation
+
+`loadThreadReview` should make error boundaries explicit:
+
+- Thread read is required. If `readThread(workspaceId, threadId)` fails, the
+  detail view enters a fatal detail error state and no stale thread summary is
+  shown.
+- Goal is optional. If `getThreadGoal` fails, render the thread summary without
+  a goal and show a localized "goal unavailable" value or note. This does not
+  make the detail view fail.
+- Turns/items are timeline data. If turns cannot be listed, keep the summary
+  visible and render a timeline-local error state. If item loading fails for
+  some turns after turns were listed, render available turn rows and show the
+  timeline as partial with a localized error note.
+- A missing or empty turns/items response is not an error. It renders the
+  localized empty timeline state.
+- All failures must be generation-guarded so late partial responses cannot
+  populate the selected thread after the user returns to overview, changes
+  workspace, or opens another thread.
 
 ## Error Handling
 
@@ -388,6 +420,15 @@ Implementation should run the relevant Flutter checks:
 cd mobile
 flutter test --no-pub test\codex_app_server_view_model_test.dart test\codex_app_server_models_test.dart
 dart run tool\check_architecture_imports.dart
+dart analyze
+```
+
+Cross-platform command shape for CI or non-Windows shells:
+
+```bash
+cd mobile
+flutter test --no-pub test/codex_app_server_view_model_test.dart test/codex_app_server_models_test.dart
+dart run tool/check_architecture_imports.dart
 dart analyze
 ```
 
