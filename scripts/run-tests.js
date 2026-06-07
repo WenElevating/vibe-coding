@@ -13590,6 +13590,61 @@ test('multipart send allows image when selected model lacks modality metadata an
   }
 });
 
+test('multipart codex-app-server image send accepts listed capabilityVersion', async () => {
+  const adapterId = 'codex-app-server';
+  const adapter = {
+    ...codexNativeImageAttachmentAdapter({
+      modelCapability: {
+        canSelectModel: true,
+        selectedModel: 'gpt-5.5',
+        models: [{ id: 'gpt-5.5', label: 'GPT-5.5', source: 'app_server' }]
+      }
+    }),
+    name: adapterId,
+    displayName: 'Codex App Server',
+    async detectCapabilities() {
+      return {
+        adapter: adapterId,
+        available: true,
+        status: 'available',
+        capabilities: this.capabilities
+      };
+    },
+    getCapabilities() {
+      return {};
+    }
+  };
+  const [listed] = await new AdapterRegistry([adapter]).listCapabilities();
+  const { app, port, token, conversationId } = await createAttachmentConversationApp({
+    adapter,
+    adapterId,
+    dbPrefix: 'app-db-attachments-app-server-listed-capability-'
+  });
+  try {
+    const boundary = '----attachments-app-server-listed-capability';
+    const imageBytes = minimalPngBytes({ width: 1, height: 1 });
+    const body = multipartBody({
+      boundary,
+      payload: {
+        text: 'inspect image',
+        clientMessageId: 'client_app_server_listed_capability',
+        capabilityVersion: listed.capabilityVersion,
+        attachments: [{ field: 'files[0]', name: 'a.png', mimeType: 'image/png', kind: 'image', sizeBytes: imageBytes.length }]
+      },
+      files: [{ name: 'a.png', mimeType: 'image/png', bytes: imageBytes }]
+    });
+    const response = await requestRaw(port, 'POST', `/api/conversations/${conversationId}/messages`, body, token, {
+      'content-type': `multipart/form-data; boundary=${boundary}`
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(adapter.sent.length, 1);
+    assert.equal(adapter.sent[0].attachments[0].kind, 'image');
+  } finally {
+    await closeAttachmentConversationApp(app);
+  }
+});
+
 test('multipart duplicate in-flight clientMessageId rejects with stable conflict code', async () => {
   const { manager, device, eventStore } = createConversationManagerForTest({
     adapters: new Map([['codex', attachmentConversationAdapter()]])

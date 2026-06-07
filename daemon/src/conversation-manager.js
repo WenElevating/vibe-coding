@@ -491,8 +491,8 @@ class ConversationManager {
   async attachmentCapabilitiesForConversation(conversation) {
     const adapterName = effectiveAdapterName(conversation);
     const adapter = this.getAdapter(adapterName);
-    const modelCapability = await modelCapabilityFor(adapter);
-    const status = adapter.capability || {};
+    const status = await detectedAdapterStatusFor(adapter);
+    const modelCapability = await modelCapabilityFor(adapter, status);
     const rawCapabilities = status.capabilities || (typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : (adapter.capabilities || {}));
     const attachments = normalizeAttachmentCapabilities(rawCapabilities?.attachments);
     const models = Array.isArray(modelCapability.models)
@@ -1266,14 +1266,19 @@ async function disposeIdleHandle(conversation) {
   }
 }
 
-async function modelCapabilityFor(adapter) {
+async function detectedAdapterStatusFor(adapter) {
   if (typeof adapter.detectCapabilities === 'function') {
-    await adapter.detectCapabilities();
+    return await adapter.detectCapabilities() || adapter.capability || {};
   }
+  return adapter.capability || {};
+}
+
+async function modelCapabilityFor(adapter, status = null) {
+  const detectedStatus = status || await detectedAdapterStatusFor(adapter);
   if (typeof adapter.getModelCapability !== 'function') {
     return { canSelectModel: false, selectedModel: null, models: [] };
   }
-  const capability = await adapter.getModelCapability();
+  const capability = await adapter.getModelCapability(detectedStatus);
   return {
     canSelectModel: capability?.canSelectModel === true,
     selectedModel: typeof capability?.selectedModel === 'string' ? capability.selectedModel : null,

@@ -187,6 +187,24 @@ flutter test --no-pub test\attachment_preview_cache_test.dart -r expanded --plai
 
 - Last verified: 2026-05-23
 
+## Symptom: Codex App-Server Image Upload Returns Attachment Capabilities Changed
+
+- Symptom: sending an image in a `codex-app-server` conversation fails before
+  committing `user.message` with HTTP 409 and
+  `Attachment capabilities changed. Refresh adapter capabilities and retry.`
+- Action: compare the `capabilityVersion` returned from `/api/adapters` with
+  `ConversationManager.attachmentCapabilitiesForConversation()`. App-server
+  exposes dynamic image support from `detectCapabilities()` without relying on
+  `adapter.capability`, so attachment send validation must use the fresh
+  detected status rather than only cached/static capability fields.
+- Verification:
+
+```powershell
+node scripts/run-tests.js --grep "multipart codex-app-server image send accepts listed capabilityVersion"
+```
+
+- Last verified: 2026-06-07
+
 ## Symptom: Workbench WebSocket Stream Appears Stalled
 
 - Symptom: daemon persists later `conversation_events`, but the foreground transcript does not update over the WebSocket notification path.
