@@ -46,6 +46,8 @@ import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
 import '../services/method_channel_background_download_bridge.dart';
 import '../services/noop_background_download_bridge.dart';
+import '../services/performance_trace_client.dart';
+import '../services/performance_trace_startup_buffer.dart';
 import '../services/recent_daemon_address_store.dart';
 import '../services/speech_input_service.dart';
 import '../shell/app_snapshot.dart';
@@ -125,6 +127,10 @@ class AppDependencies {
       sessionScope: sessionScope,
       connectedData: connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
+      performanceTraceClient: PerformanceTraceClient(daemonClient: client),
+      performanceTraceStartupBuffer: PerformanceTraceStartupBuffer.global,
+      performanceTraceAppSessionId: _newPerformanceTraceAppSessionId(),
+      performanceTraceDeviceIdProvider: () => client.currentDeviceId,
       normalizeCodingPermissionMode:
           CodingPreferencesRepository.normalizePermissionMode,
       workbenchDependencies:
@@ -152,6 +158,10 @@ class MainDependencies {
     required this.sessionScope,
     required this.connectedData,
     required this.codingPreferencesRepository,
+    required this.performanceTraceClient,
+    required this.performanceTraceStartupBuffer,
+    required this.performanceTraceAppSessionId,
+    required this.performanceTraceDeviceIdProvider,
     required this.normalizeCodingPermissionMode,
     required this.workbenchDependencies,
     required this.featureDependencies,
@@ -161,6 +171,10 @@ class MainDependencies {
   final ConnectedSessionScope sessionScope;
   final ConnectedDataDependencies connectedData;
   final CodingPreferencesRepository codingPreferencesRepository;
+  final PerformanceTraceClient performanceTraceClient;
+  final PerformanceTraceStartupBuffer performanceTraceStartupBuffer;
+  final String performanceTraceAppSessionId;
+  final String? Function() performanceTraceDeviceIdProvider;
   final String Function(String? value) normalizeCodingPermissionMode;
   final WorkbenchDependencies workbenchDependencies;
   final FeatureDependencies featureDependencies;
@@ -169,6 +183,9 @@ class MainDependencies {
     required String installedVersionName,
   }) createAppUpdateViewModel;
 }
+
+String _newPerformanceTraceAppSessionId() =>
+    'mobile_session_${DateTime.now().microsecondsSinceEpoch}';
 
 ConnectedSessionScope _createConnectedSessionScope(
   ConnectedDataDependencies connectedData, {

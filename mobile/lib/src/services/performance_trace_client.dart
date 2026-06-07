@@ -1,7 +1,17 @@
 import 'daemon_client.dart';
 import 'mobile_app_event_bus.dart';
 
-class PerformanceTraceClient {
+abstract class PerformanceTraceTransport {
+  Future<PerformanceTraceConfig> fetchConfig();
+  Future<PerformanceTimeSyncResponse> timeSync(
+    PerformanceTimeSyncRequest request,
+  );
+  Future<PerformanceTraceUploadResponse> upload(
+    PerformanceTraceUploadRequest request,
+  );
+}
+
+class PerformanceTraceClient implements PerformanceTraceTransport {
   const PerformanceTraceClient({required DaemonClient daemonClient})
     : _daemonClient = daemonClient;
 

@@ -137,6 +137,7 @@ class DaemonClient
   Future<void>? _refreshTask;
   bool _closed = false;
 
+  String? get currentDeviceId => _deviceId;
   String? get currentToken => _token;
 
   AsrModelClient createAsrModelClient() => AsrModelClient(
