@@ -29,7 +29,10 @@ const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
-const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
+const {
+  conversationEventTypes,
+  conversationSessionBindings
+} = require('../daemon/src/conversation-protocol');
 const {
   notificationErrorCodes,
   canonicalScope,
@@ -7101,7 +7104,7 @@ test('Codex app-server lifecycle rejects pending requests on child spawn error',
   assert.equal(lifecycle.handles.size, 0);
 });
 
-function createConversationManagerForTest({ adapters } = {}) {
+function createConversationManagerForTest({ adapters, persistentStore = null } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
   const workspaces = new WorkspaceRegistry();
@@ -7129,6 +7132,7 @@ function createConversationManagerForTest({ adapters } = {}) {
     eventStore,
     auditLog,
     adapters: adapters || defaultAdapters,
+    persistentStore,
     now: () => new Date('2026-05-09T00:00:00.000Z')
   });
   const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
@@ -10527,6 +10531,361 @@ test('conversation session drift keeps original CLI session id', async () => {
   assert.equal(summary.sessionBinding, 'drifted');
   assert.equal(warning.expectedSessionId, 'original-session');
   assert.equal(warning.receivedSessionId, 'drifted-session');
+});
+
+test('conversation manager clearSessionBinding clears session state and appends notice', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        id: conversation.id,
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession,
+        updatedAt: conversation.updatedAt
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.clearSessionBinding(conversation, {
+    reason: 'invalid session',
+    code: 'OPENCODE_INVALID_SESSION',
+    noticeKind: 'opencode_session_invalidated',
+    visible: true
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, null);
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.UNKNOWN);
+  assert.equal(conversation.providerSession, null);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].cliSessionId, null);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.UNKNOWN);
+  assert.equal(saves[0].providerSession, null);
+  const notice = eventStore.list(conversation.id, 0).find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(notice.noticeKind, 'opencode_session_invalidated');
+  assert.equal(notice.visible, true);
+  assert.equal(notice.reason, 'invalid session');
+  assert.equal(notice.code, 'OPENCODE_INVALID_SESSION');
+});
+
+test('conversation manager clearSessionBinding expected session mismatch leaves state unchanged', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({ cliSessionId: conversation.cliSessionId });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'actual_session';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.clearSessionBinding(conversation, {
+    expectedSessionId: 'expected_session',
+    reason: 'invalid session'
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    conflict: true,
+    expectedSessionId: 'expected_session',
+    actualSessionId: 'actual_session'
+  });
+  assert.equal(conversation.cliSessionId, 'actual_session');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.CONFIRMED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 0);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE), false);
+});
+
+test('conversation manager clearSessionBinding persistence failure rolls back state and skips notice', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.cliSessionId === null) throw new Error('persist failed');
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.clearSessionBinding(conversation, {
+      expectedSessionId: 'session_1',
+      reason: 'invalid session',
+      noticeKind: 'opencode_session_invalidated'
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE), false);
+});
+
+test('conversation manager markSessionBindingDrifted marks drift and appends warning', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'session_1',
+    receivedSessionId: 'session_2',
+    reason: 'invalid session',
+    code: 'OPENCODE_INVALID_SESSION'
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, 'session_1');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.DRIFTED);
+  const warning = eventStore.list(conversation.id, 0).find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.expectedSessionId, 'session_1');
+  assert.equal(warning.receivedSessionId, 'session_2');
+  assert.equal(warning.reason, 'invalid session');
+  assert.equal(warning.code, 'OPENCODE_INVALID_SESSION');
+});
+
+test('conversation manager markSessionBindingDrifted persistence failure rolls back state and skips warning', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.sessionBinding === conversationSessionBindings.DRIFTED) {
+        throw new Error('persist failed');
+      }
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.markSessionBindingDrifted(conversation, {
+      expectedSessionId: 'session_1',
+      receivedSessionId: 'session_2',
+      reason: 'invalid session',
+      code: 'OPENCODE_INVALID_SESSION'
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager markSessionBindingDrifted clear true clears session ids and persists', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession
+      });
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'session_1',
+    receivedSessionId: 'session_2',
+    clear: true
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, null);
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.equal(conversation.providerSession, null);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].cliSessionId, null);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.equal(saves[0].providerSession, null);
+});
+
+test('conversation manager markSessionBindingDrifted clear persistence failure rolls back state and skips warning', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.sessionBinding === conversationSessionBindings.DRIFTED && conversation.cliSessionId === null) {
+        throw new Error('persist failed');
+      }
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.markSessionBindingDrifted(conversation, {
+      expectedSessionId: 'session_1',
+      receivedSessionId: 'session_2',
+      clear: true
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager markSessionBindingDrifted expected mismatch leaves state unchanged', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({ cliSessionId: conversation.cliSessionId });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'actual_session';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'expected_session',
+    receivedSessionId: 'received_session',
+    reason: 'invalid session',
+    clear: true
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    conflict: true,
+    expectedSessionId: 'expected_session',
+    actualSessionId: 'actual_session'
+  });
+  assert.equal(conversation.cliSessionId, 'actual_session');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.CONFIRMED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 0);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager session binding helper events bound large diagnostic fields', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const hugeSessionId = `session_${'s'.repeat(5000)}`;
+  const hugeReceivedSessionId = `received_${'r'.repeat(5000)}`;
+  const hugeReason = `reason_${'x'.repeat(5000)}`;
+  const hugeCode = `CODE_${'y'.repeat(5000)}`;
+  const hugeNoticeKind = `notice_${'n'.repeat(5000)}`;
+
+  conversation.cliSessionId = hugeSessionId;
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.clearSessionBinding(conversation, {
+    expectedSessionId: hugeSessionId,
+    reason: hugeReason,
+    code: hugeCode,
+    noticeKind: hugeNoticeKind
+  });
+  conversation.cliSessionId = hugeSessionId;
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: hugeSessionId,
+    receivedSessionId: hugeReceivedSessionId,
+    reason: hugeReason,
+    code: hugeCode
+  });
+
+  const events = eventStore.list(conversation.id, 0);
+  const notice = events.find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  const warning = events.find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(notice.noticeKind.length <= 512, true);
+  assert.equal(notice.reason.length <= 512, true);
+  assert.equal(notice.code.length <= 512, true);
+  assert.equal(warning.expectedSessionId.length <= 512, true);
+  assert.equal(warning.receivedSessionId.length <= 512, true);
+  assert.equal(warning.reason.length <= 512, true);
+  assert.equal(warning.code.length <= 512, true);
+  const retained = JSON.stringify(events);
+  for (const leaked of [hugeSessionId, hugeReceivedSessionId, hugeReason, hugeCode, hugeNoticeKind]) {
+    assert.equal(retained.includes(leaked), false);
+  }
 });
 
 test('conversation manager restores persisted live conversation as interrupted', () => {

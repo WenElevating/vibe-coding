@@ -26,6 +26,7 @@ const { deriveConversationTitle } = require('./conversation-title');
 const { mapCodexEvent } = require('./codex-conversation-adapter');
 
 const claudeMaxNativeImageBytes = 5 * 1024 * 1024;
+const sessionBindingEventMaxChars = 512;
 
 class ConversationManager {
   constructor({ workspaces, eventStore, auditLog, adapters, persistentStore = null, idleTtlMs = 600000, now = () => new Date(), attachmentScratchStore = null, perfTracer = null }) {
@@ -862,6 +863,72 @@ class ConversationManager {
     return true;
   }
 
+  clearSessionBinding(conversation, {
+    expectedSessionId,
+    reason,
+    code,
+    noticeKind = 'session_binding_cleared',
+    visible = false
+  } = {}) {
+    const expectedConflict = sessionBindingExpectedConflict(conversation, expectedSessionId);
+    if (expectedConflict) return expectedConflict;
+    const safeNoticeKind = sessionBindingEventString(noticeKind) || 'session_binding_cleared';
+    const safeReason = sessionBindingEventString(reason);
+    const safeCode = sessionBindingEventString(code);
+    const snapshot = snapshotSessionBindingState(conversation);
+    conversation.cliSessionId = null;
+    conversation.sessionBinding = conversationSessionBindings.UNKNOWN;
+    conversation.providerSession = null;
+    try {
+      this.touch(conversation);
+    } catch (error) {
+      restoreSessionBindingState(conversation, snapshot);
+      throw error;
+    }
+    this.eventStore.append(conversation.id, conversationEventTypes.SYSTEM_NOTICE, {
+      noticeKind: safeNoticeKind,
+      visible: visible === true,
+      ...(safeReason ? { reason: safeReason } : {}),
+      ...(safeCode ? { code: safeCode } : {})
+    });
+    return { ok: true };
+  }
+
+  markSessionBindingDrifted(conversation, {
+    expectedSessionId,
+    receivedSessionId,
+    reason,
+    code,
+    clear = false
+  } = {}) {
+    const expectedConflict = sessionBindingExpectedConflict(conversation, expectedSessionId);
+    if (expectedConflict) return expectedConflict;
+    const safeExpectedSessionId = sessionBindingEventString(expectedSessionId);
+    const safeReceivedSessionId = sessionBindingEventString(receivedSessionId);
+    const safeReason = sessionBindingEventString(reason);
+    const safeCode = sessionBindingEventString(code);
+    const snapshot = snapshotSessionBindingState(conversation);
+    conversation.sessionBinding = conversationSessionBindings.DRIFTED;
+    if (clear) {
+      conversation.cliSessionId = null;
+      conversation.providerSession = null;
+    }
+    try {
+      this.touch(conversation);
+    } catch (error) {
+      restoreSessionBindingState(conversation, snapshot);
+      throw error;
+    }
+    this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
+      warning: 'session_binding_drifted',
+      ...(safeExpectedSessionId ? { expectedSessionId: safeExpectedSessionId } : {}),
+      ...(safeReceivedSessionId ? { receivedSessionId: safeReceivedSessionId } : {}),
+      ...(safeReason ? { reason: safeReason } : {}),
+      ...(safeCode ? { code: safeCode } : {})
+    });
+    return { ok: true };
+  }
+
   async ensureStarted(conversation) {
     if (conversation.handle) return conversation.handle;
     const adapterName = effectiveAdapterName(conversation);
@@ -1254,6 +1321,39 @@ function firstClaudeToolUseInput(raw) {
 function stringValue(value) {
   if (typeof value !== 'string' && typeof value !== 'number') return '';
   return String(value).trim();
+}
+
+function sessionBindingEventString(value) {
+  const text = stringValue(value);
+  if (!text) return null;
+  if (text.length <= sessionBindingEventMaxChars) return text;
+  return `${text.slice(0, sessionBindingEventMaxChars - 3)}...`;
+}
+
+function sessionBindingExpectedConflict(conversation, expectedSessionId) {
+  if (!expectedSessionId || expectedSessionId === conversation.cliSessionId) return null;
+  return {
+    ok: false,
+    conflict: true,
+    expectedSessionId,
+    actualSessionId: conversation.cliSessionId || null
+  };
+}
+
+function snapshotSessionBindingState(conversation) {
+  return {
+    cliSessionId: conversation.cliSessionId,
+    sessionBinding: conversation.sessionBinding,
+    providerSession: conversation.providerSession,
+    updatedAt: conversation.updatedAt
+  };
+}
+
+function restoreSessionBindingState(conversation, snapshot) {
+  conversation.cliSessionId = snapshot.cliSessionId;
+  conversation.sessionBinding = snapshot.sessionBinding;
+  conversation.providerSession = snapshot.providerSession;
+  conversation.updatedAt = snapshot.updatedAt;
 }
 
 async function disposeIdleHandle(conversation) {
