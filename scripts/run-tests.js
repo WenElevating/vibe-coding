@@ -1511,6 +1511,280 @@ test('successful perf mobile batch writes run, batch, and mark rows', async () =
   }
 });
 
+test('perf tracer is no-op when disabled and never throws', () => {
+  const { PerfTracer } = require('../daemon/src/perf-tracer');
+  const tracer = new PerfTracer({
+    enabled: false,
+    writer: {
+      writeDaemonMark() {
+        throw new Error('boom');
+      }
+    }
+  });
+
+  assert.doesNotThrow(() => tracer.mark({ name: 'http.conversation.request.received' }));
+});
+
+test('perf tracer writes daemon marks with source and timestamps when enabled', () => {
+  const marks = [];
+  const { PerfTracer } = require('../daemon/src/perf-tracer');
+  const tracer = new PerfTracer({
+    enabled: true,
+    writer: {
+      writeDaemonMark(mark) {
+        marks.push(mark);
+      }
+    },
+    nowWallMs: () => 1791200000000,
+    nowMonoUs: () => 123456
+  });
+
+  tracer.mark({ name: 'ws.event.sent', conversationId: 'conv_1', seq: 7 });
+
+  assert.equal(marks[0].source, 'daemon');
+  assert.equal(marks[0].name, 'ws.event.sent');
+  assert.equal(marks[0].wallTimeMs, 1791200000000);
+  assert.equal(marks[0].monotonicUs, 123456);
+  assert.equal(marks[0].conversationId, 'conv_1');
+  assert.equal(marks[0].seq, 7);
+  assert.deepEqual(marks[0].metadata, {});
+});
+
+test('conversation event store emits content-free persisted perf mark', () => {
+  const marks = [];
+  const store = new ConversationEventStore({
+    now: () => new Date('2026-05-03T00:00:00.000Z'),
+    perfTracer: {
+      mark(mark) {
+        marks.push(mark);
+      }
+    }
+  });
+
+  store.append('conv_1', conversationEventTypes.ASSISTANT_MESSAGE, { text: 'assistant output must not leak' });
+
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].name, 'event.persisted');
+  assert.equal(marks[0].conversationId, 'conv_1');
+  assert.equal(marks[0].seq, 1);
+  assert.equal(marks[0].eventType, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.deepEqual(marks[0].metadata, { eventType: conversationEventTypes.ASSISTANT_MESSAGE });
+  assert.equal(JSON.stringify(marks).includes('assistant output must not leak'), false);
+});
+
+test('conversation manager emits daemon perf marks in send and adapter event order', async () => {
+  const marks = [];
+  let capturedOnEvent = null;
+  const handle = {
+    async sendUserMessage() {
+    }
+  };
+  const adapter = {
+    capabilities: { resume: true },
+    async startConversation({ onEvent }) {
+      capturedOnEvent = onEvent;
+      return handle;
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([['codex', adapter]])
+  });
+  manager.perfTracer = {
+    mark(mark) {
+      marks.push(mark);
+    }
+  };
+  manager.eventStore.perfTracer = manager.perfTracer;
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'prompt must not leak' }, device);
+  capturedOnEvent({ type: conversationEventTypes.ASSISTANT_MESSAGE, text: 'assistant output must not leak' });
+  capturedOnEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED });
+
+  const names = marks.map((mark) => mark.name);
+  for (const expectedName of [
+    'conversation.send.received',
+    'conversation.user.persisted',
+    'adapter.send.started',
+    'adapter.send.accepted',
+    'adapter.raw_event.received',
+    'adapter.event.normalized',
+    'event.persisted'
+  ]) {
+    assert.equal(names.includes(expectedName), true, expectedName);
+  }
+  assert.ok(names.indexOf('conversation.send.received') < names.indexOf('conversation.user.persisted'));
+  assert.ok(names.indexOf('conversation.user.persisted') < names.indexOf('adapter.send.started'));
+  assert.ok(names.indexOf('adapter.send.started') < names.indexOf('adapter.send.accepted'));
+  assert.ok(names.indexOf('adapter.send.accepted') < names.indexOf('adapter.raw_event.received'));
+  assert.equal(JSON.stringify(marks).includes('prompt must not leak'), false);
+  assert.equal(JSON.stringify(marks).includes('assistant output must not leak'), false);
+  for (const mark of marks) {
+    assert.equal(Object.prototype.hasOwnProperty.call(mark.metadata || {}, 'hasAttachments'), false, mark.name);
+    assert.equal(Object.prototype.hasOwnProperty.call(mark.metadata || {}, 'attachmentCount'), false, mark.name);
+  }
+});
+
+test('conversation manager does not emit adapter accepted perf mark when adapter send fails', async () => {
+  const marks = [];
+  const adapter = {
+    capabilities: { resume: true },
+    async startConversation() {
+      return {
+        async sendUserMessage() {
+          throw new Error('provider rejected send');
+        }
+      };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([['codex', adapter]])
+  });
+  manager.perfTracer = {
+    mark(mark) {
+      marks.push(mark);
+    }
+  };
+  manager.eventStore.perfTracer = manager.perfTracer;
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+
+  await assert.rejects(
+    () => manager.sendMessage(conversation.id, { text: 'prompt must not leak' }, device),
+    /provider rejected send/
+  );
+
+  const names = marks.map((mark) => mark.name);
+  assert.equal(names.includes('adapter.send.started'), true);
+  assert.equal(names.includes('adapter.send.accepted'), false);
+  assert.equal(JSON.stringify(marks).includes('prompt must not leak'), false);
+});
+
+test('notification hub emits enqueue and sent perf marks without event content', () => {
+  const marks = [];
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation() {
+        return { id: 'conv_1' };
+      }
+    },
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: 'test' },
+    perfTracer: {
+      mark(mark) {
+        marks.push(mark);
+      }
+    }
+  });
+  const connection = createNotificationHubTestConnection();
+  connection.ws = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send(_data, callback) {
+      if (callback) callback();
+    }
+  };
+  const subscription = {
+    key: subscriptionKey('conversation.events', { conversationId: 'conv_1' }),
+    generation: 1,
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    conversationId: 'conv_1',
+    replaying: true,
+    queuedLiveEvents: [],
+    connection
+  };
+  connection.generationCounter = 1;
+  connection.subscriptions.set(subscription.key, subscription);
+  hub.connections.set(connection.id, connection);
+  hub.conversationSubscriptions.set('conv_1', new Set([subscription]));
+
+  hub.publishConversationEvent({
+    conversationId: 'conv_1',
+    seq: 9,
+    type: conversationEventTypes.ASSISTANT_MESSAGE,
+    text: 'assistant output must not leak'
+  });
+  subscription.replaying = false;
+  hub.publishConversationEvent({
+    conversationId: 'conv_1',
+    seq: 10,
+    type: conversationEventTypes.ASSISTANT_MESSAGE,
+    text: 'assistant output must not leak'
+  });
+
+  assert.deepEqual(marks.map((mark) => mark.name), ['ws.event.enqueued', 'ws.event.sent']);
+  assert.equal(marks[0].conversationId, 'conv_1');
+  assert.equal(marks[0].seq, 9);
+  assert.equal(marks[0].eventType, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.equal(marks[1].conversationId, 'conv_1');
+  assert.equal(marks[1].seq, 10);
+  assert.equal(marks[1].eventType, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.equal(JSON.stringify(marks).includes('assistant output must not leak'), false);
+  for (const mark of marks) {
+    assert.equal(Object.prototype.hasOwnProperty.call(mark.metadata || {}, 'connectionCount'), false, mark.name);
+    assert.equal(Object.prototype.hasOwnProperty.call(mark.metadata || {}, 'pendingFrameCount'), false, mark.name);
+  }
+});
+
+test('conversation message HTTP route records request and response perf marks', async () => {
+  const conversationAdapters = new Map([['codex', {
+    capabilities: { resume: false },
+    async startConversation() {
+      return {
+        async sendUserMessage() {}
+      };
+    }
+  }]]);
+  const app = createApp({
+    port: 0,
+    conversationAdapters,
+    appDbPath: tempConversationDbPath('perf-http-conversation-app-'),
+    perfEnv: { VIBE_PERF_TRACE: '1' }
+  });
+  const marks = [];
+  app.server.context.perfTracer = {
+    mark(mark) {
+      marks.push(mark);
+    }
+  };
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'perf-http-conversation',
+      deviceId: 'perf_http_device'
+    });
+    const workspace = await request(port, 'POST', '/api/workspaces', {
+      name: 'Perf HTTP Workspace',
+      workspacePath: process.cwd()
+    }, paired.body.token);
+    assert.equal(workspace.status, 201);
+    const conversation = await request(port, 'POST', '/api/conversations', {
+      workspaceId: workspace.body.id,
+      adapter: 'codex'
+    }, paired.body.token);
+    assert.equal(conversation.status, 201);
+    const response = await request(port, 'POST', `/api/conversations/${conversation.body.conversation.id}/messages`, {
+      text: 'prompt must not leak'
+    }, paired.body.token);
+    assert.equal(response.status, 200);
+
+    assert.deepEqual(marks.map((mark) => mark.name), [
+      'http.conversation.request.received',
+      'http.conversation.response.sent'
+    ]);
+    assert.equal(marks[0].conversationId, conversation.body.conversation.id);
+    assert.equal(marks[1].conversationId, conversation.body.conversation.id);
+    assert.equal(marks[1].metadata.statusCode, 200);
+    assert.equal(JSON.stringify(marks).includes('prompt must not leak'), false);
+  } finally {
+    await closeAppResources(app);
+  }
+});
+
 test('Codex app-server kill-switch disables app-server routes without disabling CLI fallback', async () => {
   const app = createApp({
     port: 0,

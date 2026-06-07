@@ -39,6 +39,7 @@ const { versionInfo } = require('./version');
 const { createServer } = require('./server');
 const { createPerfConfig } = require('./perf-config');
 const { PerfSqliteStore, defaultPerfDbPath } = require('./perf-sqlite-store');
+const { PerfTracer } = require('./perf-tracer');
 const { AsrModelAsset } = require('./asr-model-asset');
 const { AppUpdateService } = require('./app-update-service');
 const { NotificationHub } = require('./notification-hub');
@@ -103,6 +104,10 @@ function createApp({
   const eventStore = new EventStore();
   const conversationSqliteStore = appSqliteStore;
   const conversationEventStore = new ConversationEventStore({ persistentStore: conversationSqliteStore });
+  const perfConfig = createPerfConfig({ env: perfEnv });
+  const perfStore = new PerfSqliteStore({ dbPath: perfDbPath, config: perfConfig });
+  const perfTracer = new PerfTracer({ enabled: perfConfig.enabled, writer: perfStore });
+  conversationEventStore.perfTracer = perfTracer;
   const auditLog = new AuditLog();
   const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
   const codexAppServerRuntime = buildCodexAppServerRuntimeConfig({
@@ -200,7 +205,8 @@ function createApp({
     }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
-    idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000)
+    idleTtlMs: Number(process.env.CONVERSATION_IDLE_TTL_MS || 600000),
+    perfTracer
   });
   const attachmentScratchCleanup = attachmentScratchStore.cleanupExpired({
     activeConversationIds: activeConversationIdsForScratchCleanup(conversations)
@@ -212,13 +218,11 @@ function createApp({
   const diagnostics = new DiagnosticsService({ config, adapterRegistry, auditLog, auth, workspaces, runs, runQueue, migrationService, versionInfo: version });
   const diagnosticBundle = new DiagnosticBundleService({ diagnostics, runs, runQueue, commandTemplates, auditLog, exceptionStore: appSqliteStore });
   const appUpdates = new AppUpdateService({ artifactDir: androidUpdateArtifactDir });
-  const perfConfig = createPerfConfig({ env: perfEnv });
-  const perfStore = new PerfSqliteStore({ dbPath: perfDbPath, config: perfConfig });
-  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, codexAppServerApprovalPolicy, codexAppServerEnabled: codexAppServerRouteEnabled, auditLog, perfConfig, perfStore, perfTracer: null });
-  const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version });
+  const server = createServer({ auth, workspaces, runs, conversations, adapterRegistry, diagnostics, diagnosticBundle, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, eventStore, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, codexAppServerApprovalPolicy, codexAppServerEnabled: codexAppServerRouteEnabled, auditLog, perfConfig, perfStore, perfTracer });
+  const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version, perfTracer });
   notificationHub.attach(server);
   notificationHub.start();
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, perfConfig, perfStore, attachmentScratchCleanup };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, perfConfig, perfStore, perfTracer, attachmentScratchCleanup };
 }
 
 function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null, codexAppServerAvailabilityState = null, codexAppServerLifecycle = null, codexAppServerMetrics = null }) {

@@ -1,9 +1,10 @@
 'use strict';
 
 class ConversationEventStore {
-  constructor({ now = () => new Date(), persistentStore = null } = {}) {
+  constructor({ now = () => new Date(), persistentStore = null, perfTracer = null } = {}) {
     this.now = now;
     this.persistentStore = persistentStore;
+    this.perfTracer = perfTracer;
     this.events = new Map();
     this.appendListeners = new Set();
   }
@@ -30,6 +31,7 @@ class ConversationEventStore {
     if (this.persistentStore) this.persistentStore.appendEvent(event);
     list.push(event);
     this.events.set(conversationId, list);
+    this.markEventPersisted(event);
     for (const listener of this.appendListeners) {
       try {
         listener(event);
@@ -98,6 +100,21 @@ class ConversationEventStore {
 
   list(conversationId, afterSeq = 0) {
     return this.listAfter(conversationId, afterSeq);
+  }
+
+  markEventPersisted(event) {
+    if (!this.perfTracer || typeof this.perfTracer.mark !== 'function') return;
+    try {
+      this.perfTracer.mark({
+        name: 'event.persisted',
+        conversationId: event.conversationId,
+        seq: event.seq,
+        eventType: event.type,
+        metadata: { eventType: event.type }
+      });
+    } catch {
+      // Perf marks are best-effort and must not affect event persistence.
+    }
   }
 }
 
