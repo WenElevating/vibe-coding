@@ -1511,6 +1511,50 @@ test('successful perf mobile batch writes run, batch, and mark rows', async () =
   }
 });
 
+test('perf integration smoke records a mobile upload in sqlite', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const fixture = await createPerfRouteTestApp('perf-integration-smoke-app-');
+
+  try {
+    const config = await fixture.get('/api/perf/config');
+    assert.equal(config.status, 200);
+    assert.equal(config.body.enabled, true);
+    assert.equal(typeof config.body.runId, 'string');
+
+    const payload = validPerfMobileBatch({
+      runId: config.body.runId,
+      deviceId: fixture.deviceId,
+      appSessionId: 'mobile_session_smoke',
+      marks: [
+        validPerfMark({
+          name: 'send.tap',
+          metadata: { route: 'existing' }
+        })
+      ]
+    });
+    const response = await fixture.post('/api/perf/mobile-marks', payload);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.accepted, 1);
+
+    const db = new DatabaseSync(fixture.perfDbPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_runs').get().count, 1);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_mobile_batches').get().count, 1);
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM perf_marks').get().count, 1);
+      const mark = db.prepare('SELECT source, name, metadata_json FROM perf_marks').get();
+      assert.equal(mark.source, 'mobile');
+      assert.equal(mark.name, 'send.tap');
+      assert.deepEqual(JSON.parse(mark.metadata_json), { route: 'existing' });
+      assert.equal(mark.metadata_json.includes('prompt'), false);
+      assert.equal(mark.metadata_json.includes('assistant'), false);
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('perf tracer is no-op when disabled and never throws', () => {
   const { PerfTracer } = require('../daemon/src/perf-tracer');
   const tracer = new PerfTracer({

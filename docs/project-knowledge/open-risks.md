@@ -28,6 +28,25 @@
 - Evidence: `.gitignore` ignores `docs/`.
 - Mitigation: use `git add -f` for intentional docs commits.
 
+## Risk: Connection Bootstrap Perf Marks Need A Pre-Reporter Boundary
+
+- Level: low
+- Impact: `app.main.started` and `app.first_frame` use the two-slot startup
+  buffer, but `daemon.health.loaded` and `workspace.list.loaded` occur during
+  daemon connection before `MainPage` creates `PerformanceTraceReporter`.
+  Recording those marks with exact timestamps needs an explicit connection
+  bootstrap buffer or a narrower definition that records when data becomes
+  available to the connected UI.
+- Evidence: `mobile/lib/src/workflows/connection/daemon_connection_workflow.dart`
+  loads health and initial data before `mobile/lib/src/ui/main/main_page.dart`
+  creates the reporter; `docs/superpowers/specs/2026-06-06-performance-tracing-design.md`
+  lists the marks, while the implementation intentionally keeps the startup
+  buffer limited to two startup marks.
+- Mitigation: do not expand the startup buffer casually. Add a dedicated
+  connection bootstrap trace handoff if analysis later requires exact health
+  and workspace-list timing.
+- Last verified: 2026-06-07
+
 ## Risk: Codex App-Server Migration Is Not A Drop-In Adapter Swap
 
 - Level: medium
