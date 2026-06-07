@@ -7,6 +7,7 @@ import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../services/asr_model_manager.dart';
 import '../../../services/mobile_app_event_bus.dart';
+import '../../../services/performance_trace_publisher.dart';
 import '../../../services/speech_input_contract.dart';
 import '../../../workflows/connection/open_workspace_use_case.dart';
 import 'attachments/attachment_preview_cache.dart';
@@ -25,6 +26,7 @@ class WorkbenchDependencies {
     this.workspaceOpeningUseCase,
     this.attachmentPreviewCache = const NoopAttachmentPreviewCache(),
     this.mobileAppEventBus,
+    this.performanceTracePublisher,
   })  : codingPreferencesRepository =
             codingPreferencesRepository ?? CodingPreferencesRepository(),
         slashCommandCatalogRepository = slashCommandCatalogRepository ??
@@ -44,12 +46,14 @@ class WorkbenchDependencies {
   final WorkspaceRepository workspaceRepository;
   final WorkspaceOpeningUseCase? workspaceOpeningUseCase;
   final MobileAppEventBus? mobileAppEventBus;
+  final PerformanceTracePublisher? performanceTracePublisher;
 
   WorkbenchDependencies copyWith({
     CodingPreferencesRepository? codingPreferencesRepository,
     SlashCommandCatalogRepository? slashCommandCatalogRepository,
     WorkspaceOpeningUseCase? workspaceOpeningUseCase,
     MobileAppEventBus? mobileAppEventBus,
+    PerformanceTracePublisher? performanceTracePublisher,
   }) {
     return WorkbenchDependencies(
       adapterRepository: adapterRepository,
@@ -67,6 +71,8 @@ class WorkbenchDependencies {
           workspaceOpeningUseCase ?? this.workspaceOpeningUseCase,
       attachmentPreviewCache: attachmentPreviewCache,
       mobileAppEventBus: mobileAppEventBus ?? this.mobileAppEventBus,
+      performanceTracePublisher:
+          performanceTracePublisher ?? this.performanceTracePublisher,
     );
   }
 }

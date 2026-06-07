@@ -3,12 +3,19 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../ui/ui.dart';
 import '../ui/core/theme/theme.dart';
+import '../services/performance_trace_startup_buffer.dart';
+import 'app_dependencies.dart';
 import 'language_controller.dart';
 import 'language_mode.dart';
 import 'language_scope.dart';
 
 class LanAiCliControlApp extends StatefulWidget {
-  const LanAiCliControlApp({super.key});
+  const LanAiCliControlApp({
+    super.key,
+    this.startupBuffer,
+  });
+
+  final PerformanceTraceStartupBuffer? startupBuffer;
 
   @override
   State<LanAiCliControlApp> createState() => _LanAiCliControlAppState();
@@ -16,10 +23,21 @@ class LanAiCliControlApp extends StatefulWidget {
 
 class _LanAiCliControlAppState extends State<LanAiCliControlApp> {
   late final LanguageController _languageController;
+  late final AppDependencies _appDependencies;
 
   @override
   void initState() {
     super.initState();
+    _appDependencies = AppDependencies.createDefault(
+      performanceTraceStartupBuffer:
+          widget.startupBuffer ?? PerformanceTraceStartupBuffer.global,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _appDependencies.performanceTraceStartupBuffer.captureStartupMark(
+        'app.first_frame',
+        critical: true,
+      );
+    });
     _languageController = LanguageController()..load();
   }
 
@@ -46,7 +64,7 @@ class _LanAiCliControlAppState extends State<LanAiCliControlApp> {
               localeResolutionCallback: (locale, supportedLocales) =>
                   resolveSupportedLocale(locale, supportedLocales),
               theme: buildAppTheme(),
-              home: const MobileUi(),
+              home: MobileUi(dependencies: _appDependencies),
             ));
       });
 }

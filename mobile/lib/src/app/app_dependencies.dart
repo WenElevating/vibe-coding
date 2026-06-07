@@ -73,9 +73,14 @@ class AppDependencies {
     required this.data,
     required this.domain,
     required this.features,
-  });
+    PerformanceTraceStartupBuffer? performanceTraceStartupBuffer,
+  }) : performanceTraceStartupBuffer =
+            performanceTraceStartupBuffer ??
+                PerformanceTraceStartupBuffer.global;
 
-  factory AppDependencies.createDefault() {
+  factory AppDependencies.createDefault({
+    PerformanceTraceStartupBuffer? performanceTraceStartupBuffer,
+  }) {
     final network = NetworkDependencies.createDefault();
     final data = DataDependencies.createDefault();
     final domain = DomainDependencies.createDefault(
@@ -91,6 +96,7 @@ class AppDependencies {
       data: data,
       domain: domain,
       features: features,
+      performanceTraceStartupBuffer: performanceTraceStartupBuffer,
     );
   }
 
@@ -98,6 +104,7 @@ class AppDependencies {
   final DataDependencies data;
   final DomainDependencies domain;
   final FeatureDependencies features;
+  final PerformanceTraceStartupBuffer performanceTraceStartupBuffer;
 
   MainDependencies createMainDependencies(
     DaemonClient client, {
@@ -128,7 +135,7 @@ class AppDependencies {
       connectedData: connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
       performanceTraceClient: PerformanceTraceClient(daemonClient: client),
-      performanceTraceStartupBuffer: PerformanceTraceStartupBuffer.global,
+      performanceTraceStartupBuffer: performanceTraceStartupBuffer,
       performanceTraceAppSessionId: _newPerformanceTraceAppSessionId(),
       performanceTraceDeviceIdProvider: () => client.currentDeviceId,
       normalizeCodingPermissionMode:
@@ -336,6 +343,8 @@ class DataDependencies {
       diagnosticsRepository: DaemonDiagnosticsRepository(client: client),
       runRepository: runRepository,
       workspaceRepository: DaemonWorkspaceRepository(client: client),
+      setNotificationTraceMarkRecorder:
+          notificationClient.setPerformanceTraceMarkRecorder,
       dispose: () async {
         await notificationClient.close();
       },
@@ -357,6 +366,8 @@ class ConnectedDataDependencies {
     required RunRepository runRepository,
     required this.workspaceRepository,
     Future<void> Function()? dispose,
+    void Function(NotificationTraceMarkRecorder? recorder)?
+        setNotificationTraceMarkRecorder,
   })  : adapterRepository = adapterRepository is CachedAdapterRepository
             ? adapterRepository
             : CachedAdapterRepository(delegate: adapterRepository),
@@ -377,7 +388,8 @@ class ConnectedDataDependencies {
         runRepository = runRepository is CachedRunRepository
             ? runRepository
             : CachedRunRepository(delegate: runRepository),
-        _dispose = dispose;
+        _dispose = dispose,
+        _setNotificationTraceMarkRecorder = setNotificationTraceMarkRecorder;
 
   final AuthRepository authRepository;
   final CachedAdapterRepository adapterRepository;
@@ -391,7 +403,15 @@ class ConnectedDataDependencies {
   final CachedRunRepository runRepository;
   final WorkspaceRepository workspaceRepository;
   final Future<void> Function()? _dispose;
+  final void Function(NotificationTraceMarkRecorder? recorder)?
+      _setNotificationTraceMarkRecorder;
   bool _disposed = false;
+
+  void setNotificationTraceMarkRecorder(
+    NotificationTraceMarkRecorder? recorder,
+  ) {
+    _setNotificationTraceMarkRecorder?.call(recorder);
+  }
 
   Future<void> dispose() async {
     if (_disposed) return;

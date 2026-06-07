@@ -18,6 +18,15 @@ typedef NotificationSocketConnector = Future<NotificationSocket> Function(
 typedef NotificationReconnectDelayWaiter = Future<void> Function(
   Duration delay,
 );
+typedef NotificationTraceMarkRecorder = void Function(
+  String name, {
+  String? conversationId,
+  int? seq,
+  String? eventType,
+  String? correlationId,
+  required bool critical,
+  required Map<String, Object?> metadata,
+});
 
 // Empty reconnectDelays still back off so persistent failures cannot spin.
 const Duration _fallbackReconnectDelay = Duration(milliseconds: 100);
@@ -109,10 +118,12 @@ class DaemonNotificationClient implements NotificationService {
     required this.tokenProvider,
     required this.fetchBackfill,
     this.refreshAuth,
+    NotificationTraceMarkRecorder? traceMarkRecorder,
     this.config = const NotificationClientConfig(),
   })  : _connector = config.connector ?? _connectIoSocket,
         _reconnectDelayWaiter = config.reconnectDelayWaiter ??
-            ((delay) => Future<void>.delayed(delay));
+            ((delay) => Future<void>.delayed(delay)),
+        _traceMarkRecorder = traceMarkRecorder;
 
   final Uri baseUri;
   final NotificationTokenProvider tokenProvider;
@@ -121,6 +132,7 @@ class DaemonNotificationClient implements NotificationService {
   final NotificationClientConfig config;
   final NotificationSocketConnector _connector;
   final NotificationReconnectDelayWaiter _reconnectDelayWaiter;
+  NotificationTraceMarkRecorder? _traceMarkRecorder;
 
   bool _closed = false;
   NotificationSocket? _socket;
@@ -131,6 +143,12 @@ class DaemonNotificationClient implements NotificationService {
       <String, _ConversationRoute>{};
   final Completer<void> _closedCompleter = Completer<void>();
   Completer<void> _routeChangeCompleter = Completer<void>();
+
+  void setPerformanceTraceMarkRecorder(
+    NotificationTraceMarkRecorder? recorder,
+  ) {
+    _traceMarkRecorder = recorder;
+  }
 
   @override
   Stream<ConversationEvent> watchConversationEvents(
@@ -206,6 +224,12 @@ class DaemonNotificationClient implements NotificationService {
         }
         _socket = socket;
         _activeSockets.add(socket);
+        _recordTraceMark(
+          'ws.connected',
+          metadata: <String, Object?>{
+            'routeCount': _conversationRoutes.length,
+          },
+        );
         for (final route in List<_ConversationRoute>.of(
           _conversationRoutes.values,
         )) {
@@ -265,6 +289,10 @@ class DaemonNotificationClient implements NotificationService {
   }
 
   Future<_SocketFrameAction> _handleSocketFrame(Object? raw) async {
+    _recordTraceMark(
+      'ws.frame.received',
+      metadata: _traceFrameMetadata(raw),
+    );
     final frame = _decodeFrame(raw);
     if (frame == null) {
       return _SocketFrameAction.continueListening;
@@ -273,6 +301,7 @@ class DaemonNotificationClient implements NotificationService {
     if (type == 'event') {
       final event = _eventFromFrame(frame);
       if (event != null) {
+        _recordTraceMarkForEvent('ws.event.received', event, critical: true);
         _deliverConversationEvent(event);
       }
       return _SocketFrameAction.continueListening;
@@ -510,6 +539,50 @@ class DaemonNotificationClient implements NotificationService {
       _routeChangeCompleter = Completer<void>();
     }
   }
+
+  void _recordTraceMark(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    final recorder = _traceMarkRecorder;
+    if (recorder == null) return;
+    try {
+      recorder(
+        name,
+        conversationId: conversationId,
+        seq: seq,
+        eventType: eventType,
+        correlationId: correlationId,
+        critical: critical,
+        metadata: metadata,
+      );
+    } catch (_) {
+      // Trace collection must not affect notification reconnect or delivery.
+    }
+  }
+
+  void _recordTraceMarkForEvent(
+    String name,
+    ConversationEvent event, {
+    bool critical = false,
+  }) {
+    _recordTraceMark(
+      name,
+      conversationId: event.conversationId,
+      seq: event.seq,
+      eventType: event.type,
+      correlationId: _conversationEventCorrelationId(event),
+      critical: critical,
+      metadata: <String, Object?>{
+        'topic': NotificationProtocol.topicConversationEvents,
+      },
+    );
+  }
 }
 
 class _SocketFrameAction {
@@ -636,6 +709,29 @@ Map<String, Object?>? _decodeFrame(Object? raw) {
   }
 }
 
+Map<String, Object?> _traceFrameMetadata(Object? raw) {
+  if (raw is String) {
+    return <String, Object?>{
+      'bytes': utf8.encode(raw).length,
+      'frameKind': 'text',
+    };
+  }
+  if (raw is List<int>) {
+    return <String, Object?>{
+      'bytes': raw.length,
+      'frameKind': 'binary',
+    };
+  }
+  if (raw is Map) {
+    return <String, Object?>{
+      'frameKind': 'object',
+    };
+  }
+  return <String, Object?>{
+    'frameKind': raw == null ? 'null' : 'other',
+  };
+}
+
 ConversationEvent? _eventFromFrame(Map<String, Object?> frame) {
   final payload = frame['payload'];
   if (payload is! Map) {
@@ -647,6 +743,9 @@ ConversationEvent? _eventFromFrame(Map<String, Object?> frame) {
     return null;
   }
 }
+
+String _conversationEventCorrelationId(ConversationEvent event) =>
+    '${event.conversationId}:${event.seq}';
 
 Future<void> _closeSocket(NotificationSocket socket) async {
   try {

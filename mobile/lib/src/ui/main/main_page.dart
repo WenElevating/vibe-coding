@@ -93,7 +93,13 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     _createPerformanceTraceReporter();
     _connectedData = widget.pageDependencies.connectedData;
     _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-        .copyWith(mobileAppEventBus: _mobileAppEventBus);
+        .copyWith(
+          mobileAppEventBus: _mobileAppEventBus,
+          performanceTracePublisher: _performanceTracePublisher,
+        );
+    _connectedData.setNotificationTraceMarkRecorder(
+      _recordNotificationTraceMark,
+    );
     widget.pageDependencies.codingPreferencesRepository.addListener(
       _handleCodingPreferencesRepositoryChanged,
     );
@@ -119,11 +125,19 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         );
       }
       _disposePerformanceTraceReporter();
+      oldWidget.pageDependencies.connectedData
+          .setNotificationTraceMarkRecorder(null);
       _createPerformanceTraceReporter();
       final oldWorkbenchDependencies = _workbenchDependencies;
       _connectedData = widget.pageDependencies.connectedData;
       _workbenchDependencies = widget.pageDependencies.workbenchDependencies
-          .copyWith(mobileAppEventBus: _mobileAppEventBus);
+          .copyWith(
+            mobileAppEventBus: _mobileAppEventBus,
+            performanceTracePublisher: _performanceTracePublisher,
+          );
+      _connectedData.setNotificationTraceMarkRecorder(
+        _recordNotificationTraceMark,
+      );
       _disposeAppUpdateViewModel();
       _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
@@ -167,6 +181,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     );
     unawaited(_approvalNotificationTapSubscription?.cancel());
     unawaited(_approvalNotificationHandler.dispose());
+    _connectedData.setNotificationTraceMarkRecorder(null);
     _disposePerformanceTraceReporter();
     unawaited(_mobileAppEventBus.dispose());
     _disposeWorkbenchDependencies(_workbenchDependencies);
@@ -299,6 +314,26 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     _performanceTracePublisher?.setEnabled(false);
     _performanceTracePublisher = null;
     unawaited(reporter?.dispose());
+  }
+
+  void _recordNotificationTraceMark(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    _performanceTracePublisher?.mark(
+      name,
+      conversationId: conversationId,
+      seq: seq,
+      eventType: eventType,
+      correlationId: correlationId,
+      critical: critical,
+      metadata: metadata,
+    );
   }
 
   Future<void> _loadCodingPreferences(MainShellViewModel viewModel) async {

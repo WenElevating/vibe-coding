@@ -73,6 +73,86 @@ void main() {
     await client.close();
   });
 
+  test('records websocket connection frame and event trace marks', () async {
+    final socket = FakeNotificationSocket();
+    final marks = <Map<String, Object?>>[];
+    void recordTrace(
+      String name, {
+      String? conversationId,
+      int? seq,
+      String? eventType,
+      String? correlationId,
+      required bool critical,
+      required Map<String, Object?> metadata,
+    }) {
+      marks.add(<String, Object?>{
+        'name': name,
+        'conversationId': conversationId,
+        'seq': seq,
+        'eventType': eventType,
+        'correlationId': correlationId,
+        'critical': critical,
+        'metadata': metadata,
+      });
+    }
+
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      traceMarkRecorder: recordTrace,
+      config: NotificationClientConfig(
+        connector: (_, __) async => socket,
+        reconnectDelays: const <Duration>[Duration(milliseconds: 1)],
+      ),
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => socket.sentJson.isNotEmpty);
+    socket.serverAddJson(<String, Object?>{
+      'type': 'hello',
+      'connectionId': 'ws_test',
+      'protocolVersion': 1,
+    });
+    socket.serverAddJson(<String, Object?>{
+      'type': 'event',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'seq': 8,
+      'payload': <String, Object?>{
+        'seq': 8,
+        'conversationId': 'conv_1',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-23T05:18:14.000Z',
+        'text': 'assistant text must not enter trace metadata',
+      },
+    });
+
+    await waitFor(() => events.length == 1);
+    expect(marks.map((mark) => mark['name']), contains('ws.connected'));
+    expect(
+      marks.where((mark) => mark['name'] == 'ws.frame.received'),
+      hasLength(2),
+    );
+    final eventMark = marks.singleWhere(
+      (mark) => mark['name'] == 'ws.event.received',
+    );
+    expect(eventMark['conversationId'], 'conv_1');
+    expect(eventMark['seq'], 8);
+    expect(eventMark['eventType'], 'assistant.message');
+    expect(eventMark['correlationId'], 'conv_1:8');
+    expect(eventMark['critical'], isTrue);
+    expect(eventMark['metadata'],
+        const <String, Object?>{'topic': 'conversation.events'});
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test('multiplexes active conversation subscriptions over one websocket',
       () async {
     final sockets = <FakeNotificationSocket>[];

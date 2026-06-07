@@ -23,6 +23,7 @@ import '../workbench_messages.dart';
 import 'workbench_model_selection.dart';
 
 typedef WorkbenchEventApplicationIsCurrent = bool Function();
+typedef WorkbenchEventApplicationCallback = void Function();
 
 enum WorkbenchModelNotice {
   changedToAvailableOption,
@@ -1131,6 +1132,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     required int limit,
     required bool streamOutput,
     WorkbenchEventApplicationIsCurrent? isCurrent,
+    WorkbenchEventApplicationCallback? onFirstPageApplied,
   }) async {
     final stillCurrent = isCurrent ?? () => true;
     if (!stillCurrent()) return false;
@@ -1142,6 +1144,7 @@ class WorkbenchViewModel extends ChangeNotifier {
       streamOutput: streamOutput,
       notify: true,
     );
+    onFirstPageApplied?.call();
     var previewChanged = await _bindAndResolveAttachmentPreviews(
       page.events,
       isCurrent: stillCurrent,
