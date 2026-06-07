@@ -26,7 +26,7 @@ const { NotificationHub } = require('../daemon/src/notification-hub');
 const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
-const { createApp } = require('../daemon/src/main');
+const { createApp, shutdownAppResources } = require('../daemon/src/main');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
 const {
@@ -62,15 +62,7 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
 }
 
 async function closeAppResources(app) {
-  if (app?.server?.listening) {
-    await new Promise((resolve) => app.server.close(resolve));
-  }
-  app?.notificationHub?.close?.();
-  app?.perfStore?.close?.();
-  if (app?.conversationSqliteStore && app.conversationSqliteStore !== app.appSqliteStore) {
-    app.conversationSqliteStore.close();
-  }
-  app?.appSqliteStore?.close?.();
+  await shutdownAppResources(app);
 }
 
 function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
@@ -2135,6 +2127,35 @@ test('OpenCode server client parses chunked SSE frames and closes the subscripti
   }
 });
 
+test('OpenCode server client reports SSE connection timeout once', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest(() => {});
+  const sockets = new Set();
+  fixture.server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 25 });
+    handle = client.subscribeEvents(
+      () => {},
+      (error) => errors.push(error)
+    );
+
+    await waitForConditionForTest(() => errors.length >= 1, 'OpenCode SSE timeout error', 500);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_TIMEOUT');
+  } finally {
+    handle?.close();
+    for (const socket of sockets) socket.destroy();
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
 test('OpenCode server client bounds non-ending SSE HTTP error bodies', async () => {
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
   const fixture = await listenHttpServerForTest((req, res) => {
@@ -2247,6 +2268,707 @@ test('OpenCode server client rejects missing required inputs without sending req
   } finally {
     await closeHttpServerForTest(fixture.server);
   }
+});
+
+test('createConversationAdapters registers real OpenCode conversation adapter', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const { createConversationAdapters } = require('../daemon/src/main');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    };
+    const adapters = createConversationAdapters({
+      claudeCommand: 'claude',
+      codexCommand: 'codex',
+      opencodeServerLifecycle: lifecycle
+    });
+    const adapter = adapters.get('opencode');
+
+    assert.equal(adapter.name, 'opencode');
+    assert.equal(adapter.getCapabilities().waitingApproval, true);
+    assert.equal(adapter.getCapabilities().approval.mobileCallbacks, true);
+    assert.deepEqual(adapter.getModelCapability(), { models: [], selectedModel: null, canSelectModel: false });
+    const status = await adapter.detectCapabilities();
+    assert.equal(status.available, true);
+    assert.equal(status.selectable, true);
+    assert.equal(status.capabilities.toolEvents, true);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter creates session and defers prompt until message send', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-first-message');
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_first',
+      workspacePath,
+      onEvent: (event) => events.push(event)
+    });
+
+    assert.deepEqual(fake.createRequests, [{ directory: workspacePath }]);
+    assert.deepEqual(fake.promptBodies, []);
+    const started = events.find((event) => event.noticeKind === 'opencode_session_started');
+    assert.equal(started.type, conversationEventTypes.SYSTEM_NOTICE);
+    assert.equal(started.visible, false);
+    assert.equal(started.sessionId, 'sess_1');
+    assert.equal(started.providerSession.provider, 'opencode');
+    assert.equal(started.providerSession.threadId, 'sess_1');
+    assert.equal(started.providerSession.cwd, workspacePath);
+
+    await handle.sendUserMessage('hello OpenCode');
+
+    assert.deepEqual(fake.promptBodies, [{
+      sessionId: 'sess_1',
+      body: { parts: [{ type: 'text', text: 'hello OpenCode' }] }
+    }]);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter fails missing later session without creating replacement', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+
+    await assert.rejects(
+      () => adapter.startConversation({
+        conversationId: 'conv_opencode_missing',
+        workspacePath: path.join(os.tmpdir(), 'opencode-adapter-missing'),
+        sessionId: 'sess_missing',
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_MISSING');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.readSessionIds, ['sess_missing']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects resumed session directory mismatch', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-workspace');
+    fake.sessions.set('sess_bad_dir', {
+      id: 'sess_bad_dir',
+      sessionID: 'sess_bad_dir',
+      directory: path.join(os.tmpdir(), 'outside-opencode-workspace')
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+
+    await assert.rejects(
+      () => adapter.startConversation({
+        conversationId: 'conv_opencode_dir',
+        workspacePath,
+        sessionId: 'sess_bad_dir',
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects auto permission mode before server start', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  let starts = 0;
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        starts += 1;
+        return {};
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_opencode_auto',
+      workspacePath: path.join(os.tmpdir(), 'opencode-auto-mode'),
+      permissionMode: 'auto',
+      onEvent: () => {}
+    }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.equal(error.code, 'OPENCODE_PERMISSION_MODE_UNSUPPORTED');
+      return true;
+    }
+  );
+  assert.equal(starts, 0);
+});
+
+test('OpenCode conversation adapter filters SSE events to active session', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_sse_filter',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-sse-filter'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_other', text: 'wrong' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'right' });
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL),
+      'OpenCode adapter filtered active-session event'
+    );
+    assert.deepEqual(
+      events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['right']
+    );
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter cancels pending approval on SSE disconnect', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_sse_disconnect',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-sse-disconnect'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    await handle.sendUserMessage('start turn');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_disconnect',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED),
+      'OpenCode adapter approval request'
+    );
+
+    for (const response of Array.from(fake.sseClients)) response.end();
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.RUN_ERROR),
+      'OpenCode adapter SSE disconnect run error'
+    );
+    const cancellationIndex = events.findIndex((event) => event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED);
+    const errorIndex = events.findIndex((event) => event.type === conversationEventTypes.RUN_ERROR);
+    assert.notEqual(cancellationIndex, -1);
+    assert.notEqual(errorIndex, -1);
+    assert.equal(cancellationIndex < errorIndex, true);
+    assert.equal(events[cancellationIndex].approvalId, 'perm_disconnect');
+    assert.equal(events[errorIndex].code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter closes fatal SSE parse errors and ignores later stream events', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_bad_sse_json',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-bad-sse-json'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    const [sseResponse] = fake.sseClients;
+    await handle.sendUserMessage('active turn');
+
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.RUN_ERROR),
+      'OpenCode adapter fatal SSE parse run error'
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode adapter fatal SSE close', 500);
+
+    const partialCount = events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).length;
+    try {
+      sseResponse.write('data: {"type":"message.part.delta","sessionID":"sess_1","text":"late"}\n\n');
+    } catch (_) {
+      // Closed responses may reject writes; the assertion below covers observable behavior.
+    }
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late fake event' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const runError = events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+    assert.equal(runError.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+    assert.equal(events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).length, partialCount);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter closes idle SSE parse errors, ignores later deltas, and rejects later sends', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_idle_bad_sse_json',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-idle-bad-sse-json'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    const [sseResponse] = fake.sseClients;
+
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING && event.code === 'OPENCODE_EVENT_STREAM_INTERRUPTED'),
+      'OpenCode adapter idle SSE parse warning'
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode adapter idle SSE parse close', 500);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late idle delta' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await assert.rejects(
+      () => handle.sendUserMessage('must not dispatch after idle parse error'),
+      (error) => {
+        assert.equal(error.status, 503);
+        assert.equal(error.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+        return true;
+      }
+    );
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL), false);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter cancellation calls abort route', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_cancel',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-cancel'),
+      onEvent: () => {}
+    });
+
+    await handle.cancel();
+
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager clears stale session binding when stored session is missing', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    const conversation = manager.requireConversation(created.id, device);
+    conversation.cliSessionId = 'sess_missing';
+    conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    conversation.providerSession = { provider: 'opencode', threadId: 'sess_missing', cwd: process.cwd() };
+
+    await assert.rejects(
+      () => manager.sendMessage(conversation.id, { text: 'resume missing session' }, device),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_MISSING');
+        return true;
+      }
+    );
+
+    const summary = manager.getConversation(conversation.id, device);
+    const events = eventStore.list(conversation.id, 0);
+    const expired = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_expired');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_MISSING');
+    assert.equal(summary.status, 'failed');
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.UNKNOWN);
+    assert.equal(summary.providerSession, null);
+    assert.equal(expired.visible, true);
+    assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(runError.status, 409);
+    assert.deepEqual(fake.readSessionIds, ['sess_missing']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager clears drifted binding on resumed session directory mismatch', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const workspacePath = process.cwd();
+    fake.sessions.set('sess_bad_dir', {
+      id: 'sess_bad_dir',
+      sessionID: 'sess_bad_dir',
+      directory: path.join(os.tmpdir(), 'opencode-session-outside-workspace')
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    const conversation = manager.requireConversation(created.id, device);
+    conversation.workspacePath = workspacePath;
+    conversation.cliSessionId = 'sess_bad_dir';
+    conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    conversation.providerSession = { provider: 'opencode', threadId: 'sess_bad_dir', cwd: workspacePath };
+
+    await assert.rejects(
+      () => manager.sendMessage(conversation.id, { text: 'resume mismatched session' }, device),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        return true;
+      }
+    );
+
+    const summary = manager.getConversation(conversation.id, device);
+    const events = eventStore.list(conversation.id, 0);
+    const drift = events.find((event) =>
+      event.type === conversationEventTypes.PROTOCOL_WARNING &&
+      event.warning === 'session_binding_drifted');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(summary.status, 'failed');
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.DRIFTED);
+    assert.equal(summary.providerSession, null);
+    assert.equal(drift.expectedSessionId, 'sess_bad_dir');
+    assert.equal(drift.receivedSessionId, 'sess_bad_dir');
+    assert.equal(drift.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(runError.status, 409);
+    assert.deepEqual(fake.readSessionIds, ['sess_bad_dir']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects sends after idle SSE disconnect', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_idle_disconnect',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-idle-disconnect'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    for (const response of Array.from(fake.sseClients)) response.end();
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING && event.code === 'OPENCODE_EVENT_STREAM_INTERRUPTED'),
+      'OpenCode adapter idle SSE disconnect warning'
+    );
+
+    await assert.rejects(
+      () => handle.sendUserMessage('must not dispatch without SSE'),
+      (error) => {
+        assert.equal(error.status, 503);
+        assert.equal(error.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter maps approval cancel to reject, abort, and terminal cancellation', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_approval_cancel',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-approval-cancel'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    await handle.sendUserMessage('needs approval');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_cancel',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED),
+      'OpenCode adapter approval request'
+    );
+
+    await handle.respondApproval('perm_cancel', { decision: 'cancel' });
+
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_cancel', { response: 'reject' }]
+    ]);
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+    const cancelled = events.find((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED);
+    assert.equal(cancelled.reason, 'approval_cancelled');
+    assert.equal(cancelled.sessionId, 'sess_1');
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager ends running state when approval response is cancel', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs approval' }, device);
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_manager_cancel',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request'
+    );
+
+    const response = await manager.respondApproval(created.id, 'perm_manager_cancel', { decision: 'cancel' }, device);
+
+    assert.equal(response.status, 'cancelled');
+    assert.equal(manager.getConversation(created.id, device).status, 'cancelled');
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_manager_cancel', { response: 'reject' }]
+    ]);
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+    const events = eventStore.list(created.id, 0);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED && event.reason === 'approval_cancelled'), true);
+    assert.equal(events.at(-1).type, conversationEventTypes.CONVERSATION_CANCELLED);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager disposes OpenCode handle after permission reply failure', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    fake.failPermissionReply('perm_reply_fail', {
+      status: 500,
+      body: { error: { code: 'PERMISSION_REPLY_FAILED', message: 'forced failure' } }
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs failing approval reply' }, device);
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode manager SSE connection');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_reply_fail',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request before reply failure'
+    );
+
+    await assert.rejects(
+      () => manager.respondApproval(created.id, 'perm_reply_fail', { decision: 'allow' }, device),
+      (error) => {
+        assert.equal(error.status, 500);
+        assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+        return true;
+      }
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode manager closes failed permission reply SSE', 500);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late after failed reply' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const summary = manager.getConversation(created.id, device);
+    const events = eventStore.list(created.id, 0);
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(summary.status, 'failed');
+    assert.equal(runError.status, 500);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL), false);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager drops provider approval resolved echo after local response', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs approval echo dedupe' }, device);
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode manager SSE connection');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_echo',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request before echo'
+    );
+
+    await manager.respondApproval(created.id, 'perm_echo', { decision: 'allow', scope: 'once' }, device);
+    fake.emitEvent({
+      type: 'permission.replied',
+      sessionID: 'sess_1',
+      id: 'perm_echo',
+      decision: 'allow'
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const approvalResolved = eventStore.list(created.id, 0)
+      .filter((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(approvalResolved.length, 1);
+    assert.equal(approvalResolved[0].approvalId, 'perm_echo');
+    assert.equal(approvalResolved[0].decision, 'allow');
+  } finally {
+    await fake.close();
+  }
+});
+
+test('shutdownAppResources shuts down managed OpenCode lifecycle', async () => {
+  assert.equal(typeof shutdownAppResources, 'function');
+  let opencodeShutdowns = 0;
+  let sleepStops = 0;
+  const opencodeServerLifecycle = {
+    async ensureStarted() {
+      throw new Error('not needed');
+    },
+    getDiagnostics() {
+      return { status: 'idle' };
+    },
+    async shutdown() {
+      opencodeShutdowns += 1;
+    }
+  };
+  const app = createApp({
+    port: 0,
+    codexAppServerEnabled: false,
+    opencodeServerLifecycle,
+    appDbPath: tempConversationDbPath('opencode-shutdown-app-'),
+    perfDbPath: tempConversationDbPath('opencode-shutdown-perf-')
+  });
+
+  await shutdownAppResources(app, {
+    sleepInhibitor: {
+      stop() {
+        sleepStops += 1;
+      }
+    }
+  });
+
+  assert.equal(opencodeShutdowns, 1);
+  assert.equal(sleepStops, 1);
 });
 
 test('OpenCode server lifecycle external mode health-checks URL without spawning', async () => {
@@ -15726,6 +16448,33 @@ function createFakeOpenCodeServerChild({ pid = 1234, kill } = {}) {
   child.pid = pid;
   child.kill = kill || (() => true);
   return child;
+}
+
+function createOpenCodeConversationAdapterForFake(fake, { timeoutMs = 1000 } = {}) {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  let starts = 0;
+  const lifecycle = {
+    async ensureStarted() {
+      starts += 1;
+      return {
+        mode: 'external',
+        serverUrl: fake.url,
+        client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs }),
+        owned: false
+      };
+    },
+    getDiagnostics() {
+      return { status: starts > 0 ? 'started' : 'idle', lastError: null };
+    },
+    get starts() {
+      return starts;
+    }
+  };
+  return {
+    adapter: new OpenCodeConversationAdapter({ lifecycle }),
+    lifecycle
+  };
 }
 
 function fakeCodexConversationSpawnSync(_cmd, args) {

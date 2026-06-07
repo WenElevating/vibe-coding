@@ -455,7 +455,7 @@ class ConversationManager {
       conversation.handle = null;
       this.touch(conversation);
       const dispatchError = sanitizeAdapterDispatchError(error, { hasAttachments, files });
-      this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, dispatchError === error ? { message: error.message } : runErrorPayload(dispatchError));
+      this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, runErrorPayload(dispatchError));
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       if (hasAttachments) conversation.attachmentDispatchRedactionContext = null;
       throw dispatchError;
@@ -650,12 +650,31 @@ class ConversationManager {
   }
 
   markConversationDispatchFailed(conversation, error) {
+    const failedHandle = conversation.handle;
+    if (failedHandle && typeof failedHandle.dispose === 'function') {
+      try {
+        const disposeResult = failedHandle.dispose();
+        if (disposeResult && typeof disposeResult.catch === 'function') {
+          disposeResult.catch((disposeError) => {
+            this.auditLog.record('conversation.handle_dispose_error', {
+              conversationId: conversation.id,
+              error: disposeError.message
+            });
+          });
+        }
+      } catch (disposeError) {
+        this.auditLog.record('conversation.handle_dispose_error', {
+          conversationId: conversation.id,
+          error: disposeError.message
+        });
+      }
+    }
     conversation.status = conversationStatuses.FAILED;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
     conversation.handle = null;
     this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, { message: error.message });
+    this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, runErrorPayload(error));
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
   }
 
@@ -973,6 +992,10 @@ class ConversationManager {
       initialTaskProgress: adapterName === 'claude'
         ? buildClaudeTaskProgressSeed(this.eventStore.list(conversation.id, 0))
         : null,
+      sessionBindingActions: {
+        clearSessionBinding: (options) => this.clearSessionBinding(conversation, options),
+        markSessionBindingDrifted: (options) => this.markSessionBindingDrifted(conversation, options)
+      },
       onEvent: (event) => this.recordAdapterEvent(conversation, event)
     });
   }

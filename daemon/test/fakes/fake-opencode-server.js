@@ -9,7 +9,11 @@ class FakeOpenCodeServer extends EventEmitter {
     this.sessions = new Map();
     this.events = [];
     this.permissionReplies = [];
+    this.permissionReplyFailures = new Map();
     this.promptBodies = [];
+    this.createRequests = [];
+    this.readSessionIds = [];
+    this.abortSessionIds = [];
     this.server = http.createServer((req, res) => this.handle(req, res));
     this.sseClients = new Set();
     this.nextSessionNumber = 1;
@@ -36,6 +40,13 @@ class FakeOpenCodeServer extends EventEmitter {
     for (const res of this.sseClients) res.write(payload);
   }
 
+  failPermissionReply(permissionId, { status = 500, body = null } = {}) {
+    this.permissionReplyFailures.set(String(permissionId), {
+      status,
+      body: body || { error: { code: 'PERMISSION_REPLY_FAILED' } }
+    });
+  }
+
   async handle(req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/global/health') {
@@ -60,8 +71,16 @@ class FakeOpenCodeServer extends EventEmitter {
       const id = `sess_${this.nextSessionNumber++}`;
       const directory = url.searchParams.get('directory') || process.cwd();
       const session = { id, sessionID: id, directory };
+      this.createRequests.push({ directory });
       this.sessions.set(id, session);
       return sendJson(res, 200, session);
+    }
+    const readMatch = url.pathname.match(/^\/session\/([^/]+)$/);
+    if (req.method === 'GET' && readMatch) {
+      const sessionId = decodeURIComponent(readMatch[1]);
+      this.readSessionIds.push(sessionId);
+      if (!this.sessions.has(sessionId)) return sendJson(res, 404, { error: { code: 'SESSION_NOT_FOUND' } });
+      return sendJson(res, 200, this.sessions.get(sessionId));
     }
     const promptMatch = url.pathname.match(/^\/session\/([^/]+)\/prompt_async$/);
     if (req.method === 'POST' && promptMatch) {
@@ -73,17 +92,22 @@ class FakeOpenCodeServer extends EventEmitter {
     }
     const abortMatch = url.pathname.match(/^\/session\/([^/]+)\/abort$/);
     if (req.method === 'POST' && abortMatch) {
+      const sessionId = decodeURIComponent(abortMatch[1]);
+      this.abortSessionIds.push(sessionId);
       await readBody(req);
       return sendJson(res, 200, true);
     }
     const permissionMatch = url.pathname.match(/^\/session\/([^/]+)\/permissions\/([^/]+)$/);
     if (req.method === 'POST' && permissionMatch) {
+      const permissionId = decodeURIComponent(permissionMatch[2]);
       const body = await readJson(req);
       this.permissionReplies.push({
         sessionId: decodeURIComponent(permissionMatch[1]),
-        permissionId: decodeURIComponent(permissionMatch[2]),
+        permissionId,
         body
       });
+      const failure = this.permissionReplyFailures.get(permissionId);
+      if (failure) return sendJson(res, failure.status, failure.body);
       return sendJson(res, 200, { ok: true });
     }
     return sendJson(res, 404, { error: { code: 'NOT_FOUND' } });

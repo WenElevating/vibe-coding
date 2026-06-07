@@ -60,13 +60,22 @@ class OpenCodeServerClient {
     const transport = transportForUrl(url);
     let closed = false;
     let response = null;
+    let req = null;
     const parser = createSseParser(eventHandler, errorHandler);
+    const reportError = (error) => {
+      if (closed) return false;
+      closed = true;
+      clearTimeout(connectionTimer);
+      errorHandler(error);
+      return true;
+    };
     const connectionTimer = setTimeout(() => {
-      if (!closed) errorHandler(buildTimeoutError('GET', '/global/event', this.timeoutMs));
-      req.destroy();
+      if (!reportError(buildTimeoutError('GET', '/global/event', this.timeoutMs))) return;
+      response?.destroy();
+      req?.destroy();
     }, this.timeoutMs);
 
-    const req = transport.request({
+    req = transport.request({
       protocol: url.protocol,
       hostname: url.hostname,
       port: url.port || defaultPortForProtocol(url.protocol),
@@ -78,28 +87,32 @@ class OpenCodeServerClient {
       response = res;
       if (res.statusCode < 200 || res.statusCode >= 300) {
         collectBoundedResponseText(res, { timeoutMs: this.timeoutMs, maxBytes: MAX_BODY_TEXT_LENGTH }).then((text) => {
-          if (closed) return;
-          errorHandler(buildHttpError('GET', '/global/event', res.statusCode, text));
-          closed = true;
+          if (!reportError(buildHttpError('GET', '/global/event', res.statusCode, text))) return;
           response?.destroy();
           req.destroy();
         }).catch((error) => {
-          if (!closed) errorHandler(buildNetworkError('GET', '/global/event', error));
+          reportError(buildNetworkError('GET', '/global/event', error));
         });
         return;
       }
       res.setEncoding('utf8');
+      const reportStreamClosed = (reason) => {
+        if (!reportError(buildSseClosedError(reason))) return;
+        req.destroy();
+      };
       res.on('data', (chunk) => {
         if (!closed) parser.write(String(chunk));
       });
       res.on('error', (error) => {
-        if (!closed) errorHandler(buildNetworkError('GET', '/global/event', error));
+        if (!reportError(buildNetworkError('GET', '/global/event', error))) return;
+        req.destroy();
       });
+      res.on('end', () => reportStreamClosed('end'));
+      res.on('close', () => reportStreamClosed('close'));
     });
 
     req.on('error', (error) => {
-      clearTimeout(connectionTimer);
-      if (!closed) errorHandler(buildNetworkError('GET', '/global/event', error));
+      reportError(buildNetworkError('GET', '/global/event', error));
     });
     req.end();
 
@@ -350,6 +363,17 @@ function buildSseBadJsonError(data, parseError) {
     details: {
       data: limitString(data, MAX_DETAIL_STRING_LENGTH),
       parseMessage: limitString(parseError?.message || 'invalid JSON', MAX_DETAIL_STRING_LENGTH)
+    }
+  });
+}
+
+function buildSseClosedError(reason) {
+  return openCodeError('OpenCode server SSE stream closed', {
+    code: 'OPENCODE_SERVER_SSE_CLOSED',
+    details: {
+      method: 'GET',
+      path: '/global/event',
+      reason: limitString(reason || 'closed', MAX_DETAIL_STRING_LENGTH)
     }
   });
 }
