@@ -623,8 +623,8 @@ class ComposerWorkspaceCloud extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
       width: double.infinity,
-      color: const Color(0xF608090B),
-      padding: const EdgeInsets.fromLTRB(23, 0, 18, 7),
+      decoration: const BoxDecoration(color: _codexComposerBackground),
+      padding: const EdgeInsets.fromLTRB(23, 3, 18, 7),
       child: SafeArea(
           top: false,
           child: Row(children: [

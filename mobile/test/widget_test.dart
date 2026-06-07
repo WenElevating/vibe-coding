@@ -3298,6 +3298,36 @@ void main() {
     expect(workspaceTaps, 1);
   });
 
+  testWidgets('composer workspace cloud blends into composer dock',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+            body: ComposerWorkspaceCloud(
+                workspace: const WorkspaceSummary(
+                    id: 'workspace_1',
+                    name: 'Current Project',
+                    path: r'D:\AiProject\vibe-coding'),
+                adapter: 'codex',
+                running: false,
+                cliLocked: false,
+                onCliTap: () {},
+                onTap: () {}))));
+
+    final container = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byType(ComposerWorkspaceCloud),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    final decoration = container.decoration as BoxDecoration;
+    expect(decoration.color, const Color(0xFF151515));
+    expect(decoration.border, isNull);
+  });
+
   testWidgets('composer workspace cloud can lock CLI selection',
       (WidgetTester tester) async {
     var cliTaps = 0;
