@@ -181,7 +181,17 @@ preferred path is:
 1. Pick an available loopback port in daemon code.
 2. Start `opencode serve --hostname 127.0.0.1 --port <port>`.
 3. Probe `GET /global/health` until it succeeds or startup times out.
-4. If the port is already in use, retry with a new port and a new child.
+4. If the port is already in use or the health probe fails because the child
+   bound the wrong port, terminate that child process tree, wait for exit, and
+   retry with a new port and a new child.
+
+Port retry limits:
+
+- Try at most 3 managed server startup attempts per daemon startup.
+- Use a short fixed 250 ms delay after terminating a failed child before
+  picking the next port, so Windows has time to release process resources.
+- After 3 failed attempts, report the adapter as unavailable with code
+  `OPENCODE_SERVER_PORT_UNAVAILABLE` and do not loop in the background.
 
 If a future implementation uses `--port 0`, stdout/stderr parsing must be
 version-aware and the parsed port must still be confirmed with
@@ -265,7 +275,7 @@ Initial mapping:
 | OpenCode event | Daemon event |
 | --- | --- |
 | `session.created`, `session.updated` | Hidden `system.notice` with session metadata. |
-| `session.status` | Hidden `system.notice`; terminal statuses may emit `conversation.completed` once verified. |
+| `session.status` | Hidden `system.notice`; terminal status values may emit `conversation.completed` only after the smoke script verifies an explicit status enum. |
 | `session.idle` | `conversation.completed` for the active turn unless already completed/cancelled/failed. |
 | `session.error` | `run.error` with sanitized provider error details. |
 | `message.part.delta` | `assistant.partial`, `assistant.thinking`, or `tool.delta` depending on part metadata. |
@@ -424,9 +434,8 @@ Behavior:
   `conversation.cliSessionId`; otherwise the helper must leave state unchanged
   and report a conflict to the caller.
 - `clearSessionBinding` sets `cliSessionId` to null, sets
-  `sessionBinding` to `unknown`, clears `providerSession` only when it belongs
-  to the cleared provider session, persists the conversation, and appends a
-  `system.notice`.
+  `sessionBinding` to `unknown`, clears `providerSession`, persists the
+  conversation, and appends a `system.notice`.
 - `markSessionBindingDrifted` sets `sessionBinding` to `drifted`, persists the
   conversation, and appends a bounded `protocol.warning`. If `clear` is true,
   it also clears `cliSessionId` after recording the drift.
@@ -434,6 +443,13 @@ Behavior:
 - Adapters may request these transitions through the start/dispatch path, but
   must not directly mutate `conversation.cliSessionId`, `sessionBinding`, or
   `providerSession`.
+
+For OpenCode, `providerSession` is a single conversation-scoped provider
+metadata object, not a map keyed by session id. It is derived from and valid
+only for the active `cliSessionId`. Clearing the OpenCode session binding must
+therefore clear `providerSession` unconditionally. If a future provider stores
+multiple provider sessions per daemon conversation, it needs a separate helper
+contract rather than reusing this OpenCode-specific assumption.
 
 ### Cancellation
 
@@ -530,6 +546,7 @@ OpenCode model picker.
 | OpenCode command missing | Adapter diagnostics show unavailable with actionable setup text. |
 | External server unreachable | Adapter diagnostics show needs configuration with `OPENCODE_SERVER_URL`. |
 | Managed server spawn fails | Conversation start fails before provider request; status becomes failed with a safe error. |
+| Managed server port unavailable | After 3 explicit-port attempts, mark adapter unavailable with `OPENCODE_SERVER_PORT_UNAVAILABLE`. |
 | Health probe fails | Adapter unavailable; no session is created. |
 | Session create fails | Turn fails before prompt dispatch; no fallback to another adapter. |
 | Stored session missing before later-message dispatch | Clear `cliSessionId`, mark binding unknown, append visible `opencode_session_expired`, and fail the current turn with `OPENCODE_SESSION_MISSING`; do not send the prompt unless a future verified replay path exists. |
@@ -574,6 +591,8 @@ the same `ConversationEvent` DTOs used by Claude and Codex.
 - `OpenCodeEventMapper` maps session, message, permission, diff, file, and
   error fixtures.
 - Unknown events become hidden bounded notices.
+- `session.status` completion mapping is disabled until smoke fixtures define
+  a terminal-status whitelist.
 - Permission decisions produce the expected OpenCode reply payloads after the
   route body is smoke-verified.
 - Missing stored sessions clear session binding, append a visible
@@ -628,6 +647,7 @@ Verify:
 - `prompt_async` accepted request body;
 - abort route;
 - permission response body with a controlled fake or harmless permission;
+- `session.status` possible values and which values, if any, are terminal;
 - `/global/event` SSE framing and event shape;
 - consistent session id field names for message, permission, status, idle,
   error, and diff events;
