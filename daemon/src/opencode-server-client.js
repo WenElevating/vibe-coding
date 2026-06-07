@@ -17,8 +17,8 @@ class OpenCodeServerClient {
     this.timeoutMs = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
   }
 
-  health() {
-    return this._requestJson('GET', '/global/health');
+  health(options = {}) {
+    return this._requestJson('GET', '/global/health', options);
   }
 
   async createSession({ directory } = {}) {
@@ -118,6 +118,7 @@ class OpenCodeServerClient {
     const url = this._buildUrl(path);
     const transport = transportForUrl(url);
     const body = options.body === undefined ? null : JSON.stringify(options.body);
+    const signal = options.signal;
     const requestPath = `${url.pathname}${url.search}`;
     const headers = { accept: 'application/json' };
     if (body !== null) {
@@ -127,14 +128,41 @@ class OpenCodeServerClient {
 
     return new Promise((resolve, reject) => {
       let settled = false;
+      let req = null;
+      let response = null;
+      let timer = null;
+      let abortHandler = null;
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (abortHandler && signal && typeof signal.removeEventListener === 'function') {
+          signal.removeEventListener('abort', abortHandler);
+        }
+        abortHandler = null;
+      };
       const finish = (error, value) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        cleanup();
         if (error) reject(error);
         else resolve(value);
       };
-      const req = transport.request({
+      if (signal?.aborted) {
+        finish(buildAbortError(method, requestPath));
+        return;
+      }
+      abortHandler = () => {
+        const error = buildAbortError(method, requestPath);
+        finish(error);
+        response?.destroy(error);
+        req?.destroy(error);
+      };
+      if (signal && typeof signal.addEventListener === 'function') {
+        signal.addEventListener('abort', abortHandler, { once: true });
+      }
+      req = transport.request({
         protocol: url.protocol,
         hostname: url.hostname,
         port: url.port || defaultPortForProtocol(url.protocol),
@@ -142,6 +170,7 @@ class OpenCodeServerClient {
         method,
         headers
       }, (res) => {
+        response = res;
         collectResponseText(res).then((text) => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
             finish(buildHttpError(method, requestPath, res.statusCode, text));
@@ -161,7 +190,7 @@ class OpenCodeServerClient {
           finish(buildNetworkError(method, requestPath, error));
         });
       });
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         finish(buildTimeoutError(method, requestPath, this.timeoutMs));
         req.destroy();
       }, this.timeoutMs);
@@ -329,6 +358,13 @@ function buildTimeoutError(method, path, timeoutMs) {
   return openCodeError(`OpenCode server ${method} ${path} timed out after ${timeoutMs}ms`, {
     code: 'OPENCODE_SERVER_TIMEOUT',
     details: { method, path, timeoutMs }
+  });
+}
+
+function buildAbortError(method, path) {
+  return openCodeError(`OpenCode server ${method} ${path} request was aborted`, {
+    code: 'OPENCODE_SERVER_ABORTED',
+    details: { method, path }
   });
 }
 

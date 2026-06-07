@@ -2246,6 +2246,1027 @@ test('OpenCode server client rejects missing required inputs without sending req
   }
 });
 
+test('OpenCode server lifecycle external mode health-checks URL without spawning', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const healthCalls = [];
+  const clients = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4577',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => {
+      const client = {
+        serverUrl,
+        async health() {
+          healthCalls.push(serverUrl);
+          return { ok: true };
+        }
+      };
+      clients.push(client);
+      return client;
+    }
+  });
+
+  const started = await lifecycle.ensureStarted();
+  assert.deepEqual({
+    mode: started.mode,
+    serverUrl: started.serverUrl,
+    client: started.client,
+    owned: started.owned
+  }, {
+    mode: 'external',
+    serverUrl: 'http://127.0.0.1:4577',
+    client: clients[0],
+    owned: false
+  });
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:4577']);
+
+  await lifecycle.shutdown();
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:4577']);
+
+  const failingLifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4999',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        throw Object.assign(new Error('connect ECONNREFUSED with large body ' + 'x'.repeat(1000)), {
+          code: 'ECONNREFUSED',
+          details: { body: 'x'.repeat(5000) }
+        });
+      }
+    })
+  });
+
+  await assert.rejects(() => failingLifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_UNAVAILABLE');
+    assert.equal(error.details.serverUrl, 'http://127.0.0.1:4999');
+    assert.equal(error.details.cause.code, 'ECONNREFUSED');
+    assert.equal(JSON.stringify(error.details).includes('x'.repeat(1000)), false);
+    return true;
+  });
+});
+
+test('OpenCode server lifecycle external shutdown during health check prevents started state', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let releaseHealth = null;
+  let healthStarted = null;
+  const healthRelease = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4578',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthStarted();
+        await healthRelease;
+        return { ok: true };
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  await healthPending;
+  await lifecycle.shutdown();
+  releaseHealth();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.notEqual(lifecycle.getDiagnostics().status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown during rejected health check reports stopped', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let rejectHealth = null;
+  let healthStarted = null;
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4579',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthStarted();
+        return new Promise((resolve, reject) => {
+          rejectHealth = reject;
+        });
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await healthPending;
+  await lifecycle.shutdown();
+  rejectHealth(Object.assign(new Error('late external health failure'), { code: 'ECONNRESET' }));
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  const diagnostics = lifecycle.getDiagnostics();
+  assert.notEqual(diagnostics.status, 'failed');
+  assert.notEqual(diagnostics.status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown cancels never-settling health check', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let healthStarted = null;
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4581',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthStarted();
+        return new Promise(() => {});
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await healthPending;
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  const diagnostics = lifecycle.getDiagnostics();
+  assert.equal(diagnostics.status, 'idle');
+  assert.notEqual(diagnostics.status, 'failed');
+  assert.notEqual(diagnostics.status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown aborts pending client health request', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let requestSeen = null;
+  let responseClosed = null;
+  const requestSeenPromise = new Promise((resolve) => {
+    requestSeen = resolve;
+  });
+  const responseClosedPromise = new Promise((resolve) => {
+    responseClosed = resolve;
+  });
+  const fixture = await listenHttpServerForTest((req, res) => {
+    if (req.url === '/global/health') {
+      res.once('close', responseClosed);
+      requestSeen();
+      return;
+    }
+    sendJsonForTest(res, 404, { error: 'not found' });
+  });
+  try {
+    const lifecycle = new OpenCodeServerLifecycle({
+      externalUrl: fixture.url,
+      spawnFn: () => {
+        throw new Error('external mode must not spawn');
+      },
+      clientFactory: (serverUrl) => new OpenCodeServerClient({ serverUrl, timeoutMs: 2000 })
+    });
+
+    const pendingStart = lifecycle.ensureStarted();
+    pendingStart.catch(() => {});
+    await requestSeenPromise;
+    await lifecycle.shutdown();
+
+    const startResult = await Promise.race([
+      pendingStart.then(
+        () => ({ started: true }),
+        (error) => ({ error })
+      ),
+      new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+    ]);
+    assert.equal(startResult.hung, undefined);
+    assert.equal(startResult.started, undefined);
+    assert.equal(startResult.error.code, 'OPENCODE_SERVER_STOPPED');
+
+    const closeResult = await Promise.race([
+      responseClosedPromise.then(() => ({ closed: true })),
+      new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 150))
+    ]);
+    assert.equal(closeResult.hung, undefined);
+    assert.equal(closeResult.closed, true);
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server lifecycle external restart after shutdown starts fresh health check', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const healthControls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4580',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        let resolveHealth = null;
+        let rejectHealth = null;
+        const promise = new Promise((resolve, reject) => {
+          resolveHealth = resolve;
+          rejectHealth = reject;
+        });
+        healthControls.push({ resolve: resolveHealth, reject: rejectHealth });
+        return promise;
+      }
+    })
+  });
+
+  const firstStart = lifecycle.ensureStarted();
+  firstStart.catch(() => {});
+  await waitForConditionForTest(() => healthControls.length === 1, 'OpenCode external first health check');
+  await lifecycle.shutdown();
+
+  const secondStart = lifecycle.ensureStarted();
+  secondStart.catch(() => {});
+  let started = null;
+  try {
+    await waitForConditionForTest(() => healthControls.length === 2, 'OpenCode external restarted health check');
+    assert.equal(healthControls.length, 2);
+    healthControls[1].resolve({ ok: true });
+    started = await secondStart;
+    assert.equal(started.mode, 'external');
+    assert.equal(started.serverUrl, 'http://127.0.0.1:4580');
+    assert.equal(lifecycle.getDiagnostics().status, 'started');
+  } finally {
+    healthControls[0]?.reject(Object.assign(new Error('settle canceled external health'), { code: 'ECANCELED' }));
+  }
+
+  await assert.rejects(() => firstStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.equal(lifecycle.getDiagnostics().status, 'started');
+  assert.equal(await lifecycle.ensureStarted(), started);
+});
+
+test('OpenCode server lifecycle managed mode resolves command and starts explicit loopback port', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({ pid: 2468 });
+  const spawns = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    command: 'opencode',
+    startupTimeoutMs: 50,
+    healthPollIntervalMs: 1,
+    findAvailablePort: async () => 45678,
+    cliResolverOptions: {
+      platform: 'win32',
+      nodePath: 'C:\\node\\node.exe',
+      env: { PATH: '' },
+      which: () => 'C:\\tools\\opencode.cmd',
+      readTextFile: () => '@ECHO off\n"%dp0%\\node_modules\\opencode\\bin\\opencode.js" %*'
+    },
+    spawnFn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls.push(serverUrl);
+        return { ok: true };
+      }
+    })
+  });
+
+  const started = await lifecycle.ensureStarted();
+
+  assert.equal(started.mode, 'managed');
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45678');
+  assert.equal(started.client.serverUrl, 'http://127.0.0.1:45678');
+  assert.equal(started.owned, true);
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0].command, 'C:\\node\\node.exe');
+  assert.match(spawns[0].args[0], /opencode[\\/]bin[\\/]opencode\.js$/);
+  assert.deepEqual(spawns[0].args.slice(1), ['serve', '--hostname', '127.0.0.1', '--port', '45678']);
+  assert.equal(spawns[0].args.includes('0'), false);
+  assert.equal(spawns[0].args.some((arg) => String(arg).toLowerCase().includes('mdns')), false);
+  assert.equal(spawns[0].options.windowsHide, true);
+  assert.notEqual(spawns[0].options.stdio, 'inherit');
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:45678']);
+  assert.equal(child.stdout.listenerCount('data'), 0);
+  assert.equal(child.stderr.listenerCount('data'), 0);
+
+  const again = await lifecycle.ensureStarted();
+  assert.equal(again, started);
+  assert.equal(spawns.length, 1);
+});
+
+test('OpenCode server lifecycle retries managed startup with a fresh port and child', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45681, 45682];
+  const children = [];
+  const spawns = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: null,
+    command: 'opencode',
+    startupAttempts: 3,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 1,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3000 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls.push(serverUrl);
+        if (serverUrl.endsWith(':45681')) throw new Error('health not ready');
+        return { ok: true };
+      }
+    })
+  });
+
+  const started = await lifecycle.ensureStarted();
+
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45682');
+  assert.equal(spawns.length, 2);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45681', '45682']);
+  assert.equal(children[0].killSignals.includes('SIGTERM'), true);
+  assert.equal(healthCalls.includes('http://127.0.0.1:45681'), true);
+  assert.equal(healthCalls.includes('http://127.0.0.1:45682'), true);
+});
+
+test('OpenCode server lifecycle stops after three failed managed startup attempts with structured error', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45701, 45702, 45703];
+  const spawns = [];
+  const giant = 'x'.repeat(5000);
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 3,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 1,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3100 + spawns.length,
+        kill(signal) {
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw Object.assign(new Error(`not healthy ${giant}`), {
+          code: 'ECONNREFUSED',
+          details: { body: giant }
+        });
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+    assert.equal(error.details.attempts, 3);
+    assert.equal(JSON.stringify(error.details).includes(giant), false);
+    return true;
+  });
+  assert.equal(spawns.length, 3);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45701', '45702', '45703']);
+});
+
+test('OpenCode server lifecycle caps injected managed startup attempts at three', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const spawns = [];
+  let portCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 10,
+    startupTimeoutMs: 1,
+    retryDelayMs: 0,
+    delayFn: async () => {},
+    findAvailablePort: async () => {
+      portCalls += 1;
+      return 45800 + portCalls;
+    },
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3400 + spawns.length,
+        kill(signal) {
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw new Error('not healthy');
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+    assert.equal(error.details.attempts, 3);
+    return true;
+  });
+  assert.equal(portCalls, 3);
+  assert.equal(spawns.length, 3);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45801', '45802', '45803']);
+});
+
+test('OpenCode server lifecycle times out hanging managed health probes and cleans up child', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3450,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 5,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 0,
+    gracefulShutdownMs: 1,
+    findAvailablePort: async () => 45850,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      async health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    })
+  });
+
+  const result = await Promise.race([
+    lifecycle.ensureStarted().then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 100))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+  assert.equal(result.error.details.attempts, 1);
+  assert.equal(result.error.details.cause.details.timeoutMs, 5);
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(healthCalls, 1);
+});
+
+test('OpenCode server lifecycle reports unavailable port allocation without spawning port zero', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 3,
+    retryDelayMs: 0,
+    delayFn: async () => {},
+    findAvailablePort: async () => 0,
+    spawnFn: () => {
+      throw new Error('invalid port must not spawn');
+    }
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_PORT_UNAVAILABLE');
+    assert.equal(error.details.attempts, 3);
+    assert.equal(JSON.stringify(error.details).includes('--port'), false);
+    return true;
+  });
+});
+
+test('OpenCode server lifecycle shares concurrent managed start callers', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const spawns = [];
+  let releaseHealth = null;
+  const healthStarted = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    findAvailablePort: async () => 45711,
+    spawnFn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      return createFakeOpenCodeServerChild({ pid: 3200 });
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        await healthStarted;
+        return { ok: true };
+      }
+    })
+  });
+
+  const first = lifecycle.ensureStarted();
+  const second = lifecycle.ensureStarted();
+  await waitForConditionForTest(() => spawns.length === 1, 'OpenCode managed concurrent spawn');
+  releaseHealth();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(firstResult, secondResult);
+  assert.equal(firstResult.serverUrl, 'http://127.0.0.1:45711');
+  assert.equal(spawns.length, 1);
+});
+
+test('OpenCode server lifecycle shutdown escalates managed child and allows restart', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45721, 45722];
+  const children = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: () => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3300 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const first = await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+  const second = await lifecycle.ensureStarted();
+
+  assert.equal(first.serverUrl, 'http://127.0.0.1:45721');
+  assert.equal(second.serverUrl, 'http://127.0.0.1:45722');
+  assert.deepEqual(children[0].killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(children.length, 2);
+});
+
+test('OpenCode server lifecycle runs tree cleanup even when graceful child exits immediately', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const terminations = [];
+  const child = createFakeOpenCodeServerChild({
+    pid: 3460,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 20,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45860,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      return true;
+    }
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.deepEqual(terminations, [
+    { pid: 3460, force: false, signal: 'SIGTERM' }
+  ]);
+});
+
+test('OpenCode server lifecycle escalates process tree cleanup when child stays alive', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const terminations = [];
+  const child = createFakeOpenCodeServerChild({
+    pid: 3465,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      return true;
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45865,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      if (options.force) setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.deepEqual(terminations, [
+    { pid: 3465, force: false, signal: 'SIGTERM' },
+    { pid: 3465, force: true, signal: 'SIGKILL' }
+  ]);
+});
+
+test('OpenCode server lifecycle shutdown during startup stops child and prevents started state', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3470,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let releaseHealth = null;
+  const healthRelease = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 20,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45870,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        await healthRelease;
+        return { ok: true };
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  await waitForConditionForTest(() => child.listenerCount('exit') > 0, 'OpenCode managed startup child tracking');
+  await lifecycle.shutdown();
+  releaseHealth();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
+test('OpenCode server lifecycle managed shutdown cancels never-settling startup promptly', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3480,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 1,
+    findAvailablePort: async () => 45880,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(() => child.listenerCount('exit') > 0, 'OpenCode managed ignored child tracking');
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(healthCalls, 1);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
+test('OpenCode server lifecycle managed shutdown cancels losing timeout and grace delays', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const delays = [];
+  const delayFn = (ms) => {
+    const delayRecord = { ms, active: true, canceled: false };
+    const promise = new Promise((resolve) => {
+      delayRecord.resolve = resolve;
+    });
+    promise.cancel = () => {
+      if (!delayRecord.active) return;
+      delayRecord.active = false;
+      delayRecord.canceled = true;
+    };
+    delayRecord.promise = promise;
+    delays.push(delayRecord);
+    return promise;
+  };
+  const child = createFakeOpenCodeServerChild({
+    pid: 3485,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 2500,
+    gracefulShutdownMs: 500,
+    hardKillGraceMs: 500,
+    delayFn,
+    findAvailablePort: async () => 45885,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(
+    () => healthCalls === 1 && delays.some((delay) => delay.ms === 2500),
+    'OpenCode managed startup timeout delay scheduled'
+  );
+  await lifecycle.shutdown();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(delays.some((delay) => delay.active), false);
+  assert.equal(delays.some((delay) => delay.ms === 2500 && delay.canceled), true);
+  assert.equal(delays.some((delay) => delay.ms === 500 && delay.canceled), true);
+});
+
+test('OpenCode server lifecycle managed shutdown cancels retry backoff delay', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const delays = [];
+  const delayFn = (ms) => {
+    const delayRecord = { ms, active: true, canceled: false };
+    let resolveDelay = null;
+    const promise = new Promise((resolve) => {
+      resolveDelay = () => {
+        if (!delayRecord.active) return;
+        delayRecord.active = false;
+        resolve();
+      };
+    });
+    promise.cancel = () => {
+      if (!delayRecord.active) return;
+      delayRecord.active = false;
+      delayRecord.canceled = true;
+    };
+    delayRecord.promise = promise;
+    delays.push(delayRecord);
+    if (ms !== 2500) setImmediate(resolveDelay);
+    return promise;
+  };
+  const children = [];
+  const spawns = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 2,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 2500,
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 1,
+    delayFn,
+    findAvailablePort: async () => 45886 + spawns.length,
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3486 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw Object.assign(new Error('retryable health failure'), { code: 'ECONNREFUSED' });
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(
+    () => delays.some((delay) => delay.ms === 2500 && delay.active),
+    'OpenCode managed retry backoff delay active'
+  );
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  assert.equal(spawns.length, 1);
+  assert.equal(delays.some((delay) => delay.active), false);
+  assert.equal(delays.some((delay) => delay.ms === 2500 && delay.canceled), true);
+});
+
+test('OpenCode server lifecycle managed restart during canceled startup preserves new current', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45890, 45891];
+  const children = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 25,
+    hardKillGraceMs: 25,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: () => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3490 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthCalls.push(serverUrl);
+        if (serverUrl.endsWith(':45890')) return new Promise(() => {});
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const firstStart = lifecycle.ensureStarted();
+  firstStart.catch(() => {});
+  await waitForConditionForTest(() => children.length === 1, 'OpenCode managed first startup spawned');
+  const shutdownPromise = lifecycle.shutdown();
+  await waitForConditionForTest(
+    () => children[0].killSignals.includes('SIGTERM'),
+    'OpenCode managed first startup termination began'
+  );
+
+  const secondStart = lifecycle.ensureStarted();
+  const started = await secondStart;
+  await assert.rejects(() => firstStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  await shutdownPromise;
+
+  assert.equal(started.mode, 'managed');
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45891');
+  assert.equal(await lifecycle.ensureStarted(), started);
+  assert.equal(lifecycle.getDiagnostics().status, 'started');
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:45890', 'http://127.0.0.1:45891']);
+});
+
+test('OpenCode server lifecycle process tree terminator uses Windows taskkill force args', () => {
+  const { defaultProcessTreeTerminator } = require('../daemon/src/opencode-server-lifecycle');
+  const calls = [];
+  const result = defaultProcessTreeTerminator(9876, {
+    force: true,
+    platform: 'win32',
+    spawnSyncFn: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    }
+  });
+
+  assert.equal(result, true);
+  assert.deepEqual(calls, [{
+    command: 'taskkill',
+    args: ['/PID', '9876', '/T', '/F'],
+    options: { windowsHide: true, stdio: 'ignore' }
+  }]);
+});
+
 test('fake OpenCode server supports session, prompt, abort, permission, and SSE', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
@@ -14336,6 +15357,15 @@ function createFakeAppServerChild({ pid = 1234, kill } = {}) {
   };
   child.once('exit', closeStdio);
   child.once('error', closeStdio);
+  return child;
+}
+
+function createFakeOpenCodeServerChild({ pid = 1234, kill } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.pid = pid;
+  child.kill = kill || (() => true);
   return child;
 }
 
