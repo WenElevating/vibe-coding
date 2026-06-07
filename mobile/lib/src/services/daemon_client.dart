@@ -163,6 +163,13 @@ class DaemonClient
     return _get(path);
   }
 
+  Future<Map<String, Object?>> postAuthorizedJson(
+    String path,
+    Map<String, Object?> body,
+  ) {
+    return _post(path, body);
+  }
+
   Future<http.StreamedResponse> sendAuthorizedStream(
     http.BaseRequest Function(Uri baseUri, Map<String, String> headers) build,
   ) async {
