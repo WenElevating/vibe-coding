@@ -198,8 +198,8 @@
   subscription, POSIX backslash sibling containment, and safe own-field
   extraction for provider session metadata, plus path-bearing realpath
   failures. `scripts/smoke-opencode-server.js` reuses the production extractors
-  so smoke evidence accepts the same session id and directory aliases as daemon
-  runtime reconciliation.
+  and path containment helper so smoke evidence accepts the same session id,
+  directory aliases, and path flavor rules as daemon runtime reconciliation.
 - Mitigation: preserve fail-closed directory reconciliation before prompt
   dispatch. Do not add new OpenCode session-directory aliases or direct
   provider-field reads without matching containment, descriptor-safety, and

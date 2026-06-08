@@ -5,7 +5,8 @@ const https = require('node:https');
 const path = require('node:path');
 const {
   extractSessionId,
-  extractSessionDirectory
+  extractSessionDirectory,
+  pathContainsOrEquals
 } = require('../daemon/src/opencode-session-boundary');
 
 const DEFAULT_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096';
@@ -378,7 +379,7 @@ function parseJson(text) {
 
 function directoryMatchesWorkspace(directory, workspace) {
   if (!directory) return false;
-  return path.resolve(directory) === path.resolve(workspace);
+  return pathContainsOrEquals(workspace, directory) && pathContainsOrEquals(directory, workspace);
 }
 
 function collectSessionIdFieldNames(value) {
