@@ -4855,6 +4855,57 @@ test('OpenCode legacy run waits for session idle before completion', async () =>
   }
 });
 
+test('OpenCode legacy run rejects resumed session directory mismatch before prompt dispatch', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-legacy-resume-workspace');
+    fake.sessions.set('sess_legacy_bad_dir', {
+      id: 'sess_legacy_bad_dir',
+      sessionID: 'sess_legacy_bad_dir',
+      directory: path.join(os.tmpdir(), 'opencode-legacy-outside-workspace')
+    });
+    const adapter = new OpenCodeAdapter({
+      lifecycle: {
+        async ensureStarted() {
+          return {
+            mode: 'external',
+            serverUrl: fake.url,
+            client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+            owned: false
+          };
+        },
+        getDiagnostics() {
+          return { status: 'started', lastError: null };
+        }
+      }
+    });
+
+    await assert.rejects(
+      () => adapter.startRun({
+        prompt: 'must not leave workspace',
+        sessionId: 'sess_legacy_bad_dir',
+        resume: true,
+        workspacePath,
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.readSessionIds, ['sess_legacy_bad_dir']);
+    assert.deepEqual(fake.promptBodies, []);
+    assert.equal(fake.sseOpenCount, 0);
+  } finally {
+    await fake.close();
+  }
+});
+
 test('OpenCode legacy run kill aborts session and suppresses later completion', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');

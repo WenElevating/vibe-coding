@@ -4,6 +4,11 @@ const { eventTypes } = require('./protocol');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { mapOpenCodeEvent } = require('./opencode-event-mapper');
 const { OpenCodeServerLifecycle } = require('./opencode-server-lifecycle');
+const {
+  extractSessionId,
+  extractSessionDirectory,
+  validateSessionDirectory
+} = require('./opencode-session-boundary');
 
 const MODEL_CAPABILITY = Object.freeze({
   models: [],
@@ -125,6 +130,9 @@ class OpenCodeAdapter {
       error.code = 'OPENCODE_SESSION_REQUIRED';
       throw error;
     }
+    if (resume) {
+      await this.validateResumedSession({ client: started.client, sessionId, workspacePath });
+    }
     const activeSessionId = sessionId || await this.createSession({ client: started.client, workspacePath });
     let subscription = null;
     let terminal = false;
@@ -191,6 +199,18 @@ class OpenCodeAdapter {
       });
     }
     return sessionId;
+  }
+
+  async validateResumedSession({ client, sessionId, workspacePath }) {
+    const session = await client.readSession({ sessionId });
+    const providerSessionId = extractSessionId(session) || sessionId;
+    if (providerSessionId !== sessionId) {
+      throw adapterError('OpenCode resumed session did not match the requested session id', {
+        status: 409,
+        code: 'OPENCODE_SESSION_MISSING'
+      });
+    }
+    validateSessionDirectory(extractSessionDirectory(session), workspacePath);
   }
 
   async sendPrompt({ client, sessionId, prompt }) {
@@ -264,14 +284,16 @@ function parseSessionId(value) {
     return parsed ? parseSessionId(parsed) : value.trim() || null;
   }
   if (typeof value === 'object') {
-    return value.id || value.sessionId || value.session_id || value.session?.id || null;
+    return extractSessionId(value);
   }
   return null;
 }
 
-function adapterError(message, { code } = {}) {
+function adapterError(message, { status, code, details } = {}) {
   const error = new Error(message);
+  if (status !== undefined) error.status = status;
   if (code) error.code = code;
+  if (details !== undefined) error.details = details;
   return error;
 }
 
