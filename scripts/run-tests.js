@@ -14860,16 +14860,27 @@ test('OpenCode conversation HTTP missing stored session fails without replacemen
     );
     assert.equal(firstIdle.cliSessionId, 'sess_1');
 
-    fixture.fake.sessions.delete('sess_1');
+    const staleSessionId = path.join(os.tmpdir(), 'opencode-secret-session', 'missing-session');
+    const internalConversation = fixture.app.conversations.conversations.get(conversationId);
+    internalConversation.cliSessionId = staleSessionId;
+    internalConversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    internalConversation.providerSession = {
+      provider: 'opencode',
+      threadId: staleSessionId
+    };
     const createRequestCount = fixture.fake.createRequests.length;
     const promptCount = fixture.fake.promptBodies.length;
     const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'later turn' });
+    const failedJson = JSON.stringify(failed.body);
 
     assert.equal(failed.status, 409);
     assert.equal(failed.body.error.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(Object.prototype.hasOwnProperty.call(failed.body.error.details || {}, 'sessionId'), false);
+    assert.equal(failedJson.includes('opencode-secret-session'), false);
+    assert.equal(failedJson.includes(encodeURIComponent('opencode-secret-session')), false);
     assert.equal(fixture.fake.createRequests.length, createRequestCount);
     assert.equal(fixture.fake.promptBodies.length, promptCount);
-    assert.deepEqual(fixture.fake.readSessionIds, ['sess_1']);
+    assert.deepEqual(fixture.fake.readSessionIds, [staleSessionId]);
 
     const summary = await waitForOpenCodeHttpConversation(
       fixture,
@@ -14888,9 +14899,12 @@ test('OpenCode conversation HTTP missing stored session fails without replacemen
     const runError = events.find((event) =>
       event.type === conversationEventTypes.RUN_ERROR &&
       event.code === 'OPENCODE_SESSION_MISSING');
+    const publicJson = JSON.stringify({ summary, events });
     assert.equal(expired.visible, true);
     assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
     assert.equal(runError.status, 409);
+    assert.equal(publicJson.includes('opencode-secret-session'), false);
+    assert.equal(publicJson.includes(encodeURIComponent('opencode-secret-session')), false);
   } finally {
     await fixture.close();
   }

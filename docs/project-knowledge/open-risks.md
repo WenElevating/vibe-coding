@@ -123,8 +123,9 @@
   recursive `error.details` into adapter status or conversation timeline events
   can expose those values to paired mobile clients and diagnostic exports.
 - Evidence: `daemon/src/opencode-conversation-adapter.js` projects lifecycle
-  diagnostics and stream-error causes through allowlists; `scripts/run-tests.js`
-  covers lifecycle diagnostics exceptions and active-turn stream errors with
+  diagnostics, stream-error causes, and missing-session HTTP error details
+  through allowlists; `scripts/run-tests.js` covers lifecycle diagnostics
+  exceptions, active-turn stream errors, and stale provider session ids with
   secret path/body/query fixtures.
 - Mitigation: preserve allowlist projection for OpenCode public diagnostics and
   conversation event details. Do not add raw provider exception messages/details

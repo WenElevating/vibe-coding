@@ -128,7 +128,7 @@ class OpenCodeConversationAdapter {
         session = await this.readExistingSession(client, initialSessionId);
       } catch (error) {
         clearMissingSessionBinding(sessionBindingActions, initialSessionId, error);
-        throw sessionMissingError(error, initialSessionId);
+        throw sessionMissingError(error);
       }
     } else {
       session = await client.createSession({ directory: workspace });
@@ -147,7 +147,7 @@ class OpenCodeConversationAdapter {
         reason: 'OpenCode readSession returned a different session id',
         code: 'OPENCODE_SESSION_MISSING'
       });
-      throw sessionMissingError(new Error('OpenCode readSession returned a different session id'), initialSessionId);
+      throw sessionMissingError(new Error('OpenCode readSession returned a different session id'));
     }
     const sessionDirectory = extractSessionDirectory(session);
     try {
@@ -553,13 +553,12 @@ function markDriftedSessionBinding(actions, {
   });
 }
 
-function sessionMissingError(cause, sessionId) {
+function sessionMissingError(cause) {
   const status = isMissingSessionError(cause) ? 409 : 503;
   return conversationError('OpenCode session is missing or unreadable.', {
     status,
     code: 'OPENCODE_SESSION_MISSING',
     details: {
-      sessionId,
       cause: errorDetails(cause)
     }
   });
