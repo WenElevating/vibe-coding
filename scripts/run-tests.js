@@ -5863,6 +5863,51 @@ test('OpenCode legacy run rejects auto permission mode before server start', asy
   assert.equal(starts, 0);
 });
 
+test('OpenCode legacy run startup errors ignore unsafe getters', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  const startupError = new Error('legacy startup failed');
+  Object.defineProperty(startupError, 'status', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe legacy startup status getter should not escape');
+    }
+  });
+  Object.defineProperty(startupError, 'code', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe legacy startup code getter should not escape');
+    }
+  });
+  startupError.details = { reason: 'health_not_ok' };
+  const adapter = new OpenCodeAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        throw startupError;
+      },
+      getDiagnostics() {
+        return { status: 'failed', lastError: startupError };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startRun({
+      prompt: 'legacy unsafe startup',
+      workspacePath: path.join(os.tmpdir(), 'opencode-legacy-unsafe-startup'),
+      onEvent: () => {}
+    }),
+    (error) => {
+      const publicText = JSON.stringify({ message: error.message, details: error.details });
+      assert.equal(error.status, 503);
+      assert.equal(error.code, 'Error');
+      assert.equal(error.details.status, 503);
+      assert.equal(error.details.reason, 'health_not_ok');
+      assert.equal(publicText.includes('unsafe legacy startup'), false);
+      return true;
+    }
+  );
+});
+
 test('OpenCode legacy run waits for session idle before completion', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
@@ -5910,6 +5955,56 @@ test('OpenCode legacy run waits for session idle before completion', async () =>
     await handle?.kill?.();
     await fake.close();
   }
+});
+
+test('OpenCode legacy run stream errors ignore unsafe getters', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  let streamErrorHandler = null;
+  const events = [];
+  const client = {
+    async createSession() {
+      return { id: 'sess_legacy_unsafe_stream' };
+    },
+    subscribeEvents(_onEvent, onError) {
+      streamErrorHandler = onError;
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {}
+      };
+    },
+    async promptAsync() {},
+    async abortSession() {}
+  };
+  const adapter = new OpenCodeAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return { mode: 'external', serverUrl: 'http://127.0.0.1:1', client, owned: false };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    }
+  });
+  const handle = await adapter.startRun({
+    prompt: 'legacy unsafe stream',
+    workspacePath: path.join(os.tmpdir(), 'opencode-legacy-unsafe-stream'),
+    onEvent: (event) => events.push(event)
+  });
+  const streamError = new Error('legacy stream failed');
+  Object.defineProperty(streamError, 'code', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe legacy stream code getter should not escape');
+    }
+  });
+
+  assert.doesNotThrow(() => streamErrorHandler(streamError));
+
+  const failed = events.find((event) => event.type === eventTypes.RUN_FAILED);
+  assert.ok(failed);
+  assert.equal(failed.code, 'Error');
+  assert.equal(JSON.stringify(failed).includes('unsafe legacy stream'), false);
+  await handle.kill();
 });
 
 test('OpenCode legacy run rejects resumed session directory mismatch before prompt dispatch', async () => {

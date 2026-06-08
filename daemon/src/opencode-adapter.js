@@ -73,8 +73,9 @@ class OpenCodeAdapter {
       });
       return this.capability;
     } catch (error) {
+      const unavailableReason = safeTokenString(safeErrorField(error, 'code')) || 'OPENCODE_SERVER_UNAVAILABLE';
       this.capability = capability(false, 'unavailable', 'OpenCode server unavailable. Start OpenCode server or check OpenCode installation.', {
-        unavailableReason: safeTokenString(error?.code) || 'OPENCODE_SERVER_UNAVAILABLE',
+        unavailableReason,
         diagnostics: {
           lifecycle: listingLifecycleDiagnostics(this.lifecycleDiagnostics()),
           cause: listingErrorDiagnostics(error)
@@ -178,7 +179,8 @@ class OpenCodeAdapter {
         emitTerminal({
           type: eventTypes.RUN_FAILED,
           error: 'OpenCode event stream interrupted before the run completed.',
-          code: safeTokenString(error?.code || error?.name) || 'OPENCODE_EVENT_STREAM_INTERRUPTED'
+          code: safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name')) ||
+            'OPENCODE_EVENT_STREAM_INTERRUPTED'
         });
       }
     );
@@ -311,8 +313,9 @@ function adapterError(message, { status, code, details } = {}) {
 }
 
 function publicLifecycleStartupError(error) {
-  const status = safeHttpStatus(error?.status) || 503;
-  const code = safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE';
+  const status = safeHttpStatus(safeErrorField(error, 'status')) || 503;
+  const code = safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name')) ||
+    'OPENCODE_SERVER_UNAVAILABLE';
   const safe = new Error('OpenCode server unavailable.');
   safe.status = status;
   safe.code = code;
@@ -324,26 +327,30 @@ function safeLifecycleStartupDetails(error, { code, status }) {
   const result = {};
   if (code) result.code = code;
   if (status) result.status = status;
-  const reason = safeTokenString(error?.reason) ||
-    safeTokenString(error?.details?.reason) ||
-    safeTokenString(error?.details?.cause?.code) ||
-    safeTokenString(error?.cause?.code || error?.cause?.name);
+  const details = safeErrorField(error, 'details');
+  const detailsCause = safeOwnValue(details, 'cause');
+  const cause = safeErrorField(error, 'cause');
+  const reason = safeTokenString(safeErrorField(error, 'reason')) ||
+    safeTokenString(safeOwnValue(details, 'reason')) ||
+    safeTokenString(safeOwnValue(detailsCause, 'code') || safeOwnValue(detailsCause, 'name')) ||
+    safeTokenString(safeErrorField(cause, 'code') || safeErrorField(cause, 'name'));
   if (reason && reason !== code) result.reason = reason;
   return Object.keys(result).length > 0 ? result : null;
 }
 
 function listingErrorDiagnostics(error) {
   if (!error) return null;
-  const code = safeTokenString(error.code || error.name);
+  const code = safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name'));
   return code ? { code } : null;
 }
 
 function listingLifecycleDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
-  const status = safeTokenString(value.status);
+  const status = safeTokenString(safeOwnValue(value, 'status'));
   if (status) result.status = status;
-  const lastErrorCode = safeTokenString(value.lastError?.code);
+  const lastError = safeOwnValue(value, 'lastError');
+  const lastErrorCode = safeTokenString(safeErrorField(lastError, 'code') || safeOwnValue(lastError, 'code'));
   if (lastErrorCode) result.lastError = { code: lastErrorCode };
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -351,8 +358,9 @@ function listingLifecycleDiagnostics(value) {
 function listingHealthDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
-  if (typeof value.ok === 'boolean') result.ok = value.ok;
-  const version = safeDisplayString(value.version);
+  const ok = safeOwnValue(value, 'ok');
+  if (typeof ok === 'boolean') result.ok = ok;
+  const version = safeDisplayString(safeOwnValue(value, 'version'));
   if (version) result.version = version;
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -458,8 +466,48 @@ async function waitForSubscriptionOpen(subscription) {
   const cause = result?.error || null;
   const error = new Error('OpenCode event stream interrupted before prompt dispatch.');
   error.status = 503;
-  error.code = safeTokenString(cause?.code || cause?.name) || 'OPENCODE_EVENT_STREAM_INTERRUPTED';
+  error.code = safeTokenString(safeErrorField(cause, 'code') || safeErrorField(cause, 'name')) ||
+    'OPENCODE_EVENT_STREAM_INTERRUPTED';
   throw error;
+}
+
+function safeOwnValue(value, key) {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function safeErrorField(error, key) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return undefined;
+  let current = error;
+  while (current) {
+    const value = safeDataPropertyValue(current, key);
+    if (value !== undefined) return value;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor && !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+      current = Object.getPrototypeOf(current);
+    } catch (_) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function safeDataPropertyValue(value, key) {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function safeString(value) {
@@ -474,6 +522,7 @@ function safeTokenString(value, maxLength = 128) {
 }
 
 function safeHttpStatus(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   const status = Number(value);
   if (!Number.isInteger(status) || status < 100 || status > 599) return null;
   return status;

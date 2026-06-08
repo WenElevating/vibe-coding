@@ -132,12 +132,14 @@
   diagnostics and requires session ids on visible file-edit events;
   `daemon/src/opencode-conversation-adapter.js` projects startup, stream,
   abort, and session-missing errors through descriptor-safe allowlists;
+  `daemon/src/opencode-adapter.js` applies the same descriptor-safe projection
+  to legacy run startup, stream, listing, and SSE-open failures;
   `daemon/src/opencode-server-lifecycle.js` reads provider/lifecycle error
   fields and nested diagnostic details through descriptor-safe accessors;
   `scripts/run-tests.js` covers lifecycle diagnostics exceptions, active-turn
   and idle-stream errors, abort warnings, session binding helper events, and
   stale provider session ids with secret path/body/query/file-URL fixtures, plus
-  unsafe getter-backed lifecycle, startup, and stream errors.
+  unsafe getter-backed lifecycle, conversation, and legacy run errors.
 - Mitigation: preserve allowlist projection for OpenCode public diagnostics and
   conversation event details. Do not add raw provider exception
   messages/details, local file URLs, or raw session binding diagnostics to
