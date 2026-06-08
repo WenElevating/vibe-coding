@@ -61,10 +61,11 @@ class SlashCommandCatalog {
     const discovered = workspacePath
       ? await this.discover(adapter, { workspacePath })
       : null;
+    const hasDiscoveredCommands = Array.isArray(discovered) && discovered.length > 0;
     const commands = normalizeCommands(
-      discovered && discovered.length > 0 ? discovered : catalogs[adapter] || []
+      hasDiscoveredCommands ? discovered : catalogs[adapter] || []
     );
-    if (workspacePath) this.cache.set(cacheKey, commands);
+    if (workspacePath && hasDiscoveredCommands) this.cache.set(cacheKey, commands);
     return {
       adapter,
       commands

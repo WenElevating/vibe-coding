@@ -18479,6 +18479,31 @@ test('slash command catalog prefers Claude SDK initialize commands', async () =>
   ]);
 });
 
+test('slash command catalog does not cache static fallback after discovery miss', async () => {
+  const { SlashCommandCatalog } = require('../daemon/src/slash-command-catalog');
+  let calls = 0;
+  const catalog = new SlashCommandCatalog({
+    discoverers: {
+      claude: {
+        async discover() {
+          calls += 1;
+          if (calls === 1) throw new Error('temporary discovery failure');
+          return [{ command: '/workspace-only', description: 'workspace command' }];
+        }
+      }
+    }
+  });
+
+  const first = await catalog.list('claude', { workspacePath: process.cwd() });
+  const second = await catalog.list('claude', { workspacePath: process.cwd() });
+
+  assert.equal(first.commands.some((item) => item.command === '/compact'), true);
+  assert.deepEqual(second.commands, [
+    { command: '/workspace-only', description: 'workspace command' }
+  ]);
+  assert.equal(calls, 2);
+});
+
 test('Claude slash command discoverer reads SDK initialize response commands', async () => {
   const { ClaudeSlashCommandDiscoverer } = require('../daemon/src/slash-command-catalog');
   const child = new EventEmitter();
