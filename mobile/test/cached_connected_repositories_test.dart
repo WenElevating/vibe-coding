@@ -539,6 +539,39 @@ void main() {
 
       expect(repository.conversations.single.status, 'idle');
     });
+
+    test('streamed blocking cancellations clear cached conversation status',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(id: 'c1', status: 'running'),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 1,
+          type: 'approval.requested',
+          approvalId: 'approval_cancelled',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 2,
+          type: 'blocking.request_cancelled',
+          approvalId: 'approval_cancelled',
+          raw: const <String, Object?>{'blockingType': 'approval_request'},
+        ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'running');
+      expect(repository.conversations.single.blockingItem, isNull);
+    });
   });
 
   group('CachedRunRepository', () {
@@ -1341,6 +1374,7 @@ ConversationSummary _conversation({
   String status = 'running',
   String? model,
   String updatedAt = '2026-05-28T00:00:01.000Z',
+  ConversationBlockingItem? blockingItem,
 }) =>
     ConversationSummary(
       id: id,
@@ -1352,6 +1386,7 @@ ConversationSummary _conversation({
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-28T00:00:00.000Z',
       updatedAt: updatedAt,
+      blockingItem: blockingItem,
     );
 
 ConversationSummary _copyConversation(
@@ -1383,6 +1418,8 @@ ConversationEvent _conversationEvent({
   required String conversationId,
   required int seq,
   String type = 'assistant.message',
+  String? approvalId,
+  String? questionId,
   Map<String, Object?> raw = const <String, Object?>{},
 }) =>
     ConversationEvent(
@@ -1391,6 +1428,8 @@ ConversationEvent _conversationEvent({
       type: type,
       createdAt: DateTime.parse('2026-05-30T00:00:00.000Z'),
       text: 'event $seq',
+      approvalId: approvalId,
+      questionId: questionId,
       raw: raw,
     );
 

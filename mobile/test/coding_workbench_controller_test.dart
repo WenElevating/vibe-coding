@@ -428,6 +428,39 @@ void main() {
     expect(approvalMessage.approvalOptions.supportsCancel, isTrue);
   });
 
+  test('blocking cancellation clears active approval state', () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'approval.requested',
+          approvalId: 'approval_cancelled',
+          toolName: 'Bash',
+          summary: 'Run git push --force',
+        ),
+        _event(
+          seq: 2,
+          type: 'blocking.request_cancelled',
+          approvalId: 'approval_cancelled',
+          raw: const <String, Object?>{'blockingType': 'approval_request'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'running');
+    expect(viewModel.activeConversation?.blockingItem, isNull);
+    expect(viewModel.messages.where((message) => message.role == 'approval'),
+        isEmpty);
+  });
+
   test('cached conversation stream status keeps approval options', () async {
     const approvalOptions = ApprovalRequestOptions(
       supportsSessionScope: true,

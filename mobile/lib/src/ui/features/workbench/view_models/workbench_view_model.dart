@@ -1492,6 +1492,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     } else if (event.type == 'approval.resolved') {
       status = 'running';
       blockingItem = null;
+    } else if (conversationBlockingItemMatchesCancellation(
+        blockingItem, event)) {
+      status = 'running';
+      blockingItem = null;
     } else if (event.type == 'conversation.cancelled') {
       status = event.raw['status'] as String? ?? 'cancelled';
       blockingItem = null;

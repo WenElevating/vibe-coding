@@ -7,6 +7,31 @@ bool conversationEventCompletesTurn(ConversationEvent event) {
   return event.raw['turnFinal'] != false;
 }
 
+bool conversationBlockingItemMatchesCancellation(
+  ConversationBlockingItem? blockingItem,
+  ConversationEvent event,
+) {
+  if (event.type != 'blocking.request_cancelled' || blockingItem == null) {
+    return false;
+  }
+  final rawBlockingType = event.raw['blockingType'];
+  final blockingType = rawBlockingType is String ? rawBlockingType : null;
+  if (blockingType != null && blockingType != blockingItem.type) return false;
+  if (blockingItem.type == 'approval_request') {
+    final approvalId = event.approvalId;
+    return approvalId != null &&
+        approvalId.isNotEmpty &&
+        approvalId == blockingItem.approvalId;
+  }
+  if (blockingItem.type == 'input_request') {
+    final questionId = event.questionId;
+    return questionId != null &&
+        questionId.isNotEmpty &&
+        questionId == blockingItem.questionId;
+  }
+  return false;
+}
+
 class ConversationCapabilities {
   const ConversationCapabilities({
     required this.longLivedProcess,

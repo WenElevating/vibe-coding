@@ -381,12 +381,13 @@ class CachedConversationRepository extends ChangeNotifier
   }
 
   void _applyConversationEventStatus(ConversationEvent event) {
-    final nextStatus = _statusFromConversationEvent(event);
-    if (nextStatus == null) return;
     final index =
         _conversations.indexWhere((item) => item.id == event.conversationId);
     if (index < 0) return;
     final current = _conversations[index];
+    final nextStatus =
+        _statusFromConversationEvent(event, current.blockingItem);
+    if (nextStatus == null) return;
     final updated = _copyConversationStatus(
       current,
       nextStatus,
@@ -398,7 +399,10 @@ class CachedConversationRepository extends ChangeNotifier
     _notifyIfActive();
   }
 
-  String? _statusFromConversationEvent(ConversationEvent event) {
+  String? _statusFromConversationEvent(
+    ConversationEvent event,
+    ConversationBlockingItem? blockingItem,
+  ) {
     if (event.type == 'conversation.status_changed') {
       return event.raw['status'] as String?;
     }
@@ -410,6 +414,9 @@ class CachedConversationRepository extends ChangeNotifier
     if (event.type == 'assistant.question') return 'waiting_input';
     if (event.type == 'approval.requested') return 'waiting_approval';
     if (event.type == 'approval.resolved') return 'running';
+    if (conversationBlockingItemMatchesCancellation(blockingItem, event)) {
+      return 'running';
+    }
     return null;
   }
 
