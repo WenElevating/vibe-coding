@@ -572,6 +572,38 @@ void main() {
       expect(repository.conversations.single.status, 'running');
       expect(repository.conversations.single.blockingItem, isNull);
     });
+
+    test('streamed waiting status preserves cached approval request', () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(id: 'c1', status: 'running'),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 1,
+          type: 'approval.requested',
+          approvalId: 'approval_waiting',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 2,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'waiting_approval'},
+        ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'waiting_approval');
+      expect(repository.conversations.single.blockingItem?.approvalId,
+          'approval_waiting');
+    });
   });
 
   group('CachedRunRepository', () {

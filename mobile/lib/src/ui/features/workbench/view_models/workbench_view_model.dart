@@ -1480,6 +1480,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     ConversationBlockingItem? blockingItem = current.blockingItem;
     if (event.type == 'conversation.status_changed') {
       status = event.raw['status'] as String? ?? status;
+      blockingItem = conversationBlockingItemForStatusChange(
+        blockingItem,
+        status,
+      );
     } else if (conversationEventCompletesTurn(event)) {
       status = 'idle';
       blockingItem = null;

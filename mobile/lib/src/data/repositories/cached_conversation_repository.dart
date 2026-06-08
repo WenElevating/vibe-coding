@@ -391,7 +391,10 @@ class CachedConversationRepository extends ChangeNotifier
     final updated = _copyConversationStatus(
       current,
       nextStatus,
-      blockingItem: _blockingItemFromConversationEvent(event),
+      blockingItem: _blockingItemFromConversationEvent(
+        event,
+        current.blockingItem,
+      ),
     );
     final conversations = <ConversationSummary>[..._conversations];
     conversations[index] = updated;
@@ -422,6 +425,7 @@ class CachedConversationRepository extends ChangeNotifier
 
   ConversationBlockingItem? _blockingItemFromConversationEvent(
     ConversationEvent event,
+    ConversationBlockingItem? current,
   ) {
     if (event.type == 'assistant.question') {
       return ConversationBlockingItem(
@@ -442,6 +446,12 @@ class CachedConversationRepository extends ChangeNotifier
         summary: event.summary,
         input: event.input,
         approvalOptions: event.approvalOptions,
+      );
+    }
+    if (event.type == 'conversation.status_changed') {
+      return conversationBlockingItemForStatusChange(
+        current,
+        event.raw['status'] as String?,
       );
     }
     return null;

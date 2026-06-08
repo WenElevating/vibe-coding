@@ -32,6 +32,20 @@ bool conversationBlockingItemMatchesCancellation(
   return false;
 }
 
+ConversationBlockingItem? conversationBlockingItemForStatusChange(
+  ConversationBlockingItem? blockingItem,
+  String? status,
+) {
+  if (status == 'waiting_approval' &&
+      blockingItem?.type == 'approval_request') {
+    return blockingItem;
+  }
+  if (status == 'waiting_input' && blockingItem?.type == 'input_request') {
+    return blockingItem;
+  }
+  return null;
+}
+
 class ConversationCapabilities {
   const ConversationCapabilities({
     required this.longLivedProcess,

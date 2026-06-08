@@ -461,6 +461,67 @@ void main() {
         isEmpty);
   });
 
+  test('waiting status events preserve active approval request', () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'approval.requested',
+          approvalId: 'approval_waiting',
+          toolName: 'Bash',
+          summary: 'Run npm test',
+        ),
+        _event(
+          seq: 2,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'waiting_approval'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'waiting_approval');
+    expect(viewModel.activeConversation?.blockingItem?.approvalId,
+        'approval_waiting');
+    expect(viewModel.messages.where((message) => message.role == 'approval'),
+        hasLength(1));
+  });
+
+  test('running status events clear stale active approval request', () {
+    const blockingItem = ConversationBlockingItem(
+      type: 'approval_request',
+      approvalId: 'approval_stale',
+    );
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'waiting_approval',
+      blockingItem: blockingItem,
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'running'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'running');
+    expect(viewModel.activeConversation?.blockingItem, isNull);
+  });
+
   test('cached conversation stream status keeps approval options', () async {
     const approvalOptions = ApprovalRequestOptions(
       supportsSessionScope: true,
@@ -1128,6 +1189,7 @@ ConversationSummary _conversation({
   String adapter = 'codex',
   String? model,
   int userMessageCount = 0,
+  ConversationBlockingItem? blockingItem,
 }) =>
     ConversationSummary(
       id: id,
@@ -1136,6 +1198,7 @@ ConversationSummary _conversation({
       model: model,
       status: status,
       userMessageCount: userMessageCount,
+      blockingItem: blockingItem,
       capabilities:
           ConversationCapabilities.fromJson(const <String, Object?>{}),
       createdAt: '2026-05-12T00:00:00.000Z',
