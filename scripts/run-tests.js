@@ -2134,6 +2134,12 @@ test('OpenCode server client builds prompt_async text body exactly', () => {
   assert.deepEqual(buildPromptAsyncBody(42), {
     parts: [{ type: 'text', text: '42' }]
   });
+  assert.deepEqual(buildPromptAsyncBody(0), {
+    parts: [{ type: 'text', text: '0' }]
+  });
+  assert.deepEqual(buildPromptAsyncBody(false), {
+    parts: [{ type: 'text', text: 'false' }]
+  });
   assert.deepEqual(buildPromptAsyncBody(null), {
     parts: [{ type: 'text', text: '' }]
   });

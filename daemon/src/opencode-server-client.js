@@ -285,7 +285,7 @@ class OpenCodeServerClient {
 }
 
 function buildPromptAsyncBody(text) {
-  return { parts: [{ type: 'text', text: String(text || '') }] };
+  return { parts: [{ type: 'text', text: String(text ?? '') }] };
 }
 
 function buildPermissionReplyBody({ decision, scope } = {}) {
