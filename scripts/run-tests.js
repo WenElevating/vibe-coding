@@ -373,6 +373,106 @@ test('OpenCode smoke helper sends prompt only when explicitly enabled', async ()
   }
 });
 
+test('OpenCode smoke helper accepts nested session id and directory aliases', async () => {
+  const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
+  const workspacePath = process.cwd();
+  const sessionBody = {
+    session: {
+      sessionID: 'sess_nested_smoke',
+      path: workspacePath
+    }
+  };
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/global/health') {
+      return sendTestJson(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && url.pathname === '/doc') {
+      return sendTestJson(res, 200, { paths: { '/global/event': {} } });
+    }
+    if (req.method === 'GET' && url.pathname === '/global/event') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.flushHeaders?.();
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/session') {
+      return sendTestJson(res, 200, sessionBody);
+    }
+    if (req.method === 'GET' && url.pathname === '/session/sess_nested_smoke') {
+      return sendTestJson(res, 200, sessionBody);
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_nested_smoke/abort') {
+      return sendTestJson(res, 200, true);
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_nested_smoke/permissions/opencode_smoke_permission') {
+      return sendTestJson(res, 400, { error: { code: 'PERMISSION_NOT_PENDING' } });
+    }
+    return sendTestJson(res, 404, { error: { code: 'NOT_FOUND' } });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await runOpenCodeServerSmoke({
+      serverUrl: `http://127.0.0.1:${server.address().port}`,
+      workspace: workspacePath,
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.gates.sessionCreateDirectory, 'pass');
+    assert.equal(result.gates.sessionIdFieldNames, 'pass');
+    assert.equal(result.gates.sessionReadReconcile, 'pass');
+    assert.deepEqual(result.evidence.sessionIdFieldNames.fields, ['session.sessionID']);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('OpenCode smoke helper fails session create without a directory', async () => {
+  const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
+  const sessionBody = { id: 'sess_no_directory' };
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/global/health') {
+      return sendTestJson(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && url.pathname === '/doc') {
+      return sendTestJson(res, 200, { paths: { '/global/event': {} } });
+    }
+    if (req.method === 'GET' && url.pathname === '/global/event') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.flushHeaders?.();
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/session') {
+      return sendTestJson(res, 200, sessionBody);
+    }
+    if (req.method === 'GET' && url.pathname === '/session/sess_no_directory') {
+      return sendTestJson(res, 200, sessionBody);
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_no_directory/abort') {
+      return sendTestJson(res, 200, true);
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_no_directory/permissions/opencode_smoke_permission') {
+      return sendTestJson(res, 400, { error: { code: 'PERMISSION_NOT_PENDING' } });
+    }
+    return sendTestJson(res, 404, { error: { code: 'NOT_FOUND' } });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await runOpenCodeServerSmoke({
+      serverUrl: `http://127.0.0.1:${server.address().port}`,
+      workspace: process.cwd(),
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.status, 'fail');
+    assert.equal(result.gates.sessionCreateDirectory, 'fail');
+    assert.equal(result.evidence.sessionCreateDirectory.directoryMatches, false);
+    assert.match(result.evidence.sessionCreateDirectory.error, /did not preserve requested directory/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('OpenCode smoke helper fails SSE gate on non-success event stream status', async () => {
   const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
   const server = http.createServer(async (req, res) => {

@@ -169,10 +169,13 @@
   directory extractors ignore inherited or getter-backed provider fields.
   `scripts/run-tests.js` covers missing directory rejection before SSE
   subscription, POSIX backslash sibling containment, and safe own-field
-  extraction for provider session metadata.
+  extraction for provider session metadata. `scripts/smoke-opencode-server.js`
+  reuses the production extractors so smoke evidence accepts the same session id
+  and directory aliases as daemon runtime reconciliation.
 - Mitigation: preserve fail-closed directory reconciliation before prompt
   dispatch. Do not add new OpenCode session-directory aliases or direct
-  provider-field reads without matching containment and descriptor-safety tests.
+  provider-field reads without matching containment, descriptor-safety, and
+  smoke-helper drift tests.
 - Last verified: 2026-06-09
 
 ## Risk: OpenCode Session ID Alias Drift Can Drop Events

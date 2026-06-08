@@ -3,6 +3,10 @@
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
+const {
+  extractSessionId,
+  extractSessionDirectory
+} = require('../daemon/src/opencode-session-boundary');
 
 const DEFAULT_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096';
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -99,10 +103,11 @@ async function runOpenCodeServerSmoke({
     assertOkResponse(response, 'session create');
     session = response.body;
     sessionId = extractSessionId(session);
+    const sessionDirectory = extractSessionDirectory(session);
     evidence.sessionCreateDirectory = {
       statusCode: response.statusCode,
       hasSessionId: !!sessionId,
-      directoryMatches: path.resolve(extractSessionDirectory(session) || '') === path.resolve(workspace)
+      directoryMatches: directoryMatchesWorkspace(sessionDirectory, workspace)
     };
     if (!sessionId) throw new Error('session create did not return an id/sessionID');
     if (!evidence.sessionCreateDirectory.directoryMatches) {
@@ -112,7 +117,7 @@ async function runOpenCodeServerSmoke({
 
   await runGate('sessionIdFieldNames', gates, evidence, async () => {
     if (!session) throw new Error('session create did not run');
-    const fields = Object.keys(session).filter((key) => /^(id|session_?id)$/i.test(key));
+    const fields = collectSessionIdFieldNames(session);
     evidence.sessionIdFieldNames = { fields };
     if (!fields.length || !sessionId) throw new Error('session id field was not found');
   });
@@ -127,10 +132,11 @@ async function runOpenCodeServerSmoke({
     );
     assertOkResponse(response, 'session read');
     const readSessionId = extractSessionId(response.body);
+    const readSessionDirectory = extractSessionDirectory(response.body);
     evidence.sessionReadReconcile = {
       statusCode: response.statusCode,
       idMatches: readSessionId === sessionId,
-      directoryMatches: path.resolve(extractSessionDirectory(response.body) || '') === path.resolve(workspace)
+      directoryMatches: directoryMatchesWorkspace(readSessionDirectory, workspace)
     };
     if (readSessionId !== sessionId) throw new Error('session read returned a different session id');
     if (!evidence.sessionReadReconcile.directoryMatches) {
@@ -370,14 +376,36 @@ function parseJson(text) {
   }
 }
 
-function extractSessionId(value) {
-  if (!value || typeof value !== 'object') return null;
-  return value.id || value.sessionID || value.sessionId || value.session_id || value.session?.id || null;
+function directoryMatchesWorkspace(directory, workspace) {
+  if (!directory) return false;
+  return path.resolve(directory) === path.resolve(workspace);
 }
 
-function extractSessionDirectory(value) {
-  if (!value || typeof value !== 'object') return null;
-  return value.directory || value.cwd || value.path || value.session?.directory || null;
+function collectSessionIdFieldNames(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const fields = Object.keys(value).filter(isSessionIdFieldName);
+  const session = safeOwnValue(value, 'session');
+  if (session && typeof session === 'object' && !Array.isArray(session)) {
+    fields.push(...Object.keys(session)
+      .filter(isSessionIdFieldName)
+      .map((key) => `session.${key}`));
+  }
+  return fields;
+}
+
+function isSessionIdFieldName(key) {
+  return /^(id|session_?id)$/i.test(key);
+}
+
+function safeOwnValue(value, key) {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function parseCliArgs(argv) {
