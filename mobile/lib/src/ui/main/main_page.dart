@@ -16,7 +16,6 @@ import '../../services/mobile_app_event_bus.dart';
 import '../../services/performance_trace_publisher.dart';
 import '../../services/performance_trace_reporter.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
-import '../core/widgets/widgets.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../features/codex_app_server/codex_app_server.dart';
 import '../features/settings/settings.dart'
@@ -28,7 +27,6 @@ import '../features/settings/settings.dart'
 import '../features/workbench/workbench.dart';
 import '../pages/coding/coding_page.dart';
 import 'connected_main_shell.dart';
-import 'home/widgets/home_no_workspace_panel.dart';
 import 'main_shell_view_model.dart';
 
 class MainPage extends StatefulWidget {
