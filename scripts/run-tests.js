@@ -2740,6 +2740,63 @@ test('OpenCode server client isolates throwing SSE subscribers', async () => {
   }
 });
 
+test('OpenCode server client handles unsafe subscriber error getters', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const secretPath = path.join(os.tmpdir(), 'opencode-subscriber-getter-secret', 'event.txt');
+  const throwingErrors = [];
+  const observedEvents = [];
+  const uncaughtErrors = [];
+  const onUncaughtException = (error) => {
+    uncaughtErrors.push(error);
+  };
+  let throwingHandle = null;
+  let observingHandle = null;
+  process.once('uncaughtException', onUncaughtException);
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    throwingHandle = client.subscribeEvents(
+      () => {
+        const error = new Error(`subscriber leaked ${secretPath}`);
+        Object.defineProperty(error, 'code', {
+          enumerable: true,
+          get() {
+            throw new Error(`unsafe code getter leaked ${secretPath}`);
+          }
+        });
+        throw error;
+      },
+      (error) => throwingErrors.push(error)
+    );
+    observingHandle = client.subscribeEvents(
+      (event) => observedEvents.push(event),
+      () => {}
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode unsafe getter SSE connection');
+    assert.deepEqual(await observingHandle.opened, { ok: true });
+    const [sseResponse] = fake.sseClients;
+
+    sseResponse.write('data: {"type":"session.idle","sessionID":"sess_1"}\n\n');
+
+    await waitForConditionForTest(
+      () => throwingErrors.length === 1 || uncaughtErrors.length === 1,
+      'OpenCode unsafe getter subscriber failure'
+    );
+    assert.deepEqual(uncaughtErrors, []);
+    assert.equal(throwingErrors[0].code, 'OPENCODE_SERVER_SSE_SUBSCRIBER_FAILED');
+    assert.equal(throwingErrors[0].details.reason, 'subscriber_handler_failed');
+    assert.equal(JSON.stringify(throwingErrors[0]).includes(secretPath), false);
+    assert.deepEqual(observedEvents, [{ type: 'session.idle', sessionID: 'sess_1' }]);
+  } finally {
+    process.removeListener('uncaughtException', onUncaughtException);
+    throwingHandle?.close();
+    observingHandle?.close();
+    await fake.close();
+  }
+});
+
 test('OpenCode server client rejects non event-stream SSE responses', async () => {
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
   const fixture = await listenHttpServerForTest((req, res) => {

@@ -520,7 +520,10 @@ function buildSseSubscriberHandlerError(error) {
       method: 'GET',
       path: '/global/event',
       reason: 'subscriber_handler_failed',
-      handlerCode: safeProviderCode(error?.code || error?.name) || 'HANDLER_ERROR'
+      handlerCode: firstSafeProviderCode([
+        safeErrorField(error, 'code'),
+        safeErrorField(error, 'name')
+      ]) || 'HANDLER_ERROR'
     }
   });
 }
@@ -545,7 +548,10 @@ function buildNetworkError(method, path, error) {
     details: {
       method,
       path,
-      code: safeProviderCode(error?.code || error?.name) || 'NETWORK_ERROR',
+      code: firstSafeProviderCode([
+        safeErrorField(error, 'code'),
+        safeErrorField(error, 'name')
+      ]) || 'NETWORK_ERROR',
       reason: 'request_failed'
     }
   });
@@ -615,19 +621,59 @@ function sanitizeDetails(value, depth = 0, seen = new Set()) {
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
   if (Array.isArray(value)) {
-    const items = value.slice(0, MAX_DETAIL_ARRAY_ITEMS).map((item) => sanitizeDetails(item, depth + 1, seen));
+    const items = [];
+    for (let index = 0; index < Math.min(value.length, MAX_DETAIL_ARRAY_ITEMS); index += 1) {
+      items.push(sanitizeDetails(safeOwnDataValue(value, String(index)), depth + 1, seen));
+    }
     if (value.length > MAX_DETAIL_ARRAY_ITEMS) items.push('[Truncated]');
     seen.delete(value);
     return items;
   }
   const result = {};
-  for (const key of Object.keys(value).slice(0, MAX_DETAIL_KEYS)) {
+  const keys = safeEnumerableKeys(value);
+  for (const key of keys.slice(0, MAX_DETAIL_KEYS)) {
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
-    result[key] = sanitizeDetails(value[key], depth + 1, seen);
+    const fieldValue = safeOwnDataValue(value, key);
+    if (fieldValue !== undefined) result[key] = sanitizeDetails(fieldValue, depth + 1, seen);
   }
-  if (Object.keys(value).length > MAX_DETAIL_KEYS) result.truncated = true;
+  if (keys.length > MAX_DETAIL_KEYS) result.truncated = true;
   seen.delete(value);
   return result;
+}
+
+function safeEnumerableKeys(value) {
+  try {
+    return Object.keys(value);
+  } catch (_) {
+    return [];
+  }
+}
+
+function safeOwnDataValue(value, key) {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function safeErrorField(error, key) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return undefined;
+  let current = error;
+  while (current) {
+    const value = safeOwnDataValue(current, key);
+    if (value !== undefined) return value;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor && !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+      current = Object.getPrototypeOf(current);
+    } catch (_) {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function limitString(value, maxLength) {
