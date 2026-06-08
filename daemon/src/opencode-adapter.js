@@ -60,13 +60,15 @@ class OpenCodeAdapter {
         });
       }
       const health = await started.client.health();
+      const healthDiagnostics = listingHealthDiagnostics(health);
       this.capability = capability(true, 'available', null, {
+        version: healthDiagnostics?.version || null,
         serverUrl: started.serverUrl,
         mode: started.mode,
         owned: started.owned,
         diagnostics: {
           lifecycle: listingLifecycleDiagnostics(this.lifecycleDiagnostics()),
-          health: listingHealthDiagnostics(health)
+          health: healthDiagnostics
         }
       });
       return this.capability;
@@ -234,6 +236,7 @@ class OpenCodeAdapter {
 }
 
 function capability(available, status, error, {
+  version = null,
   serverUrl = null,
   mode = null,
   owned = false,
@@ -245,6 +248,7 @@ function capability(available, status, error, {
     available,
     selectable: available,
     status,
+    version: safeDisplayString(version),
     serverUrl: publicServerUrl(serverUrl),
     mode: safeString(mode) || null,
     owned: owned === true,

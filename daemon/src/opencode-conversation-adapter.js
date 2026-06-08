@@ -60,11 +60,13 @@ class OpenCodeConversationAdapter {
         });
       }
       const health = await started.client.health();
+      const healthDiagnostics = safeHealthDiagnostics(health);
       return {
         adapter: this.name,
         available: true,
         selectable: true,
         status: 'available',
+        version: healthDiagnostics?.version || null,
         serverUrl: publicServerUrl(started.serverUrl),
         mode: safeString(started.mode) || null,
         owned: started.owned === true,
@@ -72,7 +74,7 @@ class OpenCodeConversationAdapter {
         capabilities: this.getCapabilities(),
         diagnostics: {
           lifecycle: this.lifecycleDiagnostics(),
-          health: safeHealthDiagnostics(health)
+          health: healthDiagnostics
         }
       };
     } catch (error) {

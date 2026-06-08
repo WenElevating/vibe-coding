@@ -2559,6 +2559,7 @@ test('createConversationAdapters registers real OpenCode conversation adapter', 
     const status = await adapter.detectCapabilities();
     assert.equal(status.available, true);
     assert.equal(status.selectable, true);
+    assert.equal(status.version, 'fake-opencode');
     assert.equal(status.capabilities.toolEvents, true);
   } finally {
     await fake.close();
@@ -2605,6 +2606,7 @@ test('OpenCode conversation adapter diagnostics expose only allowlisted health a
   const publicText = JSON.stringify(status);
 
   assert.equal(status.available, true);
+  assert.equal(status.version, 'fake-version');
   assert.deepEqual(status.diagnostics.lifecycle, {
     status: 'started',
     lastError: { code: 'OPENCODE_SECRET_ERROR' }
@@ -9395,6 +9397,7 @@ test('createApp lists OpenCode through lifecycle-backed availability', async () 
     assert.equal(opencode.available, true);
     assert.equal(opencode.selectable, true);
     assert.equal(opencode.status, 'available');
+    assert.equal(opencode.version, 'fake-managed-opencode');
     assert.equal(opencode.mode, 'managed');
     assert.deepEqual(opencode.capabilities.attachments, {
       image: 'unsupported',
@@ -9437,6 +9440,7 @@ test('createApp OpenCode listing uses explicit server URL without injected lifec
     assert.equal(opencode.available, true);
     assert.equal(opencode.selectable, true);
     assert.equal(opencode.status, 'available');
+    assert.equal(opencode.version, 'fake-opencode');
     assert.equal(opencode.mode, 'external');
     assert.equal(opencode.serverUrl, fake.url);
   } finally {

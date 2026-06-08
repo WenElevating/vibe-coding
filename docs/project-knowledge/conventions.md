@@ -54,6 +54,10 @@
   `effectiveAdapter`; UI labels may still show the requested adapter. Fallback
   conversations keep `adapter` as the requested value while daemon dispatch uses
   `effectiveAdapter`.
+- Adapter listing responses should expose a safe top-level `version` for mobile
+  display when the adapter can determine one. Diagnostics may also include
+  provider health/version details, but mobile picker rows read
+  `AdapterStatus.version`.
 - Conversation message clients should preserve `clientMessageId` and
   `capabilityVersion` on JSON and multipart sends. JSON sends must omit the
   `attachments` key; the daemon reserves attachments for multipart/form-data.
