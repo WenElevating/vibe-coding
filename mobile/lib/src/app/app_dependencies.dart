@@ -74,9 +74,8 @@ class AppDependencies {
     required this.domain,
     required this.features,
     PerformanceTraceStartupBuffer? performanceTraceStartupBuffer,
-  }) : performanceTraceStartupBuffer =
-            performanceTraceStartupBuffer ??
-                PerformanceTraceStartupBuffer.global;
+  }) : performanceTraceStartupBuffer = performanceTraceStartupBuffer ??
+            PerformanceTraceStartupBuffer.global;
 
   factory AppDependencies.createDefault({
     PerformanceTraceStartupBuffer? performanceTraceStartupBuffer,
