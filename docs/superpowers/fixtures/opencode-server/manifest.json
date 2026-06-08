@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "adapter": "opencode",
+  "status": "not_run",
+  "verifiedAt": null,
+  "opencodeVersion": null,
+  "gates": {
+    "health": "fake_contract",
+    "doc": "not_run",
+    "sessionCreateDirectory": "fake_contract",
+    "promptAsyncBody": "fake_contract",
+    "abort": "fake_contract",
+    "permissionResponseBody": "fake_contract",
+    "globalEventSse": "fake_contract",
+    "sessionIdFieldNames": "fake_contract",
+    "sessionReadReconcile": "fake_contract",
+    "sessionStatusTerminalValues": "not_run",
+    "historyReplay": "blocked"
+  },
+  "samples": []
+}

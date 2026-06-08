@@ -20,6 +20,8 @@ const { CodexAppServerService, DEFAULT_POOL_LIMITS } = require('./codex-app-serv
 const { createCodexAdapter } = require('./jsonline-adapter');
 const { CodexAppServerListingAdapter } = require('./codex-app-server-listing-adapter');
 const { OpenCodeAdapter } = require('./opencode-adapter');
+const { OpenCodeConversationAdapter } = require('./opencode-conversation-adapter');
+const { OpenCodeServerLifecycle } = require('./opencode-server-lifecycle');
 const { SyntheticAdapter } = require('./synthetic-adapter');
 const { AdapterRegistry } = require('./adapter-registry');
 const { RunManager } = require('./run-manager');
@@ -81,7 +83,9 @@ function createApp({
   codexAppServerModelLister = undefined,
   codexAppServerService = undefined,
   codexAppServerApprovalPolicy = undefined,
-  opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
+  opencodeCommand = process.env.OPENCODE_COMMAND || 'opencode',
+  opencodeServerUrl = process.env.OPENCODE_SERVER_URL || '',
+  opencodeServerLifecycle = null,
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
   conversationDbPath = process.env.CONVERSATION_DB_PATH,
@@ -109,7 +113,6 @@ function createApp({
   const perfTracer = new PerfTracer({ enabled: perfConfig.enabled, writer: perfStore });
   conversationEventStore.perfTracer = perfTracer;
   const auditLog = new AuditLog();
-  const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
   const codexAppServerRuntime = buildCodexAppServerRuntimeConfig({
     enabled: codexAppServerEnabled,
     transport: codexAppServerTransport,
@@ -125,6 +128,15 @@ function createApp({
     maxProcesses: codexAppServerLifecycleMaxProcesses,
     metrics: codexAppServerMetrics
   }) : null;
+  const effectiveOpenCodeServerLifecycle = opencodeServerLifecycle || new OpenCodeServerLifecycle({
+    externalUrl: opencodeServerUrl || '',
+    command: opencodeCommand
+  });
+  const adapters = [
+    new ClaudeAdapter({ command: claudeCommand }),
+    createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }),
+    new OpenCodeAdapter({ serverUrl: opencodeServerUrl, lifecycle: effectiveOpenCodeServerLifecycle })
+  ];
   if (codexAppServerRouteEnabled) {
     adapters.push(new CodexAppServerListingAdapter({
       availabilityState: codexAppServerAvailabilityState,
@@ -201,7 +213,9 @@ function createApp({
       codexAppServerMaxProcesses,
       codexAppServerAvailabilityState,
       codexAppServerLifecycle,
-      codexAppServerMetrics
+      codexAppServerMetrics,
+      opencodeCommand,
+      opencodeServerLifecycle: effectiveOpenCodeServerLifecycle
     }),
     persistentStore: conversationSqliteStore,
     attachmentScratchStore,
@@ -222,14 +236,18 @@ function createApp({
   const notificationHub = new NotificationHub({ auth, conversations, conversationEventStore, version, perfTracer });
   notificationHub.attach(server);
   notificationHub.start();
-  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, perfConfig, perfStore, perfTracer, attachmentScratchCleanup };
+  return { server, auth, workspaces, eventStore, conversationEventStore, conversationSqliteStore, appSqliteStore, auditLog, adapterRegistry, shortcuts, commandTemplates, slashCommandCatalog, gitService, workspaceInspector, runQueue, migrationService, diagnostics, diagnosticBundle, runs, conversations, notificationHub, config, version, asrModelAsset, appUpdates, codexAppServerService: effectiveCodexAppServerService, opencodeServerLifecycle: effectiveOpenCodeServerLifecycle, perfConfig, perfStore, perfTracer, attachmentScratchCleanup };
 }
 
-function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null, codexAppServerAvailabilityState = null, codexAppServerLifecycle = null, codexAppServerMetrics = null }) {
+function createConversationAdapters({ claudeCommand, codexCommand, codexToolTimeoutSec, codexAppServerEnabled = false, codexAppServerRuntime = null, codexAppServerMaxProcesses = null, codexAppServerAvailabilityState = null, codexAppServerLifecycle = null, codexAppServerMetrics = null, opencodeCommand = 'opencode', opencodeServerLifecycle = null }) {
+  const effectiveOpenCodeServerLifecycle = opencodeServerLifecycle || new OpenCodeServerLifecycle({
+    externalUrl: process.env.OPENCODE_SERVER_URL || '',
+    command: opencodeCommand
+  });
   const adapters = new Map([
     ['claude', new ClaudeConversationAdapter({ command: claudeCommand })],
     ['codex', new CodexConversationAdapter({ command: codexCommand, toolTimeoutSec: codexToolTimeoutSec })],
-    ['opencode', notImplementedConversationAdapter('OpenCode')]
+    ['opencode', new OpenCodeConversationAdapter({ lifecycle: effectiveOpenCodeServerLifecycle })]
   ]);
   if (codexAppServerEnabled) {
     const runtime = codexAppServerRuntime || buildCodexAppServerRuntimeConfig({ enabled: true });
@@ -428,17 +446,6 @@ function normalizePositiveInteger(value, fallback) {
   return Math.floor(numeric);
 }
 
-function notImplementedConversationAdapter(label) {
-  return {
-    capabilities: { longLivedProcess: false, waitingInput: false, waitingApproval: false, resume: false, partialOutput: true },
-    async startConversation() {
-      const error = new Error(`${label} conversation adapter is not implemented yet`);
-      error.status = 501;
-      throw error;
-    }
-  };
-}
-
 function activeConversationIdsForScratchCleanup(conversations) {
   const activeStatuses = new Set([
     conversationStatuses.RUNNING,
@@ -450,19 +457,72 @@ function activeConversationIdsForScratchCleanup(conversations) {
     .map((conversation) => conversation.id));
 }
 
+async function shutdownAppResources(app, { sleepInhibitor = null } = {}) {
+  const errors = [];
+  const runCleanup = async (name, cleanup) => {
+    try {
+      await cleanup();
+    } catch (error) {
+      errors.push({ name, error });
+    }
+  };
+
+  if (sleepInhibitor && typeof sleepInhibitor.stop === 'function') {
+    await runCleanup('sleepInhibitor.stop', () => sleepInhibitor.stop());
+  }
+  if (app?.server?.listening) {
+    await runCleanup('server.close', () => new Promise((resolve, reject) => {
+      app.server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    }));
+  }
+  if (app?.notificationHub && typeof app.notificationHub.close === 'function') {
+    await runCleanup('notificationHub.close', () => app.notificationHub.close());
+  }
+  if (app?.opencodeServerLifecycle && typeof app.opencodeServerLifecycle.shutdown === 'function') {
+    await runCleanup('opencodeServerLifecycle.shutdown', () => app.opencodeServerLifecycle.shutdown());
+  }
+  if (app?.perfStore && typeof app.perfStore.close === 'function') {
+    await runCleanup('perfStore.close', () => app.perfStore.close());
+  }
+  if (
+    app?.conversationSqliteStore &&
+    app.conversationSqliteStore !== app.appSqliteStore &&
+    typeof app.conversationSqliteStore.close === 'function'
+  ) {
+    await runCleanup('conversationSqliteStore.close', () => app.conversationSqliteStore.close());
+  }
+  if (app?.appSqliteStore && typeof app.appSqliteStore.close === 'function') {
+    await runCleanup('appSqliteStore.close', () => app.appSqliteStore.close());
+  }
+  if (errors.length > 0) {
+    const error = new Error(`Failed to close ${errors.map((item) => item.name).join(', ')}`);
+    error.failures = errors;
+    throw error;
+  }
+}
+
 if (require.main === module) {
   const app = createApp();
   const sleepInhibitor = createWindowsSleepInhibitor();
-  const stopSleepInhibitor = () => sleepInhibitor.stop();
+  let sleepInhibitorStopped = false;
+  const stopSleepInhibitor = () => {
+    if (sleepInhibitorStopped) return;
+    sleepInhibitorStopped = true;
+    sleepInhibitor.stop();
+  };
   process.once('exit', stopSleepInhibitor);
-  process.once('SIGINT', () => {
-    stopSleepInhibitor();
-    process.exit(130);
-  });
-  process.once('SIGTERM', () => {
-    stopSleepInhibitor();
-    process.exit(143);
-  });
+  const shutdownAndExit = (exitCode) => {
+    shutdownAppResources(app, { sleepInhibitor: { stop: stopSleepInhibitor } })
+      .catch((error) => {
+        console.error(`daemon shutdown cleanup failed: ${error.message}`);
+      })
+      .finally(() => process.exit(exitCode));
+  };
+  process.once('SIGINT', () => shutdownAndExit(130));
+  process.once('SIGTERM', () => shutdownAndExit(143));
   app.server.listen(app.config.port, app.config.host, () => {
     const lan = app.config.host === '127.0.0.1' ? 'disabled' : 'enabled';
     console.log(`daemon ${app.version.daemonVersion} listening on http://${app.config.host}:${app.config.port} (${app.config.mode}, LAN ${lan})`);
@@ -476,6 +536,8 @@ if (require.main === module) {
 
 module.exports = {
   createApp,
+  shutdownAppResources,
+  createConversationAdapters,
   createCodexAppServerProbe,
   createCodexAppServerModelLister,
   resolveCodexAppServerLifecycleMaxProcesses

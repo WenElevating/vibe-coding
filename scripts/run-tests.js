@@ -26,11 +26,14 @@ const { NotificationHub } = require('../daemon/src/notification-hub');
 const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
-const { createApp } = require('../daemon/src/main');
+const { createApp, shutdownAppResources } = require('../daemon/src/main');
 const { RunQueue } = require('../daemon/src/run-queue');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
-const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
+const {
+  conversationEventTypes,
+  conversationSessionBindings
+} = require('../daemon/src/conversation-protocol');
 const {
   notificationErrorCodes,
   canonicalScope,
@@ -60,15 +63,7 @@ function tempConversationDbPath(prefix = 'conversation-app-') {
 }
 
 async function closeAppResources(app) {
-  if (app?.server?.listening) {
-    await new Promise((resolve) => app.server.close(resolve));
-  }
-  app?.notificationHub?.close?.();
-  app?.perfStore?.close?.();
-  if (app?.conversationSqliteStore && app.conversationSqliteStore !== app.appSqliteStore) {
-    app.conversationSqliteStore.close();
-  }
-  app?.appSqliteStore?.close?.();
+  await shutdownAppResources(app);
 }
 
 function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
@@ -241,6 +236,3972 @@ test('Codex app-server smoke manifest has no unknown gates after Phase 1', () =>
   }
   assert.ok(Array.isArray(manifest.samples));
   assert.ok(manifest.samples.length > 0);
+});
+
+test('OpenCode server smoke manifest has explicit gate results', () => {
+  const expectedGateNames = [
+    'health',
+    'doc',
+    'sessionCreateDirectory',
+    'promptAsyncBody',
+    'abort',
+    'permissionResponseBody',
+    'globalEventSse',
+    'sessionIdFieldNames',
+    'sessionReadReconcile',
+    'sessionStatusTerminalValues',
+    'historyReplay'
+  ];
+  const fakeContractGateNames = new Set([
+    'health',
+    'sessionCreateDirectory',
+    'promptAsyncBody',
+    'abort',
+    'permissionResponseBody',
+    'globalEventSse',
+    'sessionIdFieldNames',
+    'sessionReadReconcile'
+  ]);
+  const manifestPath = path.join(
+    __dirname,
+    '..',
+    'docs',
+    'superpowers',
+    'fixtures',
+    'opencode-server',
+    'manifest.json'
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.adapter, 'opencode');
+  assert.ok(['not_run', 'pass', 'fail', 'blocked'].includes(manifest.status));
+  assert.ok(Array.isArray(manifest.samples));
+  assert.ok(manifest.gates && typeof manifest.gates === 'object' && !Array.isArray(manifest.gates));
+  assert.deepEqual(
+    Object.keys(manifest.gates).sort(),
+    [...expectedGateNames].sort()
+  );
+  const allowedGateResults = manifest.status === 'not_run'
+    ? ['not_run', 'blocked', 'fake_contract']
+    : ['pass', 'fail', 'blocked', 'fake_contract'];
+  for (const gate of expectedGateNames) {
+    const result = manifest.gates[gate];
+    assert.ok(allowedGateResults.includes(result), `${gate} has invalid result ${result}`);
+    if (fakeContractGateNames.has(gate)) {
+      assert.notEqual(result, 'not_run', `${gate} is used by fake/integration tests and must have an explicit contract decision`);
+    }
+  }
+});
+
+test('OpenCode smoke helper parses SSE events', () => {
+  const { parseOpenCodeSseFrames } = require('./smoke-opencode-server');
+  const frames = parseOpenCodeSseFrames([
+    'event: message',
+    'data: {"type":"session.idle","sessionID":"sess_1"}',
+    '',
+    'data: {"type":"permission.asked","session_id":"sess_1","id":"perm_1"}',
+    ''
+  ].join('\n'));
+
+  assert.deepEqual(frames.map((frame) => frame.type), ['session.idle', 'permission.asked']);
+  assert.equal(frames[0].sessionID, 'sess_1');
+  assert.equal(frames[1].session_id, 'sess_1');
+});
+
+test('OpenCode event mapper maps idle, errors, assistant deltas, and permissions', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+
+  assert.deepEqual(mapOpenCodeEvent({ type: 'session.idle', sessionID: 'sess_1' }), {
+    type: conversationEventTypes.CONVERSATION_COMPLETED,
+    sessionId: 'sess_1',
+    rawType: 'session.idle'
+  });
+
+  const sessionError = mapOpenCodeEvent({
+    type: 'session.error',
+    sessionID: 'sess_1',
+    message: 'provider failed',
+    error: {
+      message: 'provider failed',
+      detail: 'x'.repeat(10000),
+      path: path.join(os.tmpdir(), 'opencode-secret', 'error.txt')
+    }
+  });
+  assert.equal(sessionError.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(sessionError.sessionId, 'sess_1');
+  assert.equal(sessionError.message, 'provider failed');
+  assert.equal(sessionError.code, 'OPENCODE_SESSION_ERROR');
+  assert.equal(sessionError.rawType, 'session.error');
+  assert.equal(sessionError.details.message, 'provider failed');
+  assert.equal(sessionError.details.detail.length <= 512, true);
+  assert.equal(sessionError.details.path, '[Redacted path]');
+
+  assert.deepEqual(mapOpenCodeEvent({
+    type: 'message.part.delta',
+    session_id: 'sess_1',
+    part: { type: 'text', text: 'hello' }
+  }), {
+    type: conversationEventTypes.ASSISTANT_PARTIAL,
+    sessionId: 'sess_1',
+    text: 'hello',
+    rawType: 'message.part.delta'
+  });
+
+  const approval = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_1',
+    toolCallID: 'tool_1',
+    tool: 'bash',
+    command: 'npm test'
+  });
+  assert.equal(approval.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(approval.sessionId, 'sess_1');
+  assert.equal(approval.approvalId, 'perm_1');
+  assert.equal(approval.toolUseId, 'tool_1');
+  assert.equal(approval.approvalOptions.kind, 'command');
+  assert.equal(approval.approvalOptions.supportsSessionScope, true);
+  assert.equal(approval.approvalOptions.supportsCancel, false);
+});
+
+test('OpenCode event mapper maps part kind reasoning deltas as thinking', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    part: { kind: 'reasoning', text: 'thinking out loud' }
+  });
+
+  assert.equal(event.type, conversationEventTypes.ASSISTANT_THINKING);
+  assert.equal(event.sessionId, 'sess_1');
+  assert.equal(event.text, 'thinking out loud');
+});
+
+test('OpenCode event mapper prefers reasoning kind over text part type', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    part: { type: 'text', kind: 'reasoning', text: 'reasoning token' }
+  });
+
+  assert.equal(event.type, conversationEventTypes.ASSISTANT_THINKING);
+  assert.equal(event.text, 'reasoning token');
+});
+
+test('OpenCode event mapper maps session lifecycle events as known hidden notices', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const created = mapOpenCodeEvent({
+    type: 'session.created',
+    session: { id: 'sess_1', status: 'idle', title: 'OpenCode task' }
+  });
+  const updated = mapOpenCodeEvent({
+    type: 'session.updated',
+    sessionID: 'sess_1',
+    session: { id: 'sess_1', status: 'busy', title: 'OpenCode task' }
+  });
+
+  assert.equal(created.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(created.noticeKind, 'opencode_session_created');
+  assert.equal(created.visible, false);
+  assert.equal(created.sessionId, 'sess_1');
+  assert.equal(created.session.id, 'sess_1');
+  assert.equal(created.session.status, 'idle');
+  assert.equal(updated.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(updated.noticeKind, 'opencode_session_updated');
+  assert.equal(updated.visible, false);
+  assert.equal(updated.sessionId, 'sess_1');
+  assert.equal(updated.session.status, 'busy');
+});
+
+test('OpenCode session lifecycle notices redact path-like metadata', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const event = mapOpenCodeEvent({
+    type: 'session.updated',
+    sessionID: 'sess_1',
+    session: { id: 'sess_1', directory: outsideDir }
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_session_updated');
+  assert.equal(retained.includes(outsideDir), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper maps tool deltas and carries message part ids', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 'sess_1',
+    messageID: 'msg_1',
+    partID: 'part_1',
+    part: {
+      kind: 'tool_call',
+      toolCallID: 'tool_1',
+      tool: 'bash',
+      text: 'stdout chunk'
+    }
+  });
+
+  assert.equal(event.type, conversationEventTypes.TOOL_DELTA);
+  assert.equal(event.sessionId, 'sess_1');
+  assert.equal(event.messageId, 'msg_1');
+  assert.equal(event.partId, 'part_1');
+  assert.equal(event.toolUseId, 'tool_1');
+  assert.equal(event.toolName, 'bash');
+  assert.equal(event.text, 'stdout chunk');
+});
+
+test('OpenCode event mapper maps message updates by role and part kind', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const assistant = mapOpenCodeEvent({
+    type: 'message.updated',
+    sessionID: 'sess_1',
+    message_id: 'msg_assistant',
+    message: { role: 'assistant', text: 'final answer' }
+  });
+  const toolStarted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    part_id: 'part_tool',
+    part: { type: 'tool_call', tool: 'bash', command: 'npm test', status: 'running' }
+  });
+  const toolCompleted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    partID: 'part_result',
+    part: { type: 'tool_result', toolCallID: 'tool_1', text: 'ok', status: 'completed' }
+  });
+  const userText = mapOpenCodeEvent({
+    type: 'message.updated',
+    sessionID: 'sess_1',
+    messageID: 'msg_user',
+    message: { role: 'user', text: 'do not echo as assistant' }
+  });
+
+  assert.equal(assistant.type, conversationEventTypes.ASSISTANT_MESSAGE);
+  assert.equal(assistant.messageId, 'msg_assistant');
+  assert.equal(assistant.text, 'final answer');
+  assert.equal(toolStarted.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(toolStarted.messageId, 'msg_tool');
+  assert.equal(toolStarted.partId, 'part_tool');
+  assert.equal(toolStarted.toolUseId, 'part_tool');
+  assert.equal(toolStarted.toolName, 'bash');
+  assert.equal(toolStarted.input.command, 'npm test');
+  assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(toolCompleted.partId, 'part_result');
+  assert.equal(toolCompleted.toolUseId, 'tool_1');
+  assert.equal(toolCompleted.text, 'ok');
+  assert.equal(toolCompleted.isError, false);
+  assert.equal(userText.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(userText.noticeKind, 'opencode_message_update');
+  assert.equal(userText.visible, false);
+});
+
+test('OpenCode tool update input paths are redacted and workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const outsidePath = path.join(outsideDir, 'tool-input.txt');
+  const event = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    messageId: 'msg_tool',
+    part_id: 'part_tool',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command: `cat ${outsidePath}`,
+      status: 'running',
+      input: {
+        file_path: outsidePath,
+        cwd: outsideDir,
+        command: `cat ${outsidePath}`
+      }
+    }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper maps removals, watcher, and project events as known hidden notices', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const removedPart = mapOpenCodeEvent({
+    type: 'message.part.removed',
+    sessionID: 'sess_1',
+    messageID: 'msg_1',
+    partID: 'part_1'
+  });
+  const removedMessage = mapOpenCodeEvent({
+    type: 'message.removed',
+    sessionID: 'sess_1',
+    message_id: 'msg_2'
+  });
+  const watcher = mapOpenCodeEvent({
+    type: 'file.watcher.updated',
+    sessionID: 'sess_1',
+    path: 'src/index.js'
+  });
+  const project = mapOpenCodeEvent({
+    type: 'project.updated',
+    sessionID: 'sess_1',
+    project: { id: 'project_1', name: 'demo' }
+  });
+
+  assert.equal(removedPart.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(removedPart.noticeKind, 'opencode_message_part_removed');
+  assert.equal(removedPart.messageId, 'msg_1');
+  assert.equal(removedPart.partId, 'part_1');
+  assert.equal(removedMessage.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(removedMessage.noticeKind, 'opencode_message_removed');
+  assert.equal(removedMessage.messageId, 'msg_2');
+  assert.equal(watcher.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(watcher.noticeKind, 'opencode_file_watcher_updated');
+  assert.equal(watcher.visible, false);
+  assert.equal(project.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(project.noticeKind, 'opencode_project_updated');
+  assert.equal(project.visible, false);
+});
+
+test('OpenCode known hidden notices redact retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'watched.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.watcher.updated',
+    sessionID: 'sess_1',
+    path: outsidePath,
+    file: { path: outsidePath }
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_file_watcher_updated');
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff requires usable file diffs', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const invalid = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: 'changed.txt' }]
+  });
+  const valid = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: 'changed.txt', diff: '@@ -1 +1 @@\n-old\n+new' }]
+  });
+
+  assert.equal(invalid.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(invalid.noticeKind, 'opencode_session_diff');
+  assert.equal(invalid.visible, true);
+  assert.equal(valid.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(valid.sessionId, 'sess_1');
+  assert.equal(valid.files.length, 1);
+  assert.equal(valid.files[0].path, 'changed.txt');
+});
+
+test('OpenCode session.diff bounds file paths and redacts retained raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'diff.txt');
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{
+      path: outsidePath,
+      diff: `--- ${outsidePath}\n+++ ${outsidePath}\n@@ -1 +1 @@\n-old\n+new`
+    }]
+  }, { workspacePath });
+  const retained = JSON.stringify(event.raw);
+  const files = JSON.stringify(event.files);
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.files[0].path, 'diff.txt');
+  assert.equal(files.includes(outsidePath), false);
+  assert.equal(files.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff redacts Windows paths with spaces in diff and raw output', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{
+      path: 'changed.txt',
+      diff: `--- ${windowsPath}\n+++ ${windowsPath}\n@@ -1 +1 @@\n-old\n+new`
+    }]
+  });
+  const files = JSON.stringify(event.files);
+  const retained = JSON.stringify(event.raw);
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(files.includes(windowsPath), false);
+  assert.equal(files.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff caps summary and diff before path redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const hugePrefix = 'x'.repeat(5000);
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('diff redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'session.diff',
+        sessionID: 'sess_1',
+        summary: `${hugePrefix} ${windowsPath}`,
+        files: [{
+          path: 'changed.txt',
+          diff: `${hugePrefix} ${windowsPath}`
+        }]
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.summary.length <= 512, true);
+  assert.equal(event.files[0].diff.length <= 512, true);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(event.files[0].diff.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.diff bounds sparse file scanning and unsafe getters', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const files = [];
+  files.length = 1000;
+  files[0] = { path: 'changed.txt', diff: '@@ -1 +1 @@\n-old\n+new' };
+  Object.defineProperty(files, '5', {
+    enumerable: true,
+    get() {
+      throw new Error('file getter should be ignored');
+    }
+  });
+  Object.defineProperty(files, '30', {
+    enumerable: true,
+    get() {
+      throw new Error('file scan should be bounded');
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent({ type: 'session.diff', sessionID: 'sess_1', files });
+  });
+  assert.equal(event.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(event.files.length, 1);
+  assert.equal(event.files[0].path, 'changed.txt');
+});
+
+test('OpenCode unusable session.diff visible notice redacts retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'diff-metadata.txt');
+  const event = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_1',
+    files: [{ path: outsidePath }]
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_session_diff');
+  assert.equal(event.visible, true);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper drops critical events without session id', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({ type: 'permission.asked', id: 'perm_missing' });
+  assert.equal(event.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(event.warning, 'opencode_critical_event_missing_session_id');
+  assert.equal(event.dispatchable, false);
+});
+
+test('OpenCode critical missing session warnings redact retained raw paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'missing-session.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    id: 'perm_missing',
+    input: { path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(event.dispatchable, false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode event mapper ignores inherited event fields', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = Object.create({ type: 'session.idle', sessionID: 'sess_inherited' });
+  const event = mapOpenCodeEvent(raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.visible, false);
+  assert.equal(event.sessionId, undefined);
+});
+
+test('OpenCode event mapper does not throw on unsafe event getters', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = {};
+  Object.defineProperty(raw, 'type', {
+    enumerable: true,
+    get() {
+      throw new Error('getter should not escape');
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent(raw);
+  });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.visible, false);
+});
+
+test('OpenCode permission input sanitizes prototype pollution keys', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const input = Object.create(null);
+  input.command = 'npm test';
+  Object.defineProperty(input, '__proto__', {
+    enumerable: true,
+    value: { polluted: true }
+  });
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_1',
+    input
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.input.command, 'npm test');
+  assert.equal(Object.getPrototypeOf(event.input), null);
+  assert.equal(Object.prototype.hasOwnProperty.call(event.input, '__proto__'), false);
+  assert.equal(event.input.polluted, undefined);
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test('OpenCode permission file paths are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_file',
+    filePath: outsidePath
+  }, { workspacePath });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'permission.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission nested file aliases are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'nested.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_nested_file',
+    file: { filePath: outsidePath }
+  }, { workspacePath });
+  const snakeCase = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_nested_file_snake',
+    file: { file_path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+  const retainedSnakeCase = JSON.stringify(snakeCase);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'nested.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+  assert.equal(snakeCase.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(snakeCase.approvalOptions.kind, 'file_change');
+  assert.equal(snakeCase.input.path, 'nested.txt');
+  assert.equal(retainedSnakeCase.includes(outsidePath), false);
+  assert.equal(retainedSnakeCase.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission input paths are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'input-permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_input_file',
+    input: { path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'input-permission.txt');
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission input path-like aliases are workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
+  const outsidePath = path.join(outsideDir, 'input-permission.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_input_alias_file',
+    input: { filePath: outsidePath, cwd: outsideDir }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'file_change');
+  assert.equal(event.input.path, 'input-permission.txt');
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command and cwd redact outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'command-input.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_command_path',
+    command: `cat ${outsidePath}`,
+    cwd: path.dirname(outsidePath)
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.kind, 'command');
+  assert.equal(event.approvalOptions.command.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.cwd.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.cwd.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(outsidePath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(event.input.command.includes(outsidePath), false);
+  assert.equal(event.input.command.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command fields redact Windows paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsDir = 'C:\\Program Files\\opencode-secret';
+  const windowsPath = `${windowsDir}\\tool.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_path',
+    command: `type ${windowsPath}`,
+    cwd: windowsDir,
+    reason: `needs ${windowsPath}`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.cwd.includes(windowsDir), false);
+  assert.equal(event.approvalOptions.cwd.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.reason.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.reason.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(windowsPath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission command redaction preserves trailing shell operations', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\file.txt';
+  const command = `type ${windowsPath} && del important.txt`;
+  const semicolonCommand = `type ${windowsPath}; echo done`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_tail',
+    command
+  });
+  const semicolon = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_semicolon_tail',
+    command: semicolonCommand
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(event.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(event.approvalOptions.command.includes('&& del important.txt'), true);
+  assert.equal(event.summary.includes('&& del important.txt'), true);
+  assert.equal(semicolon.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(semicolon.approvalOptions.command.includes('; echo done'), true);
+  assert.equal(semicolon.summary.includes('; echo done'), true);
+});
+
+test('OpenCode command redaction preserves ordinary trailing arguments', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script.py';
+  const command = `python ${windowsPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_args',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_args',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('--delete important.txt'), true);
+  assert.equal(tool.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves arguments after extensionless Windows paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script';
+  const command = `python ${windowsPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_extensionless_args',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_extensionless_args',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('--delete important.txt'), true);
+  assert.equal(tool.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves positional args after extensionless Windows paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\script';
+  const command = `python ${windowsPath} important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_extensionless_positional',
+    command
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_windows_extensionless_positional',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      status: 'running'
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('important.txt'), true);
+  assert.equal(permission.summary.includes('important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(windowsPath), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('important.txt'), true);
+  assert.equal(tool.summary.includes('important.txt'), true);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves approval context after switches and interpreter flags', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'robocopy_switches',
+      command: 'robocopy C:\\src D:\\dst /MIR',
+      visible: ['/MIR'],
+      hidden: ['C:\\src', 'D:\\dst']
+    },
+    {
+      id: 'cmd_slash_c',
+      command: 'cmd /c del important.txt',
+      visible: ['/c del important.txt'],
+      hidden: []
+    },
+    {
+      id: 'python_flagged_script',
+      command: 'python -u C:\\opencode-secret\\script ProductionDatabase --delete',
+      visible: ['ProductionDatabase --delete'],
+      hidden: ['C:\\opencode-secret\\script', 'opencode-secret']
+    }
+  ];
+
+  for (const item of cases) {
+    const permission = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: `perm_${item.id}`,
+      command: item.command
+    });
+    const tool = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      partID: `part_${item.id}`,
+      part: {
+        type: 'tool_call',
+        tool: 'bash',
+        command: item.command,
+        status: 'running'
+      }
+    });
+    const retained = JSON.stringify({ permission, tool });
+
+    assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+    for (const visible of item.visible) {
+      assert.equal(permission.approvalOptions.command.includes(visible), true, `${item.id} permission lost ${visible}`);
+      assert.equal(permission.summary.includes(visible), true, `${item.id} summary lost ${visible}`);
+      assert.equal(tool.input.command.includes(visible), true, `${item.id} tool input lost ${visible}`);
+      assert.equal(tool.summary.includes(visible), true, `${item.id} tool summary lost ${visible}`);
+    }
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} leaked ${hidden}`);
+    }
+  }
+});
+
+test('OpenCode command redaction fully redacts POSIX paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const posixPath = '/Users/John Doe/secret.txt';
+  const posixDir = '/Users/John Doe';
+  const multiWordPath = '/Users/John Q Doe';
+  const command = `cat ${posixPath} --delete`;
+  const multiWordCommand = `cat ${multiWordPath} --delete`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_posix_spaced_path',
+    command,
+    cwd: posixDir,
+    reason: `needs ${posixPath} --delete`
+  });
+  const multiWordPermission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_posix_multiword_path',
+    command: multiWordCommand,
+    cwd: multiWordPath,
+    reason: `needs ${multiWordPath} --delete`
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_posix_spaced_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command,
+      input: { command, cwd: posixDir },
+      status: 'running'
+    }
+  });
+  const multiWordTool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_posix_multiword_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      command: multiWordCommand,
+      input: { command: multiWordCommand, cwd: multiWordPath },
+      status: 'running'
+    }
+  });
+  const unknown = mapOpenCodeEvent({
+    type: 'future.event',
+    command,
+    cwd: posixDir,
+    nested: { reason: `needs ${posixPath}` }
+  });
+  const retained = JSON.stringify({ permission, multiWordPermission, tool, multiWordTool, unknown });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes('--delete'), true);
+  assert.equal(permission.approvalOptions.reason.includes('--delete'), true);
+  assert.equal(permission.summary.includes('--delete'), true);
+  assert.equal(permission.input.command.includes('--delete'), true);
+  assert.equal(multiWordPermission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(multiWordPermission.approvalOptions.command.includes('--delete'), true);
+  assert.equal(multiWordPermission.approvalOptions.reason.includes('--delete'), true);
+  assert.equal(multiWordPermission.summary.includes('--delete'), true);
+  assert.equal(multiWordPermission.input.command.includes('--delete'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes('--delete'), true);
+  assert.equal(tool.summary.includes('--delete'), true);
+  assert.equal(multiWordTool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(multiWordTool.input.command.includes('--delete'), true);
+  assert.equal(multiWordTool.summary.includes('--delete'), true);
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  for (const text of [
+    permission.approvalOptions.command,
+    permission.approvalOptions.cwd,
+    permission.approvalOptions.reason,
+    permission.summary,
+    permission.input.command,
+    multiWordPermission.approvalOptions.command,
+    multiWordPermission.approvalOptions.cwd,
+    multiWordPermission.approvalOptions.reason,
+    multiWordPermission.summary,
+    multiWordPermission.input.command,
+    tool.input.command,
+    tool.input.cwd,
+    tool.summary,
+    multiWordTool.input.command,
+    multiWordTool.input.cwd,
+    multiWordTool.summary,
+    JSON.stringify(unknown.raw),
+    retained
+  ]) {
+    assert.equal(text.includes(posixPath), false);
+    assert.equal(text.includes(posixDir), false);
+    assert.equal(text.includes('/Users'), false);
+    assert.equal(text.includes('John Doe'), false);
+    assert.equal(text.includes('Doe/secret.txt'), false);
+    assert.equal(text.includes('secret.txt'), false);
+    assert.equal(text.includes(multiWordPath), false);
+    assert.equal(text.includes('John Q Doe'), false);
+    assert.equal(text.includes('Q Doe'), false);
+    assert.equal(text.includes('[Redacted path] Doe'), false);
+  }
+});
+
+test('OpenCode redaction fully redacts multi-word final path components across mapped fields', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'posix_multiword_file',
+      providerPath: '/Users/John Q Doe/Secret File.txt',
+      command: 'cat /Users/John Q Doe/Secret File.txt --delete',
+      hidden: [
+        '/Users/John Q Doe/Secret File.txt',
+        'File.txt',
+        'Secret File.txt',
+        'John Q Doe',
+        'Q Doe',
+        '[Redacted path] File.txt'
+      ]
+    },
+    {
+      id: 'windows_multiword_final_dir',
+      providerPath: 'C:\\Users\\John Q Doe',
+      command: 'type C:\\Users\\John Q Doe --delete',
+      hidden: [
+        'C:\\Users\\John Q Doe',
+        'Doe',
+        '[Redacted path] Doe'
+      ]
+    },
+    {
+      id: 'unc_multiword_final_dir',
+      providerPath: '\\\\server\\share\\Team Q Folder',
+      command: 'type \\\\server\\share\\Team Q Folder --delete',
+      hidden: [
+        '\\\\server\\share\\Team Q Folder',
+        'Folder',
+        '[Redacted path] Folder'
+      ]
+    }
+  ];
+
+  for (const item of cases) {
+    const permission = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: item.providerPath,
+      id: item.providerPath,
+      toolCallID: item.providerPath,
+      command: item.command,
+      cwd: item.providerPath,
+      reason: `needs ${item.providerPath} --delete`,
+      input: { command: item.command, cwd: item.providerPath }
+    });
+    const toolStarted = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: item.providerPath,
+      messageID: item.providerPath,
+      partID: item.providerPath,
+      part: {
+        type: 'tool_call',
+        toolCallID: item.providerPath,
+        tool: 'bash',
+        command: item.command,
+        input: { command: item.command, cwd: item.providerPath },
+        status: 'running'
+      }
+    });
+    const toolCompleted = mapOpenCodeEvent({
+      type: 'message.part.updated',
+      sessionID: item.providerPath,
+      messageID: item.providerPath,
+      partID: item.providerPath,
+      part: {
+        type: 'tool_result',
+        toolCallID: item.providerPath,
+        tool: 'bash',
+        status: item.providerPath,
+        text: 'done'
+      }
+    });
+    const resolved = mapOpenCodeEvent({
+      type: 'permission.replied',
+      sessionID: item.providerPath,
+      id: item.providerPath,
+      decision: item.providerPath
+    });
+    const status = mapOpenCodeEvent({
+      type: 'session.status',
+      sessionID: item.providerPath,
+      status: item.providerPath
+    });
+    const mappedTexts = [
+      permission.approvalOptions.command,
+      permission.approvalOptions.cwd,
+      permission.approvalOptions.reason,
+      permission.summary,
+      permission.input.command,
+      permission.input.cwd,
+      toolStarted.input.command,
+      toolStarted.input.cwd,
+      toolStarted.summary
+    ];
+    const providerFields = [
+      permission.sessionId,
+      permission.approvalId,
+      permission.toolUseId,
+      toolStarted.sessionId,
+      toolStarted.messageId,
+      toolStarted.partId,
+      toolStarted.toolUseId,
+      toolCompleted.sessionId,
+      toolCompleted.messageId,
+      toolCompleted.partId,
+      toolCompleted.toolUseId,
+      toolCompleted.status,
+      resolved.sessionId,
+      resolved.approvalId,
+      resolved.decision,
+      status.sessionId,
+      status.status
+    ];
+    const retained = JSON.stringify({ permission, toolStarted, toolCompleted, resolved, status });
+
+    assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(toolStarted.type, conversationEventTypes.TOOL_STARTED);
+    assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+    assert.equal(resolved.type, conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(status.type, conversationEventTypes.SYSTEM_NOTICE);
+    for (const text of [permission.approvalOptions.command, permission.summary, toolStarted.input.command, toolStarted.summary]) {
+      assert.equal(text.includes('--delete'), true, `${item.id} lost trailing approval context`);
+    }
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} retained ${hidden}`);
+      for (const text of mappedTexts) {
+        assert.equal(String(text || '').includes(hidden), false, `${item.id} mapped text retained ${hidden}`);
+      }
+      for (const field of providerFields) {
+        assert.equal(String(field || '').includes(hidden), false, `${item.id} provider field retained ${hidden}`);
+      }
+    }
+  }
+});
+
+test('OpenCode command redaction handles UNC paths and preserves trailing arguments', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const uncPath = '\\\\server\\share\\opencode-secret\\file.txt';
+  const command = `type ${uncPath} --delete important.txt`;
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_unc_path',
+    command
+  });
+  const retained = JSON.stringify(permission);
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(uncPath), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(permission.summary.includes(uncPath), false);
+  assert.equal(permission.summary.includes('opencode-secret'), false);
+  assert.equal(permission.summary.includes('--delete important.txt'), true);
+  assert.equal(retained.includes(uncPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode command redaction preserves URLs while scanning UNC paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const command = 'curl https://example.com/api --delete important.txt';
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_url_not_unc',
+    command
+  });
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('https://example.com/api'), true);
+  assert.equal(event.approvalOptions.command.includes('https:[Redacted path]'), false);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('https://example.com/api'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+});
+
+test('OpenCode command redaction redacts final Windows path segments with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Users\\John Doe';
+  const command = `type ${windowsPath} --delete important.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_spaced_final',
+    command,
+    cwd: windowsPath,
+    reason: `needs ${windowsPath} --delete important.txt`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+  assert.equal(event.approvalOptions.command.includes('John Doe'), false);
+  assert.equal(event.approvalOptions.cwd.includes('John Doe'), false);
+  assert.equal(event.approvalOptions.reason.includes('John Doe'), false);
+  assert.equal(retained.includes('John Doe'), false);
+  assert.equal(retained.includes('Doe'), false);
+  assert.equal(retained.includes('Users'), false);
+});
+
+test('OpenCode command redaction redacts final UNC path segments with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const uncPath = '\\\\server\\share\\Team Folder';
+  const command = `type ${uncPath} --delete important.txt`;
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_unc_spaced_final',
+    command,
+    reason: `needs ${uncPath} --delete important.txt`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(event.summary.includes('--delete important.txt'), true);
+  assert.equal(event.approvalOptions.command.includes('Team Folder'), false);
+  assert.equal(event.approvalOptions.reason.includes('Team Folder'), false);
+  assert.equal(retained.includes('Team Folder'), false);
+  assert.equal(retained.includes('Folder'), false);
+  assert.equal(retained.includes('server'), false);
+  assert.equal(retained.includes('share'), false);
+});
+
+test('OpenCode direct command fields are bounded before redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const tail = 'x'.repeat(5000);
+  const windowsPath = 'C:\\opencode-secret\\script.py';
+  let permission;
+  let tool;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('command redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      permission = mapOpenCodeEvent({
+        type: 'permission.asked',
+        sessionID: 'sess_1',
+        id: 'perm_huge_direct_fields',
+        command: `python ${windowsPath} ${tail}`,
+        cwd: `${windowsPath} ${tail}`,
+        reason: `because ${windowsPath} ${tail}`,
+        toolName: `Tool ${windowsPath} ${tail}`
+      });
+      tool = mapOpenCodeEvent({
+        type: 'message.part.updated',
+        sessionID: 'sess_1',
+        partID: 'part_huge_direct_fields',
+        part: {
+          type: 'tool_call',
+          tool: `Tool ${windowsPath} ${tail}`,
+          command: `python ${windowsPath} ${tail}`,
+          status: 'running'
+        }
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(permission.approvalOptions.command.length <= 512, true);
+  assert.equal(permission.approvalOptions.cwd.length <= 512, true);
+  assert.equal(permission.approvalOptions.reason.length <= 512, true);
+  assert.equal(permission.toolName.length <= 512, true);
+  assert.equal(tool.input.command.length <= 512, true);
+  assert.equal(tool.summary.length <= 512, true);
+  assert.equal(JSON.stringify({ permission, tool }).includes('opencode-secret'), false);
+});
+
+test('OpenCode mapped approval and tool inputs copy bounded own keys', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const permissionInput = Object.create(null);
+  const toolInput = Object.create(null);
+  for (let index = 0; index < 100000; index += 1) {
+    permissionInput[`key_${index}`] = `value_${index}`;
+    toolInput[`key_${index}`] = `value_${index}`;
+  }
+
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_many_input_keys',
+    input: permissionInput
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_many_input_keys',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      status: 'running',
+      input: toolInput
+    }
+  });
+
+  assert.equal(Object.keys(permission.input).length <= 18, true);
+  assert.equal(Object.keys(tool.input).length <= 18, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(permission.input, 'key_99999'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(tool.input, 'key_99999'), false);
+});
+
+test('OpenCode direct file path metadata is bounded for permissions, files, and tools', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const hugeName = `${'x'.repeat(1024 * 1024)}.txt`;
+  const hugePath = path.join(os.tmpdir(), hugeName);
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_huge_file_path',
+    filePath: hugePath
+  });
+  const fileEdited = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    filePath: hugePath
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_huge_file_path',
+    part: {
+      type: 'tool_call',
+      tool: 'bash',
+      status: 'running',
+      filePath: hugePath
+    }
+  });
+  const retained = JSON.stringify({ permission, fileEdited, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.input.path.length <= 512, true);
+  assert.equal(permission.summary.length <= 512, true);
+  assert.equal(fileEdited.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(fileEdited.path.length <= 512, true);
+  assert.equal(fileEdited.text.length <= 512, true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.path.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(hugePath), false);
+});
+
+test('OpenCode mapped provider metadata fields are bounded outside raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const huge = 'x'.repeat(1024 * 1024);
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: huge,
+    id: huge,
+    toolCallID: huge,
+    command: 'npm test'
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: huge,
+    messageID: huge,
+    partID: huge,
+    part: {
+      type: 'tool_call',
+      toolCallID: huge,
+      tool: huge,
+      command: 'npm test',
+      status: 'running'
+    }
+  });
+  const session = mapOpenCodeEvent({
+    type: 'session.updated',
+    session: { id: huge }
+  });
+  const retained = JSON.stringify({ permission, tool, session });
+
+  assert.equal(permission.sessionId.length <= 512, true);
+  assert.equal(permission.approvalId.length <= 512, true);
+  assert.equal(permission.toolUseId.length <= 512, true);
+  assert.equal(tool.sessionId.length <= 512, true);
+  assert.equal(tool.messageId.length <= 512, true);
+  assert.equal(tool.partId.length <= 512, true);
+  assert.equal(tool.toolUseId.length <= 512, true);
+  assert.equal(tool.toolName.length <= 512, true);
+  assert.equal(session.sessionId.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(huge), false);
+});
+
+test('OpenCode mapped provider metadata ids and statuses redact path text', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const providerPath = 'C:\\opencode-secret\\id.txt';
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: providerPath,
+    id: providerPath,
+    toolCallID: providerPath,
+    command: 'npm test'
+  });
+  const toolDelta = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: providerPath,
+    messageID: providerPath,
+    partID: providerPath,
+    part: {
+      type: 'tool_call',
+      toolCallID: providerPath,
+      tool: 'bash',
+      text: 'running'
+    }
+  });
+  const toolCompleted = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: providerPath,
+    messageID: providerPath,
+    partID: providerPath,
+    part: {
+      type: 'tool_result',
+      toolCallID: providerPath,
+      tool: 'bash',
+      status: providerPath,
+      text: 'done'
+    }
+  });
+  const resolved = mapOpenCodeEvent({
+    type: 'permission.replied',
+    sessionID: providerPath,
+    id: providerPath,
+    decision: providerPath
+  });
+  const status = mapOpenCodeEvent({
+    type: 'session.status',
+    sessionID: providerPath,
+    status: providerPath
+  });
+  const retained = JSON.stringify({ permission, toolDelta, toolCompleted, resolved, status });
+  const fields = [
+    permission.sessionId,
+    permission.approvalId,
+    permission.toolUseId,
+    toolDelta.sessionId,
+    toolDelta.messageId,
+    toolDelta.partId,
+    toolDelta.toolUseId,
+    toolCompleted.sessionId,
+    toolCompleted.messageId,
+    toolCompleted.partId,
+    toolCompleted.toolUseId,
+    toolCompleted.status,
+    resolved.sessionId,
+    resolved.approvalId,
+    resolved.decision,
+    status.sessionId,
+    status.status
+  ];
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(toolDelta.type, conversationEventTypes.TOOL_DELTA);
+  assert.equal(toolCompleted.type, conversationEventTypes.TOOL_COMPLETED);
+  assert.equal(resolved.type, conversationEventTypes.APPROVAL_RESOLVED);
+  assert.equal(status.type, conversationEventTypes.SYSTEM_NOTICE);
+  for (const field of fields) {
+    assert.equal(field.length <= 512, true);
+    assert.equal(field.includes(providerPath), false);
+    assert.equal(field.includes('opencode-secret'), false);
+  }
+  assert.equal(retained.includes(providerPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode unknown and critical warning raw types are bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const huge = 'x'.repeat(1024 * 1024);
+  const unknown = mapOpenCodeEvent({ type: `future.${huge}` });
+  const warning = mapOpenCodeEvent({ type: `permission.${huge}`, id: huge });
+  const retained = JSON.stringify({ unknown, warning });
+
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(unknown.rawType.length <= 512, true);
+  assert.equal(warning.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.rawType.length <= 512, true);
+  assert.equal(retained.length < 20000, true);
+  assert.equal(retained.includes(huge), false);
+});
+
+test('OpenCode unknown and critical warning raw types redact path text', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\opencode-secret\\secret.txt';
+  const unknown = mapOpenCodeEvent({ type: windowsPath });
+  const warning = mapOpenCodeEvent({ type: `permission.${windowsPath}`, id: 'p' });
+  const retained = JSON.stringify({ unknown, warning });
+
+  assert.equal(unknown.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(unknown.rawType.includes(windowsPath), false);
+  assert.equal(unknown.rawType.includes('opencode-secret'), false);
+  assert.equal(unknown.text.includes(windowsPath), false);
+  assert.equal(unknown.text.includes('opencode-secret'), false);
+  assert.equal(warning.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.rawType.includes(windowsPath), false);
+  assert.equal(warning.rawType.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode permission reason redacts outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'reason.txt');
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_reason_path',
+    command: 'npm test',
+    reason: `needs ${outsidePath}`
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.approvalOptions.reason.includes(outsidePath), false);
+  assert.equal(event.approvalOptions.reason.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode redaction handles ambiguous unquoted Windows and UNC paths with spaces', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const cases = [
+    {
+      id: 'perm_lower_spaced_user',
+      command: 'type C:\\Users\\john doe important.txt',
+      hidden: ['john doe', 'Users'],
+      visible: 'important.txt'
+    },
+    {
+      id: 'perm_upper_spaced_user_database',
+      command: 'type C:\\Users\\John ProductionDatabase',
+      hidden: ['John', 'Users', 'ProductionDatabase'],
+      visible: '[Redacted path]'
+    },
+    {
+      id: 'perm_documents_settings',
+      command: 'type C:\\Documents and Settings\\opencode-secret\\file.txt --delete important.txt',
+      hidden: ['Documents and Settings', 'opencode-secret', 'file.txt'],
+      visible: '--delete important.txt'
+    },
+    {
+      id: 'perm_production_database_arg',
+      command: 'python C:\\opencode-secret\\script ProductionDatabase',
+      hidden: ['opencode-secret'],
+      visible: 'ProductionDatabase'
+    },
+    {
+      id: 'perm_production_database_arg_with_url',
+      command: 'python C:\\opencode-secret\\script prod https://example.com/api --delete',
+      hidden: ['opencode-secret'],
+      visible: 'prod https://example.com/api --delete'
+    },
+    {
+      id: 'perm_unc_team_folder',
+      command: 'type \\\\server\\share\\Team Folder important.txt',
+      hidden: ['Team Folder', 'server', 'share'],
+      visible: 'important.txt'
+    },
+    {
+      id: 'perm_unc_team_database',
+      command: 'type \\\\server\\share\\Team ProductionDatabase',
+      hidden: ['Team', 'ProductionDatabase', 'server', 'share'],
+      visible: '[Redacted path]'
+    }
+  ];
+
+  for (const item of cases) {
+    const event = mapOpenCodeEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: item.id,
+      command: item.command
+    });
+    const retained = JSON.stringify(event);
+
+    assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+    assert.equal(event.approvalOptions.command.includes(item.visible), true);
+    assert.equal(event.summary.includes(item.visible), true);
+    for (const hidden of item.hidden) {
+      assert.equal(retained.includes(hidden), false, `${item.id} leaked ${hidden}`);
+    }
+  }
+});
+
+test('OpenCode permission fallback summary sanitizes tool names', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsPath = 'C:\\Program Files\\opencode-secret\\tool.txt';
+  const event = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_tool_name_path',
+    toolName: `Tool ${windowsPath}`
+  });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(event.toolName.includes(windowsPath), false);
+  assert.equal(event.toolName.includes('opencode-secret'), false);
+  assert.equal(event.summary.includes(windowsPath), false);
+  assert.equal(event.summary.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session errors redact visible outside paths', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'failure.log');
+  const event = mapOpenCodeEvent({
+    type: 'session.error',
+    sessionID: 'sess_1',
+    message: `failed reading ${outsidePath}`,
+    error: {
+      message: `failed reading ${outsidePath}`,
+      code: `ERR_${outsidePath}`
+    }
+  });
+  const retained = JSON.stringify(event.details);
+
+  assert.equal(event.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(event.message.includes(outsidePath), false);
+  assert.equal(event.message.includes('opencode-secret'), false);
+  assert.equal(event.code.includes(outsidePath), false);
+  assert.equal(event.code.includes('opencode-secret'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session error message and code are bounded before redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  const windowsPath = 'C:\\opencode-secret\\failure.log';
+  const tail = 'x'.repeat(5000);
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('session error redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'session.error',
+        sessionID: 'sess_1',
+        message: `failed reading ${windowsPath} ${tail}`,
+        code: `ERR_${windowsPath}_${tail}`
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.RUN_ERROR);
+  assert.equal(event.message.length <= 512, true);
+  assert.equal(event.code.length <= 512, true);
+  assert.equal(event.message.includes('opencode-secret'), false);
+  assert.equal(event.code.includes('opencode-secret'), false);
+});
+
+test('OpenCode unknown event raw payload is bounded and cycle safe', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const raw = {
+    type: 'future.event',
+    payload: 'x'.repeat(10000),
+    nested: { child: { child: { child: { child: { value: 'too deep' } } } } },
+    items: Array.from({ length: 40 }, (_, index) => ({ index }))
+  };
+  raw.self = raw;
+
+  const event = mapOpenCodeEvent(raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_unknown_event');
+  assert.equal(event.raw.type, 'future.event');
+  assert.equal(event.raw.payload.length <= 512, true);
+  assert.equal(event.raw.items.length <= 20, true);
+  assert.equal(event.raw.self, '[Circular]');
+  assert.equal(JSON.stringify(event.raw).length <= 4096, true);
+});
+
+test('OpenCode unknown event raw object bounds descriptor reads', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const target = { type: 'future.event', keep: 'safe' };
+  for (let index = 0; index < 40; index += 1) {
+    target[`key_${index}`] = `value_${index}`;
+  }
+  const keys = [
+    'type',
+    'keep',
+    ...Array.from({ length: 40 }, (_, index) => `key_${index}`),
+    'lateBoom'
+  ];
+  const raw = new Proxy(target, {
+    ownKeys() {
+      return keys;
+    },
+    getOwnPropertyDescriptor(source, key) {
+      if (key === 'lateBoom') throw new Error('late descriptor should not be read');
+      return Object.getOwnPropertyDescriptor(source, key);
+    }
+  });
+
+  let event;
+  assert.doesNotThrow(() => {
+    event = mapOpenCodeEvent(raw);
+  });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.raw.keep, 'safe');
+  assert.equal(event.raw.truncated, true);
+});
+
+test('OpenCode unknown event raw string is capped before path redaction scan', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const originalReplace = String.prototype.replace;
+  let event;
+  try {
+    String.prototype.replace = function boundedReplace(pattern, replacement) {
+      if (String(this).length > 600) throw new Error('redaction scanned an unbounded string');
+      return originalReplace.call(this, pattern, replacement);
+    };
+    assert.doesNotThrow(() => {
+      event = mapOpenCodeEvent({
+        type: 'future.event',
+        payload: `${'x'.repeat(5000)} C:\\Program Files\\opencode-secret\\tool.txt`
+      });
+    });
+  } finally {
+    String.prototype.replace = originalReplace;
+  }
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.raw.payload.length <= 512, true);
+  assert.equal(event.raw.payload.includes('opencode-secret'), false);
+});
+
+test('OpenCode file edited notice bounds outside workspace paths and redacts retained raw', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'outside.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    path: outsidePath,
+    filePath: outsidePath
+  }, { workspacePath });
+  const retained = JSON.stringify(event.raw);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.visible, true);
+  assert.equal(event.path, 'outside.txt');
+  assert.match(event.text, /outside\.txt/);
+  assert.equal(event.text.includes(outsidePath), false);
+  assert.equal(event.path.includes('..'), false);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode file edited notice uses nested file path aliases', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'nested-outside.txt');
+  const event = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    file: { filePath: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify(event);
+
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.noticeKind, 'opencode_file_edited');
+  assert.equal(event.visible, true);
+  assert.equal(event.path, 'nested-outside.txt');
+  assert.match(event.text, /nested-outside\.txt/);
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
+test('OpenCode session.status does not complete until terminal whitelist is configured', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({ type: 'session.status', sessionID: 'sess_1', status: 'done' });
+  assert.equal(event.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(event.visible, false);
+  assert.equal(event.noticeKind, 'opencode_session_status');
+});
+
+test('OpenCode server client builds prompt_async text body exactly', () => {
+  const { buildPromptAsyncBody } = require('../daemon/src/opencode-server-client');
+
+  assert.deepEqual(buildPromptAsyncBody('hello'), {
+    parts: [{ type: 'text', text: 'hello' }]
+  });
+  assert.deepEqual(buildPromptAsyncBody(42), {
+    parts: [{ type: 'text', text: '42' }]
+  });
+  assert.deepEqual(buildPromptAsyncBody(null), {
+    parts: [{ type: 'text', text: '' }]
+  });
+});
+
+test('OpenCode server client calls fake server JSON endpoints', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    const health = await client.health();
+    assert.deepEqual(health, { ok: true, version: 'fake-opencode' });
+
+    const directory = path.join(os.tmpdir(), 'opencode client dir ?x=1');
+    const session = await client.createSession({ directory });
+    assert.equal(session.directory, directory);
+    assert.ok(session.id);
+
+    assert.deepEqual(await client.promptAsync({ sessionId: session.id, text: 42 }), { ok: true });
+    assert.deepEqual(fake.promptBodies[0], {
+      sessionId: session.id,
+      body: { parts: [{ type: 'text', text: '42' }] }
+    });
+
+    assert.equal(await client.abortSession({ sessionId: session.id }), true);
+
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_once', decision: 'allow' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_session', decision: 'allow', scope: 'session' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_deny', decision: 'deny' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_cancel', decision: 'cancel' });
+    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_unknown', decision: 'refuse' });
+
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_once', { response: 'once' }],
+      ['perm_session', { response: 'always' }],
+      ['perm_deny', { response: 'reject' }],
+      ['perm_cancel', { response: 'reject' }],
+      ['perm_unknown', { response: 'reject' }]
+    ]);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode server client createSession errors do not leak directory query or provider body', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-secret-workspace', 'child dir');
+  const providerBodyText = `provider body leaked ${workspacePath} directory=${workspacePath} TOP_SECRET_PROVIDER_BODY`;
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 500, {
+      error: {
+        code: 'UPSTREAM_FAILED',
+        message: providerBodyText,
+        path: workspacePath
+      },
+      details: providerBodyText
+    });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    await assert.rejects(
+      () => client.createSession({ directory: workspacePath }),
+      (error) => {
+        const publicText = JSON.stringify({
+          message: error.message,
+          details: error.details
+        });
+
+        assert.equal(error.status, 500);
+        assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+        assert.equal(error.details.method, 'POST');
+        assert.equal(error.details.path, '/session');
+        assert.equal(error.details.providerCode, 'UPSTREAM_FAILED');
+        assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'body'), false);
+        assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'bodyText'), false);
+        assert.equal(publicText.includes(workspacePath), false);
+        assert.equal(publicText.includes(encodeURIComponent(workspacePath)), false);
+        assert.equal(publicText.includes('directory='), false);
+        assert.equal(publicText.includes('TOP_SECRET_PROVIDER_BODY'), false);
+        return true;
+      }
+    );
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client reads sessions by encoded path', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  let observedRequest = null;
+  const fixture = await listenHttpServerForTest((req, res) => {
+    observedRequest = { method: req.method, url: req.url };
+    sendJsonForTest(res, 200, { id: 'sess read/1', status: 'idle' });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    const session = await client.readSession({ sessionId: 'sess read/1' });
+
+    assert.deepEqual(session, { id: 'sess read/1', status: 'idle' });
+    assert.deepEqual(observedRequest, { method: 'GET', url: '/session/sess%20read%2F1' });
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client parses chunked SSE frames and closes the subscription', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const events = [];
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    handle = client.subscribeEvents(
+      (event) => events.push(event),
+      (error) => errors.push(error)
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode client SSE connection');
+    const [sseResponse] = fake.sseClients;
+
+    sseResponse.write(': ignored comment\n\n');
+    sseResponse.write('\n\n');
+    sseResponse.write('data: {"type":"session.');
+    sseResponse.write('idle","sessionID":"sess_1"}\n\n');
+    sseResponse.write('data: {"type":"message.part.delta",\n');
+    sseResponse.write('data: "text":"hello"}\n\n');
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.length === 2 && errors.length === 1,
+      'OpenCode client SSE events and parse error'
+    );
+    assert.deepEqual(events[0], { type: 'session.idle', sessionID: 'sess_1' });
+    assert.deepEqual(events[1], { type: 'message.part.delta', text: 'hello' });
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_SSE_BAD_JSON');
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'data'), false);
+    assert.equal(errors[0].details.reason, 'invalid_json');
+
+    handle.close();
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode client SSE close');
+  } finally {
+    handle?.close();
+    await fake.close();
+  }
+});
+
+test('OpenCode server client reports SSE connection timeout once', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest(() => {});
+  const sockets = new Set();
+  fixture.server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 25 });
+    handle = client.subscribeEvents(
+      () => {},
+      (error) => errors.push(error)
+    );
+
+    await waitForConditionForTest(() => errors.length >= 1, 'OpenCode SSE timeout error', 500);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_TIMEOUT');
+  } finally {
+    handle?.close();
+    for (const socket of sockets) socket.destroy();
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client bounds non-ending SSE HTTP error bodies', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest((req, res) => {
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.write('{"error":{"code":"SSE_UNAVAILABLE","message":"partial');
+  });
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 50 });
+    handle = client.subscribeEvents(
+      () => {},
+      (error) => errors.push(error)
+    );
+
+    await waitForConditionForTest(() => errors.length === 1, 'bounded OpenCode SSE HTTP error', 500);
+    assert.equal(errors[0].status, 503);
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(errors[0].details.status, 503);
+    assert.equal(errors[0].details.method, 'GET');
+    assert.equal(errors[0].details.path, '/global/event');
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'body'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'bodyText'), false);
+  } finally {
+    handle?.close();
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client reports bounded structured HTTP errors', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const giantBody = 'x'.repeat(5000);
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 503, {
+      error: { code: 'UPSTREAM_FAILED', message: giantBody },
+      details: giantBody
+    });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    await assert.rejects(() => client.health(), (error) => {
+      assert.equal(error.status, 503);
+      assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+      assert.equal(error.details.status, 503);
+      assert.equal(error.details.method, 'GET');
+      assert.equal(error.details.path, '/global/health');
+      assert.equal(error.details.providerCode, 'UPSTREAM_FAILED');
+      assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'body'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'bodyText'), false);
+      assert.equal(JSON.stringify(error.details).includes(giantBody), false);
+      return true;
+    });
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server client reports structured network errors', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 200, { ok: true });
+  });
+  await closeHttpServerForTest(fixture.server);
+
+  const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 100 });
+  await assert.rejects(() => client.health(), (error) => {
+    assert.equal(error.status, undefined);
+    assert.equal(error.code, 'OPENCODE_SERVER_NETWORK_ERROR');
+    assert.equal(error.details.method, 'GET');
+    assert.equal(error.details.path, '/global/health');
+    assert.ok(error.details.code);
+    return true;
+  });
+});
+
+test('OpenCode server client rejects missing required inputs without sending requests', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const requests = [];
+  const fixture = await listenHttpServerForTest((req, res) => {
+    requests.push({ method: req.method, url: req.url });
+    sendJsonForTest(res, 200, { ok: true });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    const cases = [
+      ['createSession missing directory', () => client.createSession({}), 'directory'],
+      ['createSession blank directory', () => client.createSession({ directory: '   ' }), 'directory'],
+      ['readSession missing sessionId', () => client.readSession({}), 'sessionId'],
+      ['readSession blank sessionId', () => client.readSession({ sessionId: '   ' }), 'sessionId'],
+      ['promptAsync missing sessionId', () => client.promptAsync({ text: 'hello' }), 'sessionId'],
+      ['abortSession missing sessionId', () => client.abortSession({}), 'sessionId'],
+      [
+        'replyPermission missing sessionId',
+        () => client.replyPermission({ permissionId: 'perm_1', decision: 'allow' }),
+        'sessionId'
+      ],
+      [
+        'replyPermission missing permissionId',
+        () => client.replyPermission({ sessionId: 'sess_1', decision: 'allow' }),
+        'permissionId'
+      ]
+    ];
+
+    for (const [name, action, field] of cases) {
+      await assert.rejects(action, (error) => {
+        assert.equal(error.code, 'OPENCODE_SERVER_INVALID_REQUEST', name);
+        assert.equal(error.details.field, field, name);
+        return true;
+      }, name);
+    }
+    assert.deepEqual(requests, []);
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('createConversationAdapters registers real OpenCode conversation adapter', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const { createConversationAdapters } = require('../daemon/src/main');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    };
+    const adapters = createConversationAdapters({
+      claudeCommand: 'claude',
+      codexCommand: 'codex',
+      opencodeServerLifecycle: lifecycle
+    });
+    const adapter = adapters.get('opencode');
+
+    assert.equal(adapter.name, 'opencode');
+    assert.equal(adapter.getCapabilities().waitingApproval, true);
+    assert.equal(adapter.getCapabilities().approval.mobileCallbacks, true);
+    assert.deepEqual(adapter.getModelCapability(), { models: [], selectedModel: null, canSelectModel: false });
+    const status = await adapter.detectCapabilities();
+    assert.equal(status.available, true);
+    assert.equal(status.selectable, true);
+    assert.equal(status.capabilities.toolEvents, true);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter creates session and defers prompt until message send', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-first-message');
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_first',
+      workspacePath,
+      onEvent: (event) => events.push(event)
+    });
+
+    assert.deepEqual(fake.createRequests, [{ directory: workspacePath }]);
+    assert.deepEqual(fake.promptBodies, []);
+    const started = events.find((event) => event.noticeKind === 'opencode_session_started');
+    assert.equal(started.type, conversationEventTypes.SYSTEM_NOTICE);
+    assert.equal(started.visible, false);
+    assert.equal(started.sessionId, 'sess_1');
+    assert.equal(started.providerSession.provider, 'opencode');
+    assert.equal(started.providerSession.threadId, 'sess_1');
+    assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
+
+    await handle.sendUserMessage('hello OpenCode');
+
+    assert.deepEqual(fake.promptBodies, [{
+      sessionId: 'sess_1',
+      body: { parts: [{ type: 'text', text: 'hello OpenCode' }] }
+    }]);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter fails missing later session without creating replacement', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+
+    await assert.rejects(
+      () => adapter.startConversation({
+        conversationId: 'conv_opencode_missing',
+        workspacePath: path.join(os.tmpdir(), 'opencode-adapter-missing'),
+        sessionId: 'sess_missing',
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_MISSING');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.readSessionIds, ['sess_missing']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects resumed session directory mismatch', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-workspace');
+    fake.sessions.set('sess_bad_dir', {
+      id: 'sess_bad_dir',
+      sessionID: 'sess_bad_dir',
+      directory: path.join(os.tmpdir(), 'outside-opencode-workspace')
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+
+    await assert.rejects(
+      () => adapter.startConversation({
+        conversationId: 'conv_opencode_dir',
+        workspacePath,
+        sessionId: 'sess_bad_dir',
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects auto permission mode before server start', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  let starts = 0;
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        starts += 1;
+        return {};
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_opencode_auto',
+      workspacePath: path.join(os.tmpdir(), 'opencode-auto-mode'),
+      permissionMode: 'auto',
+      onEvent: () => {}
+    }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.equal(error.code, 'OPENCODE_PERMISSION_MODE_UNSUPPORTED');
+      return true;
+    }
+  );
+  assert.equal(starts, 0);
+});
+
+test('OpenCode conversation adapter filters SSE events to active session', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_sse_filter',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-sse-filter'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_other', text: 'wrong' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'right' });
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL),
+      'OpenCode adapter filtered active-session event'
+    );
+    assert.deepEqual(
+      events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['right']
+    );
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter shares one client SSE stream across handles', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handleOne = null;
+  let handleTwo = null;
+  try {
+    const sharedClient = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: sharedClient,
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    };
+    const adapter = new OpenCodeConversationAdapter({ lifecycle });
+    const eventsOne = [];
+    const eventsTwo = [];
+
+    handleOne = await adapter.startConversation({
+      conversationId: 'conv_opencode_shared_sse_one',
+      workspacePath: path.join(os.tmpdir(), 'opencode-shared-sse-one'),
+      onEvent: (event) => eventsOne.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseOpenCount === 1, 'OpenCode first shared SSE connection');
+
+    handleTwo = await adapter.startConversation({
+      conversationId: 'conv_opencode_shared_sse_two',
+      workspacePath: path.join(os.tmpdir(), 'opencode-shared-sse-two'),
+      onEvent: (event) => eventsTwo.push(event)
+    });
+    await waitForConditionForTest(() => fake.createRequests.length === 2, 'OpenCode second shared SSE session');
+    assert.equal(fake.sseOpenCount, 1);
+    assert.equal(fake.sseClients.size, 1);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'for first handle' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_2', text: 'for second handle' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_other', text: 'for neither handle' });
+
+    await waitForConditionForTest(
+      () => eventsOne.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL) &&
+        eventsTwo.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL),
+      'OpenCode shared SSE session-filtered events'
+    );
+    assert.deepEqual(
+      eventsOne.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['for first handle']
+    );
+    assert.deepEqual(
+      eventsTwo.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['for second handle']
+    );
+
+    await handleOne.dispose();
+    assert.equal(fake.sseCloseCount, 0);
+    assert.equal(fake.sseClients.size, 1);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_2', text: 'second still active' });
+    await waitForConditionForTest(
+      () => eventsTwo.some((event) => event.text === 'second still active'),
+      'OpenCode shared SSE remains active after first close'
+    );
+
+    await handleTwo.dispose();
+    await waitForConditionForTest(() => fake.sseCloseCount === 1, 'OpenCode shared SSE closes after last handle');
+    assert.equal(fake.sseClients.size, 0);
+  } finally {
+    await handleOne?.dispose();
+    await handleTwo?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter cancels pending approval on SSE disconnect', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_sse_disconnect',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-sse-disconnect'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    await handle.sendUserMessage('start turn');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_disconnect',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED),
+      'OpenCode adapter approval request'
+    );
+
+    for (const response of Array.from(fake.sseClients)) response.end();
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.RUN_ERROR),
+      'OpenCode adapter SSE disconnect run error'
+    );
+    const cancellationIndex = events.findIndex((event) => event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED);
+    const errorIndex = events.findIndex((event) => event.type === conversationEventTypes.RUN_ERROR);
+    assert.notEqual(cancellationIndex, -1);
+    assert.notEqual(errorIndex, -1);
+    assert.equal(cancellationIndex < errorIndex, true);
+    assert.equal(events[cancellationIndex].approvalId, 'perm_disconnect');
+    assert.equal(events[errorIndex].code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter closes fatal SSE parse errors and ignores later stream events', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_bad_sse_json',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-bad-sse-json'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    const [sseResponse] = fake.sseClients;
+    await handle.sendUserMessage('active turn');
+
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.RUN_ERROR),
+      'OpenCode adapter fatal SSE parse run error'
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode adapter fatal SSE close', 500);
+
+    const partialCount = events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).length;
+    try {
+      sseResponse.write('data: {"type":"message.part.delta","sessionID":"sess_1","text":"late"}\n\n');
+    } catch (_) {
+      // Closed responses may reject writes; the assertion below covers observable behavior.
+    }
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late fake event' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const runError = events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+    assert.equal(runError.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+    assert.equal(events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).length, partialCount);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter closes idle SSE parse errors, ignores later deltas, and rejects later sends', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_idle_bad_sse_json',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-idle-bad-sse-json'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    const [sseResponse] = fake.sseClients;
+
+    sseResponse.write('data: {bad json}\n\n');
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING && event.code === 'OPENCODE_EVENT_STREAM_INTERRUPTED'),
+      'OpenCode adapter idle SSE parse warning'
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode adapter idle SSE parse close', 500);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late idle delta' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await assert.rejects(
+      () => handle.sendUserMessage('must not dispatch after idle parse error'),
+      (error) => {
+        assert.equal(error.status, 503);
+        assert.equal(error.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+        return true;
+      }
+    );
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL), false);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter cancellation calls abort route', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_cancel',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-cancel'),
+      onEvent: () => {}
+    });
+
+    await handle.cancel();
+
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager clears stale session binding when stored session is missing', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    const conversation = manager.requireConversation(created.id, device);
+    conversation.cliSessionId = 'sess_missing';
+    conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    conversation.providerSession = { provider: 'opencode', threadId: 'sess_missing', cwd: process.cwd() };
+
+    await assert.rejects(
+      () => manager.sendMessage(conversation.id, { text: 'resume missing session' }, device),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_MISSING');
+        return true;
+      }
+    );
+
+    const summary = manager.getConversation(conversation.id, device);
+    const events = eventStore.list(conversation.id, 0);
+    const expired = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_expired');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_MISSING');
+    assert.equal(summary.status, 'failed');
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.UNKNOWN);
+    assert.equal(summary.providerSession, null);
+    assert.equal(expired.visible, true);
+    assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(runError.status, 409);
+    assert.deepEqual(fake.readSessionIds, ['sess_missing']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager clears drifted binding on resumed session directory mismatch', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const workspacePath = process.cwd();
+    fake.sessions.set('sess_bad_dir', {
+      id: 'sess_bad_dir',
+      sessionID: 'sess_bad_dir',
+      directory: path.join(os.tmpdir(), 'opencode-session-outside-workspace')
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    const conversation = manager.requireConversation(created.id, device);
+    conversation.workspacePath = workspacePath;
+    conversation.cliSessionId = 'sess_bad_dir';
+    conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+    conversation.providerSession = { provider: 'opencode', threadId: 'sess_bad_dir', cwd: workspacePath };
+
+    await assert.rejects(
+      () => manager.sendMessage(conversation.id, { text: 'resume mismatched session' }, device),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        return true;
+      }
+    );
+
+    const summary = manager.getConversation(conversation.id, device);
+    const events = eventStore.list(conversation.id, 0);
+    const drift = events.find((event) =>
+      event.type === conversationEventTypes.PROTOCOL_WARNING &&
+      event.warning === 'session_binding_drifted');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(summary.status, 'failed');
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.DRIFTED);
+    assert.equal(summary.providerSession, null);
+    assert.equal(drift.expectedSessionId, 'sess_bad_dir');
+    assert.equal(drift.receivedSessionId, 'sess_bad_dir');
+    assert.equal(drift.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(runError.status, 409);
+    assert.deepEqual(fake.readSessionIds, ['sess_bad_dir']);
+    assert.deepEqual(fake.createRequests, []);
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects sends after idle SSE disconnect', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_idle_disconnect',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-idle-disconnect'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    for (const response of Array.from(fake.sseClients)) response.end();
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING && event.code === 'OPENCODE_EVENT_STREAM_INTERRUPTED'),
+      'OpenCode adapter idle SSE disconnect warning'
+    );
+
+    await assert.rejects(
+      () => handle.sendUserMessage('must not dispatch without SSE'),
+      (error) => {
+        assert.equal(error.status, 503);
+        assert.equal(error.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+        return true;
+      }
+    );
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter maps approval cancel to reject, abort, and terminal cancellation', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const events = [];
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_approval_cancel',
+      workspacePath: path.join(os.tmpdir(), 'opencode-adapter-approval-cancel'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode adapter SSE connection');
+    await handle.sendUserMessage('needs approval');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_cancel',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED),
+      'OpenCode adapter approval request'
+    );
+
+    await handle.respondApproval('perm_cancel', { decision: 'cancel' });
+
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_cancel', { response: 'reject' }]
+    ]);
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+    const cancelled = events.find((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED);
+    assert.equal(cancelled.reason, 'approval_cancelled');
+    assert.equal(cancelled.sessionId, 'sess_1');
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager ends running state when approval response is cancel', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs approval' }, device);
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_manager_cancel',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request'
+    );
+
+    const response = await manager.respondApproval(created.id, 'perm_manager_cancel', { decision: 'cancel' }, device);
+
+    assert.equal(response.status, 'cancelled');
+    assert.equal(manager.getConversation(created.id, device).status, 'cancelled');
+    assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
+      ['perm_manager_cancel', { response: 'reject' }]
+    ]);
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+    const events = eventStore.list(created.id, 0);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED && event.reason === 'approval_cancelled'), true);
+    assert.equal(events.at(-1).type, conversationEventTypes.CONVERSATION_CANCELLED);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager disposes OpenCode handle after permission reply failure', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    fake.failPermissionReply('perm_reply_fail', {
+      status: 500,
+      body: { error: { code: 'PERMISSION_REPLY_FAILED', message: 'forced failure' } }
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs failing approval reply' }, device);
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode manager SSE connection');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_reply_fail',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request before reply failure'
+    );
+
+    await assert.rejects(
+      () => manager.respondApproval(created.id, 'perm_reply_fail', { decision: 'allow' }, device),
+      (error) => {
+        assert.equal(error.status, 500);
+        assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+        return true;
+      }
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode manager closes failed permission reply SSE', 500);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'late after failed reply' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const summary = manager.getConversation(created.id, device);
+    const events = eventStore.list(created.id, 0);
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(summary.status, 'failed');
+    assert.equal(runError.status, 500);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL), false);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager drops provider approval resolved echo after local response', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'needs approval echo dedupe' }, device);
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode manager SSE connection');
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_echo',
+      tool: 'bash',
+      command: 'npm test'
+    });
+    await waitForConditionForTest(
+      () => manager.getConversation(created.id, device).status === 'waiting_approval',
+      'OpenCode manager approval request before echo'
+    );
+
+    await manager.respondApproval(created.id, 'perm_echo', { decision: 'allow', scope: 'once' }, device);
+    fake.emitEvent({
+      type: 'permission.replied',
+      sessionID: 'sess_1',
+      id: 'perm_echo',
+      decision: 'allow'
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const approvalResolved = eventStore.list(created.id, 0)
+      .filter((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(approvalResolved.length, 1);
+    assert.equal(approvalResolved[0].approvalId, 'perm_echo');
+    assert.equal(approvalResolved[0].decision, 'allow');
+  } finally {
+    await fake.close();
+  }
+});
+
+test('shutdownAppResources shuts down managed OpenCode lifecycle', async () => {
+  assert.equal(typeof shutdownAppResources, 'function');
+  let opencodeShutdowns = 0;
+  let sleepStops = 0;
+  const opencodeServerLifecycle = {
+    async ensureStarted() {
+      throw new Error('not needed');
+    },
+    getDiagnostics() {
+      return { status: 'idle' };
+    },
+    async shutdown() {
+      opencodeShutdowns += 1;
+    }
+  };
+  const app = createApp({
+    port: 0,
+    codexAppServerEnabled: false,
+    opencodeServerLifecycle,
+    appDbPath: tempConversationDbPath('opencode-shutdown-app-'),
+    perfDbPath: tempConversationDbPath('opencode-shutdown-perf-')
+  });
+
+  await shutdownAppResources(app, {
+    sleepInhibitor: {
+      stop() {
+        sleepStops += 1;
+      }
+    }
+  });
+
+  assert.equal(opencodeShutdowns, 1);
+  assert.equal(sleepStops, 1);
+});
+
+test('OpenCode server lifecycle external mode health-checks URL without spawning', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const healthCalls = [];
+  const clients = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4577',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => {
+      const client = {
+        serverUrl,
+        async health() {
+          healthCalls.push(serverUrl);
+          return { ok: true };
+        }
+      };
+      clients.push(client);
+      return client;
+    }
+  });
+
+  const started = await lifecycle.ensureStarted();
+  assert.deepEqual({
+    mode: started.mode,
+    serverUrl: started.serverUrl,
+    client: started.client,
+    owned: started.owned
+  }, {
+    mode: 'external',
+    serverUrl: 'http://127.0.0.1:4577',
+    client: clients[0],
+    owned: false
+  });
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:4577']);
+
+  await lifecycle.shutdown();
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:4577']);
+
+  const failingLifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4999',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        throw Object.assign(new Error('connect ECONNREFUSED with large body ' + 'x'.repeat(1000)), {
+          code: 'ECONNREFUSED',
+          details: { body: 'x'.repeat(5000) }
+        });
+      }
+    })
+  });
+
+  await assert.rejects(() => failingLifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_UNAVAILABLE');
+    assert.equal(error.details.serverUrl, 'http://127.0.0.1:4999');
+    assert.equal(error.details.cause.code, 'ECONNREFUSED');
+    assert.equal(JSON.stringify(error.details).includes('x'.repeat(1000)), false);
+    return true;
+  });
+});
+
+test('OpenCode server lifecycle external shutdown during health check prevents started state', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let releaseHealth = null;
+  let healthStarted = null;
+  const healthRelease = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4578',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthStarted();
+        await healthRelease;
+        return { ok: true };
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  await healthPending;
+  await lifecycle.shutdown();
+  releaseHealth();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.notEqual(lifecycle.getDiagnostics().status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown during rejected health check reports stopped', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let rejectHealth = null;
+  let healthStarted = null;
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4579',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthStarted();
+        return new Promise((resolve, reject) => {
+          rejectHealth = reject;
+        });
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await healthPending;
+  await lifecycle.shutdown();
+  rejectHealth(Object.assign(new Error('late external health failure'), { code: 'ECONNRESET' }));
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  const diagnostics = lifecycle.getDiagnostics();
+  assert.notEqual(diagnostics.status, 'failed');
+  assert.notEqual(diagnostics.status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown cancels never-settling health check', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let healthStarted = null;
+  const healthPending = new Promise((resolve) => {
+    healthStarted = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4581',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthStarted();
+        return new Promise(() => {});
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await healthPending;
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  const diagnostics = lifecycle.getDiagnostics();
+  assert.equal(diagnostics.status, 'idle');
+  assert.notEqual(diagnostics.status, 'failed');
+  assert.notEqual(diagnostics.status, 'started');
+});
+
+test('OpenCode server lifecycle external shutdown aborts pending client health request', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let requestSeen = null;
+  let responseClosed = null;
+  const requestSeenPromise = new Promise((resolve) => {
+    requestSeen = resolve;
+  });
+  const responseClosedPromise = new Promise((resolve) => {
+    responseClosed = resolve;
+  });
+  const fixture = await listenHttpServerForTest((req, res) => {
+    if (req.url === '/global/health') {
+      res.once('close', responseClosed);
+      requestSeen();
+      return;
+    }
+    sendJsonForTest(res, 404, { error: 'not found' });
+  });
+  try {
+    const lifecycle = new OpenCodeServerLifecycle({
+      externalUrl: fixture.url,
+      spawnFn: () => {
+        throw new Error('external mode must not spawn');
+      },
+      clientFactory: (serverUrl) => new OpenCodeServerClient({ serverUrl, timeoutMs: 2000 })
+    });
+
+    const pendingStart = lifecycle.ensureStarted();
+    pendingStart.catch(() => {});
+    await requestSeenPromise;
+    await lifecycle.shutdown();
+
+    const startResult = await Promise.race([
+      pendingStart.then(
+        () => ({ started: true }),
+        (error) => ({ error })
+      ),
+      new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+    ]);
+    assert.equal(startResult.hung, undefined);
+    assert.equal(startResult.started, undefined);
+    assert.equal(startResult.error.code, 'OPENCODE_SERVER_STOPPED');
+
+    const closeResult = await Promise.race([
+      responseClosedPromise.then(() => ({ closed: true })),
+      new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 150))
+    ]);
+    assert.equal(closeResult.hung, undefined);
+    assert.equal(closeResult.closed, true);
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
+test('OpenCode server lifecycle external restart after shutdown starts fresh health check', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const healthControls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:4580',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        let resolveHealth = null;
+        let rejectHealth = null;
+        const promise = new Promise((resolve, reject) => {
+          resolveHealth = resolve;
+          rejectHealth = reject;
+        });
+        healthControls.push({ resolve: resolveHealth, reject: rejectHealth });
+        return promise;
+      }
+    })
+  });
+
+  const firstStart = lifecycle.ensureStarted();
+  firstStart.catch(() => {});
+  await waitForConditionForTest(() => healthControls.length === 1, 'OpenCode external first health check');
+  await lifecycle.shutdown();
+
+  const secondStart = lifecycle.ensureStarted();
+  secondStart.catch(() => {});
+  let started = null;
+  try {
+    await waitForConditionForTest(() => healthControls.length === 2, 'OpenCode external restarted health check');
+    assert.equal(healthControls.length, 2);
+    healthControls[1].resolve({ ok: true });
+    started = await secondStart;
+    assert.equal(started.mode, 'external');
+    assert.equal(started.serverUrl, 'http://127.0.0.1:4580');
+    assert.equal(lifecycle.getDiagnostics().status, 'started');
+  } finally {
+    healthControls[0]?.reject(Object.assign(new Error('settle canceled external health'), { code: 'ECANCELED' }));
+  }
+
+  await assert.rejects(() => firstStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.equal(lifecycle.getDiagnostics().status, 'started');
+  assert.equal(await lifecycle.ensureStarted(), started);
+});
+
+test('OpenCode server lifecycle managed mode resolves command and starts explicit loopback port', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({ pid: 2468 });
+  const spawns = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    command: 'opencode',
+    startupTimeoutMs: 50,
+    healthPollIntervalMs: 1,
+    findAvailablePort: async () => 45678,
+    cliResolverOptions: {
+      platform: 'win32',
+      nodePath: 'C:\\node\\node.exe',
+      env: { PATH: '' },
+      which: () => 'C:\\tools\\opencode.cmd',
+      readTextFile: () => '@ECHO off\n"%dp0%\\node_modules\\opencode\\bin\\opencode.js" %*'
+    },
+    spawnFn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls.push(serverUrl);
+        return { ok: true };
+      }
+    })
+  });
+
+  const started = await lifecycle.ensureStarted();
+
+  assert.equal(started.mode, 'managed');
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45678');
+  assert.equal(started.client.serverUrl, 'http://127.0.0.1:45678');
+  assert.equal(started.owned, true);
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0].command, 'C:\\node\\node.exe');
+  assert.match(spawns[0].args[0], /opencode[\\/]bin[\\/]opencode\.js$/);
+  assert.deepEqual(spawns[0].args.slice(1), ['serve', '--hostname', '127.0.0.1', '--port', '45678']);
+  assert.equal(spawns[0].args.includes('0'), false);
+  assert.equal(spawns[0].args.some((arg) => String(arg).toLowerCase().includes('mdns')), false);
+  assert.equal(spawns[0].options.windowsHide, true);
+  assert.notEqual(spawns[0].options.stdio, 'inherit');
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:45678']);
+  assert.equal(child.stdout.listenerCount('data'), 0);
+  assert.equal(child.stderr.listenerCount('data'), 0);
+
+  const again = await lifecycle.ensureStarted();
+  assert.equal(again, started);
+  assert.equal(spawns.length, 1);
+});
+
+test('OpenCode server lifecycle retries managed startup with a fresh port and child', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45681, 45682];
+  const children = [];
+  const spawns = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: null,
+    command: 'opencode',
+    startupAttempts: 3,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 1,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3000 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls.push(serverUrl);
+        if (serverUrl.endsWith(':45681')) throw new Error('health not ready');
+        return { ok: true };
+      }
+    })
+  });
+
+  const started = await lifecycle.ensureStarted();
+
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45682');
+  assert.equal(spawns.length, 2);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45681', '45682']);
+  assert.equal(children[0].killSignals.includes('SIGTERM'), true);
+  assert.equal(healthCalls.includes('http://127.0.0.1:45681'), true);
+  assert.equal(healthCalls.includes('http://127.0.0.1:45682'), true);
+});
+
+test('OpenCode server lifecycle stops after three failed managed startup attempts with structured error', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45701, 45702, 45703];
+  const spawns = [];
+  const giant = 'x'.repeat(5000);
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 3,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 1,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3100 + spawns.length,
+        kill(signal) {
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw Object.assign(new Error(`not healthy ${giant}`), {
+          code: 'ECONNREFUSED',
+          details: { body: giant }
+        });
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+    assert.equal(error.details.attempts, 3);
+    assert.equal(JSON.stringify(error.details).includes(giant), false);
+    return true;
+  });
+  assert.equal(spawns.length, 3);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45701', '45702', '45703']);
+});
+
+test('OpenCode server lifecycle caps injected managed startup attempts at three', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const spawns = [];
+  let portCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 10,
+    startupTimeoutMs: 1,
+    retryDelayMs: 0,
+    delayFn: async () => {},
+    findAvailablePort: async () => {
+      portCalls += 1;
+      return 45800 + portCalls;
+    },
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3400 + spawns.length,
+        kill(signal) {
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw new Error('not healthy');
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+    assert.equal(error.details.attempts, 3);
+    return true;
+  });
+  assert.equal(portCalls, 3);
+  assert.equal(spawns.length, 3);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45801', '45802', '45803']);
+});
+
+test('OpenCode server lifecycle times out hanging managed health probes and cleans up child', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3450,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 5,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 0,
+    gracefulShutdownMs: 1,
+    findAvailablePort: async () => 45850,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      async health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    })
+  });
+
+  const result = await Promise.race([
+    lifecycle.ensureStarted().then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 100))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_SPAWN_FAILED');
+  assert.equal(result.error.details.attempts, 1);
+  assert.equal(result.error.details.cause.details.timeoutMs, 5);
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(healthCalls, 1);
+});
+
+test('OpenCode server lifecycle reports unavailable port allocation without spawning port zero', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 3,
+    retryDelayMs: 0,
+    delayFn: async () => {},
+    findAvailablePort: async () => 0,
+    spawnFn: () => {
+      throw new Error('invalid port must not spawn');
+    }
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_PORT_UNAVAILABLE');
+    assert.equal(error.details.attempts, 3);
+    assert.equal(JSON.stringify(error.details).includes('--port'), false);
+    return true;
+  });
+});
+
+test('OpenCode server lifecycle shares concurrent managed start callers', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const spawns = [];
+  let releaseHealth = null;
+  const healthStarted = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    findAvailablePort: async () => 45711,
+    spawnFn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      return createFakeOpenCodeServerChild({ pid: 3200 });
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        await healthStarted;
+        return { ok: true };
+      }
+    })
+  });
+
+  const first = lifecycle.ensureStarted();
+  const second = lifecycle.ensureStarted();
+  await waitForConditionForTest(() => spawns.length === 1, 'OpenCode managed concurrent spawn');
+  releaseHealth();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(firstResult, secondResult);
+  assert.equal(firstResult.serverUrl, 'http://127.0.0.1:45711');
+  assert.equal(spawns.length, 1);
+});
+
+test('OpenCode server lifecycle shutdown escalates managed child and allows restart', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45721, 45722];
+  const children = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: () => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3300 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const first = await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+  const second = await lifecycle.ensureStarted();
+
+  assert.equal(first.serverUrl, 'http://127.0.0.1:45721');
+  assert.equal(second.serverUrl, 'http://127.0.0.1:45722');
+  assert.deepEqual(children[0].killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(children.length, 2);
+});
+
+test('OpenCode server lifecycle runs tree cleanup even when graceful child exits immediately', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const terminations = [];
+  const child = createFakeOpenCodeServerChild({
+    pid: 3460,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 20,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45860,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      return true;
+    }
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.deepEqual(terminations, [
+    { pid: 3460, force: false, signal: 'SIGTERM' }
+  ]);
+});
+
+test('OpenCode server lifecycle escalates process tree cleanup when child stays alive', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const terminations = [];
+  const child = createFakeOpenCodeServerChild({
+    pid: 3465,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      return true;
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45865,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      if (options.force) setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.deepEqual(terminations, [
+    { pid: 3465, force: false, signal: 'SIGTERM' },
+    { pid: 3465, force: true, signal: 'SIGKILL' }
+  ]);
+});
+
+test('OpenCode server lifecycle shutdown during startup stops child and prevents started state', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3470,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let releaseHealth = null;
+  const healthRelease = new Promise((resolve) => {
+    releaseHealth = resolve;
+  });
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 20,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45870,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        await healthRelease;
+        return { ok: true };
+      }
+    })
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  await waitForConditionForTest(() => child.listenerCount('exit') > 0, 'OpenCode managed startup child tracking');
+  await lifecycle.shutdown();
+  releaseHealth();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
+test('OpenCode server lifecycle managed shutdown cancels never-settling startup promptly', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3480,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 1,
+    findAvailablePort: async () => 45880,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(() => child.listenerCount('exit') > 0, 'OpenCode managed ignored child tracking');
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(healthCalls, 1);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
+test('OpenCode server lifecycle managed shutdown cancels losing timeout and grace delays', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const delays = [];
+  const delayFn = (ms) => {
+    const delayRecord = { ms, active: true, canceled: false };
+    const promise = new Promise((resolve) => {
+      delayRecord.resolve = resolve;
+    });
+    promise.cancel = () => {
+      if (!delayRecord.active) return;
+      delayRecord.active = false;
+      delayRecord.canceled = true;
+    };
+    delayRecord.promise = promise;
+    delays.push(delayRecord);
+    return promise;
+  };
+  const child = createFakeOpenCodeServerChild({
+    pid: 3485,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 2500,
+    gracefulShutdownMs: 500,
+    hardKillGraceMs: 500,
+    delayFn,
+    findAvailablePort: async () => 45885,
+    spawnFn: () => child,
+    clientFactory: () => ({
+      health() {
+        healthCalls += 1;
+        return new Promise(() => {});
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(
+    () => healthCalls === 1 && delays.some((delay) => delay.ms === 2500),
+    'OpenCode managed startup timeout delay scheduled'
+  );
+  await lifecycle.shutdown();
+
+  await assert.rejects(() => pendingStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  assert.deepEqual(child.killSignals, ['SIGTERM']);
+  assert.equal(delays.some((delay) => delay.active), false);
+  assert.equal(delays.some((delay) => delay.ms === 2500 && delay.canceled), true);
+  assert.equal(delays.some((delay) => delay.ms === 500 && delay.canceled), true);
+});
+
+test('OpenCode server lifecycle managed shutdown cancels retry backoff delay', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const delays = [];
+  const delayFn = (ms) => {
+    const delayRecord = { ms, active: true, canceled: false };
+    let resolveDelay = null;
+    const promise = new Promise((resolve) => {
+      resolveDelay = () => {
+        if (!delayRecord.active) return;
+        delayRecord.active = false;
+        resolve();
+      };
+    });
+    promise.cancel = () => {
+      if (!delayRecord.active) return;
+      delayRecord.active = false;
+      delayRecord.canceled = true;
+    };
+    delayRecord.promise = promise;
+    delays.push(delayRecord);
+    if (ms !== 2500) setImmediate(resolveDelay);
+    return promise;
+  };
+  const children = [];
+  const spawns = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 2,
+    startupTimeoutMs: 2,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 2500,
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 1,
+    delayFn,
+    findAvailablePort: async () => 45886 + spawns.length,
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3486 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: () => ({
+      async health() {
+        throw Object.assign(new Error('retryable health failure'), { code: 'ECONNREFUSED' });
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const pendingStart = lifecycle.ensureStarted();
+  pendingStart.catch(() => {});
+  await waitForConditionForTest(
+    () => delays.some((delay) => delay.ms === 2500 && delay.active),
+    'OpenCode managed retry backoff delay active'
+  );
+  await lifecycle.shutdown();
+
+  const result = await Promise.race([
+    pendingStart.then(
+      () => ({ started: true }),
+      (error) => ({ error })
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ hung: true }), 50))
+  ]);
+
+  assert.equal(result.hung, undefined);
+  assert.equal(result.started, undefined);
+  assert.equal(result.error.code, 'OPENCODE_SERVER_STOPPED');
+  assert.equal(result.error.details.phase, 'startup');
+  assert.equal(spawns.length, 1);
+  assert.equal(delays.some((delay) => delay.active), false);
+  assert.equal(delays.some((delay) => delay.ms === 2500 && delay.canceled), true);
+});
+
+test('OpenCode server lifecycle managed restart during canceled startup preserves new current', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45890, 45891];
+  const children = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 1,
+    startupTimeoutMs: 1000,
+    gracefulShutdownMs: 25,
+    hardKillGraceMs: 25,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: () => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 3490 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      health() {
+        healthCalls.push(serverUrl);
+        if (serverUrl.endsWith(':45890')) return new Promise(() => {});
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  const firstStart = lifecycle.ensureStarted();
+  firstStart.catch(() => {});
+  await waitForConditionForTest(() => children.length === 1, 'OpenCode managed first startup spawned');
+  const shutdownPromise = lifecycle.shutdown();
+  await waitForConditionForTest(
+    () => children[0].killSignals.includes('SIGTERM'),
+    'OpenCode managed first startup termination began'
+  );
+
+  const secondStart = lifecycle.ensureStarted();
+  const started = await secondStart;
+  await assert.rejects(() => firstStart, (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_STOPPED');
+    assert.equal(error.details.phase, 'startup');
+    return true;
+  });
+  await shutdownPromise;
+
+  assert.equal(started.mode, 'managed');
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45891');
+  assert.equal(await lifecycle.ensureStarted(), started);
+  assert.equal(lifecycle.getDiagnostics().status, 'started');
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:45890', 'http://127.0.0.1:45891']);
+});
+
+test('OpenCode server lifecycle process tree terminator uses Windows taskkill force args', () => {
+  const { defaultProcessTreeTerminator } = require('../daemon/src/opencode-server-lifecycle');
+  const calls = [];
+  const result = defaultProcessTreeTerminator(9876, {
+    force: true,
+    platform: 'win32',
+    spawnSyncFn: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    }
+  });
+
+  assert.equal(result, true);
+  assert.deepEqual(calls, [{
+    command: 'taskkill',
+    args: ['/PID', '9876', '/T', '/F'],
+    options: { windowsHide: true, stdio: 'ignore' }
+  }]);
+});
+
+test('fake OpenCode server supports session, prompt, abort, permission, and SSE', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const baseUrl = fake.url;
+    const health = await fetchJsonForTest(`${baseUrl}/global/health`);
+    assert.equal(health.ok, true);
+
+    const session = await fetchJsonForTest(`${baseUrl}/session?directory=${encodeURIComponent(process.cwd())}`, {
+      method: 'POST',
+      body: '{}'
+    });
+    assert.equal(session.directory, process.cwd());
+    assert.ok(session.id);
+
+    const prompt = await fetchJsonForTest(`${baseUrl}/session/${session.id}/prompt_async`, {
+      method: 'POST',
+      body: JSON.stringify({ parts: [{ type: 'text', text: 'hello' }] })
+    });
+    assert.equal(prompt.ok, true);
+
+    const abort = await fetchJsonForTest(`${baseUrl}/session/${session.id}/abort`, {
+      method: 'POST',
+      body: '{}'
+    });
+    assert.equal(abort, true);
+
+    const permission = await fetchJsonForTest(`${baseUrl}/session/${session.id}/permissions/perm_1`, {
+      method: 'POST',
+      body: JSON.stringify({ response: 'once' })
+    });
+    assert.deepEqual(permission, { ok: true });
+    assert.equal(fake.permissionReplies[0].sessionId, session.id);
+    assert.equal(fake.permissionReplies[0].permissionId, 'perm_1');
+    assert.deepEqual(fake.permissionReplies[0].body, { response: 'once' });
+
+    const sseText = await readSseEventForTest(`${baseUrl}/global/event`, async () => {
+      await waitForConditionForTest(() => fake.sseClients.size === 1, 'fake OpenCode SSE client to connect');
+      fake.emitEvent({ type: 'session.idle', sessionID: session.id });
+    });
+    assert.match(sseText, /"type":"session\.idle"/);
+    assert.match(sseText, new RegExp(`"sessionID":"${session.id}"`));
+    assert.equal(fake.events.length, 1);
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'fake OpenCode SSE client to close');
+  } finally {
+    await fake.close();
+    assert.equal(fake.sseClients.size, 0);
+  }
 });
 
 test('Codex app-server availability marks disabled adapter unselectable', () => {
@@ -4119,7 +8080,7 @@ test('Codex app-server lifecycle rejects pending requests on child spawn error',
   assert.equal(lifecycle.handles.size, 0);
 });
 
-function createConversationManagerForTest({ adapters } = {}) {
+function createConversationManagerForTest({ adapters, persistentStore = null } = {}) {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
   const workspaces = new WorkspaceRegistry();
@@ -4147,6 +8108,7 @@ function createConversationManagerForTest({ adapters } = {}) {
     eventStore,
     auditLog,
     adapters: adapters || defaultAdapters,
+    persistentStore,
     now: () => new Date('2026-05-09T00:00:00.000Z')
   });
   const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
@@ -4630,6 +8592,297 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
     assert.equal(adapterNames.includes('claude'), true);
   } finally {
     app.appSqliteStore.close();
+  }
+});
+
+test('createApp lists OpenCode through lifecycle-backed availability', async () => {
+  const appDbPath = tempConversationDbPath('opencode-listing-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-perf-');
+  let starts = 0;
+  let healthCalls = 0;
+  const lifecycle = {
+    async ensureStarted() {
+      starts += 1;
+      return {
+        mode: 'managed',
+        serverUrl: 'http://127.0.0.1:65535',
+        owned: true,
+        client: {
+          async health() {
+            healthCalls += 1;
+            return { ok: true, version: 'fake-managed-opencode' };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return { status: starts > 0 ? 'started' : 'idle', lastError: null };
+    },
+    async shutdown() {}
+  };
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: 'http://127.0.0.1:1',
+    opencodeServerLifecycle: lifecycle
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+
+    assert.ok(opencode);
+    assert.equal(starts, 1);
+    assert.equal(healthCalls, 1);
+    assert.equal(opencode.available, true);
+    assert.equal(opencode.selectable, true);
+    assert.equal(opencode.status, 'available');
+    assert.equal(opencode.mode, 'managed');
+    assert.deepEqual(opencode.capabilities.attachments, {
+      image: 'unsupported',
+      textDocument: 'text_extract',
+      pdf: 'unsupported'
+    });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('createApp OpenCode listing uses explicit server URL without injected lifecycle', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const appDbPath = tempConversationDbPath('opencode-listing-explicit-url-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-explicit-url-perf-');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeCommand: 'missing-opencode-command-for-explicit-url-test',
+    opencodeServerUrl: fake.url
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-explicit-url-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+
+    assert.ok(opencode);
+    assert.equal(opencode.available, true);
+    assert.equal(opencode.selectable, true);
+    assert.equal(opencode.status, 'available');
+    assert.equal(opencode.mode, 'external');
+    assert.equal(opencode.serverUrl, fake.url);
+  } finally {
+    await fake.close();
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('createApp OpenCode listing diagnostics expose only allowlisted health and lifecycle fields', async () => {
+  const appDbPath = tempConversationDbPath('opencode-listing-diagnostics-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-diagnostics-perf-');
+  const secretPath = path.join(os.tmpdir(), 'opencode-listing-secret', 'provider.txt');
+  const providerBody = `provider body ${secretPath} SECRET_PROVIDER_BODY`;
+  const lifecycle = {
+    async ensureStarted() {
+      return {
+        mode: 'managed',
+        serverUrl: 'http://127.0.0.1:65535?directory=SECRET_QUERY',
+        owned: true,
+        client: {
+          async health() {
+            return {
+              ok: true,
+              version: `fake-version ${secretPath}`,
+              body: providerBody,
+              nested: { path: secretPath }
+            };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return {
+        status: 'started',
+        lastError: {
+          code: 'OPENCODE_SECRET_ERROR',
+          message: providerBody,
+          details: { path: secretPath, bodyText: providerBody }
+        },
+        serverUrl: `http://127.0.0.1:65535?directory=${encodeURIComponent(secretPath)}`
+      };
+    },
+    async shutdown() {}
+  };
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerLifecycle: lifecycle
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-diagnostics-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+    const publicText = JSON.stringify(opencode);
+
+    assert.ok(opencode);
+    assert.deepEqual(opencode.diagnostics.lifecycle, {
+      status: 'started',
+      lastError: { code: 'OPENCODE_SECRET_ERROR' }
+    });
+    assert.deepEqual(opencode.diagnostics.health, {
+      ok: true,
+      version: 'fake-version'
+    });
+    assert.equal(publicText.includes(secretPath), false);
+    assert.equal(publicText.includes(encodeURIComponent(secretPath)), false);
+    assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+    assert.equal(publicText.includes('SECRET_QUERY'), false);
+    assert.equal(publicText.includes('directory='), false);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('OpenCode conversation startup failure redacts external URL path and query', async () => {
+  const closed = await listenHttpServerForTest((_req, res) => sendJsonForTest(res, 200, { ok: true }));
+  const secretUrl = `${closed.url}/secret/path?token=TOP_SECRET`;
+  await closeHttpServerForTest(closed.server);
+  const appDbPath = tempConversationDbPath('opencode-conversation-startup-redaction-app-');
+  const perfDbPath = tempConversationDbPath('opencode-conversation-startup-redaction-perf-');
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: secretUrl
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-conversation-startup-redaction'
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'OpenCode Startup Redaction'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'opencode'
+    }, token);
+    const conversationId = created.body.conversation.id;
+
+    const failed = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+      text: 'trigger startup failure'
+    }, token);
+    assert.equal(failed.status, 503);
+
+    const listed = await request(port, 'GET', '/api/conversations', null, token);
+    const conversation = listed.body.conversations.find((item) => item.id === conversationId);
+    const events = await request(port, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, token);
+    const runError = events.body.events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+
+    assert.ok(runError);
+    assert.equal(conversation.status, 'failed');
+    assert.equal(failed.body.error.message, 'OpenCode server unavailable.');
+    assert.equal(runError.message, 'OpenCode server unavailable.');
+    assertNoOpenCodeStartupSecretLeak({
+      response: failed.body,
+      conversation,
+      events: events.body.events
+    });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('OpenCode legacy run startup failure redacts external URL path and query in events', async () => {
+  const closed = await listenHttpServerForTest((_req, res) => sendJsonForTest(res, 200, { ok: true }));
+  const secretUrl = `${closed.url}/secret/path?token=TOP_SECRET`;
+  await closeHttpServerForTest(closed.server);
+  const appDbPath = tempConversationDbPath('opencode-run-startup-redaction-app-');
+  const perfDbPath = tempConversationDbPath('opencode-run-startup-redaction-perf-');
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: secretUrl
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-run-startup-redaction'
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'OpenCode Run Startup Redaction'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/runs', {
+      tool: 'opencode',
+      workspaceId,
+      prompt: 'trigger startup failure'
+    }, token);
+    assert.equal(created.status, 201);
+
+    await waitForConditionForTest(
+      () => app.eventStore.list(created.body.id, 0).some((event) => event.type === eventTypes.RUN_FAILED),
+      'OpenCode legacy run startup failure'
+    );
+    const events = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=0`, null, token);
+    const adapterError = events.body.events.find((event) => event.type === eventTypes.ADAPTER_ERROR);
+    const runFailed = events.body.events.find((event) => event.type === eventTypes.RUN_FAILED);
+
+    assert.ok(adapterError);
+    assert.ok(runFailed);
+    assert.equal(adapterError.message, 'OpenCode server unavailable.');
+    assert.equal(runFailed.error, 'OpenCode server unavailable.');
+    assertNoOpenCodeStartupSecretLeak({ events: events.body.events });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
   }
 });
 
@@ -6784,6 +11037,65 @@ test('conversation public shape exposes requested and effective adapter fields',
   assert.equal(conversation.providerSession, null);
 });
 
+test('conversation manager omits provider cwd from restored summaries and event replay', () => {
+  const leakedCwd = path.join(os.tmpdir(), 'provider-session-secret-cwd');
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [{
+      id: 'conv_provider_session_public',
+      workspaceId: 'default',
+      workspacePath: process.cwd(),
+      adapter: 'opencode',
+      permissionMode: 'default',
+      deviceId: 'device_1',
+      status: 'idle',
+      cliSessionId: 'sess_1',
+      sessionBinding: conversationSessionBindings.CONFIRMED,
+      userMessageCount: 0,
+      blockingItem: null,
+      idleExpiresAt: null,
+      createdAt: '2026-06-08T00:00:00.000Z',
+      updatedAt: '2026-06-08T00:00:01.000Z',
+      capabilities: { resume: true },
+      handle: null,
+      providerSession: {
+        provider: 'opencode',
+        threadId: 'sess_1',
+        protocolVersion: 1,
+        cwd: leakedCwd,
+        createdAt: '2026-06-08T00:00:00.000Z'
+      }
+    }],
+    saveConversation(conversation) {
+      saves.push(conversation.providerSession);
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  eventStore.append('conv_provider_session_public', conversationEventTypes.SYSTEM_NOTICE, {
+    noticeKind: 'opencode_session_started',
+    visible: false,
+    providerSession: {
+      provider: 'opencode',
+      threadId: 'sess_1',
+      cwd: leakedCwd
+    }
+  });
+
+  const summary = manager.getConversation('conv_provider_session_public', device);
+  const events = manager.listEvents('conv_provider_session_public', 0, device);
+  const started = events.find((event) => event.noticeKind === 'opencode_session_started');
+  const publicJson = JSON.stringify({ summary, events, saves });
+
+  assert.equal(summary.providerSession.provider, 'opencode');
+  assert.equal(summary.providerSession.threadId, 'sess_1');
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.providerSession, 'cwd'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(saves[0], 'cwd'), false);
+  assert.equal(publicJson.includes(leakedCwd), false);
+  assert.equal(publicJson.includes(encodeURIComponent(leakedCwd)), false);
+  assert.equal(publicJson.includes('provider-session-secret-cwd'), false);
+});
+
 test('Codex app-server conversation adapter rejects sends before selectable probe', async () => {
   const { CodexAppServerConversationAdapter } = require('../daemon/src/codex-app-server-conversation-adapter');
   let spawnCount = 0;
@@ -7711,6 +12023,361 @@ test('conversation session drift keeps original CLI session id', async () => {
   assert.equal(summary.sessionBinding, 'drifted');
   assert.equal(warning.expectedSessionId, 'original-session');
   assert.equal(warning.receivedSessionId, 'drifted-session');
+});
+
+test('conversation manager clearSessionBinding clears session state and appends notice', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        id: conversation.id,
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession,
+        updatedAt: conversation.updatedAt
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.clearSessionBinding(conversation, {
+    reason: 'invalid session',
+    code: 'OPENCODE_INVALID_SESSION',
+    noticeKind: 'opencode_session_invalidated',
+    visible: true
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, null);
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.UNKNOWN);
+  assert.equal(conversation.providerSession, null);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].cliSessionId, null);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.UNKNOWN);
+  assert.equal(saves[0].providerSession, null);
+  const notice = eventStore.list(conversation.id, 0).find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(notice.noticeKind, 'opencode_session_invalidated');
+  assert.equal(notice.visible, true);
+  assert.equal(notice.reason, 'invalid session');
+  assert.equal(notice.code, 'OPENCODE_INVALID_SESSION');
+});
+
+test('conversation manager clearSessionBinding expected session mismatch leaves state unchanged', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({ cliSessionId: conversation.cliSessionId });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'actual_session';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.clearSessionBinding(conversation, {
+    expectedSessionId: 'expected_session',
+    reason: 'invalid session'
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    conflict: true,
+    expectedSessionId: 'expected_session',
+    actualSessionId: 'actual_session'
+  });
+  assert.equal(conversation.cliSessionId, 'actual_session');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.CONFIRMED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 0);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE), false);
+});
+
+test('conversation manager clearSessionBinding persistence failure rolls back state and skips notice', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.cliSessionId === null) throw new Error('persist failed');
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.clearSessionBinding(conversation, {
+      expectedSessionId: 'session_1',
+      reason: 'invalid session',
+      noticeKind: 'opencode_session_invalidated'
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE), false);
+});
+
+test('conversation manager markSessionBindingDrifted marks drift and appends warning', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'session_1',
+    receivedSessionId: 'session_2',
+    reason: 'invalid session',
+    code: 'OPENCODE_INVALID_SESSION'
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, 'session_1');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.DRIFTED);
+  const warning = eventStore.list(conversation.id, 0).find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(warning.expectedSessionId, 'session_1');
+  assert.equal(warning.receivedSessionId, 'session_2');
+  assert.equal(warning.reason, 'invalid session');
+  assert.equal(warning.code, 'OPENCODE_INVALID_SESSION');
+});
+
+test('conversation manager markSessionBindingDrifted persistence failure rolls back state and skips warning', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.sessionBinding === conversationSessionBindings.DRIFTED) {
+        throw new Error('persist failed');
+      }
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.markSessionBindingDrifted(conversation, {
+      expectedSessionId: 'session_1',
+      receivedSessionId: 'session_2',
+      reason: 'invalid session',
+      code: 'OPENCODE_INVALID_SESSION'
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager markSessionBindingDrifted clear true clears session ids and persists', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession
+      });
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'session_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'session_1',
+    receivedSessionId: 'session_2',
+    clear: true
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(conversation.cliSessionId, null);
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.equal(conversation.providerSession, null);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].cliSessionId, null);
+  assert.equal(saves[0].sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.equal(saves[0].providerSession, null);
+});
+
+test('conversation manager markSessionBindingDrifted clear persistence failure rolls back state and skips warning', () => {
+  let failSave = false;
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      if (failSave && conversation.sessionBinding === conversationSessionBindings.DRIFTED && conversation.cliSessionId === null) {
+        throw new Error('persist failed');
+      }
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  failSave = true;
+
+  assert.throws(
+    () => manager.markSessionBindingDrifted(conversation, {
+      expectedSessionId: 'session_1',
+      receivedSessionId: 'session_2',
+      clear: true
+    }),
+    /persist failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager markSessionBindingDrifted expected mismatch leaves state unchanged', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({ cliSessionId: conversation.cliSessionId });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'actual_session';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'thread_1' };
+  saves.length = 0;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'expected_session',
+    receivedSessionId: 'received_session',
+    reason: 'invalid session',
+    clear: true
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    conflict: true,
+    expectedSessionId: 'expected_session',
+    actualSessionId: 'actual_session'
+  });
+  assert.equal(conversation.cliSessionId, 'actual_session');
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.CONFIRMED);
+  assert.deepEqual(conversation.providerSession, { provider: 'opencode', threadId: 'thread_1' });
+  assert.equal(saves.length, 0);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager session binding helper events bound large diagnostic fields', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const hugeSessionId = `session_${'s'.repeat(5000)}`;
+  const hugeReceivedSessionId = `received_${'r'.repeat(5000)}`;
+  const hugeReason = `reason_${'x'.repeat(5000)}`;
+  const hugeCode = `CODE_${'y'.repeat(5000)}`;
+  const hugeNoticeKind = `notice_${'n'.repeat(5000)}`;
+
+  conversation.cliSessionId = hugeSessionId;
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.clearSessionBinding(conversation, {
+    expectedSessionId: hugeSessionId,
+    reason: hugeReason,
+    code: hugeCode,
+    noticeKind: hugeNoticeKind
+  });
+  conversation.cliSessionId = hugeSessionId;
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: hugeSessionId,
+    receivedSessionId: hugeReceivedSessionId,
+    reason: hugeReason,
+    code: hugeCode
+  });
+
+  const events = eventStore.list(conversation.id, 0);
+  const notice = events.find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  const warning = events.find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(notice.noticeKind.length <= 512, true);
+  assert.equal(notice.reason.length <= 512, true);
+  assert.equal(notice.code.length <= 512, true);
+  assert.equal(warning.expectedSessionId.length <= 512, true);
+  assert.equal(warning.receivedSessionId.length <= 512, true);
+  assert.equal(warning.reason.length <= 512, true);
+  assert.equal(warning.code.length <= 512, true);
+  const retained = JSON.stringify(events);
+  for (const leaked of [hugeSessionId, hugeReceivedSessionId, hugeReason, hugeCode, hugeNoticeKind]) {
+    assert.equal(retained.includes(leaked), false);
+  }
 });
 
 test('conversation manager restores persisted live conversation as interrupted', () => {
@@ -8989,6 +13656,321 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
   } finally {
     await new Promise((resolve) => restarted.server.close(resolve));
     restarted.conversationSqliteStore.close();
+  }
+});
+
+test('OpenCode conversation HTTP API drives a fake-server turn to idle', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Full Turn'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.conversation.adapter, 'opencode');
+    assert.equal(created.body.conversation.effectiveAdapter, 'opencode');
+    assert.equal(created.body.conversation.effectiveCapabilities.toolEvents, true);
+
+    const conversationId = created.body.conversation.id;
+    const sent = await fixture.post(`/api/conversations/${conversationId}/messages`, {
+      text: 'hello OpenCode HTTP'
+    });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.conversation.status, 'running');
+    await waitForConditionForTest(() => fixture.fake.promptBodies.length === 1, 'OpenCode HTTP prompt_async');
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP SSE client');
+
+    fixture.fake.emitEvent({
+      type: 'message.part.delta',
+      sessionID: 'sess_1',
+      messageId: 'msg_assistant',
+      partId: 'part_text',
+      text: 'partial answer'
+    });
+    fixture.fake.emitEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      messageId: 'msg_tool',
+      part_id: 'part_tool',
+      part: { type: 'tool_call', tool: 'bash', command: 'npm test', status: 'running' }
+    });
+    fixture.fake.emitEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      messageId: 'msg_tool',
+      partID: 'part_result',
+      part: { type: 'tool_result', toolCallID: 'tool_1', text: 'ok', status: 'completed' }
+    });
+    fixture.fake.emitEvent({
+      type: 'message.updated',
+      sessionID: 'sess_1',
+      message_id: 'msg_assistant',
+      message: { role: 'assistant', text: 'final answer' }
+    });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+
+    const idle = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP full turn idle'
+    );
+    assert.equal(idle.cliSessionId, 'sess_1');
+    assert.equal(idle.sessionBinding, conversationSessionBindings.CONFIRMED);
+    assert.equal(idle.providerSession.provider, 'opencode');
+    assert.equal(idle.providerSession.threadId, 'sess_1');
+    assert.equal(Object.prototype.hasOwnProperty.call(idle.providerSession, 'cwd'), false);
+    assert.deepEqual(fixture.fake.createRequests, [{ directory: fixture.workspacePath }]);
+    assert.deepEqual(fixture.fake.promptBodies, [{
+      sessionId: 'sess_1',
+      body: { parts: [{ type: 'text', text: 'hello OpenCode HTTP' }] }
+    }]);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const started = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_started');
+    assert.equal(events.some((event) => event.type === conversationEventTypes.USER_MESSAGE && event.text === 'hello OpenCode HTTP'), true);
+    assert.equal(started.providerSession.provider, 'opencode');
+    assert.equal(started.providerSession.threadId, 'sess_1');
+    assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL && event.text === 'partial answer'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_STARTED && event.toolName === 'bash'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_COMPLETED && event.text === 'ok'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_MESSAGE && event.text === 'final answer'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_COMPLETED && event.sessionId === 'sess_1'), true);
+    const publicJson = JSON.stringify({ idle, events });
+    assert.equal(publicJson.includes(fixture.workspacePath), false);
+    assert.equal(publicJson.includes(encodeURIComponent(fixture.workspacePath)), false);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP approval response reaches fake server and dedupes provider echo', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Permission'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'needs permission' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP approval SSE client');
+    fixture.fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_http',
+      toolCallId: 'tool_http',
+      tool: 'bash',
+      command: 'npm test'
+    });
+
+    const waiting = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'waiting_approval',
+      'OpenCode HTTP waiting approval'
+    );
+    assert.equal(waiting.blockingItem.type, 'approval_request');
+    assert.equal(waiting.blockingItem.approvalId, 'perm_http');
+    assert.equal(waiting.blockingItem.toolName, 'bash');
+    assert.equal(waiting.blockingItem.approvalOptions.supportsSessionScope, true);
+
+    const responded = await fixture.post(
+      `/api/conversations/${conversationId}/approvals/perm_http/respond`,
+      { decision: 'allow', scope: 'session' }
+    );
+    assert.equal(responded.status, 200);
+    assert.equal(responded.body.conversation.status, 'running');
+    assert.deepEqual(fixture.fake.permissionReplies, [{
+      sessionId: 'sess_1',
+      permissionId: 'perm_http',
+      body: { response: 'always' }
+    }]);
+
+    fixture.fake.emitEvent({
+      type: 'permission.replied',
+      sessionID: 'sess_1',
+      id: 'perm_http',
+      decision: 'allow'
+    });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP approval turn idle'
+    );
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const approvalResolved = events.filter((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(approvalResolved.length, 1);
+    assert.equal(approvalResolved[0].approvalId, 'perm_http');
+    assert.equal(approvalResolved[0].decision, 'allow');
+    assert.equal(approvalResolved[0].scope, 'session');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP cancel calls fake abort route', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Cancel'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'cancel me' });
+    await waitForConditionForTest(() => fixture.fake.promptBodies.length === 1, 'OpenCode HTTP cancellable prompt');
+
+    const cancelled = await fixture.post(`/api/conversations/${conversationId}/cancel`, {});
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.conversation.status, 'cancelled');
+    assert.deepEqual(fixture.fake.abortSessionIds, ['sess_1']);
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 0, 'OpenCode HTTP cancel closes SSE client');
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const cancellation = events.find((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED);
+    assert.equal(cancellation.reason, 'user_cancelled');
+    assert.equal(cancellation.cliSessionId, 'sess_1');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP missing stored session fails without replacement session', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Missing Session'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'first turn' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP first-turn SSE client');
+    fixture.fake.emitEvent({ type: 'message.updated', sessionID: 'sess_1', message: { role: 'assistant', text: 'ok' } });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    const firstIdle = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP first turn idle'
+    );
+    assert.equal(firstIdle.cliSessionId, 'sess_1');
+
+    fixture.fake.sessions.delete('sess_1');
+    const createRequestCount = fixture.fake.createRequests.length;
+    const promptCount = fixture.fake.promptBodies.length;
+    const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'later turn' });
+
+    assert.equal(failed.status, 409);
+    assert.equal(failed.body.error.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(fixture.fake.createRequests.length, createRequestCount);
+    assert.equal(fixture.fake.promptBodies.length, promptCount);
+    assert.deepEqual(fixture.fake.readSessionIds, ['sess_1']);
+
+    const summary = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'failed',
+      'OpenCode HTTP missing session failed'
+    );
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.UNKNOWN);
+    assert.equal(summary.providerSession, null);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const expired = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_expired');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_MISSING');
+    assert.equal(expired.visible, true);
+    assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(runError.status, 409);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP directory mismatch error does not expose provider paths', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Directory Mismatch'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'first turn' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP first-turn SSE client');
+    fixture.fake.emitEvent({ type: 'message.updated', sessionID: 'sess_1', message: { role: 'assistant', text: 'ok' } });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle' && conversation.cliSessionId === 'sess_1',
+      'OpenCode HTTP directory mismatch first turn idle'
+    );
+
+    const outsideDirectory = path.join(os.tmpdir(), 'opencode-secret-returnedDirectory', 'outside-workspace');
+    fixture.fake.sessions.set('sess_1', {
+      id: 'sess_1',
+      sessionID: 'sess_1',
+      directory: outsideDirectory
+    });
+    const createRequestCount = fixture.fake.createRequests.length;
+    const promptCount = fixture.fake.promptBodies.length;
+    const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'later turn' });
+
+    assert.equal(failed.status, 409);
+    assert.equal(failed.body.error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.deepEqual(failed.body.error.details, { reason: 'directory_mismatch' });
+    assert.equal(fixture.fake.createRequests.length, createRequestCount);
+    assert.equal(fixture.fake.promptBodies.length, promptCount);
+    assert.deepEqual(fixture.fake.readSessionIds, ['sess_1']);
+
+    const summary = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'failed',
+      'OpenCode HTTP directory mismatch failed'
+    );
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.DRIFTED);
+    assert.equal(summary.providerSession, null);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(runError.status, 409);
+
+    const responseJson = JSON.stringify(failed.body);
+    const eventsJson = JSON.stringify(events);
+    for (const publicJson of [responseJson, eventsJson]) {
+      assert.equal(publicJson.includes(fixture.workspacePath), false);
+      assert.equal(publicJson.includes(encodeURIComponent(fixture.workspacePath)), false);
+      assert.equal(publicJson.includes(outsideDirectory), false);
+      assert.equal(publicJson.includes(encodeURIComponent(outsideDirectory)), false);
+      assert.equal(publicJson.includes('opencode-secret-returnedDirectory'), false);
+      assert.equal(publicJson.includes('returnedDirectory'), false);
+      assert.equal(publicJson.includes('expectedWorkspacePath'), false);
+    }
+  } finally {
+    await fixture.close();
   }
 });
 
@@ -12611,6 +17593,42 @@ function createFakeAppServerChild({ pid = 1234, kill } = {}) {
   return child;
 }
 
+function createFakeOpenCodeServerChild({ pid = 1234, kill } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.pid = pid;
+  child.kill = kill || (() => true);
+  return child;
+}
+
+function createOpenCodeConversationAdapterForFake(fake, { timeoutMs = 1000 } = {}) {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  let starts = 0;
+  const lifecycle = {
+    async ensureStarted() {
+      starts += 1;
+      return {
+        mode: 'external',
+        serverUrl: fake.url,
+        client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs }),
+        owned: false
+      };
+    },
+    getDiagnostics() {
+      return { status: starts > 0 ? 'started' : 'idle', lastError: null };
+    },
+    get starts() {
+      return starts;
+    }
+  };
+  return {
+    adapter: new OpenCodeConversationAdapter({ lifecycle }),
+    lifecycle
+  };
+}
+
 function fakeCodexConversationSpawnSync(_cmd, args) {
   if (args.includes('--version')) return { status: 0, stdout: 'codex-cli 0.130.0', stderr: '' };
   if (args.includes('resume') && args.includes('--help')) return { status: 0, stdout: 'Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]\n--json\n--skip-git-repo-check', stderr: '' };
@@ -12672,6 +17690,201 @@ async function request(port, method, path, body, token) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+async function createOpenCodeHttpConversationFixture({
+  workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-http-workspace-')),
+  workspaceName = 'OpenCode HTTP Test'
+} = {}) {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let app = null;
+  try {
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', serverUrl: fake.url };
+      },
+      async shutdown() {}
+    };
+    app = createApp({
+      port: 0,
+      codexAppServerEnabled: false,
+      opencodeServerLifecycle: lifecycle,
+      conversationDbPath: tempConversationDbPath('opencode-http-conversation-'),
+      perfDbPath: tempConversationDbPath('opencode-http-perf-')
+    });
+    await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    const port = app.server.address().port;
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: workspaceName
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath,
+      name: workspaceName
+    }, token);
+    const workspaces = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces;
+    const workspace = workspaces.find((item) => item.path === path.resolve(workspacePath));
+    assert.ok(workspace, `workspace ${workspacePath} was not created`);
+
+    const call = (method, pathValue, body = null) => request(port, method, pathValue, body, token);
+    return {
+      app,
+      fake,
+      port,
+      token,
+      workspaceId: workspace.id,
+      workspacePath: path.resolve(workspacePath),
+      get: (pathValue) => call('GET', pathValue),
+      post: (pathValue, body = {}) => call('POST', pathValue, body),
+      close: async () => {
+        try {
+          await fake.close();
+        } finally {
+          await closeAppResources(app);
+        }
+      }
+    };
+  } catch (error) {
+    await fake.close().catch(() => {});
+    if (app) await closeAppResources(app).catch(() => {});
+    throw error;
+  }
+}
+
+async function waitForOpenCodeHttpConversation(fixture, conversationId, predicate, description) {
+  let matched = null;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1000) {
+    const listed = await fixture.get('/api/conversations');
+    matched = listed.body.conversations.find((conversation) => conversation.id === conversationId) || null;
+    if (matched && predicate(matched)) return matched;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${description}`);
+}
+
+async function fetchJsonForTest(url, options = {}) {
+  const parsed = new URL(url);
+  const payload = options.body || '';
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: options.method || 'GET',
+      headers: payload ? {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      } : undefined
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(text ? JSON.parse(text) : null);
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function listenHttpServerForTest(handler) {
+  const server = http.createServer(handler);
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve({
+        server,
+        url: `http://127.0.0.1:${server.address().port}`
+      });
+    });
+  });
+}
+
+function closeHttpServerForTest(server) {
+  return new Promise((resolve) => server.close(resolve));
+}
+
+function sendJsonForTest(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload)
+  });
+  res.end(payload);
+}
+
+async function readSseEventForTest(url, trigger) {
+  const parsed = new URL(url);
+  return new Promise((resolve, reject) => {
+    let req;
+    let response;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error(`timed out waiting for SSE event from ${url}`));
+    }, 1000);
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      response?.destroy();
+      req?.destroy();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+
+    req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+      headers: { accept: 'text/event-stream' }
+    }, (res) => {
+      response = res;
+      if (res.statusCode !== 200) {
+        finish(new Error(`expected SSE status 200, got ${res.statusCode}`));
+        return;
+      }
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        text += chunk;
+        if (text.includes('\n\n') && text.includes('data:')) finish(null, text);
+      });
+      res.on('error', finish);
+      Promise.resolve().then(trigger).catch(finish);
+    });
+    req.on('error', (error) => {
+      if (!settled) finish(error);
+    });
+    req.end();
+  });
+}
+
+async function waitForConditionForTest(predicate, description, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${description}`);
 }
 
 async function createCodexAppServerRouteTestApp({
@@ -18490,6 +23703,25 @@ function attemptPublicMutation(mutator) {
     // Getter-only properties throw in this strict test file; non-strict callers may see ignored writes.
   }
 }
+
+function assertNoOpenCodeStartupSecretLeak(value) {
+  const text = JSON.stringify(value);
+  const forbidden = [
+    'secret/path',
+    'token=',
+    'TOP_SECRET',
+    'secret%2Fpath',
+    '%2Fsecret%2Fpath',
+    'token%3D',
+    encodeURIComponent('/secret/path?token=TOP_SECRET'),
+    encodeURIComponent('secret/path?token=TOP_SECRET'),
+    encodeURIComponent('token=TOP_SECRET')
+  ];
+  for (const marker of forbidden) {
+    assert.equal(text.includes(marker), false, `OpenCode startup secret leaked marker ${marker} in ${text}`);
+  }
+}
+
 (async () => {
   let passed = 0;
   for (const item of tests) {

@@ -7707,6 +7707,45 @@ diff --git a/lib/main.dart b/lib/main.dart
         findsNothing);
   });
 
+  testWidgets('OpenCode expired session notice uses zh recovery copy',
+      (WidgetTester tester) async {
+    final message = workbenchMessageFromConversation(const ConversationMessage(
+      role: 'notice',
+      text:
+          'The previous OpenCode session is no longer available. Start a new message to create a fresh session.',
+      noticeKind: 'opencode_session_expired',
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopApproval,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('OpenCode 会话已重置'), findsOneWidget);
+    expect(find.text('会话'), findsOneWidget);
+    expect(find.text('之前的 OpenCode 会话已不可用。发送新消息即可创建新的会话。'),
+        findsOneWidget);
+    expect(find.text('System notice'), findsNothing);
+    expect(find.text('系统提示'), findsNothing);
+    expect(
+        find.text(
+            'The previous OpenCode session is no longer available. Start a new message to create a fresh session.'),
+        findsNothing);
+  });
+
   testWidgets('thinking card title uses active locale',
       (WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
