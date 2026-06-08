@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/data/services/conversation_event_cache_store.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 
@@ -60,6 +61,34 @@ void main() {
 
     expect(page!.events, hasLength(1));
     expect(page.events.single.text, 'new');
+  });
+
+  test('preserves approval options across cache persistence', () async {
+    const approvalOptions = ApprovalRequestOptions(
+      supportsSessionScope: true,
+      supportsCancel: true,
+      denyBehavior: ApprovalDenyBehavior.continueTurn,
+      command: 'opencode run',
+    );
+    await store.upsertEvents('daemon', 'conv_1', <ConversationEvent>[
+      _event(
+        seq: 1,
+        type: 'approval.requested',
+        approvalId: 'approval_1',
+        approvalOptions: approvalOptions,
+      ),
+    ]);
+
+    final reloaded = LocalConversationEventCacheStore(
+      rootDirectoryProvider: () async => tempDir,
+    );
+    final page = await reloaded.readTail('daemon', 'conv_1', limit: 10);
+    final restoredOptions = page!.events.single.approvalOptions;
+
+    expect(restoredOptions.supportsSessionScope, isTrue);
+    expect(restoredOptions.supportsCancel, isTrue);
+    expect(restoredOptions.denyBehavior, ApprovalDenyBehavior.continueTurn);
+    expect(restoredOptions.command, 'opencode run');
   });
 
   test('reads older cached page before a seq', () async {
@@ -156,15 +185,28 @@ Future<File> _firstRecordFileAfterWrite(
 ConversationEvent _event({
   String conversationId = 'conv_1',
   required int seq,
+  String type = 'assistant.message',
   String? text,
+  String? approvalId,
+  ApprovalRequestOptions approvalOptions = const ApprovalRequestOptions(),
 }) {
   final second = (seq % 60).toString().padLeft(2, '0');
-  return ConversationEvent.fromJson(<String, Object?>{
-    'type': 'assistant.message',
-    'seq': seq,
-    'conversationId': conversationId,
-    'createdAt': '2026-05-31T00:00:$second.000Z',
-    'text': text ?? 'event $seq',
-    'rawMarker': 'raw $seq',
-  });
+  return ConversationEvent(
+    type: type,
+    seq: seq,
+    conversationId: conversationId,
+    createdAt: DateTime.parse('2026-05-31T00:00:$second.000Z'),
+    text: text ?? 'event $seq',
+    approvalId: approvalId,
+    approvalOptions: approvalOptions,
+    raw: <String, Object?>{
+      'type': type,
+      'seq': seq,
+      'conversationId': conversationId,
+      'createdAt': '2026-05-31T00:00:$second.000Z',
+      'text': text ?? 'event $seq',
+      if (approvalId != null) 'approvalId': approvalId,
+      'rawMarker': 'raw $seq',
+    },
+  );
 }

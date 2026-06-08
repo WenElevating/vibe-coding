@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/approval_models.dart';
 import '../../models/protocol.dart';
 
 typedef ConversationEventCacheRootProvider = Future<Directory> Function();
@@ -384,6 +385,9 @@ Map<String, Object?> _eventToJson(ConversationEvent event) {
   if (event.summary != null) raw['summary'] = event.summary;
   if (event.suggestions.isNotEmpty) raw['suggestions'] = event.suggestions;
   if (event.input.isNotEmpty) raw['input'] = event.input;
+  if (_shouldPersistApprovalOptions(event)) {
+    raw['approvalOptions'] = event.approvalOptions.toJson();
+  }
   if (event.exitCode != null) raw['exitCode'] = event.exitCode;
   if (event.isError) raw['isError'] = event.isError;
   if (event.durationMs != null) raw['durationMs'] = event.durationMs;
@@ -402,6 +406,22 @@ Map<String, Object?> _attachmentToJson(CommittedAttachment attachment) =>
       'sizeBytes': attachment.sizeBytes,
       'handling': _attachmentHandlingName(attachment.handling),
     };
+
+bool _shouldPersistApprovalOptions(ConversationEvent event) {
+  final options = event.approvalOptions;
+  return event.type == 'approval.requested' ||
+      event.approvalId != null ||
+      event.raw.containsKey('approvalOptions') ||
+      options.kind != ApprovalRequestKind.generic ||
+      options.supportsSessionScope ||
+      options.supportsCancel ||
+      options.denyBehavior != ApprovalDenyBehavior.interrupt ||
+      options.command != null ||
+      options.cwd != null ||
+      options.reason != null ||
+      options.proposedExecPolicyAmendment.isNotEmpty ||
+      options.proposedPermissions.isNotEmpty;
+}
 
 String _attachmentHandlingName(AttachmentHandling handling) =>
     switch (handling) {
