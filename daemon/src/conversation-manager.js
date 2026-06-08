@@ -462,6 +462,7 @@ class ConversationManager {
       conversation.blockingItem = null;
       conversation.blockingQueue = [];
       conversation.idleExpiresAt = null;
+      await this.disposeFailedConversationHandle(conversation);
       conversation.handle = null;
       this.touch(conversation);
       const dispatchError = sanitizeAdapterDispatchError(error, { hasAttachments, files });
@@ -660,25 +661,7 @@ class ConversationManager {
   }
 
   markConversationDispatchFailed(conversation, error) {
-    const failedHandle = conversation.handle;
-    if (failedHandle && typeof failedHandle.dispose === 'function') {
-      try {
-        const disposeResult = failedHandle.dispose();
-        if (disposeResult && typeof disposeResult.catch === 'function') {
-          disposeResult.catch((disposeError) => {
-            this.auditLog.record('conversation.handle_dispose_error', {
-              conversationId: conversation.id,
-              error: disposeError.message
-            });
-          });
-        }
-      } catch (disposeError) {
-        this.auditLog.record('conversation.handle_dispose_error', {
-          conversationId: conversation.id,
-          error: disposeError.message
-        });
-      }
-    }
+    this.disposeFailedConversationHandle(conversation);
     conversation.status = conversationStatuses.FAILED;
     conversation.blockingItem = null;
     conversation.idleExpiresAt = null;
@@ -686,6 +669,19 @@ class ConversationManager {
     this.touch(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.RUN_ERROR, runErrorPayload(error));
     this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+  }
+
+  async disposeFailedConversationHandle(conversation) {
+    const failedHandle = conversation.handle;
+    if (!failedHandle || typeof failedHandle.dispose !== 'function') return;
+    try {
+      await failedHandle.dispose();
+    } catch (disposeError) {
+      this.auditLog.record('conversation.handle_dispose_error', {
+        conversationId: conversation.id,
+        error: disposeError.message
+      });
+    }
   }
 
   listEventPage(conversationId, pageRequest, device) {

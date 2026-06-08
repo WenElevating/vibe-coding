@@ -14055,6 +14055,54 @@ test('OpenCode conversation HTTP cancel calls fake abort route', async () => {
   }
 });
 
+test('OpenCode conversation HTTP prompt failure disposes SSE handle', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Prompt Failure'
+  });
+  try {
+    fixture.fake.failPrompt('sess_1', {
+      status: 500,
+      body: { error: { code: 'PROMPT_FAILED' } },
+      waitForSseClient: true
+    });
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+
+    const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, {
+      text: 'fail prompt dispatch'
+    });
+
+    assert.equal(failed.status, 500);
+    assert.equal(failed.body.error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(fixture.fake.sseOpenCount, 1);
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 0, 'OpenCode HTTP failed prompt closes SSE client');
+    assert.deepEqual(fixture.fake.promptBodies, [{
+      sessionId: 'sess_1',
+      body: { parts: [{ type: 'text', text: 'fail prompt dispatch' }] }
+    }]);
+
+    const summary = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'failed',
+      'OpenCode HTTP prompt failure conversation failed'
+    );
+    assert.equal(summary.cliSessionId, 'sess_1');
+    assert.equal(summary.sessionBinding, conversationSessionBindings.CONFIRMED);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SERVER_HTTP_ERROR');
+    assert.equal(runError.status, 500);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('OpenCode conversation HTTP missing stored session fails without replacement session', async () => {
   const fixture = await createOpenCodeHttpConversationFixture({
     workspaceName: 'OpenCode HTTP Missing Session'

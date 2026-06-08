@@ -10,6 +10,7 @@ class FakeOpenCodeServer extends EventEmitter {
     this.events = [];
     this.permissionReplies = [];
     this.permissionReplyFailures = new Map();
+    this.promptFailures = new Map();
     this.promptBodies = [];
     this.createRequests = [];
     this.readSessionIds = [];
@@ -49,6 +50,14 @@ class FakeOpenCodeServer extends EventEmitter {
     });
   }
 
+  failPrompt(sessionId, { status = 500, body = null, waitForSseClient = false } = {}) {
+    this.promptFailures.set(String(sessionId), {
+      status,
+      body: body || { error: { code: 'PROMPT_FAILED' } },
+      waitForSseClient: waitForSseClient === true
+    });
+  }
+
   async handle(req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/global/health') {
@@ -66,6 +75,7 @@ class FakeOpenCodeServer extends EventEmitter {
       res.flushHeaders?.();
       this.sseClients.add(res);
       this.sseOpenCount += 1;
+      this.emit('sseClient');
       req.on('close', () => {
         if (this.sseClients.delete(res)) this.sseCloseCount += 1;
       });
@@ -93,6 +103,11 @@ class FakeOpenCodeServer extends EventEmitter {
       if (!this.sessions.has(sessionId)) return sendJson(res, 404, { error: { code: 'SESSION_NOT_FOUND' } });
       const body = await readJson(req);
       this.promptBodies.push({ sessionId, body });
+      const failure = this.promptFailures.get(sessionId);
+      if (failure) {
+        if (failure.waitForSseClient) await this.waitForSseClient();
+        return sendJson(res, failure.status, failure.body);
+      }
       return sendJson(res, 200, { ok: true });
     }
     const abortMatch = url.pathname.match(/^\/session\/([^/]+)\/abort$/);
@@ -116,6 +131,17 @@ class FakeOpenCodeServer extends EventEmitter {
       return sendJson(res, 200, { ok: true });
     }
     return sendJson(res, 404, { error: { code: 'NOT_FOUND' } });
+  }
+
+  waitForSseClient(timeoutMs = 500) {
+    if (this.sseClients.size > 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      this.once('sseClient', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 }
 
