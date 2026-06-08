@@ -766,39 +766,50 @@ function isPathLikeKey(key) {
 function workspaceBoundPath(filePath, workspacePath) {
   const rawPath = String(filePath || '').trim();
   if (!rawPath) return '';
-  if (!workspacePath || !String(workspacePath).trim()) return safeRelativeDisplayPath(rawPath);
-  const workspaceRoot = path.resolve(workspacePath);
-  const candidate = path.isAbsolute(rawPath)
-    ? path.resolve(rawPath)
-    : path.resolve(workspaceRoot, rawPath);
-  const comparableRoot = caseComparablePath(workspaceRoot);
-  const comparableCandidate = caseComparablePath(candidate);
+  const flavor = pathFlavor(rawPath, workspacePath);
+  const pathApi = flavor === 'win32' ? path.win32 : path.posix;
+  if (!workspacePath || !String(workspacePath).trim()) return safeRelativeDisplayPath(rawPath, pathApi);
+  const workspaceRoot = pathApi.resolve(String(workspacePath));
+  const candidate = pathApi.isAbsolute(rawPath)
+    ? pathApi.normalize(rawPath)
+    : pathApi.resolve(workspaceRoot, rawPath);
+  const comparableRoot = caseComparablePath(workspaceRoot, flavor);
+  const comparableCandidate = caseComparablePath(candidate, flavor);
   if (
     comparableCandidate === comparableRoot ||
-    comparableCandidate.startsWith(`${comparableRoot}${path.sep}`)
+    comparableCandidate.startsWith(`${comparableRoot}${pathApi.sep}`)
   ) {
-    const relative = path.relative(workspaceRoot, candidate);
-    return safeRelativeDisplayPath(relative || path.basename(candidate));
+    const relative = pathApi.relative(workspaceRoot, candidate);
+    return safeRelativeDisplayPath(relative || pathApi.basename(candidate), pathApi);
   }
-  return boundedDisplayPath(path.basename(candidate) || path.basename(rawPath));
+  return boundedDisplayPath(pathApi.basename(candidate) || pathApi.basename(rawPath));
 }
 
-function safeRelativeDisplayPath(filePath) {
+function safeRelativeDisplayPath(filePath, pathApi = path) {
   const rawPath = String(filePath || '').trim();
   if (!rawPath) return '';
-  if (path.isAbsolute(rawPath)) return boundedDisplayPath(path.basename(rawPath));
-  const normalized = normalizePathSeparators(path.normalize(rawPath)).replace(/^\.\//, '');
+  if (pathApi.isAbsolute(rawPath)) return boundedDisplayPath(pathApi.basename(rawPath));
+  const normalized = normalizePathSeparators(pathApi.normalize(rawPath)).replace(/^\.\//, '');
   const parts = normalized.split('/').filter(Boolean);
-  if (parts.includes('..')) return boundedDisplayPath(path.basename(normalized));
-  return boundedDisplayPath(normalized || path.basename(rawPath));
+  if (parts.includes('..')) return boundedDisplayPath(pathApi.basename(normalized));
+  return boundedDisplayPath(normalized || pathApi.basename(rawPath));
 }
 
 function boundedDisplayPath(value) {
   return limitString(String(value || ''), RAW_LIMITS.maxStringLength);
 }
 
-function caseComparablePath(filePath) {
-  return process.platform === 'win32' ? filePath.toLowerCase() : filePath;
+function caseComparablePath(filePath, flavor) {
+  return flavor === 'win32' ? filePath.toLowerCase() : filePath;
+}
+
+function pathFlavor(...paths) {
+  return paths.some((value) => {
+    const text = String(value || '');
+    return /^[a-zA-Z]:[\\/]/.test(text) || /^\\\\/.test(text) || text.includes('\\');
+  })
+    ? 'win32'
+    : 'posix';
 }
 
 function normalizePathSeparators(filePath) {

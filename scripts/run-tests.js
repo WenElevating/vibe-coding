@@ -1684,6 +1684,58 @@ test('OpenCode direct file path metadata is bounded for permissions, files, and 
   assert.equal(retained.includes(hugePath), false);
 });
 
+test('OpenCode direct file path metadata follows provider path flavor', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsWorkspace = 'C:\\workspace\\project';
+  const windowsInside = 'C:\\workspace\\project\\src\\inside.txt';
+  const windowsOutside = 'C:\\opencode-secret\\outside.txt';
+  const posixWorkspace = '/workspace/project';
+  const posixInside = '/workspace/project/src/inside.txt';
+  const posixOutside = '/opencode-secret/outside.txt';
+
+  const windowsFile = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    path: windowsInside
+  }, { workspacePath: windowsWorkspace });
+  const windowsOutsidePermission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    id: 'perm_windows_outside',
+    filePath: windowsOutside
+  }, { workspacePath: posixWorkspace });
+  const posixFile = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_1',
+    path: posixInside
+  }, { workspacePath: posixWorkspace });
+  const posixOutsideTool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_1',
+    partID: 'part_posix_outside',
+    part: {
+      type: 'tool_call',
+      tool: 'edit',
+      status: 'running',
+      path: posixOutside
+    }
+  }, { workspacePath: windowsWorkspace });
+  const retained = JSON.stringify({
+    windowsFile,
+    windowsOutsidePermission,
+    posixFile,
+    posixOutsideTool
+  });
+
+  assert.equal(windowsFile.path, 'src/inside.txt');
+  assert.equal(windowsOutsidePermission.input.path, 'outside.txt');
+  assert.equal(posixFile.path, 'src/inside.txt');
+  assert.equal(posixOutsideTool.input.path, 'outside.txt');
+  assert.equal(retained.includes('opencode-secret'), false);
+  assert.equal(retained.includes(windowsOutside), false);
+  assert.equal(retained.includes(posixOutside), false);
+});
+
 test('OpenCode mapped provider metadata fields are bounded outside raw', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const huge = 'x'.repeat(1024 * 1024);
