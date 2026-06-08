@@ -2978,6 +2978,86 @@ test('OpenCode conversation adapter cancels pending approval on SSE disconnect',
   }
 });
 
+test('OpenCode conversation adapter stream errors expose only allowlisted diagnostics', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-stream-error-secret', 'provider.txt');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-stream-error-workspace');
+  const events = [];
+  let streamErrorHandler = null;
+  let closed = false;
+  const client = {
+    async createSession() {
+      return { id: 'sess_stream_error', directory: workspacePath };
+    },
+    subscribeEvents(_onEvent, onError) {
+      streamErrorHandler = onError;
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {
+          closed = true;
+        }
+      };
+    },
+    async promptAsync() {},
+    async abortSession() {}
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535/secret/path?token=SECRET_QUERY',
+          owned: false,
+          client
+        };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_stream_error_redaction',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+
+  await handle.sendUserMessage('start turn');
+  streamErrorHandler(Object.assign(
+    new Error(`stream failed for ${secretPath} token=SECRET_QUERY`),
+    {
+      status: 502,
+      code: 'OPENCODE_SERVER_NETWORK_ERROR',
+      details: {
+        method: 'GET',
+        path: '/global/event',
+        providerCode: 'UPSTREAM_FAILED',
+        reason: 'request_failed',
+        body: `SECRET_PROVIDER_BODY ${secretPath}`,
+        nested: { path: secretPath }
+      }
+    }
+  ));
+
+  const runError = events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+  const publicText = JSON.stringify(runError);
+
+  assert.equal(closed, true);
+  assert.equal(runError.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+  assert.deepEqual(runError.details, {
+    cause: {
+      status: 502,
+      code: 'OPENCODE_SERVER_NETWORK_ERROR',
+      details: {
+        method: 'GET',
+        path: '/global/event',
+        providerCode: 'UPSTREAM_FAILED',
+        reason: 'request_failed'
+      }
+    }
+  });
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+  assert.equal(publicText.includes('SECRET_QUERY'), false);
+});
+
 test('OpenCode conversation adapter closes fatal SSE parse errors and ignores later stream events', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();

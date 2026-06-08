@@ -757,12 +757,36 @@ function publicServerUrl(value) {
 
 function errorDetails(error) {
   if (!error) return null;
-  return safeDiagnosticObject({
-    status: error.status,
-    code: error.code || error.name,
-    message: error.message,
-    details: error.details
-  });
+  const result = {};
+  const status = safeHttpStatus(error.status);
+  if (status) result.status = status;
+  const code = safeTokenString(error.code || error.name);
+  if (code) result.code = code;
+  const details = safePublicErrorDetails(error.details);
+  if (details) result.details = details;
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function safePublicErrorDetails(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const result = {};
+  const status = safeHttpStatus(value.status);
+  if (status) result.status = status;
+  const method = safeHttpMethod(value.method);
+  if (method) result.method = method;
+  const routePath = safeRoutePath(value.path);
+  if (routePath) result.path = routePath;
+  const code = safeTokenString(value.code);
+  if (code) result.code = code;
+  const providerCode = safeTokenString(value.providerCode);
+  if (providerCode) result.providerCode = providerCode;
+  const providerStatus = safeTokenString(value.providerStatus);
+  if (providerStatus) result.providerStatus = providerStatus;
+  const reason = safeTokenString(value.reason);
+  if (reason) result.reason = reason;
+  const timeoutMs = safeBoundedInteger(value.timeoutMs, 1, 300000);
+  if (timeoutMs !== null) result.timeoutMs = timeoutMs;
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 function safeDiagnosticObject(value, depth = 0, seen = new Set()) {
@@ -810,6 +834,24 @@ function safeHttpStatus(value) {
   const status = Number(value);
   if (!Number.isInteger(status) || status < 100 || status > 599) return null;
   return status;
+}
+
+function safeBoundedInteger(value, min, max) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < min || number > max) return null;
+  return number;
+}
+
+function safeHttpMethod(value) {
+  const method = safeTokenString(value, 16);
+  if (!method) return null;
+  return ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(method) ? method : null;
+}
+
+function safeRoutePath(value) {
+  const text = safeString(value);
+  if (!text || text.length > 128 || !text.startsWith('/') || text.includes('?')) return null;
+  return /^[A-Za-z0-9_/:.-]+$/.test(text) ? text : null;
 }
 
 function safeDisplayString(value, maxLength = 128) {

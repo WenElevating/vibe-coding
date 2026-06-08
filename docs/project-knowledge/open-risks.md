@@ -114,3 +114,19 @@
 - Mitigation: encode every id inserted into mobile URL path segments and decode
   every daemon route segment before domain/service lookup.
 - Last verified: 2026-06-09
+
+## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
+
+- Level: medium
+- Impact: lifecycle, SSE, or provider-client errors may contain local paths,
+  query strings, or provider response bodies. Copying raw `error.message` or
+  recursive `error.details` into adapter status or conversation timeline events
+  can expose those values to paired mobile clients and diagnostic exports.
+- Evidence: `daemon/src/opencode-conversation-adapter.js` projects lifecycle
+  diagnostics and stream-error causes through allowlists; `scripts/run-tests.js`
+  covers lifecycle diagnostics exceptions and active-turn stream errors with
+  secret path/body/query fixtures.
+- Mitigation: preserve allowlist projection for OpenCode public diagnostics and
+  conversation event details. Do not add raw provider exception messages/details
+  to public status, timeline, or diagnostic-export surfaces.
+- Last verified: 2026-06-09
