@@ -168,7 +168,10 @@ class OpenCodeServerLifecycle {
       const healthPromise = Promise.resolve()
         .then(() => client.health({ signal: abortController.signal }))
         .then(
-          () => ({ type: 'healthy' }),
+          (health) => {
+            assertHealthyResponse(health);
+            return { type: 'healthy' };
+          },
           (error) => ({ type: 'health_error', error })
         );
       const stopSignal = this._createGenerationChangeSignal(generation);
@@ -335,7 +338,10 @@ class OpenCodeServerLifecycle {
       const healthPromise = Promise.resolve()
         .then(() => client.health({ signal: abortController.signal }))
         .then(
-          () => ({ type: 'healthy' }),
+          (health) => {
+            assertHealthyResponse(health);
+            return { type: 'healthy' };
+          },
           (error) => ({ type: 'health_error', error })
         );
       const stopSignal = this._createGenerationChangeSignal(generation);
@@ -576,6 +582,14 @@ function normalizeNumber(value, fallback, min) {
 function normalizeExternalUrl(value) {
   const text = String(value || '').trim();
   return text || null;
+}
+
+function assertHealthyResponse(value) {
+  if (!value || typeof value !== 'object' || value.ok !== false) return;
+  throw createLifecycleError('OpenCode server health check reported unavailable', {
+    code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
+    details: { reason: 'health_not_ok' }
+  });
 }
 
 function throwIfStopped(startGeneration, currentGeneration, phase) {

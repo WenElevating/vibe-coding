@@ -4074,6 +4074,33 @@ test('OpenCode server lifecycle external mode health-checks URL without spawning
   });
 });
 
+test('OpenCode server lifecycle external mode rejects ok false health body', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:45771',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls += 1;
+        return { ok: false, message: 'not ready C:\\secret\\opencode-health.txt' };
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_UNAVAILABLE');
+    assert.equal(error.details.cause.code, 'OPENCODE_SERVER_HEALTH_UNAVAILABLE');
+    assert.equal(JSON.stringify(error.details).includes('opencode-health'), false);
+    return true;
+  });
+  assert.equal(healthCalls, 1);
+  assert.equal(lifecycle.getDiagnostics().status, 'failed');
+});
+
 test('OpenCode server lifecycle external shutdown during health check prevents started state', async () => {
   const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
   let releaseHealth = null;
@@ -4353,6 +4380,53 @@ test('OpenCode server lifecycle managed mode resolves command and starts explici
   const again = await lifecycle.ensureStarted();
   assert.equal(again, started);
   assert.equal(spawns.length, 1);
+});
+
+test('OpenCode server lifecycle managed mode retries ok false health body', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const ports = [45679, 45680];
+  const children = [];
+  const spawns = [];
+  const healthCalls = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    startupAttempts: 2,
+    startupTimeoutMs: 25,
+    healthPollIntervalMs: 1,
+    retryDelayMs: 1,
+    findAvailablePort: async () => ports.shift(),
+    spawnFn: (command, args, options) => {
+      const child = createFakeOpenCodeServerChild({
+        pid: 2500 + children.length,
+        kill(signal) {
+          child.killSignals.push(signal || 'SIGTERM');
+          if (signal === 'SIGTERM') setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+          return true;
+        }
+      });
+      child.killSignals = [];
+      children.push(child);
+      spawns.push({ command, args, options });
+      return child;
+    },
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        healthCalls.push(serverUrl);
+        if (serverUrl.endsWith(':45679')) return { ok: false, message: 'not ready C:\\secret\\opencode-health.txt' };
+        return { ok: true };
+      }
+    })
+  });
+
+  const started = await lifecycle.ensureStarted();
+
+  assert.equal(started.serverUrl, 'http://127.0.0.1:45680');
+  assert.equal(spawns.length, 2);
+  assert.deepEqual(spawns.map((spawned) => spawned.args[spawned.args.indexOf('--port') + 1]), ['45679', '45680']);
+  assert.deepEqual(children[0].killSignals, ['SIGTERM']);
+  assert.deepEqual(healthCalls, ['http://127.0.0.1:45679', 'http://127.0.0.1:45680']);
+  assert.equal(JSON.stringify(lifecycle.getDiagnostics()).includes('opencode-health'), false);
 });
 
 test('OpenCode server lifecycle retries managed startup with a fresh port and child', async () => {

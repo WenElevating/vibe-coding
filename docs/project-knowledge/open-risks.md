@@ -170,3 +170,18 @@
   dispatch. Do not add new OpenCode session-directory aliases without matching
   containment tests.
 - Last verified: 2026-06-09
+
+## Risk: OpenCode Health Checks Can Pass Transport But Fail Semantics
+
+- Level: medium
+- Impact: `/global/health` can return a successful HTTP response whose body
+  reports `ok: false`. Treating any resolved health request as healthy can mark
+  an external OpenCode server available or bind a managed child before the
+  provider is actually ready.
+- Evidence: `daemon/src/opencode-server-lifecycle.js` validates `ok: false` as
+  `OPENCODE_SERVER_HEALTH_UNAVAILABLE`; `scripts/run-tests.js` covers external
+  rejection and managed retry/cleanup for false health bodies.
+- Mitigation: preserve semantic health validation in lifecycle code. Do not
+  replace it with transport-only success checks unless the provider contract is
+  re-smoked and tests are updated.
+- Last verified: 2026-06-09
