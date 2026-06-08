@@ -12898,6 +12898,26 @@ test('conversation session drift keeps original CLI session id', async () => {
   assert.equal(warning.receivedSessionId, 'drifted-session');
 });
 
+test('conversation session drift warning redacts path-like session ids', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+
+  conversation.cliSessionId = 'C:\\Users\\secret\\session.json';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.recordAdapterEvent(conversation, {
+    type: 'system.notice',
+    sessionId: '/tmp/opencode-secret/drifted-session.json',
+    text: 'drifted session'
+  });
+
+  const warning = eventStore.list(conversation.id, 0).find((event) =>
+    event.type === conversationEventTypes.PROTOCOL_WARNING &&
+    event.warning === 'session_id_drift');
+  assert.equal(warning.expectedSessionId, '[Redacted path]');
+  assert.equal(warning.receivedSessionId, '[Redacted path]');
+});
+
 test('conversation manager clearSessionBinding clears session state and appends notice', () => {
   const saves = [];
   const persistentStore = {
@@ -13251,6 +13271,73 @@ test('conversation manager session binding helper events bound large diagnostic 
   for (const leaked of [hugeSessionId, hugeReceivedSessionId, hugeReason, hugeCode, hugeNoticeKind]) {
     assert.equal(retained.includes(leaked), false);
   }
+});
+
+test('conversation manager session binding helper events redact path-like diagnostics', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const windowsPath = 'C:\\Users\\secret\\opencode\\session.txt';
+  const posixPath = '/tmp/opencode-secret/session.json';
+
+  conversation.cliSessionId = 'sess_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'sess_1',
+    receivedSessionId: windowsPath,
+    reason: `stale provider session at ${posixPath}`,
+    code: `OPENCODE_INVALID_SESSION ${windowsPath}`
+  });
+  conversation.cliSessionId = 'sess_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.clearSessionBinding(conversation, {
+    expectedSessionId: 'sess_1',
+    reason: `cleared after ${windowsPath}`,
+    code: `OPENCODE_SESSION_MISSING ${posixPath}`,
+    noticeKind: `opencode_session_invalidated ${windowsPath}`
+  });
+
+  const events = eventStore.list(conversation.id, 0);
+  const warning = events.find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  const notice = events.find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(warning.expectedSessionId, 'sess_1');
+  assert.equal(warning.receivedSessionId, '[Redacted path]');
+  assert.equal(warning.reason, 'stale provider session at [Redacted path]');
+  assert.equal(warning.code, 'OPENCODE_INVALID_SESSION [Redacted path]');
+  assert.equal(notice.reason, 'cleared after [Redacted path]');
+  assert.equal(notice.code, 'OPENCODE_SESSION_MISSING [Redacted path]');
+  assert.equal(notice.noticeKind, 'opencode_session_invalidated [Redacted path]');
+  const retained = JSON.stringify(events);
+  assert.equal(retained.includes(windowsPath), false);
+  assert.equal(retained.includes(posixPath), false);
+});
+
+test('conversation manager session binding expected mismatch redacts path-like ids', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const expectedPath = 'C:\\Users\\secret\\stale-session.json';
+  const actualPath = '/tmp/opencode-secret/actual-session.json';
+
+  conversation.cliSessionId = actualPath;
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+
+  const result = manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: expectedPath,
+    receivedSessionId: 'sess_received',
+    reason: 'invalid session',
+    clear: true
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    conflict: true,
+    expectedSessionId: '[Redacted path]',
+    actualSessionId: '[Redacted path]'
+  });
+  assert.equal(conversation.cliSessionId, actualPath);
+  assert.equal(conversation.sessionBinding, conversationSessionBindings.CONFIRMED);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
 });
 
 test('conversation manager restores persisted live conversation as interrupted', () => {

@@ -877,8 +877,8 @@ class ConversationManager {
       this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
         warning: 'session_id_drift',
         conversationId: conversation.id,
-        expectedSessionId: conversation.cliSessionId,
-        receivedSessionId,
+        expectedSessionId: sessionBindingEventString(conversation.cliSessionId),
+        receivedSessionId: sessionBindingEventString(receivedSessionId),
         adapter: conversation.adapter
       });
       return true;
@@ -1369,7 +1369,7 @@ function stringValue(value) {
 }
 
 function sessionBindingEventString(value) {
-  const text = stringValue(value);
+  const text = redactSessionBindingPathText(stringValue(value));
   if (!text) return null;
   if (text.length <= sessionBindingEventMaxChars) return text;
   return `${text.slice(0, sessionBindingEventMaxChars - 3)}...`;
@@ -1380,9 +1380,18 @@ function sessionBindingExpectedConflict(conversation, expectedSessionId) {
   return {
     ok: false,
     conflict: true,
-    expectedSessionId,
-    actualSessionId: conversation.cliSessionId || null
+    expectedSessionId: sessionBindingEventString(expectedSessionId),
+    actualSessionId: sessionBindingEventString(conversation.cliSessionId) || null
   };
+}
+
+function redactSessionBindingPathText(value) {
+  let text = String(value || '');
+  if (!text) return '';
+  text = text.replace(/[A-Za-z]:[\\/][^\r\n"'`<>{}|]*/g, '[Redacted path]');
+  text = text.replace(/\\\\[^\\/\s]+[\\/][^\r\n"'`<>{}|]*/g, '[Redacted path]');
+  text = text.replace(/(^|[\s([{=:])\/(?:bin|dev|etc|home|mnt|opt|private|proc|root|sbin|sys|tmp|usr|var|workspace)(?:\/[^\r\n"'`<>{}|]*)?/gi, '$1[Redacted path]');
+  return text.trim();
 }
 
 function snapshotSessionBindingState(conversation) {
