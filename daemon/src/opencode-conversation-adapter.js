@@ -511,21 +511,33 @@ function buildProviderSession({ sessionId, now }) {
 function extractEventSessionId(value) {
   if (!value || typeof value !== 'object') return null;
   const direct = firstNonBlank([
-    value.sessionId,
-    value.sessionID,
-    value.session_id
+    safeOwnValue(value, 'sessionId'),
+    safeOwnValue(value, 'sessionID'),
+    safeOwnValue(value, 'session_id')
   ]);
   if (direct) return direct;
-  if (typeof value.session === 'string' || typeof value.session === 'number') return safeString(value.session);
-  if (value.session && typeof value.session === 'object') {
+  const session = safeOwnValue(value, 'session');
+  if (typeof session === 'string' || typeof session === 'number') return safeString(session);
+  if (session && typeof session === 'object') {
     return firstNonBlank([
-      value.session.id,
-      value.session.sessionId,
-      value.session.sessionID,
-      value.session.session_id
+      safeOwnValue(session, 'id'),
+      safeOwnValue(session, 'sessionId'),
+      safeOwnValue(session, 'sessionID'),
+      safeOwnValue(session, 'session_id')
     ]);
   }
   return null;
+}
+
+function safeOwnValue(value, key) {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function clearMissingSessionBinding(actions, expectedSessionId, cause) {

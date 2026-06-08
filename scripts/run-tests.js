@@ -3206,6 +3206,63 @@ test('OpenCode conversation adapter filters SSE events to active session', async
   }
 });
 
+test('OpenCode conversation adapter handles unsafe event session getters', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-unsafe-session-getter');
+  const events = [];
+  let eventHandler = null;
+  const raw = {
+    type: 'message.part.delta',
+    part: { type: 'text', text: 'ignored unsafe session getter' }
+  };
+  Object.defineProperty(raw, 'sessionID', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe session getter should not escape');
+    }
+  });
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535',
+          owned: false,
+          client: {
+            async createSession() {
+              return { id: 'sess_getter', directory: workspacePath };
+            },
+            subscribeEvents(onEvent) {
+              eventHandler = onEvent;
+              return {
+                opened: Promise.resolve({ ok: true }),
+                close() {}
+              };
+            },
+            async promptAsync() {}
+          }
+        };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_unsafe_session_getter',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+  try {
+    assert.doesNotThrow(() => eventHandler(raw));
+  } finally {
+    await handle.dispose();
+  }
+
+  const warning = events.find((event) =>
+    event.type === conversationEventTypes.PROTOCOL_WARNING &&
+    event.warning === 'opencode_critical_event_missing_session_id');
+  assert.ok(warning);
+  assert.equal(warning.visible, false);
+});
+
 test('OpenCode conversation adapter shares one client SSE stream across handles', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
