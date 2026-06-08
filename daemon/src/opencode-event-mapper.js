@@ -20,7 +20,7 @@ function mapOpenCodeEvent(raw, options = {}) {
   const providerRawType = firstSafeString(raw, ['type', 'event', 'kind']);
   if (!providerRawType) return unknownNotice(raw, 'opencode_unknown_event');
   const rawType = boundedRedactedProviderString(providerRawType);
-  const sessionId = normalizeId(raw, ['sessionID', 'sessionId', 'session_id', 'session']);
+  const sessionId = normalizeId(raw, ['sessionID', 'sessionId', 'session_id', 'session'], ['id', 'sessionID', 'sessionId', 'session_id']);
   if (isCritical(providerRawType) && !sessionId) {
     return {
       type: conversationEventTypes.PROTOCOL_WARNING,
@@ -652,15 +652,23 @@ function unknownNotice(raw, noticeKind, sessionId = null, rawType = null) {
   };
 }
 
-function normalizeId(raw, keys) {
+function normalizeId(raw, keys, nestedKeys = ['id']) {
   for (const key of keys) {
     const value = ownValue(raw, key);
-    if (typeof value === 'string' && value.trim()) return boundedProviderString(value.trim());
+    const direct = normalizeIdValue(value);
+    if (direct) return direct;
     if (safeObject(value)) {
-      const id = ownValue(value, 'id');
-      if (typeof id === 'string' && id.trim()) return boundedProviderString(id.trim());
+      for (const nestedKey of nestedKeys) {
+        const nested = normalizeIdValue(ownValue(value, nestedKey));
+        if (nested) return nested;
+      }
     }
   }
+  return null;
+}
+
+function normalizeIdValue(value) {
+  if (typeof value === 'string' && value.trim()) return boundedProviderString(value.trim());
   return null;
 }
 

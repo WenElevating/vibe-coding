@@ -173,6 +173,23 @@
   containment tests.
 - Last verified: 2026-06-09
 
+## Risk: OpenCode Session ID Alias Drift Can Drop Events
+
+- Level: medium
+- Impact: `/global/event` session filtering happens before event mapping, so
+  the conversation handle and mapper must recognize the same session id aliases.
+  If the handle accepts a nested alias that the mapper treats as missing, a
+  critical provider event can be converted to a non-dispatchable protocol
+  warning and silently dropped for the active conversation.
+- Evidence: `daemon/src/opencode-conversation-adapter.js` extracts nested
+  `session.id`, `session.sessionId`, `session.sessionID`, and
+  `session.session_id`; `daemon/src/opencode-event-mapper.js` now normalizes the
+  same nested aliases. `scripts/run-tests.js` covers nested `session.sessionID`
+  on `message.part.delta` and nested `session.session_id` on `session.updated`.
+- Mitigation: keep the OpenCode handle extraction and mapper session-id
+  normalization alias sets aligned when adding provider event shapes.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Health Checks Can Pass Transport But Fail Semantics
 
 - Level: medium

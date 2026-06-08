@@ -532,6 +532,25 @@ test('OpenCode event mapper maps session lifecycle events as known hidden notice
   assert.equal(updated.session.status, 'busy');
 });
 
+test('OpenCode event mapper accepts nested session id aliases', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const delta = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    session: { sessionID: 'sess_nested' },
+    part: { type: 'text', text: 'hello from nested session' }
+  });
+  const updated = mapOpenCodeEvent({
+    type: 'session.updated',
+    session: { session_id: 'sess_snake', status: 'busy' }
+  });
+
+  assert.equal(delta.type, conversationEventTypes.ASSISTANT_PARTIAL);
+  assert.equal(delta.sessionId, 'sess_nested');
+  assert.equal(delta.text, 'hello from nested session');
+  assert.equal(updated.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(updated.sessionId, 'sess_snake');
+});
+
 test('OpenCode session lifecycle notices redact path-like metadata', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
