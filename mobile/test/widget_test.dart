@@ -7745,6 +7745,48 @@ diff --git a/lib/main.dart b/lib/main.dart
         findsNothing);
   });
 
+  testWidgets('OpenCode unreadable diff notice uses localized copy',
+      (WidgetTester tester) async {
+    final state = const ConversationViewState().apply([
+      ConversationEvent(
+        type: 'system.notice',
+        seq: 8,
+        conversationId: 'conv_opencode_diff_notice',
+        createdAt: DateTime(2026, 6, 9),
+        text: 'OpenCode event: session.diff',
+        raw: const <String, Object?>{
+          'noticeKind': 'opencode_session_diff',
+          'visible': true,
+        },
+      ),
+    ]);
+    final message = workbenchMessageFromConversation(state.messages.single);
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopApproval,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('OpenCode 报告了文件变更'), findsOneWidget);
+    expect(find.text('变更'), findsOneWidget);
+    expect(find.text('OpenCode 报告了变更事件，但没有提供可读取的文件差异。'), findsOneWidget);
+    expect(find.text('OpenCode event: session.diff'), findsNothing);
+    expect(find.text('系统提示'), findsNothing);
+  });
+
   testWidgets('OpenCode file edited notice uses localized path copy',
       (WidgetTester tester) async {
     final state = const ConversationViewState().apply([

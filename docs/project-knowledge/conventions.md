@@ -57,6 +57,10 @@
 - Conversation message clients should preserve `clientMessageId` and
   `capabilityVersion` on JSON and multipart sends. JSON sends must omit the
   `attachments` key; the daemon reserves attachments for multipart/form-data.
+- OpenCode `system.notice` events with `visible: true` need explicit mobile
+  notice-card localization. Provider telemetry notices should stay
+  `visible: false` instead of surfacing raw event names such as
+  `OpenCode event: session.diff`.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test

@@ -101,6 +101,13 @@ _NoticeCopy _noticeCopy(
       body: l10n.workbenchNoticeOpenCodeSessionExpiredBody,
     );
   }
+  if (noticeKind == 'opencode_session_diff') {
+    return _NoticeCopy(
+      title: l10n.workbenchNoticeOpenCodeDiffUnavailableTitle,
+      meta: l10n.workbenchNoticeOpenCodeDiffUnavailableMeta,
+      body: l10n.workbenchNoticeOpenCodeDiffUnavailableBody,
+    );
+  }
   if (noticeKind == 'opencode_file_edited') {
     final path = _noticePath(message);
     return _NoticeCopy(
