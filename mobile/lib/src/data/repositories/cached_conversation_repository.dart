@@ -452,30 +452,7 @@ class CachedConversationRepository extends ChangeNotifier
     String status, {
     ConversationBlockingItem? blockingItem,
   }) =>
-      ConversationSummary(
-        id: conversation.id,
-        workspaceId: conversation.workspaceId,
-        adapter: conversation.adapter,
-        model: conversation.model,
-        status: status,
-        capabilities: conversation.capabilities,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        protocolVersion: conversation.protocolVersion,
-        requestedPermissionMode: conversation.requestedPermissionMode,
-        effectivePermissionMode: conversation.effectivePermissionMode,
-        permissionSupport: conversation.permissionSupport,
-        requestedAdapter: conversation.requestedAdapter,
-        effectiveAdapter: conversation.effectiveAdapter,
-        effectiveCapabilities: conversation.effectiveCapabilities,
-        fallbackNotice: conversation.fallbackNotice,
-        cliSessionId: conversation.cliSessionId,
-        sessionBinding: conversation.sessionBinding,
-        title: conversation.title,
-        userMessageCount: conversation.userMessageCount,
-        blockingItem: blockingItem,
-        idleExpiresAt: conversation.idleExpiresAt,
-      );
+      conversation.copyWithStatus(status, blockingItem: blockingItem);
 
   Future<ConversationEventPage?> _readCachedPage(
     String conversationId, {

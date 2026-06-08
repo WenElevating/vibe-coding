@@ -107,6 +107,63 @@ void main() {
     expect(summary.capabilities.resume, isTrue);
   });
 
+  test('ConversationSummary status copy preserves adapter metadata', () {
+    const blockingItem = ConversationBlockingItem(
+      type: 'approval_request',
+      approvalId: 'approval_1',
+    );
+    const summary = ConversationSummary(
+      id: 'conv_effective_adapter',
+      workspaceId: 'default',
+      adapter: 'codex-app-server',
+      requestedAdapter: 'codex-app-server',
+      effectiveAdapter: 'codex',
+      model: 'gpt-5',
+      status: 'waiting_approval',
+      capabilities: ConversationCapabilities(
+        longLivedProcess: true,
+        waitingInput: false,
+        waitingApproval: true,
+        resume: true,
+        partialOutput: true,
+      ),
+      protocolVersion: 2,
+      requestedPermissionMode: 'auto',
+      effectivePermissionMode: 'default',
+      permissionSupport: <String, Object?>{'auto': false},
+      effectiveCapabilities: <String, Object?>{
+        'resume': true,
+        'attachments': <String, Object?>{'image': 'unsupported'},
+      },
+      fallbackNotice: <String, Object?>{'from': 'codex-app-server'},
+      cliSessionId: 'thread_1',
+      sessionBinding: 'confirmed',
+      title: 'Fallback conversation',
+      userMessageCount: 2,
+      blockingItem: blockingItem,
+      idleExpiresAt: '2026-06-03T00:10:00.000Z',
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:01.000Z',
+    );
+
+    final cleared = summary.copyWithStatus('running');
+    final preserved =
+        summary.copyWithStatus('sending', preserveBlockingItem: true);
+
+    expect(cleared.status, 'running');
+    expect(cleared.requestedAdapter, 'codex-app-server');
+    expect(cleared.effectiveAdapter, 'codex');
+    expect(cleared.effectiveCapabilities['resume'], isTrue);
+    expect(cleared.fallbackNotice['from'], 'codex-app-server');
+    expect(cleared.protocolVersion, 2);
+    expect(cleared.requestedPermissionMode, 'auto');
+    expect(cleared.effectivePermissionMode, 'default');
+    expect(cleared.permissionSupport['auto'], isFalse);
+    expect(cleared.blockingItem, isNull);
+    expect(preserved.status, 'sending');
+    expect(preserved.blockingItem?.approvalId, 'approval_1');
+  });
+
   test('ConversationEvent parses normalized assistant and approval events', () {
     final question = ConversationEvent.fromJson(const <String, Object?>{
       'seq': 1,

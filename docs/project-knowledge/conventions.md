@@ -46,6 +46,9 @@
   exception.
 - ViewModel state `copyWith` methods with nullable fields need explicit clear
   semantics; `value ?? previousValue` silently preserves stale optional state.
+- Local `ConversationSummary` status projections should use
+  `ConversationSummary.copyWithStatus` so requested/effective adapter metadata,
+  fallback notices, and capability maps stay intact.
 - Conversation message clients should preserve `clientMessageId` and
   `capabilityVersion` on JSON and multipart sends. JSON sends must omit the
   `attachments` key; the daemon reserves attachments for multipart/form-data.

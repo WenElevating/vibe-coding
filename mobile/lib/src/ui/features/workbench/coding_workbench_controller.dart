@@ -98,24 +98,5 @@ bool isSendAcknowledgementTimeout(
 
 ConversationSummary applyCancelledConversationSummary(
   ConversationSummary conversation,
-) {
-  return ConversationSummary(
-    id: conversation.id,
-    workspaceId: conversation.workspaceId,
-    adapter: conversation.adapter,
-    title: conversation.title,
-    status: conversation.status,
-    capabilities: conversation.capabilities,
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
-    protocolVersion: conversation.protocolVersion,
-    requestedPermissionMode: conversation.requestedPermissionMode,
-    effectivePermissionMode: conversation.effectivePermissionMode,
-    permissionSupport: conversation.permissionSupport,
-    cliSessionId: conversation.cliSessionId,
-    sessionBinding: conversation.sessionBinding,
-    userMessageCount: conversation.userMessageCount,
-    blockingItem: null,
-    idleExpiresAt: conversation.idleExpiresAt,
-  );
-}
+) =>
+    conversation.copyWithStatus(conversation.status);

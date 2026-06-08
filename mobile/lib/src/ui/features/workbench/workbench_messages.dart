@@ -183,24 +183,9 @@ String? emptyConversationCompletionDiagnostic(List<ConversationEvent> events,
 }
 
 ConversationSummary copyConversationStatus(
-    ConversationSummary conversation, String status,
-    {ConversationBlockingItem? blockingItem}) {
-  return ConversationSummary(
-      id: conversation.id,
-      workspaceId: conversation.workspaceId,
-      adapter: conversation.adapter,
-      model: conversation.model,
-      title: conversation.title,
-      status: status,
-      capabilities: conversation.capabilities,
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-      cliSessionId: conversation.cliSessionId,
-      sessionBinding: conversation.sessionBinding,
-      userMessageCount: conversation.userMessageCount,
-      blockingItem: blockingItem,
-      idleExpiresAt: conversation.idleExpiresAt);
-}
+        ConversationSummary conversation, String status,
+        {ConversationBlockingItem? blockingItem}) =>
+    conversation.copyWithStatus(status, blockingItem: blockingItem);
 
 WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
   final event = AgentEvent(

@@ -1816,22 +1816,7 @@ class WorkbenchViewModel extends ChangeNotifier {
     ConversationSummary conversation,
     String status,
   ) =>
-      ConversationSummary(
-        id: conversation.id,
-        workspaceId: conversation.workspaceId,
-        adapter: conversation.adapter,
-        model: conversation.model,
-        title: conversation.title,
-        status: status,
-        capabilities: conversation.capabilities,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        cliSessionId: conversation.cliSessionId,
-        sessionBinding: conversation.sessionBinding,
-        userMessageCount: conversation.userMessageCount,
-        blockingItem: conversation.blockingItem,
-        idleExpiresAt: conversation.idleExpiresAt,
-      );
+      conversation.copyWithStatus(status, preserveBlockingItem: true);
 
   static RunSummary runSummaryFromConversation(
     ConversationSummary conversation,

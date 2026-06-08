@@ -191,6 +191,36 @@ class ConversationSummary {
       fallbackNotice: _objectMap(json['fallbackNotice']),
     );
   }
+
+  ConversationSummary copyWithStatus(
+    String status, {
+    ConversationBlockingItem? blockingItem,
+    bool preserveBlockingItem = false,
+  }) =>
+      ConversationSummary(
+        id: id,
+        workspaceId: workspaceId,
+        adapter: adapter,
+        model: model,
+        status: status,
+        capabilities: capabilities,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        protocolVersion: protocolVersion,
+        requestedPermissionMode: requestedPermissionMode,
+        effectivePermissionMode: effectivePermissionMode,
+        permissionSupport: permissionSupport,
+        requestedAdapter: requestedAdapter,
+        effectiveAdapter: effectiveAdapter,
+        effectiveCapabilities: effectiveCapabilities,
+        fallbackNotice: fallbackNotice,
+        cliSessionId: cliSessionId,
+        sessionBinding: sessionBinding,
+        title: title,
+        userMessageCount: userMessageCount,
+        blockingItem: preserveBlockingItem ? this.blockingItem : blockingItem,
+        idleExpiresAt: idleExpiresAt,
+      );
 }
 
 String? _optionalText(Object? value) {
