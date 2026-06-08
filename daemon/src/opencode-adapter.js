@@ -1,6 +1,8 @@
 'use strict';
 
 const { eventTypes } = require('./protocol');
+const { conversationEventTypes } = require('./conversation-protocol');
+const { mapOpenCodeEvent } = require('./opencode-event-mapper');
 const { OpenCodeServerLifecycle } = require('./opencode-server-lifecycle');
 
 const MODEL_CAPABILITY = Object.freeze({
@@ -124,10 +126,58 @@ class OpenCodeAdapter {
       throw error;
     }
     const activeSessionId = sessionId || await this.createSession({ client: started.client, workspacePath });
+    let subscription = null;
+    let terminal = false;
+    const closeSubscription = () => {
+      if (subscription && typeof subscription.close === 'function') subscription.close();
+      subscription = null;
+    };
+    const emitEvent = (event) => {
+      if (terminal) return;
+      onEvent(event);
+    };
+    const emitTerminal = (event) => {
+      if (terminal) return;
+      terminal = true;
+      closeSubscription();
+      onEvent(event);
+    };
+    subscription = started.client.subscribeEvents(
+      (raw) => {
+        const mapped = mapOpenCodeEvent(raw, { workspacePath });
+        if (!mapped || mapped.dispatchable === false) return;
+        if (mapped.sessionId && mapped.sessionId !== activeSessionId) return;
+        if (!mapped.sessionId && isSessionScopedRunEvent(mapped)) return;
+        const runEvent = mapOpenCodeRunEvent(mapped, {
+          client: started.client,
+          sessionId: activeSessionId
+        });
+        if (!runEvent) return;
+        if (isTerminalRunEvent(runEvent)) emitTerminal(runEvent);
+        else emitEvent(runEvent);
+      },
+      (error) => {
+        emitTerminal({
+          type: eventTypes.RUN_FAILED,
+          error: 'OpenCode event stream interrupted before the run completed.',
+          code: safeTokenString(error?.code || error?.name) || 'OPENCODE_EVENT_STREAM_INTERRUPTED'
+        });
+      }
+    );
     onEvent({ type: eventTypes.RAW_OUTPUT, text: '', sessionId: activeSessionId, reason: 'opencode_session_active' });
-    await this.sendPrompt({ client: started.client, sessionId: activeSessionId, prompt });
-    onEvent({ type: eventTypes.RUN_COMPLETED, exitCode: 0, sessionId: activeSessionId });
-    return { kill: () => this.abortSession({ client: started.client, sessionId: activeSessionId }).catch(() => {}) };
+    try {
+      await this.sendPrompt({ client: started.client, sessionId: activeSessionId, prompt });
+    } catch (error) {
+      closeSubscription();
+      throw error;
+    }
+    return {
+      kill: () => {
+        terminal = true;
+        closeSubscription();
+        return this.abortSession({ client: started.client, sessionId: activeSessionId }).catch(() => {});
+      }
+    };
   }
 
   async createSession({ client, workspacePath } = {}) {
@@ -280,6 +330,89 @@ function publicServerUrl(value) {
     const queryIndex = text.indexOf('?');
     return safeDisplayString(queryIndex === -1 ? text : text.slice(0, queryIndex));
   }
+}
+
+function mapOpenCodeRunEvent(mapped, { client, sessionId }) {
+  switch (mapped.type) {
+    case conversationEventTypes.CONVERSATION_COMPLETED:
+      return { type: eventTypes.RUN_COMPLETED, exitCode: 0, sessionId };
+    case conversationEventTypes.CONVERSATION_CANCELLED:
+      return { type: eventTypes.RUN_CANCELLED, sessionId, reason: mapped.reason || 'opencode_cancelled' };
+    case conversationEventTypes.RUN_ERROR:
+      return {
+        type: eventTypes.RUN_FAILED,
+        sessionId,
+        error: mapped.message || 'OpenCode run failed',
+        code: safeTokenString(mapped.code) || 'OPENCODE_RUN_FAILED'
+      };
+    case conversationEventTypes.ASSISTANT_PARTIAL:
+    case conversationEventTypes.ASSISTANT_MESSAGE:
+      return { type: eventTypes.ASSISTANT_DELTA, sessionId, text: mapped.text || '', raw: mapped.raw || null };
+    case conversationEventTypes.TOOL_STARTED:
+      return {
+        type: eventTypes.TOOL_STARTED,
+        sessionId,
+        name: mapped.toolName || 'tool',
+        input: mapped.input || {},
+        toolUseId: mapped.toolUseId || null,
+        raw: mapped.raw || null
+      };
+    case conversationEventTypes.TOOL_DELTA:
+    case conversationEventTypes.TOOL_OUTPUT:
+    case conversationEventTypes.TOOL_COMPLETED:
+      return {
+        type: eventTypes.TOOL_OUTPUT,
+        sessionId,
+        text: mapped.text || '',
+        toolUseId: mapped.toolUseId || null,
+        raw: mapped.raw || null
+      };
+    case conversationEventTypes.APPROVAL_REQUESTED:
+      return {
+        type: eventTypes.APPROVAL_REQUIRED,
+        sessionId,
+        approvalId: mapped.approvalId,
+        toolName: mapped.toolName || 'tool',
+        input: mapped.input || {},
+        toolUseId: mapped.toolUseId || null,
+        respond: (decision) => client.replyPermission({
+          sessionId,
+          permissionId: mapped.approvalId,
+          decision
+        })
+      };
+    case conversationEventTypes.DIFF_SUMMARY:
+      return { type: eventTypes.DIFF_SUMMARY, sessionId, files: mapped.files || [], raw: mapped.raw || null };
+    case conversationEventTypes.SYSTEM_NOTICE:
+    case conversationEventTypes.PROTOCOL_WARNING:
+      return mapped.visible === true
+        ? { type: eventTypes.RAW_OUTPUT, sessionId, text: mapped.text || mapped.warning || 'OpenCode notice' }
+        : null;
+    default:
+      return null;
+  }
+}
+
+function isSessionScopedRunEvent(event) {
+  return [
+    conversationEventTypes.CONVERSATION_COMPLETED,
+    conversationEventTypes.CONVERSATION_CANCELLED,
+    conversationEventTypes.RUN_ERROR,
+    conversationEventTypes.ASSISTANT_PARTIAL,
+    conversationEventTypes.ASSISTANT_MESSAGE,
+    conversationEventTypes.TOOL_STARTED,
+    conversationEventTypes.TOOL_DELTA,
+    conversationEventTypes.TOOL_OUTPUT,
+    conversationEventTypes.TOOL_COMPLETED,
+    conversationEventTypes.APPROVAL_REQUESTED,
+    conversationEventTypes.DIFF_SUMMARY
+  ].includes(event?.type);
+}
+
+function isTerminalRunEvent(event) {
+  return event?.type === eventTypes.RUN_COMPLETED ||
+    event?.type === eventTypes.RUN_FAILED ||
+    event?.type === eventTypes.RUN_CANCELLED;
 }
 
 function safeString(value) {

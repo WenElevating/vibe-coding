@@ -6,6 +6,7 @@ const https = require('node:https');
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:4096';
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_BODY_TEXT_LENGTH = 2048;
+const MAX_JSON_RESPONSE_TEXT_LENGTH = 256 * 1024;
 const MAX_DETAIL_STRING_LENGTH = 512;
 const MAX_PROVIDER_CODE_LENGTH = 128;
 const MAX_DETAIL_KEYS = 20;
@@ -230,7 +231,10 @@ class OpenCodeServerClient {
         headers
       }, (res) => {
         response = res;
-        collectResponseText(res).then((text) => {
+        collectBoundedResponseText(res, {
+          timeoutMs: this.timeoutMs,
+          maxBytes: MAX_JSON_RESPONSE_TEXT_LENGTH
+        }).then((text) => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
             finish(buildHttpError(method, publicPath, res.statusCode, text));
             return;
@@ -324,15 +328,6 @@ function dispatchSseFrame(frame, onEvent, onError) {
     return;
   }
   onEvent(parsed.value);
-}
-
-function collectResponseText(res) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    res.on('error', reject);
-  });
 }
 
 function collectBoundedResponseText(res, { timeoutMs, maxBytes }) {

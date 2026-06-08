@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const { conversationEventTypes } = require('./conversation-protocol');
 const { mapOpenCodeEvent } = require('./opencode-event-mapper');
 const { OpenCodeServerLifecycle } = require('./opencode-server-lifecycle');
@@ -60,14 +61,14 @@ class OpenCodeConversationAdapter {
         available: true,
         selectable: true,
         status: 'available',
-        serverUrl: safeString(started.serverUrl) || null,
+        serverUrl: publicServerUrl(started.serverUrl),
         mode: safeString(started.mode) || null,
         owned: started.owned === true,
         ...this.getModelCapability(),
         capabilities: this.getCapabilities(),
         diagnostics: {
           lifecycle: this.lifecycleDiagnostics(),
-          health: safeDiagnosticObject(health)
+          health: safeHealthDiagnostics(health)
         }
       };
     } catch (error) {
@@ -204,7 +205,7 @@ class OpenCodeConversationAdapter {
   lifecycleDiagnostics() {
     if (!this.lifecycle || typeof this.lifecycle.getDiagnostics !== 'function') return null;
     try {
-      return safeDiagnosticObject(this.lifecycle.getDiagnostics());
+      return safeLifecycleDiagnostics(this.lifecycle.getDiagnostics());
     } catch (error) {
       return { status: 'diagnostics_error', message: limitString(error?.message || 'diagnostics failed') };
     }
@@ -536,6 +537,17 @@ function validateSessionDirectory(directory, workspacePath) {
       }
     });
   }
+  const realWorkspace = tryRealpath(workspacePath);
+  const realDirectory = tryRealpath(directory);
+  if (realWorkspace && realDirectory && !pathContainsOrEquals(realWorkspace, realDirectory)) {
+    throw conversationError('OpenCode session directory is outside the authorized workspace.', {
+      status: 409,
+      code: 'OPENCODE_SESSION_DIRECTORY_MISMATCH',
+      details: {
+        reason: 'directory_mismatch'
+      }
+    });
+  }
 }
 
 function pathContainsOrEquals(rootPath, candidatePath) {
@@ -563,6 +575,16 @@ function normalizeForPathFlavor(value, pathApi, flavor) {
   const normalized = pathApi.normalize(text);
   if (flavor !== 'win32') return normalized;
   return normalized.replace(/[\\/]+$/, '');
+}
+
+function tryRealpath(value) {
+  try {
+    const nativeRealpath = fs.realpathSync.native || fs.realpathSync;
+    return nativeRealpath(value);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  }
 }
 
 function clearMissingSessionBinding(actions, expectedSessionId, cause) {
@@ -674,6 +696,36 @@ function safeLifecycleStartupDetails(error, { code, status }) {
   return Object.keys(result).length > 0 ? result : null;
 }
 
+function safeLifecycleDiagnostics(value) {
+  if (!value || typeof value !== 'object') return null;
+  const result = {};
+  const status = safeTokenString(value.status);
+  if (status) result.status = status;
+  const lastErrorCode = safeTokenString(value.lastError?.code);
+  if (lastErrorCode) result.lastError = { code: lastErrorCode };
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function safeHealthDiagnostics(value) {
+  if (!value || typeof value !== 'object') return null;
+  const result = {};
+  if (typeof value.ok === 'boolean') result.ok = value.ok;
+  const version = safeDisplayString(value.version);
+  if (version) result.version = version;
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function publicServerUrl(value) {
+  const text = safeString(value);
+  if (!text) return null;
+  try {
+    return new URL(text).origin;
+  } catch {
+    const queryIndex = text.indexOf('?');
+    return safeDisplayString(queryIndex === -1 ? text : text.slice(0, queryIndex));
+  }
+}
+
 function errorDetails(error) {
   if (!error) return null;
   return safeDiagnosticObject({
@@ -729,6 +781,18 @@ function safeHttpStatus(value) {
   const status = Number(value);
   if (!Number.isInteger(status) || status < 100 || status > 599) return null;
   return status;
+}
+
+function safeDisplayString(value, maxLength = 128) {
+  const text = safeString(value);
+  if (!text) return null;
+  const safeParts = [];
+  for (const part of text.split(/\s+/)) {
+    if (!/^[A-Za-z0-9_.()+-]+$/.test(part)) break;
+    safeParts.push(part);
+  }
+  if (safeParts.length === 0) return null;
+  return limitString(safeParts.join(' '), maxLength);
 }
 
 function limitString(value, maxLength = 512) {

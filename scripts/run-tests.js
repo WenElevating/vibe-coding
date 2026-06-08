@@ -2291,6 +2291,28 @@ test('OpenCode server client reports bounded structured HTTP errors', async () =
   }
 });
 
+test('OpenCode server client bounds non-ending JSON response bodies', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const giantBody = 'x'.repeat(300 * 1024);
+  const fixture = await listenHttpServerForTest((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.write(giantBody);
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    await assert.rejects(() => client.health(), (error) => {
+      assert.equal(error.code, 'OPENCODE_SERVER_BAD_JSON');
+      assert.equal(error.details.method, 'GET');
+      assert.equal(error.details.path, '/global/health');
+      assert.equal(error.details.reason, 'invalid_json');
+      assert.equal(JSON.stringify(error.details).includes(giantBody), false);
+      return true;
+    });
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
 test('OpenCode server client reports structured network errors', async () => {
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
   const fixture = await listenHttpServerForTest((req, res) => {
@@ -2390,6 +2412,60 @@ test('createConversationAdapters registers real OpenCode conversation adapter', 
   }
 });
 
+test('OpenCode conversation adapter diagnostics expose only allowlisted health and lifecycle fields', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-conversation-diagnostics-secret', 'provider.txt');
+  const providerBody = `provider body ${secretPath} SECRET_PROVIDER_BODY`;
+  const lifecycle = {
+    async ensureStarted() {
+      return {
+        mode: 'external',
+        serverUrl: `http://127.0.0.1:65535/secret/path?token=${encodeURIComponent(secretPath)}`,
+        owned: false,
+        client: {
+          async health() {
+            return {
+              ok: true,
+              version: `fake-version ${secretPath}`,
+              body: providerBody,
+              nested: { path: secretPath }
+            };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return {
+        status: 'started',
+        lastError: {
+          code: 'OPENCODE_SECRET_ERROR',
+          message: providerBody,
+          details: { path: secretPath, bodyText: providerBody }
+        },
+        serverUrl: `http://127.0.0.1:65535?directory=${encodeURIComponent(secretPath)}`
+      };
+    }
+  };
+  const adapter = new OpenCodeConversationAdapter({ lifecycle });
+
+  const status = await adapter.detectCapabilities();
+  const publicText = JSON.stringify(status);
+
+  assert.equal(status.available, true);
+  assert.deepEqual(status.diagnostics.lifecycle, {
+    status: 'started',
+    lastError: { code: 'OPENCODE_SECRET_ERROR' }
+  });
+  assert.deepEqual(status.diagnostics.health, {
+    ok: true,
+    version: 'fake-version'
+  });
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes(encodeURIComponent(secretPath)), false);
+  assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+  assert.equal(publicText.includes('directory='), false);
+});
+
 test('OpenCode conversation adapter creates session and defers prompt until message send', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
@@ -2484,6 +2560,46 @@ test('OpenCode conversation adapter rejects resumed session directory mismatch',
     assert.deepEqual(fake.promptBodies, []);
   } finally {
     await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter rejects resumed session directory symlink outside workspace', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-adapter-symlink-root-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const outsidePath = path.join(tempRoot, 'outside');
+  const linkPath = path.join(workspacePath, 'linked-outside');
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.mkdirSync(outsidePath, { recursive: true });
+  fs.symlinkSync(outsidePath, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+  await fake.listen();
+  try {
+    fake.sessions.set('sess_link_dir', {
+      id: 'sess_link_dir',
+      sessionID: 'sess_link_dir',
+      directory: linkPath
+    });
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+
+    await assert.rejects(
+      () => adapter.startConversation({
+        conversationId: 'conv_opencode_symlink_dir',
+        workspacePath,
+        sessionId: 'sess_link_dir',
+        onEvent: () => {}
+      }),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        assert.deepEqual(error.details, { reason: 'directory_mismatch' });
+        return true;
+      }
+    );
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
@@ -4201,6 +4317,99 @@ test('fake OpenCode server supports session, prompt, abort, permission, and SSE'
   } finally {
     await fake.close();
     assert.equal(fake.sseClients.size, 0);
+  }
+});
+
+test('OpenCode legacy run waits for session idle before completion', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const adapter = new OpenCodeAdapter({
+      lifecycle: {
+        async ensureStarted() {
+          return {
+            mode: 'external',
+            serverUrl: fake.url,
+            client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+            owned: false
+          };
+        },
+        getDiagnostics() {
+          return { status: 'started', lastError: null };
+        }
+      }
+    });
+    const events = [];
+    handle = await adapter.startRun({
+      prompt: 'legacy run prompt',
+      workspacePath: path.join(os.tmpdir(), 'opencode-legacy-run'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode legacy run SSE connection');
+
+    assert.deepEqual(fake.promptBodies.map((item) => item.sessionId), ['sess_1']);
+    assert.equal(events.some((event) => event.type === eventTypes.RUN_COMPLETED), false);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'legacy output' });
+    fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+
+    await waitForConditionForTest(
+      () => events.some((event) => event.type === eventTypes.RUN_COMPLETED),
+      'OpenCode legacy run completion'
+    );
+    assert.equal(events.some((event) => event.type === eventTypes.ASSISTANT_DELTA && event.text === 'legacy output'), true);
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode legacy run closes SSE after idle');
+  } finally {
+    await handle?.kill?.();
+    await fake.close();
+  }
+});
+
+test('OpenCode legacy run kill aborts session and suppresses later completion', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const adapter = new OpenCodeAdapter({
+      lifecycle: {
+        async ensureStarted() {
+          return {
+            mode: 'external',
+            serverUrl: fake.url,
+            client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+            owned: false
+          };
+        },
+        getDiagnostics() {
+          return { status: 'started', lastError: null };
+        }
+      }
+    });
+    const events = [];
+    handle = await adapter.startRun({
+      prompt: 'legacy run prompt',
+      workspacePath: path.join(os.tmpdir(), 'opencode-legacy-run-cancel'),
+      onEvent: (event) => events.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode legacy run cancel SSE connection');
+
+    await handle.kill('SIGTERM');
+    fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.deepEqual(fake.abortSessionIds, ['sess_1']);
+    assert.equal(events.some((event) => event.type === eventTypes.RUN_COMPLETED), false);
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode legacy run cancel closes SSE');
+  } finally {
+    await handle?.kill?.();
+    await fake.close();
   }
 });
 
