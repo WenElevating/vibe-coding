@@ -14564,6 +14564,45 @@ test('conversation manager session binding helper events redact path-like diagno
   assert.equal(retained.includes(posixPath), false);
 });
 
+test('conversation manager session binding helper events redact file URL diagnostics', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const fileUrl = 'file:///Users/opencode-secret/session.json';
+  const macPath = '/Users/opencode-secret/session.json';
+
+  conversation.cliSessionId = 'sess_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.markSessionBindingDrifted(conversation, {
+    expectedSessionId: 'sess_1',
+    receivedSessionId: fileUrl,
+    reason: `stale provider session at ${fileUrl}`,
+    code: `OPENCODE_INVALID_SESSION ${macPath}`
+  });
+  conversation.cliSessionId = 'sess_1';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  manager.clearSessionBinding(conversation, {
+    expectedSessionId: 'sess_1',
+    reason: `cleared after ${fileUrl}`,
+    code: `OPENCODE_SESSION_MISSING ${macPath}`,
+    noticeKind: `opencode_session_invalidated ${fileUrl}`
+  });
+
+  const events = eventStore.list(conversation.id, 0);
+  const warning = events.find((event) => event.type === conversationEventTypes.PROTOCOL_WARNING);
+  const notice = events.find((event) => event.type === conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(warning.receivedSessionId, '[Redacted path]');
+  assert.equal(warning.reason.includes('[Redacted path]'), true);
+  assert.equal(warning.code, 'OPENCODE_INVALID_SESSION [Redacted path]');
+  assert.equal(notice.reason.includes('[Redacted path]'), true);
+  assert.equal(notice.code, 'OPENCODE_SESSION_MISSING [Redacted path]');
+  assert.equal(notice.noticeKind.includes('[Redacted path]'), true);
+  const retained = JSON.stringify(events);
+  assert.equal(retained.includes(fileUrl), false);
+  assert.equal(retained.includes(macPath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
 test('conversation manager session binding expected mismatch redacts path-like ids', () => {
   const { manager, device, eventStore } = createConversationManagerForTest();
   const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);

@@ -1388,9 +1388,10 @@ function sessionBindingExpectedConflict(conversation, expectedSessionId) {
 function redactSessionBindingPathText(value) {
   let text = String(value || '');
   if (!text) return '';
+  text = text.replace(/file:\/\/[^\r\n"'`<>{}|]*/gi, '[Redacted path]');
   text = text.replace(/[A-Za-z]:[\\/][^\r\n"'`<>{}|]*/g, '[Redacted path]');
   text = text.replace(/\\\\[^\\/\s]+[\\/][^\r\n"'`<>{}|]*/g, '[Redacted path]');
-  text = text.replace(/(^|[\s([{=:])\/(?:bin|dev|etc|home|mnt|opt|private|proc|root|sbin|sys|tmp|usr|var|workspace)(?:\/[^\r\n"'`<>{}|]*)?/gi, '$1[Redacted path]');
+  text = text.replace(/(^|[\s([{=:])\/(?:bin|dev|etc|home|mnt|opt|private|proc|root|sbin|sys|tmp|users|usr|var|workspace)(?:\/[^\r\n"'`<>{}|]*)?/gi, '$1[Redacted path]');
   return text.trim();
 }
 
