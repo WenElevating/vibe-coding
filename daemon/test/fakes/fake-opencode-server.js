@@ -113,16 +113,19 @@ class FakeOpenCodeServer extends EventEmitter {
     const abortMatch = url.pathname.match(/^\/session\/([^/]+)\/abort$/);
     if (req.method === 'POST' && abortMatch) {
       const sessionId = decodeURIComponent(abortMatch[1]);
+      if (!this.sessions.has(sessionId)) return sendJson(res, 404, { error: { code: 'SESSION_NOT_FOUND' } });
       this.abortSessionIds.push(sessionId);
       await readBody(req);
       return sendJson(res, 200, true);
     }
     const permissionMatch = url.pathname.match(/^\/session\/([^/]+)\/permissions\/([^/]+)$/);
     if (req.method === 'POST' && permissionMatch) {
+      const sessionId = decodeURIComponent(permissionMatch[1]);
+      if (!this.sessions.has(sessionId)) return sendJson(res, 404, { error: { code: 'SESSION_NOT_FOUND' } });
       const permissionId = decodeURIComponent(permissionMatch[2]);
       const body = await readJson(req);
       this.permissionReplies.push({
-        sessionId: decodeURIComponent(permissionMatch[1]),
+        sessionId,
         permissionId,
         body
       });

@@ -5141,6 +5141,20 @@ test('fake OpenCode server supports session, prompt, abort, permission, and SSE'
     assert.equal(fake.permissionReplies[0].permissionId, 'perm_1');
     assert.deepEqual(fake.permissionReplies[0].body, { response: 'once' });
 
+    const missingAbort = await fetchJsonForTest(`${baseUrl}/session/missing-session/abort`, {
+      method: 'POST',
+      body: '{}'
+    });
+    assert.deepEqual(missingAbort, { error: { code: 'SESSION_NOT_FOUND' } });
+    assert.deepEqual(fake.abortSessionIds, [session.id]);
+
+    const missingPermission = await fetchJsonForTest(`${baseUrl}/session/missing-session/permissions/perm_missing`, {
+      method: 'POST',
+      body: JSON.stringify({ response: 'reject' })
+    });
+    assert.deepEqual(missingPermission, { error: { code: 'SESSION_NOT_FOUND' } });
+    assert.equal(fake.permissionReplies.length, 1);
+
     const sseText = await readSseEventForTest(`${baseUrl}/global/event`, async () => {
       await waitForConditionForTest(() => fake.sseClients.size === 1, 'fake OpenCode SSE client to connect');
       fake.emitEvent({ type: 'session.idle', sessionID: session.id });
