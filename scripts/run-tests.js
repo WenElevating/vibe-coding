@@ -795,6 +795,14 @@ test('OpenCode event mapper drops critical events without session id', () => {
   assert.equal(event.dispatchable, false);
 });
 
+test('OpenCode event mapper drops visible file events without session id', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const event = mapOpenCodeEvent({ type: 'file.edited', path: 'changed.txt' });
+  assert.equal(event.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(event.warning, 'opencode_critical_event_missing_session_id');
+  assert.equal(event.dispatchable, false);
+});
+
 test('OpenCode critical missing session warnings redact retained raw paths', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
@@ -1517,6 +1525,42 @@ test('OpenCode command redaction preserves URLs while scanning UNC paths', () =>
   assert.equal(event.approvalOptions.command.includes('--delete important.txt'), true);
   assert.equal(event.summary.includes('https://example.com/api'), true);
   assert.equal(event.summary.includes('--delete important.txt'), true);
+});
+
+test('OpenCode command redaction redacts local file URLs while preserving trailing arguments', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const windowsFileUrl = 'file:///C:/opencode-secret/script.py';
+  const posixFileUrl = 'file:///tmp/opencode-secret/script.py';
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_file_url_permission',
+    id: 'perm_file_url',
+    command: `python ${windowsFileUrl} --delete important.txt`
+  });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_file_url_tool',
+    part: {
+      type: 'tool',
+      status: 'running',
+      toolCallID: 'tool_file_url',
+      name: 'Shell',
+      input: {
+        command: `python ${posixFileUrl} --delete important.txt`
+      }
+    }
+  });
+  const retained = JSON.stringify({ permission, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.approvalOptions.command.includes(windowsFileUrl), false);
+  assert.equal(permission.approvalOptions.command.includes('opencode-secret'), false);
+  assert.equal(permission.approvalOptions.command.includes('--delete important.txt'), true);
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.command.includes(posixFileUrl), false);
+  assert.equal(tool.input.command.includes('opencode-secret'), false);
+  assert.equal(tool.input.command.includes('--delete important.txt'), true);
+  assert.equal(retained.includes('opencode-secret'), false);
 });
 
 test('OpenCode command redaction redacts final Windows path segments with spaces', () => {

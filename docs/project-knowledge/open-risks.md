@@ -126,13 +126,15 @@
   diagnostics, stream-error causes, and missing-session HTTP error details
   through allowlists; `daemon/src/conversation-manager.js` redacts path-like
   session binding diagnostics before appending public helper events;
+  `daemon/src/opencode-event-mapper.js` treats local `file://` URLs as path
+  diagnostics and requires session ids on visible file-edit events;
   `scripts/run-tests.js` covers lifecycle diagnostics exceptions, active-turn
   stream errors, session binding helper events, and stale provider session ids
-  with secret path/body/query fixtures.
+  with secret path/body/query/file-URL fixtures.
 - Mitigation: preserve allowlist projection for OpenCode public diagnostics and
   conversation event details. Do not add raw provider exception
-  messages/details or raw session binding diagnostics to public status,
-  timeline, or diagnostic-export surfaces.
+  messages/details, local file URLs, or raw session binding diagnostics to
+  public status, timeline, or diagnostic-export surfaces.
 - Last verified: 2026-06-09
 
 ## Risk: OpenCode SSE Frames Are Provider-Controlled Payloads

@@ -11,7 +11,7 @@ const RAW_LIMITS = Object.freeze({
   maxStringLength: 512
 });
 const PROVIDER_FIELD_MAX_CHARS = RAW_LIMITS.maxStringLength;
-const CRITICAL_PREFIXES = ['message.', 'permission.', 'session.status', 'session.idle', 'session.error', 'session.diff'];
+const CRITICAL_PREFIXES = ['message.', 'permission.', 'session.status', 'session.idle', 'session.error', 'session.diff', 'file.edited'];
 const POLLUTION_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function mapOpenCodeEvent(raw, options = {}) {
@@ -879,7 +879,57 @@ function redactBoundedString(value, maxLength = RAW_LIMITS.maxStringLength) {
 
 function redactAbsolutePaths(value) {
   if (typeof value !== 'string' || !value) return value;
-  return redactPosixAbsolutePaths(redactWindowsAbsolutePaths(value));
+  return redactPosixAbsolutePaths(redactWindowsAbsolutePaths(redactFileUrls(value)));
+}
+
+function redactFileUrls(value) {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    const fileUrlStart = findFileUrlStart(value, index);
+    if (fileUrlStart === -1) {
+      result += value.slice(index);
+      break;
+    }
+    result += value.slice(index, fileUrlStart);
+    result += '[Redacted path]';
+    index = findFileUrlEnd(value, fileUrlStart);
+  }
+  return result;
+}
+
+function findFileUrlStart(value, startIndex) {
+  const lower = value.toLowerCase();
+  for (let index = startIndex; index < value.length; index += 1) {
+    if (!lower.startsWith('file://', index)) continue;
+    if (index > 0 && !isPathBoundary(value[index - 1])) continue;
+    return index;
+  }
+  return -1;
+}
+
+function findFileUrlEnd(value, fileUrlStart) {
+  const prefixEnd = fileUrlStart + 'file://'.length;
+  let pathStart = prefixEnd;
+  while (pathStart < value.length && value[pathStart] === '/') pathStart += 1;
+  if (isWindowsDrivePathStart(value, pathStart)) return findWindowsPathEnd(value, pathStart);
+  if (isWindowsDrivePathStart(value, prefixEnd)) return findWindowsPathEnd(value, prefixEnd);
+  if (value[prefixEnd] === '/') return findPosixPathEnd(value, prefixEnd);
+  let index = prefixEnd;
+  while (index < value.length && !isWindowsPathTerminator(value[index])) {
+    if (/\s/.test(value[index])) {
+      const nextIndex = nextNonWhitespaceIndex(value, index);
+      if (
+        nextIndex >= value.length ||
+        isWindowsPathTerminator(value[nextIndex]) ||
+        value[nextIndex] === '-'
+      ) {
+        return index;
+      }
+    }
+    index += 1;
+  }
+  return index;
 }
 
 function redactWindowsAbsolutePaths(value) {
