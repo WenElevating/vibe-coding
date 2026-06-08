@@ -5,6 +5,7 @@ const { CodexAppServerClient } = require('./client');
 const DEFAULT_DISCOVERY_LIMIT = 2;
 const DEFAULT_CONVERSATION_LIMIT = Math.max(1, Number(process.env.CODEX_APP_SERVER_MAX_PROCESSES) || 4);
 const DEFAULT_MUTATION_LIMIT = 1;
+const MAX_METHOD_LATENCY_SAMPLES = 200;
 const DEFAULT_POOL_LIMITS = Object.freeze({
   discovery: DEFAULT_DISCOVERY_LIMIT,
   conversation: DEFAULT_CONVERSATION_LIMIT,
@@ -317,6 +318,7 @@ function ensureMetrics(metrics) {
   if (!metrics.processEvictionTotal.conversation) metrics.processEvictionTotal.conversation = {};
   if (!metrics.processEvictionTotal.mutation) metrics.processEvictionTotal.mutation = {};
   if (!Array.isArray(metrics.methodLatencyMs)) metrics.methodLatencyMs = [];
+  trimMethodLatencySamples(metrics);
   if (!metrics.methodErrorTotal) metrics.methodErrorTotal = {};
   return metrics;
 }
@@ -367,6 +369,13 @@ function recordMethodLatency(metrics, method, pool, latencyMs) {
     pool,
     value: Math.max(0, Number(latencyMs) || 0)
   });
+  trimMethodLatencySamples(metrics);
+}
+
+function trimMethodLatencySamples(metrics) {
+  if (!metrics || !Array.isArray(metrics.methodLatencyMs)) return;
+  const overflow = metrics.methodLatencyMs.length - MAX_METHOD_LATENCY_SAMPLES;
+  if (overflow > 0) metrics.methodLatencyMs.splice(0, overflow);
 }
 
 function recordMethodError(metrics, method, pool) {
@@ -391,12 +400,14 @@ function sanitizeMetrics(metrics) {
 }
 
 function sanitizeMetricLatencyEntries(metrics) {
-  metrics.methodLatencyMs = (metrics.methodLatencyMs || []).map((latency) => ({
-    name: 'codex_app_server_method_latency_ms',
-    method: sanitizeMethodName(latency?.method),
-    pool: sanitizeLabelValue(latency?.pool),
-    value: Math.max(0, Number(latency?.value) || 0)
-  }));
+  metrics.methodLatencyMs = (metrics.methodLatencyMs || [])
+    .slice(-MAX_METHOD_LATENCY_SAMPLES)
+    .map((latency) => ({
+      name: 'codex_app_server_method_latency_ms',
+      method: sanitizeMethodName(latency?.method),
+      pool: sanitizeLabelValue(latency?.pool),
+      value: Math.max(0, Number(latency?.value) || 0)
+    }));
 }
 
 function sanitizeProcessMetricMaps(metrics) {
@@ -591,5 +602,6 @@ const CLIENT_METHOD_TO_APP_SERVER_METHOD = Object.freeze({
 module.exports = {
   CodexAppServerBusyError,
   DEFAULT_POOL_LIMITS,
+  MAX_METHOD_LATENCY_SAMPLES,
   CodexAppServerService
 };

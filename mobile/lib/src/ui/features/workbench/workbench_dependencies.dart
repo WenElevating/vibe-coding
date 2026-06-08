@@ -48,6 +48,40 @@ class WorkbenchDependencies {
   final MobileAppEventBus? mobileAppEventBus;
   final PerformanceTracePublisher? performanceTracePublisher;
 
+  void publishApprovalRequested({
+    required String workspaceId,
+    required String conversationId,
+    required String approvalId,
+    required String title,
+    required String body,
+    required DateTime createdAt,
+    String? conversationTitle,
+    String? toolName,
+    String? summary,
+  }) {
+    mobileAppEventBus?.publish(MobileApprovalRequested(
+      workspaceId: workspaceId,
+      conversationId: conversationId,
+      approvalId: approvalId,
+      title: title,
+      body: body,
+      createdAt: createdAt,
+      conversationTitle: conversationTitle,
+      toolName: toolName,
+      summary: summary,
+    ));
+  }
+
+  void publishApprovalResolved({
+    required String conversationId,
+    String? approvalId,
+  }) {
+    mobileAppEventBus?.publish(MobileApprovalResolved(
+      conversationId: conversationId,
+      approvalId: approvalId,
+    ));
+  }
+
   WorkbenchDependencies copyWith({
     CodingPreferencesRepository? codingPreferencesRepository,
     SlashCommandCatalogRepository? slashCommandCatalogRepository,

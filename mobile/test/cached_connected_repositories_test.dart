@@ -905,6 +905,59 @@ void main() {
       expect(repository.runs.single.status, 'running');
     });
 
+    test('cancelRun removes cancelled queued run from cached queue', () async {
+      final delegate = _FakeRunRepository(
+        runs: const <RunSummary>[
+          RunSummary(
+            id: 'r1',
+            tool: 'codex',
+            workspaceId: 'w1',
+            status: 'running',
+          ),
+          RunSummary(
+            id: 'r2',
+            tool: 'codex',
+            workspaceId: 'w1',
+            status: 'queued',
+          ),
+          RunSummary(
+            id: 'r3',
+            tool: 'codex',
+            workspaceId: 'w1',
+            status: 'queued',
+          ),
+        ],
+        queue: const <QueueItem>[
+          QueueItem(
+            runId: 'r2',
+            workspaceId: 'w1',
+            position: 1,
+            status: 'queued',
+            reason: 'busy',
+          ),
+          QueueItem(
+            runId: 'r3',
+            workspaceId: 'w1',
+            position: 2,
+            status: 'queued',
+            reason: 'busy',
+          ),
+        ],
+      );
+      final repository = CachedRunRepository(delegate: delegate);
+      await repository.refresh();
+
+      await repository.cancelRun('r2');
+
+      expect(repository.runs.firstWhere((run) => run.id == 'r2').status,
+          'cancelled');
+      expect(
+        repository.queue
+            .map((item) => (runId: item.runId, position: item.position)),
+        const <({String runId, int position})>[(runId: 'r3', position: 1)],
+      );
+    });
+
     test('filtered listRuns semantics are delegated', () async {
       final delegate = _FakeRunRepository(
         runs: const <RunSummary>[

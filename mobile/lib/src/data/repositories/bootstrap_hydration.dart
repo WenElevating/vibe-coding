@@ -12,6 +12,8 @@ abstract interface class WorkspaceBootstrapTarget {
 abstract interface class ConversationBootstrapTarget {
   String? get loadedWorkspaceId;
 
+  void clearFromBootstrap();
+
   void replaceFromBootstrap({
     required String workspaceId,
     required List<ConversationSummary> conversations,
@@ -20,6 +22,8 @@ abstract interface class ConversationBootstrapTarget {
 
 abstract interface class RunBootstrapTarget {
   String? get loadedWorkspaceId;
+
+  void clearFromBootstrap();
 
   void replaceFromBootstrap({
     required String workspaceId,

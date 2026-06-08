@@ -56,11 +56,13 @@ class ConnectedMainShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final selectedWorkspace =
+        repositories.workspaceRepository.selectedWorkspace;
     final pages = <Widget>[
       codingTab,
       CodexAppServerPage(
         viewModel: codexAppServerViewModel,
-        workspace: initialData.workspace,
+        workspace: selectedWorkspace,
       ),
       SettingsPage(
         open: viewModel.openOverlay,

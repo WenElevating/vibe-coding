@@ -355,7 +355,7 @@ class AppSqliteStore {
   appendEvent(event) {
     const { conversationId, seq, type, createdAt, ...payload } = event;
     this.db.prepare(`
-      INSERT OR REPLACE INTO conversation_events(conversation_id, seq, type, created_at, payload_json)
+      INSERT INTO conversation_events(conversation_id, seq, type, created_at, payload_json)
       VALUES (?, ?, ?, ?, ?)
     `).run(conversationId, seq, type, createdAt, JSON.stringify(payload));
   }
@@ -754,11 +754,11 @@ function deserializeConversation(row) {
 
 function deserializeEvent(row) {
   return {
+    ...parseJson(row.payload_json, {}),
     seq: row.seq,
     conversationId: row.conversation_id,
     type: row.type,
-    createdAt: row.created_at,
-    ...parseJson(row.payload_json, {})
+    createdAt: row.created_at
   };
 }
 

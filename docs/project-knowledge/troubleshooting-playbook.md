@@ -823,3 +823,83 @@ flutter test --no-pub test\main_shell_view_model_test.dart --plain-name "updates
 ```
 
 - Last verified: 2026-05-28
+
+## Symptom: Cancelled Conversation Still Changes After Resend Or Slow Startup
+
+- Symptom: after cancelling a conversation and sending again, a late event from
+  the old adapter process can fail or complete the new turn. A related startup
+  race can let a slow `startConversation()` return after cancel and dispatch a
+  user message through a handle that should no longer be active.
+- Action: keep adapter callback ownership in `ConversationManager`. Scope
+  adapter events to the handle that was adopted by the conversation, drop
+  startup events after the conversation leaves `running`, and dispose late
+  startup handles instead of adopting or sending through them.
+- Related file:
+  [conversation-manager.js](../../daemon/src/conversation-manager.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js --plain-name "conversation manager ignores stale events from a replaced handle after cancel and resend"
+node scripts/run-tests.js --plain-name "conversation cancel during adapter startup does not adopt or dispatch late handle"
+```
+
+- Last verified: 2026-06-08
+
+## Symptom: Missing Selected Workspace Shows Stale Scoped Data
+
+- Symptom: mobile starts connected with no selected workspace, but old
+  conversation, run, or Codex app-server data from a previous workspace remains
+  visible until a manual refresh or restart.
+- Action: treat absent selected workspace as an explicit scope transition.
+  Bootstrap should clear workspace-scoped conversation/run caches, preserve the
+  global workspace catalog, and invalidate in-flight Codex app-server loads.
+- Related files:
+  [bootstrap_hydration.dart](../../mobile/lib/src/data/repositories/bootstrap_hydration.dart),
+  [open_workspace_use_case.dart](../../mobile/lib/src/workflows/connection/open_workspace_use_case.dart),
+  [codex_app_server_view_model.dart](../../mobile/lib/src/ui/features/codex_app_server/view_models/codex_app_server_view_model.dart)
+- Verification:
+
+```powershell
+cd D:\AIProject\vibe-coding\mobile
+flutter test --no-pub test\open_workspace_use_case_test.dart test\connected_repository_bootstrap_test.dart -r expanded
+flutter test --no-pub test\codex_app_server_view_model_test.dart -r expanded
+```
+
+- Last verified: 2026-06-08
+
+## Symptom: Cancelled Queued Run Leaves Gaps Or Stale Queue Rows
+
+- Symptom: cancelling a queued run removes or cancels that run, but remaining
+  queue positions keep old numbers or the mobile queue keeps showing the
+  cancelled item until a full refresh.
+- Action: compact daemon queue positions after queued cancellation and apply the
+  same mutation to the mobile cached run queue projection.
+- Related files:
+  [run-queue.js](../../daemon/src/run-queue.js),
+  [cached_run_repository.dart](../../mobile/lib/src/data/repositories/cached_run_repository.dart)
+- Verification:
+
+```powershell
+node scripts/run-tests.js --plain-name "run queue renumbers workspace positions after queued cancellation"
+cd D:\AIProject\vibe-coding\mobile
+flutter test --no-pub test\cached_connected_repositories_test.dart -r expanded --plain-name "cancelRun removes cancelled queued run from cached queue"
+```
+
+- Last verified: 2026-06-08
+
+## Symptom: Diagnostic Bundle Redacts Keys But Leaks Secret Values
+
+- Symptom: exported diagnostics redact sensitive object keys, but exception
+  strings such as `message`, `stack`, `path`, or nested metadata can still
+  contain bearer tokens, `sk-*` secrets, or sensitive URL query parameters.
+- Action: diagnostic export redaction must scrub both object keys and string
+  values before packaging recent errors or exception metadata.
+- Related file:
+  [diagnostic-bundle.js](../../daemon/src/diagnostic-bundle.js)
+- Verification:
+
+```powershell
+node scripts/run-tests.js --plain-name "exceptions are persisted with trace ids and exported in diagnostics"
+```
+
+- Last verified: 2026-06-08

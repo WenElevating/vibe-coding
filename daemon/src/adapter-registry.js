@@ -25,7 +25,7 @@ class AdapterRegistry {
 
   listCapabilities() {
     if (!this.capabilitiesLoad) {
-      this.capabilitiesLoad = Promise.all(Array.from(this.adapters.values()).map(async (adapter) => enrich(adapter, await adapter.detectCapabilities())))
+      this.capabilitiesLoad = Promise.all(Array.from(this.adapters.values()).map(async (adapter) => enrich(adapter, await loadAdapterStatus(adapter))))
         .finally(() => {
           this.capabilitiesLoad = null;
         });
@@ -66,6 +66,21 @@ async function enrich(adapter, status) {
     selectedModelId: selectedModel
   });
   return enriched;
+}
+
+async function loadAdapterStatus(adapter) {
+  try {
+    return await adapter.detectCapabilities();
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error || 'unknown error');
+    return {
+      adapter: adapter.name,
+      available: false,
+      status: 'unavailable',
+      error: `Adapter capability detection failed: ${message}`,
+      actionable: `Adapter capability detection failed: ${message}`
+    };
+  }
 }
 
 async function loadModelCapability(adapter, status) {

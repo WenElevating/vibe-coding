@@ -1,7 +1,7 @@
 # Conventions
 
 - Status: active seed
-- Last verified: 2026-05-27
+- Last verified: 2026-06-08
 
 ## Editing
 
@@ -19,6 +19,16 @@
 - If the user says `提交代码`, make a real commit attempt after verification.
 - If the user asks to push, push after committing relevant local changes.
 - `docs/` is ignored in this repo; use `git add -f` for intentional docs.
+
+## Daemon Security
+
+- Workspace path guards must enforce both lexical containment and real
+  filesystem containment. For existing targets, compare `realpath(root)` and
+  `realpath(target)`. For writes to new paths, validate the closest existing
+  parent by realpath so symlinked directories cannot escape the authorized
+  workspace. Regression coverage: `workspace inspector rejects symlinked files
+  outside workspace` and `Codex app-server workspace path guard rejects symlink
+  targets outside workspace`.
 
 ## Flutter
 

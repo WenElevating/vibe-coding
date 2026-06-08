@@ -215,6 +215,23 @@ void main() {
     expect(service.cancelCalls, 1);
   });
 
+  test('cancel during initialization ignores a later start timeout', () async {
+    final service = _FakeSpeechInputService()
+      ..startCompleter = Completer<void>();
+    final controller = VoiceInputController(
+        service: service, initializeTimeout: const Duration(milliseconds: 10));
+
+    final start = controller.start(currentPrompt: '');
+    expect(controller.state, VoiceInputState.initializing);
+
+    await controller.cancel();
+    await start;
+
+    expect(controller.state, VoiceInputState.idle);
+    expect(controller.error, isNull);
+    expect(service.cancelCalls, 1);
+  });
+
   test('missing recording device is reported as a friendly message', () async {
     final service = _FakeSpeechInputService()
       ..startError = PlatformException(code: 'Record', message: '未找到任何录音设备');

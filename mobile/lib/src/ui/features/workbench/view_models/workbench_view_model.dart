@@ -1361,11 +1361,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     List<ConversationEvent> olderEvents,
     List<ConversationEvent> newerEvents,
   ) {
-    final bySeq = <int, ConversationEvent>{};
+    final bySeq = <int, ConversationEvent>{
+      for (final event in newerEvents) event.seq: event,
+    };
     for (final event in olderEvents) {
-      bySeq[event.seq] = event;
-    }
-    for (final event in newerEvents) {
       bySeq.putIfAbsent(event.seq, () => event);
     }
     final merged = bySeq.values.toList(growable: false)

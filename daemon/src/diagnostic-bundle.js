@@ -55,6 +55,7 @@ class DiagnosticBundleService {
 
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
+  if (typeof value === 'string') return redactString(value);
   if (!value || typeof value !== 'object') return value;
   const output = {};
   for (const [key, item] of Object.entries(value)) {
@@ -62,6 +63,14 @@ function redact(value) {
     else output[key] = redact(item);
   }
   return output;
+}
+
+function redactString(value) {
+  return value
+    .replace(/([?&](?:access_token|token|api_key|apikey|authorization|password|secret)=)[^&#\s]+/gi, '$1[REDACTED]')
+    .replace(/\b(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9_-]{5,}\b/g, '[REDACTED]');
 }
 
 module.exports = { DiagnosticBundleService, redact };

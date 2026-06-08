@@ -86,12 +86,12 @@ class VoiceInputController extends ChangeNotifier {
         _setState(VoiceInputState.listening);
       }
     } on TimeoutException {
-      if (_disposed) return;
+      if (_disposed || _state != VoiceInputState.initializing) return;
       _error = 'Voice input unavailable';
       _setState(VoiceInputState.failed);
       await _cancelServiceBestEffort();
     } catch (error) {
-      if (_disposed) return;
+      if (_disposed || _state != VoiceInputState.initializing) return;
       _error = friendlyVoiceInputError(error);
       _setState(VoiceInputState.failed);
     }

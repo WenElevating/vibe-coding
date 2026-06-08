@@ -27,6 +27,7 @@ const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp } = require('../daemon/src/main');
+const { RunQueue } = require('../daemon/src/run-queue');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
 const { conversationEventTypes } = require('../daemon/src/conversation-protocol');
@@ -96,6 +97,26 @@ function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = B
   fs.writeFileSync(path.join(root, `${apkName}.sha256`), `${sha256}  ${apkName}\n`, 'utf8');
   return { root, apkBytes, manifest };
 }
+
+test('Android background download service disconnects HTTP connections', () => {
+  const servicePath = path.join(
+    __dirname,
+    '..',
+    'mobile',
+    'android',
+    'app',
+    'src',
+    'main',
+    'kotlin',
+    'com',
+    'example',
+    'lan_ai_cli_control',
+    'BackgroundDownloadService.kt'
+  );
+  const source = fs.readFileSync(servicePath, 'utf8');
+  assert.match(source, /var\s+connection:\s+HttpURLConnection\?\s*=\s*null/);
+  assert.match(source, /finally\s*\{[\s\S]*connection\?\.disconnect\(\)/);
+});
 
 test('project knowledge check validates links and active entry metadata', () => {
   const fs = require('node:fs');
@@ -286,6 +307,26 @@ test('Codex app-server JSONL transport resolves responses and emits notification
   transport.close();
   stdin.destroy();
   stdout.destroy();
+});
+
+test('run queue renumbers workspace positions after queued cancellation', () => {
+  const queue = new RunQueue();
+  const active = { id: 'run_active', workspaceId: 'workspace_1' };
+  const queuedA = { id: 'run_queued_a', workspaceId: 'workspace_1' };
+  const queuedB = { id: 'run_queued_b', workspaceId: 'workspace_1' };
+
+  assert.equal(queue.submit(active).state, 'ready');
+  assert.equal(queue.submit(queuedA).item.position, 1);
+  assert.equal(queue.submit(queuedB).item.position, 2);
+
+  queue.cancel(queuedA.id);
+
+  assert.deepEqual(queue.list().map((item) => ({
+    runId: item.runId,
+    position: item.position
+  })), [
+    { runId: queuedB.id, position: 1 }
+  ]);
 });
 
 test('Codex app-server JSONL transport rejects pending requests on close', async () => {
@@ -1003,6 +1044,44 @@ test('Codex app-server operational metrics sanitize raw snapshot labels and use 
   assert.equal(metrics.methodLatencyMs.some((item) => item.method === 'environment/add' && item.pool === 'mutation'), true);
   assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'config/batchWrite'), true);
   assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'environment/add'), true);
+});
+
+test('Codex app-server operational metrics keep bounded latency samples', async () => {
+  const {
+    CodexAppServerService,
+    MAX_METHOD_LATENCY_SAMPLES
+  } = require('../daemon/src/codex-app-server/service');
+  let now = 3000;
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          now += 1;
+          if (method === 'initialize') return {};
+          return { ok: true };
+        };
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    },
+    now: () => now
+  });
+
+  await service.withDiscoveryClient(async (client) => {
+    for (let index = 0; index < MAX_METHOD_LATENCY_SAMPLES + 5; index += 1) {
+      await client.sendRequest(`method/${index}`, {});
+    }
+  });
+
+  const retained = service.metrics.methodLatencyMs;
+  assert.equal(retained.length, MAX_METHOD_LATENCY_SAMPLES);
+  assert.equal(retained[0].method, 'method/5');
+  assert.equal(retained[retained.length - 1].method, `method/${MAX_METHOD_LATENCY_SAMPLES + 4}`);
+
+  const snapshot = service.snapshotMetrics();
+  assert.equal(snapshot.methodLatencyMs.length, MAX_METHOD_LATENCY_SAMPLES);
+  assert.equal(snapshot.methodLatencyMs[0].method, 'method/5');
 });
 
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
@@ -3201,6 +3280,41 @@ test('Codex app-server workspace path guard rejects prefix and platform path esc
   }
 });
 
+test('Codex app-server workspace path guard rejects symlink targets outside workspace', () => {
+  const { resolveWorkspaceRelativePath } = require('../daemon/src/codex-app-server/routes');
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-guard-root-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-guard-outside-'));
+  try {
+    const outsideFile = path.join(outsideRoot, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside secret', 'utf8');
+    const fileLink = path.join(workspaceRoot, 'linked.txt');
+    try {
+      fs.symlinkSync(outsideFile, fileLink, 'file');
+    } catch {
+      return;
+    }
+
+    assert.throws(
+      () => resolveWorkspaceRelativePath({ path: workspaceRoot }, 'linked.txt'),
+      (error) => error.status === 403 && error.code === 'FORBIDDEN'
+    );
+
+    const dirLink = path.join(workspaceRoot, 'linked-dir');
+    try {
+      fs.symlinkSync(outsideRoot, dirLink, 'dir');
+    } catch {
+      return;
+    }
+    assert.throws(
+      () => resolveWorkspaceRelativePath({ path: workspaceRoot }, 'linked-dir/new.txt'),
+      (error) => error.status === 403 && error.code === 'FORBIDDEN'
+    );
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
 test('Codex app-server fs read routes resolve workspace paths and call typed service methods', async () => {
   const calls = [];
   const service = {
@@ -4244,6 +4358,25 @@ test('conversation event store appends and replays ordered events', () => {
   assert.equal(store.list('missing', 0).length, 0);
 });
 
+test('conversation event store keeps sequence identity authoritative over payload fields', () => {
+  const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+
+  const event = store.append('conv_1', 'assistant.message', {
+    seq: 99,
+    conversationId: 'conv_evil',
+    type: 'run.error',
+    createdAt: '1999-01-01T00:00:00.000Z',
+    text: 'hello'
+  });
+
+  assert.equal(event.seq, 1);
+  assert.equal(event.conversationId, 'conv_1');
+  assert.equal(event.type, 'assistant.message');
+  assert.equal(event.createdAt, '2026-05-03T00:00:00.000Z');
+  assert.deepEqual(store.list('conv_1', 0), [event]);
+  assert.equal(store.list('conv_evil', 0).length, 0);
+});
+
 test('conversation event store tail returns the latest events in ascending order', () => {
   const store = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
 
@@ -4305,6 +4438,76 @@ test('conversation event store before page supports SQLite sequence gaps', () =>
   assert.deepEqual(store.listTail('conv_gap', null).events.map((event) => event.seq), [10, 20, 30]);
   assert.deepEqual(store.listTail('conv_gap', '').events.map((event) => event.seq), [10, 20, 30]);
   assert.deepEqual(store.listBefore('conv_gap', 30, '   ').events.map((event) => event.seq), [10, 20]);
+  sqlite.close();
+});
+
+test('app SQLite store rejects duplicate conversation event sequence without replacing history', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-events-duplicate-') });
+  sqlite.saveConversation({
+    id: 'conv_duplicate', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
+    permissionMode: 'default', deviceId: 'device_1', status: 'idle', cliSessionId: null,
+    sessionBinding: 'unknown', userMessageCount: 0, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-03T00:00:00.000Z', updatedAt: '2026-05-03T00:00:00.000Z',
+    capabilities: {}, handle: null
+  });
+  sqlite.appendEvent({
+    seq: 1,
+    conversationId: 'conv_duplicate',
+    type: 'assistant.message',
+    createdAt: '2026-05-03T00:00:00.000Z',
+    text: 'original'
+  });
+
+  assert.throws(() => sqlite.appendEvent({
+    seq: 1,
+    conversationId: 'conv_duplicate',
+    type: 'run.error',
+    createdAt: '2026-05-03T00:00:01.000Z',
+    message: 'replacement'
+  }), /constraint|UNIQUE/i);
+  assert.deepEqual(sqlite.listEventsAfter('conv_duplicate', 0).map((event) => ({
+    seq: event.seq,
+    type: event.type,
+    text: event.text,
+    message: event.message
+  })), [{
+    seq: 1,
+    type: 'assistant.message',
+    text: 'original',
+    message: undefined
+  }]);
+  sqlite.close();
+});
+
+test('app SQLite store keeps event row identity authoritative over payload JSON fields', () => {
+  const { AppSqliteStore } = require('../daemon/src/app-sqlite-store');
+  const sqlite = new AppSqliteStore({ dbPath: tempConversationDbPath('conversation-events-identity-') });
+  sqlite.saveConversation({
+    id: 'conv_identity', workspaceId: 'default', workspacePath: process.cwd(), adapter: 'claude',
+    permissionMode: 'default', deviceId: 'device_1', status: 'idle', cliSessionId: null,
+    sessionBinding: 'unknown', userMessageCount: 0, blockingItem: null, idleExpiresAt: null,
+    createdAt: '2026-05-03T00:00:00.000Z', updatedAt: '2026-05-03T00:00:00.000Z',
+    capabilities: {}, handle: null
+  });
+  sqlite.db.prepare(`
+    INSERT INTO conversation_events(conversation_id, seq, type, created_at, payload_json)
+    VALUES (?, ?, ?, ?, ?)
+  `).run('conv_identity', 1, 'assistant.message', '2026-05-03T00:00:00.000Z', JSON.stringify({
+    conversationId: 'conv_evil',
+    seq: 99,
+    type: 'run.error',
+    createdAt: '1999-01-01T00:00:00.000Z',
+    text: 'hello'
+  }));
+
+  assert.deepEqual(sqlite.listEventsAfter('conv_identity', 0), [{
+    conversationId: 'conv_identity',
+    seq: 1,
+    type: 'assistant.message',
+    createdAt: '2026-05-03T00:00:00.000Z',
+    text: 'hello'
+  }]);
   sqlite.close();
 });
 
@@ -7311,6 +7514,83 @@ test('conversation cancel preserves confirmed CLI session and resumes next messa
   assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === 'conversation.cancelled' && event.status === 'cancelled'), true);
 });
 
+test('conversation manager ignores stale events from a replaced handle after cancel and resend', async () => {
+  const callbacks = [];
+  const handles = [];
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true, partialOutput: true },
+    async startConversation(input) {
+      callbacks.push(input.onEvent);
+      const handle = {
+        sent: [],
+        cancelled: false,
+        sendUserMessage(text) { this.sent.push(text); },
+        cancel() { this.cancelled = true; },
+        dispose() {}
+      };
+      handles.push(handle);
+      return handle;
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({
+    adapters: new Map([['claude', adapter]])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  await manager.sendMessage(conversation.id, { text: 'first' }, device);
+  callbacks[0]({ type: 'system.notice', sessionId: 'claude-session-1', text: 'started' });
+  await manager.cancelConversation(conversation.id, device);
+  await manager.sendMessage(conversation.id, { text: 'second' }, device);
+
+  callbacks[0]({ type: conversationEventTypes.RUN_ERROR, message: 'old handle failed late' });
+
+  assert.equal(handles.length, 2);
+  assert.equal(handles[0].cancelled, true);
+  assert.equal(manager.getConversation(conversation.id, device).status, 'running');
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.message === 'old handle failed late'), false);
+
+  callbacks[1]({ type: conversationEventTypes.ASSISTANT_MESSAGE, text: 'second completed' });
+  assert.equal(manager.getConversation(conversation.id, device).status, 'idle');
+});
+
+test('conversation cancel during adapter startup does not adopt or dispatch late handle', async () => {
+  let releaseStart;
+  const startGate = new Promise((resolve) => { releaseStart = resolve; });
+  const handle = {
+    sent: [],
+    cancelled: false,
+    sendUserMessage(text) { this.sent.push(text); },
+    cancel() { this.cancelled = true; },
+    dispose() { this.cancelled = true; }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, resume: true, partialOutput: true },
+    async startConversation() {
+      await startGate;
+      return handle;
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({
+    adapters: new Map([['claude', adapter]])
+  });
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+
+  const sendPromise = manager.sendMessage(conversation.id, { text: 'first' }, device);
+  const cancelled = await manager.cancelConversation(conversation.id, device);
+  releaseStart();
+  const sentAfterCancel = await sendPromise;
+  const summary = manager.getConversation(conversation.id, device);
+  const events = eventStore.list(conversation.id, 0);
+
+  assert.equal(cancelled.status, 'interrupted');
+  assert.equal(sentAfterCancel.status, 'interrupted');
+  assert.equal(summary.status, 'interrupted');
+  assert.equal(manager.conversations.get(conversation.id).handle, null);
+  assert.deepEqual(handle.sent, []);
+  assert.equal(handle.cancelled, true);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR), false);
+});
+
 test('conversation resend after cancel returns idle when resumed process completes without text', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
@@ -7557,6 +7837,24 @@ test('event replay returns ordered events after sequence', () => {
   store.append('run1', 'assistant.delta', { text: 'a' });
   store.append('run1', 'run.completed');
   assert.deepEqual(store.list('run1', 1).map((event) => event.seq), [2, 3]);
+});
+
+test('event store keeps sequence identity authoritative over payload fields', () => {
+  const store = new EventStore();
+  const event = store.append('run1', 'assistant.delta', {
+    seq: 99,
+    runId: 'run_evil',
+    type: 'run.failed',
+    createdAt: '1999-01-01T00:00:00.000Z',
+    text: 'safe'
+  });
+
+  assert.equal(event.seq, 1);
+  assert.equal(event.runId, 'run1');
+  assert.equal(event.type, 'assistant.delta');
+  assert.notEqual(event.createdAt, '1999-01-01T00:00:00.000Z');
+  assert.deepEqual(store.list('run1', 0), [event]);
+  assert.equal(store.list('run_evil', 0).length, 0);
 });
 
 test('audit redacts token-like fields', () => {
@@ -11884,6 +12182,9 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
     assert.equal(events.body.events.some((event) => event.type === eventTypes.ASSISTANT_DELTA), true);
     const replay = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=1`, null, token);
     assert.equal(replay.body.events.every((event) => event.seq > 1), true);
+    const invalidReplay = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=bad`, null, token);
+    assert.equal(invalidReplay.status, 400);
+    assert.equal(invalidReplay.body.error.code, 'invalid_event_page_query');
     const cancelled = await request(port, 'POST', `/api/runs/${created.body.id}/cancel`, {}, token);
     assert.equal(cancelled.status, 200);
   } finally {
@@ -11946,6 +12247,52 @@ test('slash command catalog returns adapter commands and unknown adapters as emp
     const unknown = await request(port, 'GET', '/api/adapters/not-real/slash-commands', null, token);
     assert.equal(unknown.status, 200);
     assert.deepEqual(unknown.body, { adapter: 'not-real', commands: [] });
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
+test('slash command route forwards authorized workspace path for dynamic discovery', async () => {
+  const app = createApp({
+    port: 0,
+    devAdapters: true,
+    appDbPath: tempConversationDbPath('app-db-slash-commands-workspace-')
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'slash-command-workspace-test'
+    });
+    const token = paired.body.token;
+    const created = await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Slash Command Workspace'
+    }, token);
+    const workspaceId = created.body.id;
+    let discoveredWorkspacePath = null;
+    app.slashCommandCatalog.discoverers.claude = {
+      async discover({ workspacePath }) {
+        discoveredWorkspacePath = workspacePath;
+        return [{ command: '/workspace-only', description: 'workspace command' }];
+      }
+    };
+
+    const response = await request(
+      port,
+      'GET',
+      `/api/adapters/claude/slash-commands?workspaceId=${encodeURIComponent(workspaceId)}`,
+      null,
+      token
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(discoveredWorkspacePath, process.cwd());
+    assert.deepEqual(response.body.commands, [
+      { command: '/workspace-only', description: 'workspace command' }
+    ]);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }
@@ -15762,6 +16109,33 @@ test('V1.2 git service parses status and diff output', () => {
   assert.equal(diff[0].additions, 2);
   assert.equal(diff[1].binary, true);
 });
+
+test('workspace inspector rejects symlinked files outside workspace', () => {
+  const { WorkspaceInspector } = require('../daemon/src/workspace-inspector');
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-inspector-root-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-inspector-outside-'));
+  try {
+    const outsideFile = path.join(outsideRoot, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside secret', 'utf8');
+    const linkPath = path.join(workspaceRoot, 'linked.txt');
+    try {
+      fs.symlinkSync(outsideFile, linkPath, 'file');
+    } catch {
+      return;
+    }
+
+    const inspector = new WorkspaceInspector();
+
+    assert.throws(
+      () => inspector.content({ id: 'workspace_1', path: workspaceRoot }, 'linked.txt'),
+      /path escapes workspace/
+    );
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
 test('V1.3 health and version expose release readiness without secrets', async () => {
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
   for (const adapter of app.adapterRegistry.adapters.values()) {
@@ -16662,6 +17036,33 @@ test('adapter capability listing falls back when model capability hooks fail', a
   }
 });
 
+test('adapter capability listing isolates adapter detection failures', async () => {
+  const registry = new AdapterRegistry([
+    {
+      name: 'broken',
+      async detectCapabilities() {
+        throw new Error('probe crashed');
+      }
+    },
+    {
+      name: 'healthy',
+      async detectCapabilities() {
+        return { adapter: 'healthy', available: true, status: 'available' };
+      }
+    }
+  ]);
+
+  const listed = await registry.listCapabilities();
+
+  assert.equal(listed.length, 2);
+  assert.equal(listed[0].adapter, 'broken');
+  assert.equal(listed[0].available, false);
+  assert.equal(listed[0].status, 'unavailable');
+  assert.match(listed[0].error, /probe crashed/);
+  assert.equal(listed[1].adapter, 'healthy');
+  assert.equal(listed[1].available, true);
+});
+
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
@@ -17483,10 +17884,14 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
     const token = paired.body.token;
     const recorded = await request(port, 'POST', '/api/exceptions', {
       source: 'mobile',
-      message: 'SocketException: Write failed',
-      path: '/api/notifications/ws',
+      message: 'SocketException: Write failed with Authorization: Bearer mobile-secret-token',
+      stack: 'Error: failed with sk-mobile-secret-value',
+      path: '/api/notifications/ws?access_token=query-secret-token',
       conversationId: 'conv_1',
-      metadata: { operation: 'watchConversationEvents' }
+      metadata: {
+        operation: 'watchConversationEvents',
+        details: { header: 'Authorization: Bearer nested-secret-token' }
+      }
     }, token);
     assert.equal(recorded.status, 201);
     assert.match(recorded.body.traceId, /^trc_/);
@@ -17494,6 +17899,12 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
     const exported = await request(port, 'POST', '/api/diagnostics/export', {}, token);
     const bundle = JSON.parse(fs.readFileSync(exported.body.path, 'utf8'));
     assert.equal(bundle.recent_errors[0].traceId, recorded.body.traceId);
+    const exportedText = JSON.stringify(bundle.recent_errors[0]);
+    assert.equal(exportedText.includes('mobile-secret-token'), false);
+    assert.equal(exportedText.includes('sk-mobile-secret-value'), false);
+    assert.equal(exportedText.includes('query-secret-token'), false);
+    assert.equal(exportedText.includes('nested-secret-token'), false);
+    assert.equal(bundle.recent_errors[0].metadata.operation, 'watchConversationEvents');
 
     const failed = await request(port, 'GET', '/api/not-found-for-trace', null, token);
     assert.equal(failed.status, 404);

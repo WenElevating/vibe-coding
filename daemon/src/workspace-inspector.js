@@ -136,11 +136,30 @@ class WorkspaceInspector {
 }
 
 function safeResolve(root, relativePath) {
-  const resolved = path.resolve(root, relativePath || '.');
   const normalizedRoot = path.resolve(root);
-  if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + path.sep)) throw httpError(400, 'path escapes workspace', 'PATH_OUTSIDE_WORKSPACE');
+  const resolved = path.resolve(normalizedRoot, relativePath || '.');
+  if (!isPathWithinRoot(resolved, normalizedRoot)) throw httpError(400, 'path escapes workspace', 'PATH_OUTSIDE_WORKSPACE');
   if (!fs.existsSync(resolved)) throw httpError(404, 'path not found', 'PATH_NOT_FOUND');
+  const realRoot = realpath(normalizedRoot);
+  const realResolved = realpath(resolved);
+  if (!isPathWithinRoot(realResolved, realRoot)) throw httpError(400, 'path escapes workspace', 'PATH_OUTSIDE_WORKSPACE');
   return resolved;
+}
+
+function realpath(value) {
+  const nativeRealpath = fs.realpathSync.native || fs.realpathSync;
+  return nativeRealpath(value);
+}
+
+function isPathWithinRoot(target, root) {
+  const comparableTarget = normalizePathForGuard(target);
+  const comparableRoot = normalizePathForGuard(root);
+  return comparableTarget === comparableRoot || comparableTarget.startsWith(comparableRoot + path.sep);
+}
+
+function normalizePathForGuard(value) {
+  const normalized = path.normalize(value);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
 function safeReadText(filePath, maxBytes) {

@@ -76,7 +76,7 @@ void main() {
 
   test('active conversation owns adapter selection across cache refreshes', () {
     final adapterRepository = _FakeCliAdapterRepository(
-      adapters: const <AdapterStatus>[_codexAdapter, _claudeAdapter],
+      adapters: const <AdapterStatus>[_claudeAdapter, _codexAdapter],
     );
     final viewModel = _workbenchViewModel(
       adapterRepository: adapterRepository,
@@ -88,7 +88,7 @@ void main() {
       adapter: 'codex',
     );
 
-    expect(viewModel.selectedAdapter, 'codex');
+    expect(viewModel.selectedAdapter, 'claude');
 
     viewModel.openSession(SessionItem(
       run: WorkbenchViewModel.runSummaryFromConversation(conversation),
@@ -222,11 +222,16 @@ void main() {
             _event(
                 seq: 2,
                 conversationId: 'conv_existing',
+                type: 'user.message',
+                text: 'current prompt'),
+            _event(
+                seq: 3,
+                conversationId: 'conv_existing',
                 type: 'assistant.message',
                 text: 'streamed answer'),
           ],
           oldestSeq: 2,
-          newestSeq: 2,
+          newestSeq: 3,
           hasMoreBefore: true,
         ),
         ConversationEventPage(
@@ -239,11 +244,16 @@ void main() {
             _event(
                 seq: 2,
                 conversationId: 'conv_existing',
+                type: 'user.message',
+                text: 'current prompt duplicate'),
+            _event(
+                seq: 3,
+                conversationId: 'conv_existing',
                 type: 'assistant.message',
-                text: 'streamed answer'),
+                text: 'streamed answer duplicate'),
           ],
           oldestSeq: 1,
-          newestSeq: 2,
+          newestSeq: 3,
           hasMoreBefore: false,
         ),
       ],
@@ -266,7 +276,7 @@ void main() {
     );
     viewModel.applyConversationEvents(<ConversationEvent>[
       _event(
-          seq: 3,
+          seq: 4,
           conversationId: 'conv_existing',
           type: 'assistant.message',
           text: 'live answer'),
@@ -276,8 +286,8 @@ void main() {
       'page:conv_existing:2:80',
     ]);
     expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
-    expect(
-        viewModel.conversationEvents.map((event) => event.seq), <int>[1, 2, 3]);
+    expect(viewModel.conversationEvents.map((event) => event.seq),
+        <int>[1, 2, 3, 4]);
     expect(
         viewModel.messages
             .where((message) => message.body == 'streamed answer'),

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/app_dependencies.dart';
 import '../../../main/main_page.dart';
-import '../../../mobile_connection_page.dart';
 import '../../../mobile_loading_page.dart';
+import 'mobile_connection_page.dart';
 import '../view_models/daemon_connection_view_model.dart';
 
 class MobileConnectionGate extends StatelessWidget {
