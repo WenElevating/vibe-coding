@@ -2451,6 +2451,44 @@ test('OpenCode server client parses chunked SSE frames and closes the subscripti
   }
 });
 
+test('OpenCode server client rejects non event-stream SSE responses', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fixture = await listenHttpServerForTest((req, res) => {
+    if (req.url === '/global/event') {
+      return sendJsonForTest(res, 200, {
+        error: { code: 'NOT_AN_EVENT_STREAM' },
+        message: 'not SSE C:\\secret\\opencode-sse-response.txt'
+      });
+    }
+    sendJsonForTest(res, 404, { error: 'not found' });
+  });
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    handle = client.subscribeEvents(
+      () => {},
+      (error) => errors.push(error)
+    );
+
+    await waitForConditionForTest(() => errors.length === 1, 'OpenCode client SSE content type error');
+    const opened = await handle.opened;
+
+    assert.equal(opened.ok, false);
+    assert.equal(opened.error.code, 'OPENCODE_SERVER_SSE_BAD_CONTENT_TYPE');
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_SSE_BAD_CONTENT_TYPE');
+    assert.equal(errors[0].details.method, 'GET');
+    assert.equal(errors[0].details.path, '/global/event');
+    assert.equal(errors[0].details.reason, 'invalid_content_type');
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'body'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'contentType'), false);
+    assert.equal(JSON.stringify(errors[0].details).includes('opencode-sse-response'), false);
+  } finally {
+    handle?.close();
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
 test('OpenCode server client rejects oversized complete SSE frames', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');

@@ -166,6 +166,14 @@ class OpenCodeServerClient {
         });
         return;
       }
+      if (!isEventStreamContentType(res.headers?.['content-type'])) {
+        collectBoundedResponseText(res, { timeoutMs: this.timeoutMs, maxBytes: MAX_BODY_TEXT_LENGTH }).then(() => {
+          reportError(buildSseBadContentTypeError());
+        }).catch((error) => {
+          reportError(buildNetworkError('GET', '/global/event', error));
+        });
+        return;
+      }
       settleOpened({ ok: true });
       res.setEncoding('utf8');
       const reportStreamClosed = (reason) => {
@@ -451,6 +459,17 @@ function buildSseBadJsonError(_data, _parseError) {
   });
 }
 
+function buildSseBadContentTypeError() {
+  return openCodeError('OpenCode server SSE endpoint did not return an event stream', {
+    code: 'OPENCODE_SERVER_SSE_BAD_CONTENT_TYPE',
+    details: {
+      method: 'GET',
+      path: '/global/event',
+      reason: 'invalid_content_type'
+    }
+  });
+}
+
 function buildSseEventTooLargeError(chars) {
   return openCodeError('OpenCode server SSE event exceeded the size limit', {
     code: 'OPENCODE_SERVER_SSE_EVENT_TOO_LARGE',
@@ -535,6 +554,11 @@ function safeProviderCode(value) {
   if (!text || text.length > MAX_PROVIDER_CODE_LENGTH) return null;
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(text)) return null;
   return text;
+}
+
+function isEventStreamContentType(value) {
+  const text = String(value || '').split(';')[0].trim().toLowerCase();
+  return text === 'text/event-stream';
 }
 
 function publicPathForUrl(url, route) {

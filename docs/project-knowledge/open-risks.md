@@ -80,8 +80,10 @@
 - Evidence: `daemon/src/opencode-server-client.js` exposes
   `subscription.opened`; `daemon/src/opencode-conversation-adapter.js` and
   `daemon/src/opencode-adapter.js` wait for that signal before prompt dispatch.
-  `scripts/run-tests.js` includes deterministic regression tests for both the
-  conversation adapter and legacy run path.
+  `daemon/src/opencode-server-client.js` requires the SSE response content type
+  to be `text/event-stream` before resolving `opened`; `scripts/run-tests.js`
+  includes deterministic regression tests for the server client, conversation
+  adapter, and legacy run path.
 - Mitigation: preserve the SSE-open-before-prompt invariant when changing
   OpenCode client, adapter, lifecycle, or fake-server code.
 - Last verified: 2026-06-09
