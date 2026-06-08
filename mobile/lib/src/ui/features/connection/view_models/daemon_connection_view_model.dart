@@ -159,6 +159,8 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     }
 
     final attempt = ++_connectionAttempt;
+    final hadConnectedSession =
+        _client != null && _initialData != null && _connectedConfig != null;
     _status = DaemonConnectionStatus.validating;
     _inputError = null;
     _inputErrorCode = null;
@@ -197,9 +199,9 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         onTimeout: () {
           if (_isCurrentAttempt(attempt) && isBusy) {
             _connectionAttempt++;
-            _client = null;
-            _initialData = null;
-            _connectedConfig = null;
+            if (!hadConnectedSession) {
+              _clearConnectedSession();
+            }
             _errorSummary = 'The daemon did not respond in time.';
             _errorDetail =
                 'Connection attempt exceeded ${_connectionTimeout.inSeconds}s.';
@@ -213,6 +215,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
         session.client.close();
         return;
       }
+      final previousClient = _client;
       _client = session.client;
       _initialData = session.initialData;
       _connectedConfig = session.connectedConfig;
@@ -220,6 +223,9 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       _latestSuccessfulAddressInput = session.connectedConfig.addressInput;
       _status = DaemonConnectionStatus.connected;
       notifyListeners();
+      if (!identical(previousClient, session.client)) {
+        previousClient?.close();
+      }
       await _recordSuccessfulRecentAddress(
         session.connectedConfig.addressInput,
         attempt,
@@ -238,9 +244,9 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       if (!_isCurrentAttempt(attempt)) {
         return;
       }
-      _client = null;
-      _initialData = null;
-      _connectedConfig = null;
+      if (!hadConnectedSession) {
+        _clearConnectedSession();
+      }
       _errorSummary = daemonConnectionErrorSummary(error);
       _errorDetail = ExceptionRedactor.redactText(error.toString());
       _status = DaemonConnectionStatus.failed;
@@ -301,7 +307,8 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     }
     final latestAttempt = _latestSuccessfulAttempt;
     try {
-      await _recentAddressRepository.recordSuccessfulAddress(latestAddressInput);
+      await _recentAddressRepository
+          .recordSuccessfulAddress(latestAddressInput);
       if (!_isCurrentAttempt(latestAttempt)) {
         await _restoreLatestRecentAddressAfterStaleWrite(
           staleAttempt: latestAttempt,
@@ -332,9 +339,23 @@ class DaemonConnectionViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     _connectionAttempt++;
+    _closeConnectedClient();
     super.dispose();
+  }
+
+  void _closeConnectedClient() {
+    final client = _client;
+    _clearConnectedSession();
+    client?.close();
+  }
+
+  void _clearConnectedSession() {
+    _client = null;
+    _initialData = null;
+    _connectedConfig = null;
   }
 }
 

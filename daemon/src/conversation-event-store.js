@@ -22,11 +22,11 @@ class ConversationEventStore {
       ? this.persistentStore.nextEventSeq(conversationId)
       : list.length + 1;
     const event = {
+      ...payload,
       seq,
       conversationId,
       type,
-      createdAt: this.now().toISOString(),
-      ...payload
+      createdAt: this.now().toISOString()
     };
     if (this.persistentStore) this.persistentStore.appendEvent(event);
     list.push(event);

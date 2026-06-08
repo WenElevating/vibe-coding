@@ -86,7 +86,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
         const workspaceId = url.searchParams.get('workspaceId');
         const workspace = workspaceId ? workspaces.getAuthorized(workspaceId, device) : null;
         return json(res, 200, await slashCommandCatalog.list(decodeURIComponent(slashCommands[1]), {
-          workspacePath: workspace?.workspacePath
+          workspacePath: workspace?.path
         }));
       }
       if (method === 'GET' && url.pathname === '/api/extensions') return json(res, 200, await workspaceInspector.extensions(adapterRegistry));
@@ -227,7 +227,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       const runEvents = url.pathname.match(/^\/api\/runs\/([^/]+)\/events$/);
       if (method === 'GET' && runEvents) {
         const run = runs.getRun(runEvents[1], device);
-        const afterSeq = Number(url.searchParams.get('afterSeq') || 0);
+        const afterSeq = parseNonNegativeInteger(url.searchParams.has('afterSeq') ? url.searchParams.get('afterSeq') : '0', 'afterSeq');
         return json(res, 200, { events: eventStore.list(run.id, afterSeq) });
       }
       const runCancel = url.pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);

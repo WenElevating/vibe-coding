@@ -44,6 +44,10 @@ class RunQueue {
     const [item] = this.queue.splice(index, 1);
     item.status = 'cancelled';
     item.updatedAt = new Date().toISOString();
+    for (const queued of this.queue.filter((candidate) => candidate.workspaceId === item.workspaceId && candidate.position > item.position)) {
+      queued.position -= 1;
+      queued.updatedAt = new Date().toISOString();
+    }
     return item;
   }
 

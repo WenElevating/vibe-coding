@@ -20,6 +20,7 @@ class CachedRunRepository extends ChangeNotifier
   int _mutationEpoch = 0;
   final _locallyMutatedRunIds = <String>{};
   Future<void>? _refreshFuture;
+  bool _workspaceScopeCleared = false;
   bool _disposed = false;
 
   List<RunSummary> get runs => List.unmodifiable(_runs);
@@ -30,6 +31,23 @@ class CachedRunRepository extends ChangeNotifier
   String? get loadedWorkspaceId => _loadedWorkspaceId;
 
   @override
+  void clearFromBootstrap() {
+    if (_disposed) return;
+    _refreshGeneration++;
+    _mutationEpoch++;
+    _refreshFuture = null;
+    _loading = false;
+    _error = null;
+    _loadedWorkspaceId = null;
+    _runs = const <RunSummary>[];
+    _queue = const <QueueItem>[];
+    _loaded = true;
+    _workspaceScopeCleared = true;
+    _locallyMutatedRunIds.clear();
+    _notifyIfActive();
+  }
+
+  @override
   void replaceFromBootstrap({
     required String workspaceId,
     required List<RunSummary> runs,
@@ -37,10 +55,12 @@ class CachedRunRepository extends ChangeNotifier
   }) {
     if (_disposed) return;
     _refreshGeneration++;
+    _mutationEpoch++;
     _refreshFuture = null;
     _loading = false;
     _error = null;
     _loadedWorkspaceId = workspaceId;
+    _workspaceScopeCleared = false;
     _runs = List<RunSummary>.unmodifiable(runs);
     _queue = List<QueueItem>.unmodifiable(queue);
     _loaded = true;
@@ -80,6 +100,7 @@ class CachedRunRepository extends ChangeNotifier
                 mutatedIdsAtStart: mutatedIdsAtStart,
               );
         _queue = List<QueueItem>.unmodifiable(results[1] as List<QueueItem>);
+        _workspaceScopeCleared = false;
         _locallyMutatedRunIds.clear();
         _loaded = true;
       }
@@ -174,6 +195,7 @@ class CachedRunRepository extends ChangeNotifier
     try {
       final run = await _delegate.cancelRun(runId);
       _upsert(run);
+      _removeFromQueue(run);
       return run;
     } catch (error) {
       _applyMutationError(error);
@@ -250,6 +272,7 @@ class CachedRunRepository extends ChangeNotifier
 
   void _upsert(RunSummary run) {
     if (_disposed) return;
+    if (_workspaceScopeCleared) return;
     final loadedWorkspaceId = _loadedWorkspaceId;
     if (loadedWorkspaceId != null && run.workspaceId != loadedWorkspaceId) {
       return;
@@ -264,6 +287,31 @@ class CachedRunRepository extends ChangeNotifier
       updated[index] = run;
     }
     _runs = List<RunSummary>.unmodifiable(updated);
+    _notifyIfActive();
+  }
+
+  void _removeFromQueue(RunSummary run) {
+    if (_disposed || _workspaceScopeCleared) return;
+    final removedIndex = _queue.indexWhere((item) => item.runId == run.id);
+    if (removedIndex == -1) return;
+    final removed = _queue[removedIndex];
+    final updated = <QueueItem>[];
+    for (final item in _queue) {
+      if (item.runId == run.id) continue;
+      if (item.workspaceId == removed.workspaceId &&
+          item.position > removed.position) {
+        updated.add(QueueItem(
+          runId: item.runId,
+          workspaceId: item.workspaceId,
+          position: item.position - 1,
+          status: item.status,
+          reason: item.reason,
+        ));
+      } else {
+        updated.add(item);
+      }
+    }
+    _queue = List<QueueItem>.unmodifiable(updated);
     _notifyIfActive();
   }
 

@@ -423,7 +423,10 @@ class ConversationManager {
       if (hasAttachments) rememberMessageIdempotency(conversation.messageIdempotency, message.clientMessageId, payloadHash, this.messageIdempotencyMaxEntries);
       committed = true;
       this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
-      await this.ensureStarted(conversation);
+      const handle = await this.ensureStarted(conversation);
+      if (!handle || conversation.status !== conversationStatuses.RUNNING || conversation.handle !== handle) {
+        return publicConversation(conversation);
+      }
       if (hasAttachments) conversation.attachmentDispatchRedactionContext = attachmentDispatchRedactionContext(files);
       this.markPerf('adapter.send.started', {
         conversationId: conversation.id,
@@ -431,7 +434,7 @@ class ConversationManager {
           adapter: effectiveAdapterName(conversation)
         }
       });
-      await conversation.handle.sendUserMessage(hasAttachments ? adapterUserMessage(message, files) : message.text);
+      await handle.sendUserMessage(hasAttachments ? adapterUserMessage(message, files) : message.text);
       this.markPerf('adapter.send.accepted', {
         conversationId: conversation.id,
         metadata: {
@@ -866,9 +869,11 @@ class ConversationManager {
     if (conversation.handle) return conversation.handle;
     const adapterName = effectiveAdapterName(conversation);
     const adapter = this.getAdapter(adapterName);
+    let startedHandle = null;
     try {
-      conversation.handle = await this.startConversationWithAdapter(conversation, adapterName, adapter);
+      startedHandle = await this.startConversationWithAdapter(conversation, adapterName, adapter);
     } catch (error) {
+      if (conversation.status !== conversationStatuses.RUNNING) return null;
       if (!canFallbackFromAppServerStart(conversation, adapterName, error) || !this.adapters.has('codex')) throw error;
       if (adapter && typeof adapter.recordFallbackBeforeFirstRequest === 'function') {
         adapter.recordFallbackBeforeFirstRequest();
@@ -889,13 +894,19 @@ class ConversationManager {
         visible: false,
         ...conversation.fallbackNotice
       });
-      conversation.handle = await this.startConversationWithAdapter(conversation, 'codex', fallbackAdapter);
+      startedHandle = await this.startConversationWithAdapter(conversation, 'codex', fallbackAdapter);
     }
+    if (conversation.status !== conversationStatuses.RUNNING) {
+      await disposeDetachedHandle(startedHandle);
+      return null;
+    }
+    conversation.handle = startedHandle;
     return conversation.handle;
   }
 
   async startConversationWithAdapter(conversation, adapterName, adapter) {
-    return adapter.startConversation({
+    let startedHandle = null;
+    startedHandle = await adapter.startConversation({
       conversationId: conversation.id,
       workspacePath: conversation.workspacePath,
       permissionMode: conversation.permissionMode,
@@ -906,8 +917,13 @@ class ConversationManager {
       initialTaskProgress: adapterName === 'claude'
         ? buildClaudeTaskProgressSeed(this.eventStore.list(conversation.id, 0))
         : null,
-      onEvent: (event) => this.recordAdapterEvent(conversation, event)
+      onEvent: (event) => {
+        if (startedHandle && conversation.handle !== startedHandle) return;
+        if (!startedHandle && conversation.status !== conversationStatuses.RUNNING) return;
+        this.recordAdapterEvent(conversation, event);
+      }
     });
+    return startedHandle;
   }
 
   markPerf(name, input = {}) {
@@ -1260,10 +1276,19 @@ async function disposeIdleHandle(conversation) {
   if (!conversation.handle) return;
   const handle = conversation.handle;
   try {
-    if (typeof handle.dispose === 'function') await handle.dispose();
+    await disposeDetachedHandle(handle);
   } finally {
     conversation.handle = null;
   }
+}
+
+async function disposeDetachedHandle(handle) {
+  if (!handle) return;
+  if (typeof handle.dispose === 'function') {
+    await handle.dispose();
+    return;
+  }
+  if (typeof handle.cancel === 'function') await handle.cancel();
 }
 
 async function modelCapabilityFor(adapter) {

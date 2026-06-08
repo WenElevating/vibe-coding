@@ -235,7 +235,11 @@ void _hydrateConnectedSessionRepositories({
     workspaces: initialData.workspaces,
   );
   repositories.cliAdapterRepository.replaceFromBootstrap(initialData.adapters);
-  if (workspace == null) return;
+  if (workspace == null) {
+    repositories.conversationRepository.clearFromBootstrap();
+    repositories.runRepository.clearFromBootstrap();
+    return;
+  }
   repositories.conversationRepository.replaceFromBootstrap(
     workspaceId: workspace.id,
     conversations: initialData.conversations,

@@ -70,6 +70,48 @@ void main() {
     expect(viewModel.state.threads, isEmpty);
   });
 
+  test('CodexAppServerViewModel clears workspace scope and in-flight loads',
+      () async {
+    final repository = FakeCodexAppServerRepository(
+      capabilities: const CodexAppServerCapabilities(
+        raw: {},
+        routes: [],
+        totalMethods: 1,
+      ),
+      threads: const [
+        CodexAppServerThreadSummary(
+          id: 'thread_a',
+          title: 'Workspace A',
+          workspacePath: 'D:/A',
+          archived: false,
+          raw: {},
+        ),
+      ],
+      delayCapabilities: true,
+    );
+    final viewModel = CodexAppServerViewModel(repository: repository);
+
+    final load = viewModel.load(workspaceId: 'workspace_a');
+    expect(viewModel.state.loading, true);
+    expect(viewModel.state.workspaceId, 'workspace_a');
+
+    viewModel.clearWorkspace();
+
+    expect(viewModel.state.loading, false);
+    expect(viewModel.state.workspaceId, isNull);
+    expect(viewModel.state.error, isNull);
+    expect(viewModel.state.capabilities, isNull);
+    expect(viewModel.state.discovery, isNull);
+    expect(viewModel.state.threads, isEmpty);
+
+    repository.completeCapabilities();
+    await load;
+
+    expect(repository.listCalls, 0);
+    expect(viewModel.state.workspaceId, isNull);
+    expect(viewModel.state.threads, isEmpty);
+  });
+
   test('CodexAppServerViewModel ignores in-flight load after dispose',
       () async {
     final repository = FakeCodexAppServerRepository(

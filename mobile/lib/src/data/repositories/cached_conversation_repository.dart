@@ -32,6 +32,7 @@ class CachedConversationRepository extends ChangeNotifier
   int _mutationEpoch = 0;
   final _locallyMutatedConversationIds = <String>{};
   Future<void>? _refreshFuture;
+  bool _workspaceScopeCleared = false;
   bool _disposed = false;
 
   List<ConversationSummary> get conversations =>
@@ -42,16 +43,34 @@ class CachedConversationRepository extends ChangeNotifier
   String? get loadedWorkspaceId => _loadedWorkspaceId;
 
   @override
+  void clearFromBootstrap() {
+    if (_disposed) return;
+    _refreshGeneration++;
+    _mutationEpoch++;
+    _refreshFuture = null;
+    _loading = false;
+    _error = null;
+    _loadedWorkspaceId = null;
+    _conversations = const <ConversationSummary>[];
+    _loaded = true;
+    _workspaceScopeCleared = true;
+    _locallyMutatedConversationIds.clear();
+    _notifyIfActive();
+  }
+
+  @override
   void replaceFromBootstrap({
     required String workspaceId,
     required List<ConversationSummary> conversations,
   }) {
     if (_disposed) return;
     _refreshGeneration++;
+    _mutationEpoch++;
     _refreshFuture = null;
     _loading = false;
     _error = null;
     _loadedWorkspaceId = workspaceId;
+    _workspaceScopeCleared = false;
     final sorted = conversations.toList(growable: false)
       ..sort(_compareByUpdatedAtDescending);
     _conversations = List<ConversationSummary>.unmodifiable(sorted);
@@ -87,6 +106,7 @@ class CachedConversationRepository extends ChangeNotifier
                 conversations,
                 mutatedIdsAtStart: mutatedIdsAtStart,
               );
+        _workspaceScopeCleared = false;
         _locallyMutatedConversationIds.clear();
         _loaded = true;
       }
@@ -332,6 +352,7 @@ class CachedConversationRepository extends ChangeNotifier
 
   void _upsert(ConversationSummary conversation) {
     if (_disposed) return;
+    if (_workspaceScopeCleared) return;
     final loadedWorkspaceId = _loadedWorkspaceId;
     if (loadedWorkspaceId != null &&
         conversation.workspaceId != loadedWorkspaceId) {

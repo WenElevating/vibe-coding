@@ -84,7 +84,7 @@ class ApprovalNotificationHandler {
         _lifecycleState = initialLifecycleState {
     _eventSubscription = _eventBus.events.listen(_handleEvent);
     _tapSubscription = _presenter.taps.listen(_taps.add);
-    unawaited(_presenter.initialize());
+    unawaited(_runPresenterOperation(_presenter.initialize));
   }
 
   final MobileAppEventBus _eventBus;
@@ -142,7 +142,9 @@ class ApprovalNotificationHandler {
     }
     final notification = _displayForConversation(event.conversationId);
     if (notification == null) return;
-    await _presenter.showOrUpdateApproval(notification);
+    await _runPresenterOperation(
+      () => _presenter.showOrUpdateApproval(notification),
+    );
   }
 
   Future<void> _handleApprovalResolved(MobileApprovalResolved event) async {
@@ -156,17 +158,31 @@ class ApprovalNotificationHandler {
     }
     if (approvals.isEmpty) {
       _pendingByConversation.remove(event.conversationId);
-      await _presenter.cancelApproval(
-        id: approvalNotificationIdForConversation(event.conversationId),
-        conversationId: event.conversationId,
+      await _runPresenterOperation(
+        () => _presenter.cancelApproval(
+          id: approvalNotificationIdForConversation(event.conversationId),
+          conversationId: event.conversationId,
+        ),
       );
       return;
     }
     if (_lifecycleState != AppLifecycleState.resumed) {
       final notification = _displayForConversation(event.conversationId);
       if (notification != null) {
-        await _presenter.showOrUpdateApproval(notification);
+        await _runPresenterOperation(
+          () => _presenter.showOrUpdateApproval(notification),
+        );
       }
+    }
+  }
+
+  Future<void> _runPresenterOperation(Future<void> Function() operation) async {
+    if (_disposed) return;
+    try {
+      await operation();
+    } catch (_) {
+      // System notifications are best-effort; approval handling must keep
+      // flowing even when the platform plugin rejects initialization/show/cancel.
     }
   }
 

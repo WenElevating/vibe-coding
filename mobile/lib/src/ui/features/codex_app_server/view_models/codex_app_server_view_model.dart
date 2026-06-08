@@ -52,6 +52,13 @@ class CodexAppServerViewModel extends ChangeNotifier {
 
   CodexAppServerState get state => _state;
 
+  void clearWorkspace() {
+    if (_disposed) return;
+    _loadGeneration++;
+    _state = CodexAppServerState();
+    _notifyIfAlive();
+  }
+
   Future<void> load({required String workspaceId}) async {
     final generation = ++_loadGeneration;
     if (_disposed) return;

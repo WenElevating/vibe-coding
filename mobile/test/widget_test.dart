@@ -683,6 +683,7 @@ class _WorkspaceSelectionClient extends _AdapterRefreshClient {
   _WorkspaceSelectionClient({required this.workspaceCatalog});
 
   final List<WorkspaceSummary> workspaceCatalog;
+  final List<String> codexJsonPaths = <String>[];
 
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async => workspaceCatalog;
@@ -698,6 +699,27 @@ class _WorkspaceSelectionClient extends _AdapterRefreshClient {
   @override
   Future<List<ConversationSummary>> listConversations() async =>
       const <ConversationSummary>[];
+
+  @override
+  Future<Map<String, Object?>> getAuthorizedJson(String path) async {
+    codexJsonPaths.add(path);
+    if (path == '/api/codex-app-server/capabilities') {
+      return const <String, Object?>{
+        'routes': <Map<String, Object?>>[],
+        'totalMethods': 0,
+      };
+    }
+    if (path.startsWith('/api/codex-app-server/workspaces/') &&
+        path.endsWith('/threads?limit=50')) {
+      return const <String, Object?>{
+        'threads': <Map<String, Object?>>[],
+      };
+    }
+    if (path.startsWith('/api/codex-app-server/')) {
+      return const <String, Object?>{};
+    }
+    throw StateError('Unexpected Codex app-server path: $path');
+  }
 }
 
 class _WorkspaceCreationClient extends _WorkspaceSelectionClient {
@@ -2856,7 +2878,6 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     _setMockPackageInfo();
     final dependencies = AppDependencies.createDefault();
-    HomeViewModel? openedHomeViewModel;
     SettingsViewModel? openedSettingsViewModel;
     final testDependencies = AppDependencies(
       network: dependencies.network,
@@ -2865,14 +2886,6 @@ void main() {
       features: _testFeatureDependencies(
         createDaemonConnectionViewModel:
             dependencies.features.createDaemonConnectionViewModel,
-        createHomeViewModel: (connectedData, {signalMetrics}) {
-          final viewModel = _defaultTestHomeViewModelFactory(
-            connectedData,
-            signalMetrics: signalMetrics,
-          );
-          openedHomeViewModel = viewModel;
-          return viewModel;
-        },
         createSettingsViewModel: ({
           required ConnectedDataDependencies connectedData,
           required DaemonConnectionConfig connectionConfig,
@@ -2923,8 +2936,20 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle();
 
-    expect(openedHomeViewModel?.currentWorkspace?.id, 'workspace_2');
     expect(openedSettingsViewModel?.selectedWorkspace?.id, 'workspace_2');
+    expect(
+      client.codexJsonPaths,
+      contains('/api/codex-app-server/workspaces/workspace_2/threads?limit=50'),
+    );
+
+    await tester.tap(find.text('Codex'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(of: find.byType(TopBar), matching: find.text('Two')),
+      findsOneWidget,
+    );
+    expect(find.text('No workspace selected'), findsNothing);
   });
 
   testWidgets('workspace bootstrap failure stays in main workspace state',

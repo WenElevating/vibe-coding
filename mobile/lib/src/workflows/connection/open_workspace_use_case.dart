@@ -44,7 +44,11 @@ class OpenWorkspaceUseCase implements WorkspaceOpeningUseCase {
       selectedWorkspace: selectedWorkspace,
       workspaces: initialData.workspaces,
     );
-    if (selectedWorkspace == null) return initialData;
+    if (selectedWorkspace == null) {
+      _conversationRepository.clearFromBootstrap();
+      _runRepository.clearFromBootstrap();
+      return initialData;
+    }
     _conversationRepository.replaceFromBootstrap(
       workspaceId: selectedWorkspace.id,
       conversations: initialData.conversations,

@@ -16,6 +16,7 @@ import '../../services/mobile_app_event_bus.dart';
 import '../../services/performance_trace_publisher.dart';
 import '../../services/performance_trace_reporter.dart';
 import '../../workflows/workspace/create_workspace_workflow.dart';
+import '../core/widgets/widgets.dart';
 import '../features/workspace_picker/workspace_picker.dart';
 import '../features/codex_app_server/codex_app_server.dart';
 import '../features/settings/settings.dart'
@@ -27,6 +28,7 @@ import '../features/settings/settings.dart'
 import '../features/workbench/workbench.dart';
 import '../pages/coding/coding_page.dart';
 import 'connected_main_shell.dart';
+import 'home/widgets/home_no_workspace_panel.dart';
 import 'main_shell_view_model.dart';
 
 class MainPage extends StatefulWidget {
@@ -69,6 +71,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   late WorkbenchDependencies _workbenchDependencies;
   AppUpdateViewModel? _appUpdateViewModel;
   DaemonInitialData? _connectedInitialData;
+  String? _codexAppServerWorkspaceId;
   var _codingWorkbenchKey = GlobalKey<CodingWorkbenchPageState>();
   Object? _workspaceActionError;
   bool _creatingWorkspace = false;
@@ -103,6 +106,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       _handleCodingPreferencesRepositoryChanged,
     );
     _connectedInitialData = widget.initialData;
+    _repositories.workspaceRepository
+        .addListener(_handleWorkspaceRepositoryChanged);
     _viewModel = MainShellViewModel();
     _createRepositoryBackedViewModels(widget.initialData);
     unawaited(_loadCodingPreferences(_viewModel!));
@@ -114,6 +119,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   void didUpdateWidget(covariant MainPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageDependencies != widget.pageDependencies) {
+      oldWidget.pageDependencies.sessionScope.repositories.workspaceRepository
+          .removeListener(_handleWorkspaceRepositoryChanged);
       if (oldWidget.pageDependencies.codingPreferencesRepository !=
           widget.pageDependencies.codingPreferencesRepository) {
         oldWidget.pageDependencies.codingPreferencesRepository.removeListener(
@@ -137,6 +144,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       _connectedData.setNotificationTraceMarkRecorder(
         _recordNotificationTraceMark,
       );
+      _repositories.workspaceRepository
+          .addListener(_handleWorkspaceRepositoryChanged);
       _disposeAppUpdateViewModel();
       _disposeRepositoryBackedViewModels();
       unawaited(_createAppUpdateViewModel());
@@ -178,6 +187,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     widget.pageDependencies.codingPreferencesRepository.removeListener(
       _handleCodingPreferencesRepositoryChanged,
     );
+    _repositories.workspaceRepository
+        .removeListener(_handleWorkspaceRepositoryChanged);
     unawaited(_approvalNotificationTapSubscription?.cancel());
     unawaited(_approvalNotificationHandler.dispose());
     _connectedData.setNotificationTraceMarkRecorder(null);
@@ -394,10 +405,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       repository: _connectedData.codexAppServerRepository,
     );
     _codexAppServerViewModel = codexAppServerViewModel;
-    final workspaceId = data.workspace?.id;
-    if (workspaceId != null && workspaceId.isNotEmpty) {
-      unawaited(codexAppServerViewModel.load(workspaceId: workspaceId));
-    }
+    _loadCodexAppServerWorkspace(data.workspace);
     _settingsViewModel =
         widget.pageDependencies.featureDependencies.createSettingsViewModel(
       connectedData: _connectedData,
@@ -409,10 +417,25 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   }
 
   void _updateCodexAppServerWorkspace(DaemonInitialData data) {
-    final workspaceId = data.workspace?.id;
-    if (workspaceId != null && workspaceId.isNotEmpty) {
-      unawaited(_codexAppServerViewModel?.load(workspaceId: workspaceId));
+    _loadCodexAppServerWorkspace(data.workspace);
+  }
+
+  void _handleWorkspaceRepositoryChanged() {
+    _loadCodexAppServerWorkspace(
+        _repositories.workspaceRepository.selectedWorkspace);
+    if (mounted) setState(() {});
+  }
+
+  void _loadCodexAppServerWorkspace(WorkspaceSummary? workspace) {
+    final workspaceId = workspace?.id;
+    if (workspaceId == null || workspaceId.isEmpty) {
+      _codexAppServerWorkspaceId = null;
+      _codexAppServerViewModel?.clearWorkspace();
+      return;
     }
+    if (_codexAppServerWorkspaceId == workspaceId) return;
+    _codexAppServerWorkspaceId = workspaceId;
+    unawaited(_codexAppServerViewModel?.load(workspaceId: workspaceId));
   }
 
   void _updateSettingsViewModelInputs(DaemonInitialData data) {
@@ -425,6 +448,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   void _disposeRepositoryBackedViewModels() {
     _codexAppServerViewModel?.dispose();
     _codexAppServerViewModel = null;
+    _codexAppServerWorkspaceId = null;
     _settingsViewModel?.dispose();
     _settingsViewModel = null;
   }

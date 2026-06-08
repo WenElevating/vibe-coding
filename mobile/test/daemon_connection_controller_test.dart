@@ -236,6 +236,96 @@ void main() {
     expect(controller.client, isNull);
   });
 
+  test('dispose closes active connected client once', () async {
+    final client = _CloseTrackingDaemonClient();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon:
+          _QueuedConnectUseCase(<ConnectedAppSession<DaemonClient>>[
+        _connectedSession(client),
+      ]),
+    );
+    await controller.load();
+
+    await controller.connect();
+    expect(controller.status, DaemonConnectionStatus.connected);
+
+    controller.dispose();
+    controller.dispose();
+
+    expect(client.closeCount, 1);
+    expect(controller.client, isNull);
+  });
+
+  test('reconnect closes previously active client', () async {
+    final firstClient = _CloseTrackingDaemonClient();
+    final secondClient = _CloseTrackingDaemonClient();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon:
+          _QueuedConnectUseCase(<ConnectedAppSession<DaemonClient>>[
+        _connectedSession(firstClient, addressInput: '127.0.0.1:4317'),
+        _connectedSession(secondClient, addressInput: '127.0.0.1:4318'),
+      ]),
+    );
+    await controller.load();
+
+    await controller.connect();
+    expect(controller.client, same(firstClient));
+    expect(firstClient.closeCount, 0);
+
+    await controller.connect();
+
+    expect(firstClient.closeCount, 1);
+    expect(controller.client, same(secondClient));
+    expect(secondClient.closeCount, 0);
+
+    controller.dispose();
+    expect(secondClient.closeCount, 1);
+  });
+
+  test('reconnect keeps previous client active until replacement is adopted',
+      () async {
+    final firstClient = _CloseTrackingDaemonClient();
+    final secondClient = _CloseTrackingDaemonClient();
+    final replacement = Completer<ConnectedAppSession<DaemonClient>>();
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      connectToDaemon: _QueuedFutureConnectUseCase(<Future<
+          ConnectedAppSession<DaemonClient>>>[
+        Future<ConnectedAppSession<DaemonClient>>.value(
+          _connectedSession(firstClient, addressInput: '127.0.0.1:4317'),
+        ),
+        replacement.future,
+      ]),
+    );
+    await controller.load();
+
+    await controller.connect();
+    expect(controller.client, same(firstClient));
+
+    final reconnect = controller.connect();
+    await pumpEventQueue();
+
+    expect(controller.client, same(firstClient));
+    expect(firstClient.closeCount, 0);
+
+    replacement.complete(
+      _connectedSession(secondClient, addressInput: '127.0.0.1:4318'),
+    );
+    await reconnect;
+
+    expect(firstClient.closeCount, 1);
+    expect(controller.client, same(secondClient));
+    expect(secondClient.closeCount, 0);
+
+    controller.dispose();
+    expect(secondClient.closeCount, 1);
+  });
+
   test('loads recent addresses without blocking stored config', () async {
     final store = DaemonConnectionConfigStore();
     await store.save(const DaemonConnectionConfig(
@@ -488,6 +578,57 @@ class _DeferredConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
   }) =>
       session;
 }
+
+class _QueuedConnectUseCase implements ConnectToDaemonUseCase<DaemonClient> {
+  _QueuedConnectUseCase(this.sessions);
+
+  final List<ConnectedAppSession<DaemonClient>> sessions;
+  var _index = 0;
+
+  @override
+  Future<ConnectedAppSession<DaemonClient>> connect({
+    required String addressInput,
+    required DaemonProxyMode proxyMode,
+    required String manualProxyInput,
+    bool Function()? shouldContinue,
+    void Function()? onCheckingHealth,
+    void Function()? onLoadingInitialData,
+  }) async =>
+      sessions[_index++];
+}
+
+class _QueuedFutureConnectUseCase
+    implements ConnectToDaemonUseCase<DaemonClient> {
+  _QueuedFutureConnectUseCase(this.sessions);
+
+  final List<Future<ConnectedAppSession<DaemonClient>>> sessions;
+  var _index = 0;
+
+  @override
+  Future<ConnectedAppSession<DaemonClient>> connect({
+    required String addressInput,
+    required DaemonProxyMode proxyMode,
+    required String manualProxyInput,
+    bool Function()? shouldContinue,
+    void Function()? onCheckingHealth,
+    void Function()? onLoadingInitialData,
+  }) =>
+      sessions[_index++];
+}
+
+ConnectedAppSession<DaemonClient> _connectedSession(
+  DaemonClient client, {
+  String addressInput = '127.0.0.1:4317',
+}) =>
+    ConnectedAppSession<DaemonClient>(
+      client: client,
+      initialData: _snapshot().toDaemonInitialData(),
+      connectedConfig: DaemonConnectionConfig(
+        addressInput: addressInput,
+        proxyMode: DaemonProxyMode.direct,
+        manualProxyInput: '',
+      ),
+    );
 
 class _CloseTrackingDaemonClient extends DaemonClient {
   _CloseTrackingDaemonClient()

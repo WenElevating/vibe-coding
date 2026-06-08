@@ -115,6 +115,41 @@ void main() {
     await handler.dispose();
     await bus.dispose();
   });
+
+  test('presenter failures are isolated from handler event flow', () async {
+    final uncaughtErrors = <Object>[];
+    final guarded = runZonedGuarded<Future<void>>(() async {
+      final bus = MobileAppEventBus();
+      final presenter = _FakeApprovalNotificationPresenter()
+        ..initializeError = StateError('notification init failed')
+        ..showError = StateError('notification show failed')
+        ..cancelError = StateError('notification cancel failed');
+      final handler = ApprovalNotificationHandler(
+        eventBus: bus,
+        presenter: presenter,
+        initialLifecycleState: AppLifecycleState.paused,
+      );
+
+      bus
+        ..publish(_approvalRequested())
+        ..publish(const MobileApprovalResolved(
+          conversationId: 'conv_1',
+          approvalId: 'ap_1',
+        ));
+      await _flushAsync();
+
+      expect(presenter.showAttempts, 1);
+      expect(presenter.cancelAttempts, 1);
+
+      await handler.dispose();
+      await bus.dispose();
+    }, (error, _) {
+      uncaughtErrors.add(error);
+    });
+
+    await guarded;
+    expect(uncaughtErrors, isEmpty);
+  });
 }
 
 MobileApprovalRequested _approvalRequested({
@@ -137,16 +172,27 @@ class _FakeApprovalNotificationPresenter
   final shown = <ApprovalNotificationDisplay>[];
   final cancelledConversationIds = <String>[];
   final _taps = StreamController<ApprovalNotificationTap>.broadcast();
+  Object? initializeError;
+  Object? showError;
+  Object? cancelError;
+  var showAttempts = 0;
+  var cancelAttempts = 0;
 
   @override
   Stream<ApprovalNotificationTap> get taps => _taps.stream;
 
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    final error = initializeError;
+    if (error != null) throw error;
+  }
 
   @override
   Future<void> showOrUpdateApproval(
       ApprovalNotificationDisplay notification) async {
+    showAttempts += 1;
+    final error = showError;
+    if (error != null) throw error;
     shown.add(notification);
   }
 
@@ -155,6 +201,9 @@ class _FakeApprovalNotificationPresenter
     required int id,
     required String conversationId,
   }) async {
+    cancelAttempts += 1;
+    final error = cancelError;
+    if (error != null) throw error;
     cancelledConversationIds.add(conversationId);
   }
 

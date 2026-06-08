@@ -81,6 +81,56 @@ void main() {
     expect(conversationRepository.loadedWorkspaceId, isNull);
     expect(runRepository.loadedWorkspaceId, isNull);
   });
+
+  test('open workspace clears stale scoped caches when selection is absent',
+      () async {
+    final workspaceRepository = _FakeWorkspaceRepository(
+      workspaces: const <WorkspaceSummary>[_workspace1, _workspace2],
+    );
+    final conversationRepository = CachedConversationRepository(
+      delegate: _UnusedConversationRepository(),
+    )..replaceFromBootstrap(
+        workspaceId: 'w1',
+        conversations: _initialDataForWorkspace(_workspace1).conversations,
+      );
+    final runRepository = CachedRunRepository(
+      delegate: _UnusedRunRepository(),
+    )..replaceFromBootstrap(
+        workspaceId: 'w1',
+        runs: _initialDataForWorkspace(_workspace1).runs,
+        queue: _initialDataForWorkspace(_workspace1).queue,
+      );
+    final useCase = OpenWorkspaceUseCase(
+      loadWorkspaceBootstrap: ({
+        required workspaces,
+        required workspace,
+      }) async =>
+          const DaemonInitialData(
+        health: _health,
+        workspaces: <WorkspaceSummary>[_workspace2],
+        workspace: null,
+        adapters: <AdapterStatus>[],
+        conversations: <ConversationSummary>[],
+        runs: <RunSummary>[],
+        queue: <QueueItem>[],
+      ),
+      workspaceRepository: workspaceRepository,
+      conversationRepository: conversationRepository,
+      runRepository: runRepository,
+    );
+
+    await useCase.open(
+      workspaces: const <WorkspaceSummary>[_workspace1, _workspace2],
+      workspace: _workspace2,
+    );
+
+    expect(workspaceRepository.selectedWorkspace, isNull);
+    expect(conversationRepository.loadedWorkspaceId, isNull);
+    expect(conversationRepository.conversations, isEmpty);
+    expect(runRepository.loadedWorkspaceId, isNull);
+    expect(runRepository.runs, isEmpty);
+    expect(runRepository.queue, isEmpty);
+  });
 }
 
 const _health = DaemonHealth(

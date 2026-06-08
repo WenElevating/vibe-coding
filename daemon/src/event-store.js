@@ -10,11 +10,11 @@ class EventStore {
     const seq = this.nextSeqByRun.get(runId) || 1;
     this.nextSeqByRun.set(runId, seq + 1);
     const event = {
+      ...payload,
       type,
       seq,
       runId,
-      createdAt: new Date().toISOString(),
-      ...payload
+      createdAt: new Date().toISOString()
     };
     if (!this.eventsByRun.has(runId)) this.eventsByRun.set(runId, []);
     const events = this.eventsByRun.get(runId);
