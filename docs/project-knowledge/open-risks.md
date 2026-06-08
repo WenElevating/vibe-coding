@@ -156,6 +156,23 @@
   truncation for provider event frames.
 - Last verified: 2026-06-09
 
+## Risk: OpenCode SSE Subscribers Share One Transport Stream
+
+- Level: medium
+- Impact: multiple OpenCode conversation handles can share one
+  `/global/event` stream. If one app-owned subscriber callback throws and the
+  client lets it escape the response listener, it can interrupt delivery to
+  other subscribers or surface as an uncaught process error.
+- Evidence: `daemon/src/opencode-server-client.js` isolates throwing event and
+  error callbacks, closes only the failing subscriber, and keeps remaining
+  subscribers on the shared stream. `scripts/run-tests.js` covers a throwing
+  event callback, a throwing error callback, and continued delivery to another
+  subscriber without leaking the callback error message.
+- Mitigation: preserve callback isolation when changing OpenCode SSE
+  subscription, parser, or close/error fanout code. Do not call subscriber
+  event or error handlers without an isolation boundary.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Session Directory Reconciliation Can Fail Open
 
 - Level: medium

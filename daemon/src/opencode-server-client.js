@@ -129,17 +129,36 @@ class OpenCodeServerClient {
       for (const subscriber of subscribers) {
         if (subscriber.closed) continue;
         subscriber.closed = true;
-        if (error) subscriber.errorHandler(error);
+        if (error) notifySubscriberError(subscriber, error);
       }
       response?.destroy();
       req?.destroy();
       return true;
     };
+    const notifySubscriberError = (subscriber, error) => {
+      try {
+        subscriber.errorHandler(error);
+      } catch (_) {
+        // Subscriber callbacks are app-owned; transport cleanup must stay isolated.
+      }
+    };
+    const closeSubscriberWithError = (subscriber, error) => {
+      if (subscriber.closed) return;
+      subscriber.closed = true;
+      stream.subscribers.delete(subscriber);
+      notifySubscriberError(subscriber, error);
+      if (stream.subscribers.size === 0) closeStream();
+    };
     const reportError = (error) => closeStream({ error });
     const dispatchEvent = (event) => {
       if (stream.closed) return;
       for (const subscriber of Array.from(stream.subscribers)) {
-        if (!subscriber.closed) subscriber.eventHandler(event);
+        if (subscriber.closed) continue;
+        try {
+          subscriber.eventHandler(event);
+        } catch (error) {
+          closeSubscriberWithError(subscriber, buildSseSubscriberHandlerError(error));
+        }
       }
     };
     const parser = createSseParser(dispatchEvent, reportError);
@@ -490,6 +509,18 @@ function buildSseClosedError(reason) {
       method: 'GET',
       path: '/global/event',
       reason: limitString(reason || 'closed', MAX_DETAIL_STRING_LENGTH)
+    }
+  });
+}
+
+function buildSseSubscriberHandlerError(error) {
+  return openCodeError('OpenCode server SSE subscriber handler failed', {
+    code: 'OPENCODE_SERVER_SSE_SUBSCRIBER_FAILED',
+    details: {
+      method: 'GET',
+      path: '/global/event',
+      reason: 'subscriber_handler_failed',
+      handlerCode: safeProviderCode(error?.code || error?.name) || 'HANDLER_ERROR'
     }
   });
 }
