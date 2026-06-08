@@ -94,6 +94,13 @@ _NoticeCopy _noticeCopy(
       body: l10n.workbenchNoticePolicyBlockedBody,
     );
   }
+  if (noticeKind == 'opencode_session_expired') {
+    return _NoticeCopy(
+      title: l10n.workbenchNoticeOpenCodeSessionExpiredTitle,
+      meta: l10n.workbenchNoticeOpenCodeSessionExpiredMeta,
+      body: l10n.workbenchNoticeOpenCodeSessionExpiredBody,
+    );
+  }
   if (_isProviderAuthNotice(message)) {
     return _NoticeCopy(
       title: l10n.workbenchNoticeProviderAuthTitle,
