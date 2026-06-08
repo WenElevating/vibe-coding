@@ -12871,6 +12871,248 @@ test('conversation HTTP API creates, sends, and replays events', async () => {
   }
 });
 
+test('OpenCode conversation HTTP API drives a fake-server turn to idle', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Full Turn'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.conversation.adapter, 'opencode');
+    assert.equal(created.body.conversation.effectiveAdapter, 'opencode');
+    assert.equal(created.body.conversation.effectiveCapabilities.toolEvents, true);
+
+    const conversationId = created.body.conversation.id;
+    const sent = await fixture.post(`/api/conversations/${conversationId}/messages`, {
+      text: 'hello OpenCode HTTP'
+    });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.conversation.status, 'running');
+    await waitForConditionForTest(() => fixture.fake.promptBodies.length === 1, 'OpenCode HTTP prompt_async');
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP SSE client');
+
+    fixture.fake.emitEvent({
+      type: 'message.part.delta',
+      sessionID: 'sess_1',
+      messageId: 'msg_assistant',
+      partId: 'part_text',
+      text: 'partial answer'
+    });
+    fixture.fake.emitEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      messageId: 'msg_tool',
+      part_id: 'part_tool',
+      part: { type: 'tool_call', tool: 'bash', command: 'npm test', status: 'running' }
+    });
+    fixture.fake.emitEvent({
+      type: 'message.part.updated',
+      sessionID: 'sess_1',
+      messageId: 'msg_tool',
+      partID: 'part_result',
+      part: { type: 'tool_result', toolCallID: 'tool_1', text: 'ok', status: 'completed' }
+    });
+    fixture.fake.emitEvent({
+      type: 'message.updated',
+      sessionID: 'sess_1',
+      message_id: 'msg_assistant',
+      message: { role: 'assistant', text: 'final answer' }
+    });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+
+    const idle = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP full turn idle'
+    );
+    assert.equal(idle.cliSessionId, 'sess_1');
+    assert.equal(idle.sessionBinding, conversationSessionBindings.CONFIRMED);
+    assert.equal(idle.providerSession.provider, 'opencode');
+    assert.equal(idle.providerSession.threadId, 'sess_1');
+    assert.equal(idle.providerSession.cwd, fixture.workspacePath);
+    assert.deepEqual(fixture.fake.createRequests, [{ directory: fixture.workspacePath }]);
+    assert.deepEqual(fixture.fake.promptBodies, [{
+      sessionId: 'sess_1',
+      body: { parts: [{ type: 'text', text: 'hello OpenCode HTTP' }] }
+    }]);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const started = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_started');
+    assert.equal(events.some((event) => event.type === conversationEventTypes.USER_MESSAGE && event.text === 'hello OpenCode HTTP'), true);
+    assert.equal(started.providerSession.provider, 'opencode');
+    assert.equal(started.providerSession.threadId, 'sess_1');
+    assert.equal(started.providerSession.cwd, fixture.workspacePath);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL && event.text === 'partial answer'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_STARTED && event.toolName === 'bash'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_COMPLETED && event.text === 'ok'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_MESSAGE && event.text === 'final answer'), true);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_COMPLETED && event.sessionId === 'sess_1'), true);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP approval response reaches fake server and dedupes provider echo', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Permission'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'needs permission' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP approval SSE client');
+    fixture.fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      id: 'perm_http',
+      toolCallId: 'tool_http',
+      tool: 'bash',
+      command: 'npm test'
+    });
+
+    const waiting = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'waiting_approval',
+      'OpenCode HTTP waiting approval'
+    );
+    assert.equal(waiting.blockingItem.type, 'approval_request');
+    assert.equal(waiting.blockingItem.approvalId, 'perm_http');
+    assert.equal(waiting.blockingItem.toolName, 'bash');
+    assert.equal(waiting.blockingItem.approvalOptions.supportsSessionScope, true);
+
+    const responded = await fixture.post(
+      `/api/conversations/${conversationId}/approvals/perm_http/respond`,
+      { decision: 'allow', scope: 'session' }
+    );
+    assert.equal(responded.status, 200);
+    assert.equal(responded.body.conversation.status, 'running');
+    assert.deepEqual(fixture.fake.permissionReplies, [{
+      sessionId: 'sess_1',
+      permissionId: 'perm_http',
+      body: { response: 'always' }
+    }]);
+
+    fixture.fake.emitEvent({
+      type: 'permission.replied',
+      sessionID: 'sess_1',
+      id: 'perm_http',
+      decision: 'allow'
+    });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP approval turn idle'
+    );
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const approvalResolved = events.filter((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED);
+    assert.equal(approvalResolved.length, 1);
+    assert.equal(approvalResolved[0].approvalId, 'perm_http');
+    assert.equal(approvalResolved[0].decision, 'allow');
+    assert.equal(approvalResolved[0].scope, 'session');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP cancel calls fake abort route', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Cancel'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'cancel me' });
+    await waitForConditionForTest(() => fixture.fake.promptBodies.length === 1, 'OpenCode HTTP cancellable prompt');
+
+    const cancelled = await fixture.post(`/api/conversations/${conversationId}/cancel`, {});
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.conversation.status, 'cancelled');
+    assert.deepEqual(fixture.fake.abortSessionIds, ['sess_1']);
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 0, 'OpenCode HTTP cancel closes SSE client');
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const cancellation = events.find((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED);
+    assert.equal(cancellation.reason, 'user_cancelled');
+    assert.equal(cancellation.cliSessionId, 'sess_1');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP missing stored session fails without replacement session', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Missing Session'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'first turn' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP first-turn SSE client');
+    fixture.fake.emitEvent({ type: 'message.updated', sessionID: 'sess_1', message: { role: 'assistant', text: 'ok' } });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    const firstIdle = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle',
+      'OpenCode HTTP first turn idle'
+    );
+    assert.equal(firstIdle.cliSessionId, 'sess_1');
+
+    fixture.fake.sessions.delete('sess_1');
+    const createRequestCount = fixture.fake.createRequests.length;
+    const promptCount = fixture.fake.promptBodies.length;
+    const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'later turn' });
+
+    assert.equal(failed.status, 409);
+    assert.equal(failed.body.error.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(fixture.fake.createRequests.length, createRequestCount);
+    assert.equal(fixture.fake.promptBodies.length, promptCount);
+    assert.deepEqual(fixture.fake.readSessionIds, ['sess_1']);
+
+    const summary = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'failed',
+      'OpenCode HTTP missing session failed'
+    );
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.UNKNOWN);
+    assert.equal(summary.providerSession, null);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const expired = events.find((event) =>
+      event.type === conversationEventTypes.SYSTEM_NOTICE &&
+      event.noticeKind === 'opencode_session_expired');
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_MISSING');
+    assert.equal(expired.visible, true);
+    assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
+    assert.equal(runError.status, 409);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('conversation events API supports tail and beforeSeq pages', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath('conversation-event-pages-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -16538,6 +16780,90 @@ async function request(port, method, path, body, token) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+async function createOpenCodeHttpConversationFixture({
+  workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-http-workspace-')),
+  workspaceName = 'OpenCode HTTP Test'
+} = {}) {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let app = null;
+  try {
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 }),
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', serverUrl: fake.url };
+      },
+      async shutdown() {}
+    };
+    app = createApp({
+      port: 0,
+      codexAppServerEnabled: false,
+      opencodeServerLifecycle: lifecycle,
+      conversationDbPath: tempConversationDbPath('opencode-http-conversation-'),
+      perfDbPath: tempConversationDbPath('opencode-http-perf-')
+    });
+    await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    const port = app.server.address().port;
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: workspaceName
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath,
+      name: workspaceName
+    }, token);
+    const workspaces = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces;
+    const workspace = workspaces.find((item) => item.path === path.resolve(workspacePath));
+    assert.ok(workspace, `workspace ${workspacePath} was not created`);
+
+    const call = (method, pathValue, body = null) => request(port, method, pathValue, body, token);
+    return {
+      app,
+      fake,
+      port,
+      token,
+      workspaceId: workspace.id,
+      workspacePath: path.resolve(workspacePath),
+      get: (pathValue) => call('GET', pathValue),
+      post: (pathValue, body = {}) => call('POST', pathValue, body),
+      close: async () => {
+        try {
+          await fake.close();
+        } finally {
+          await closeAppResources(app);
+        }
+      }
+    };
+  } catch (error) {
+    await fake.close().catch(() => {});
+    if (app) await closeAppResources(app).catch(() => {});
+    throw error;
+  }
+}
+
+async function waitForOpenCodeHttpConversation(fixture, conversationId, predicate, description) {
+  let matched = null;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1000) {
+    const listed = await fixture.get('/api/conversations');
+    matched = listed.body.conversations.find((conversation) => conversation.id === conversationId) || null;
+    if (matched && predicate(matched)) return matched;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${description}`);
 }
 
 async function fetchJsonForTest(url, options = {}) {

@@ -315,7 +315,10 @@ class OpenCodeConversationHandle {
   }
 
   async cancel() {
-    if (!this.sessionId) return;
+    if (!this.sessionId) {
+      this.terminalize();
+      return;
+    }
     this.activeTurn = false;
     try {
       await this.client.abortSession({ sessionId: this.sessionId });
@@ -327,6 +330,8 @@ class OpenCodeConversationHandle {
         message: limitString(error?.message || 'OpenCode abort failed'),
         code: safeString(error?.code) || 'OPENCODE_ABORT_FAILED'
       });
+    } finally {
+      this.terminalize();
     }
   }
 
