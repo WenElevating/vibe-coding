@@ -3241,6 +3241,87 @@ test('OpenCode conversation adapter stream errors expose only allowlisted diagno
   assert.equal(publicText.includes('SECRET_QUERY'), false);
 });
 
+test('OpenCode conversation adapter idle stream warnings expose only allowlisted diagnostics', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-idle-stream-secret', 'provider.txt');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-idle-stream-workspace');
+  const events = [];
+  let streamErrorHandler = null;
+  let closed = false;
+  const client = {
+    async createSession() {
+      return { id: 'sess_idle_stream_error', directory: workspacePath };
+    },
+    subscribeEvents(_onEvent, onError) {
+      streamErrorHandler = onError;
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {
+          closed = true;
+        }
+      };
+    },
+    async promptAsync() {},
+    async abortSession() {}
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535/secret/path?token=SECRET_QUERY',
+          owned: false,
+          client
+        };
+      }
+    }
+  });
+  await adapter.startConversation({
+    conversationId: 'conv_opencode_idle_stream_error_redaction',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+
+  streamErrorHandler(Object.assign(
+    new Error(`idle stream failed for ${secretPath} token=SECRET_QUERY`),
+    {
+      status: 502,
+      code: 'OPENCODE_SERVER_NETWORK_ERROR',
+      details: {
+        method: 'GET',
+        path: '/global/event',
+        providerCode: 'UPSTREAM_FAILED',
+        reason: 'request_failed',
+        body: `SECRET_PROVIDER_BODY ${secretPath}`,
+        nested: { path: secretPath }
+      }
+    }
+  ));
+
+  const warning = events.find((event) =>
+    event.type === conversationEventTypes.PROTOCOL_WARNING &&
+    event.warning === 'opencode_event_stream_interrupted');
+  const publicText = JSON.stringify(warning);
+  assert.equal(closed, true);
+  assert.ok(warning);
+  assert.equal(warning.message, 'OpenCode event stream interrupted.');
+  assert.deepEqual(warning.details, {
+    cause: {
+      status: 502,
+      code: 'OPENCODE_SERVER_NETWORK_ERROR',
+      details: {
+        method: 'GET',
+        path: '/global/event',
+        providerCode: 'UPSTREAM_FAILED',
+        reason: 'request_failed'
+      }
+    }
+  });
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+  assert.equal(publicText.includes('SECRET_QUERY'), false);
+});
+
 test('OpenCode conversation adapter closes fatal SSE parse errors and ignores later stream events', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
@@ -3347,6 +3428,86 @@ test('OpenCode conversation adapter cancellation calls abort route', async () =>
     await handle?.dispose();
     await fake.close();
   }
+});
+
+test('OpenCode conversation adapter abort warnings expose only allowlisted diagnostics', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-abort-secret', 'provider.txt');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-abort-workspace');
+  const events = [];
+  let closed = false;
+  const client = {
+    async createSession() {
+      return { id: 'sess_abort_error', directory: workspacePath };
+    },
+    subscribeEvents() {
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {
+          closed = true;
+        }
+      };
+    },
+    async promptAsync() {},
+    async abortSession() {
+      throw Object.assign(
+        new Error(`abort failed for ${secretPath} token=SECRET_QUERY`),
+        {
+          status: 500,
+          code: 'OPENCODE_SERVER_HTTP_ERROR',
+          details: {
+            method: 'POST',
+            path: '/session/:sessionId/abort',
+            providerCode: 'ABORT_FAILED',
+            body: `SECRET_PROVIDER_BODY ${secretPath}`,
+            nested: { path: secretPath }
+          }
+        }
+      );
+    }
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535/secret/path?token=SECRET_QUERY',
+          owned: false,
+          client
+        };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_abort_error_redaction',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+
+  await handle.cancel();
+
+  const warning = events.find((event) =>
+    event.type === conversationEventTypes.PROTOCOL_WARNING &&
+    event.warning === 'opencode_abort_failed');
+  const publicText = JSON.stringify(warning);
+  assert.equal(closed, true);
+  assert.ok(warning);
+  assert.equal(warning.message, 'OpenCode abort failed.');
+  assert.equal(warning.code, 'OPENCODE_ABORT_FAILED');
+  assert.deepEqual(warning.details, {
+    cause: {
+      status: 500,
+      code: 'OPENCODE_SERVER_HTTP_ERROR',
+      details: {
+        method: 'POST',
+        path: '/session/:sessionId/abort',
+        providerCode: 'ABORT_FAILED'
+      }
+    }
+  });
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+  assert.equal(publicText.includes('SECRET_QUERY'), false);
 });
 
 test('OpenCode conversation manager clears stale session binding when stored session is missing', async () => {

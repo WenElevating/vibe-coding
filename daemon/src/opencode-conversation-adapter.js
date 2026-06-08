@@ -355,8 +355,9 @@ class OpenCodeConversationHandle {
         type: conversationEventTypes.PROTOCOL_WARNING,
         warning: 'opencode_abort_failed',
         visible: false,
-        message: limitString(error?.message || 'OpenCode abort failed'),
-        code: safeString(error?.code) || 'OPENCODE_ABORT_FAILED'
+        message: 'OpenCode abort failed.',
+        code: 'OPENCODE_ABORT_FAILED',
+        details: { cause: errorDetails(error) }
       });
     } finally {
       this.terminalize();
@@ -440,7 +441,7 @@ class OpenCodeConversationHandle {
         type: conversationEventTypes.PROTOCOL_WARNING,
         warning: 'opencode_event_stream_interrupted',
         visible: false,
-        message: limitString(error?.message || 'OpenCode event stream interrupted'),
+        message: 'OpenCode event stream interrupted.',
         code: 'OPENCODE_EVENT_STREAM_INTERRUPTED',
         details: { cause: errorDetails(error) }
       });

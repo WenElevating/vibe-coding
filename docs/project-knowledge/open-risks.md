@@ -129,8 +129,8 @@
   `daemon/src/opencode-event-mapper.js` treats local `file://` URLs as path
   diagnostics and requires session ids on visible file-edit events;
   `scripts/run-tests.js` covers lifecycle diagnostics exceptions, active-turn
-  stream errors, session binding helper events, and stale provider session ids
-  with secret path/body/query/file-URL fixtures.
+  and idle-stream errors, abort warnings, session binding helper events, and
+  stale provider session ids with secret path/body/query/file-URL fixtures.
 - Mitigation: preserve allowlist projection for OpenCode public diagnostics and
   conversation event details. Do not add raw provider exception
   messages/details, local file URLs, or raw session binding diagnostics to
