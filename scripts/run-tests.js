@@ -3013,6 +3013,53 @@ test('OpenCode conversation adapter diagnostics errors do not expose provider me
   assert.equal(publicText.includes('SECRET_QUERY'), false);
 });
 
+test('OpenCode conversation adapter startup errors ignore unsafe getters', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const startupError = new Error('startup failed');
+  Object.defineProperty(startupError, 'status', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe startup status getter should not escape');
+    }
+  });
+  Object.defineProperty(startupError, 'code', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe startup code getter should not escape');
+    }
+  });
+  startupError.details = {
+    reason: 'health_not_ok'
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        throw startupError;
+      },
+      getDiagnostics() {
+        return { status: 'failed', lastError: startupError };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_opencode_startup_unsafe_error',
+      workspacePath: path.join(os.tmpdir(), 'opencode-startup-unsafe-error'),
+      onEvent: () => {}
+    }),
+    (error) => {
+      const publicText = JSON.stringify({ message: error.message, details: error.details });
+      assert.equal(error.status, 503);
+      assert.equal(error.code, 'Error');
+      assert.equal(error.details.status, 503);
+      assert.equal(error.details.reason, 'health_not_ok');
+      assert.equal(publicText.includes('unsafe startup'), false);
+      return true;
+    }
+  );
+});
+
 test('OpenCode conversation adapter creates session and defers prompt until message send', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
@@ -3667,6 +3714,75 @@ test('OpenCode conversation adapter stream errors expose only allowlisted diagno
   assert.equal(publicText.includes(secretPath), false);
   assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
   assert.equal(publicText.includes('SECRET_QUERY'), false);
+});
+
+test('OpenCode conversation adapter stream errors ignore unsafe diagnostic getters', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-stream-unsafe-workspace');
+  const events = [];
+  let streamErrorHandler = null;
+  const client = {
+    async createSession() {
+      return { id: 'sess_stream_unsafe_error', directory: workspacePath };
+    },
+    subscribeEvents(_onEvent, onError) {
+      streamErrorHandler = onError;
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {}
+      };
+    },
+    async promptAsync() {}
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535',
+          owned: false,
+          client
+        };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_stream_unsafe_error',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+
+  await handle.sendUserMessage('start turn');
+  const providerDetails = {};
+  Object.defineProperty(providerDetails, 'body', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe stream detail getter should not escape');
+    }
+  });
+  const streamError = new Error('stream failed');
+  streamError.status = 502;
+  Object.defineProperty(streamError, 'code', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe stream code getter should not escape');
+    }
+  });
+  streamError.details = providerDetails;
+
+  assert.doesNotThrow(() => streamErrorHandler(streamError));
+
+  const runError = events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+  const publicText = JSON.stringify(runError);
+  assert.ok(runError);
+  assert.equal(runError.code, 'OPENCODE_EVENT_STREAM_INTERRUPTED');
+  assert.deepEqual(runError.details, {
+    cause: {
+      status: 502,
+      code: 'Error'
+    }
+  });
+  assert.equal(publicText.includes('unsafe stream'), false);
 });
 
 test('OpenCode conversation adapter idle stream warnings expose only allowlisted diagnostics', async () => {

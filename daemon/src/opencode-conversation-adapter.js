@@ -79,12 +79,14 @@ class OpenCodeConversationAdapter {
         }
       };
     } catch (error) {
+      const code = safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name')) ||
+        'OPENCODE_SERVER_UNAVAILABLE';
       return unavailableCapability('OpenCode server unavailable. Start OpenCode server or check OpenCode installation.', {
-        code: safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE',
+        code,
         diagnostics: {
           lifecycle: this.lifecycleDiagnostics(),
           cause: safeLifecycleStartupDetails(error, {
-            code: safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE',
+            code,
             status: 503
           })
         }
@@ -540,6 +542,34 @@ function safeOwnValue(value, key) {
   }
 }
 
+function safeErrorField(error, key) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return undefined;
+  let current = error;
+  while (current) {
+    const value = safeDataPropertyValue(current, key);
+    if (value !== undefined) return value;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor && !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+      current = Object.getPrototypeOf(current);
+    } catch (_) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function safeDataPropertyValue(value, key) {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
+}
+
 function clearMissingSessionBinding(actions, expectedSessionId, cause) {
   if (!actions || typeof actions.clearSessionBinding !== 'function') return;
   actions.clearSessionBinding({
@@ -588,9 +618,12 @@ function streamInterruptedError() {
 }
 
 function isMissingSessionError(error) {
-  return error?.status === 404 ||
-    error?.details?.status === 404 ||
-    error?.details?.body?.error?.code === 'SESSION_NOT_FOUND';
+  const details = safeErrorField(error, 'details');
+  const body = safeOwnValue(details, 'body');
+  const bodyError = safeOwnValue(body, 'error');
+  return safeErrorField(error, 'status') === 404 ||
+    safeOwnValue(details, 'status') === 404 ||
+    safeOwnValue(bodyError, 'code') === 'SESSION_NOT_FOUND';
 }
 
 function requireWorkspacePath(workspacePath) {
@@ -651,8 +684,9 @@ function conversationError(message, { status, code, details } = {}) {
 }
 
 function publicLifecycleStartupError(error) {
-  const status = safeHttpStatus(error?.status) || 503;
-  const code = safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE';
+  const status = safeHttpStatus(safeErrorField(error, 'status')) || 503;
+  const code = safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name')) ||
+    'OPENCODE_SERVER_UNAVAILABLE';
   return conversationError('OpenCode server unavailable.', {
     status,
     code,
@@ -664,10 +698,13 @@ function safeLifecycleStartupDetails(error, { code, status }) {
   const result = {};
   if (code) result.code = code;
   if (status) result.status = status;
-  const reason = safeTokenString(error?.reason) ||
-    safeTokenString(error?.details?.reason) ||
-    safeTokenString(error?.details?.cause?.code) ||
-    safeTokenString(error?.cause?.code || error?.cause?.name);
+  const details = safeErrorField(error, 'details');
+  const detailsCause = safeOwnValue(details, 'cause');
+  const cause = safeErrorField(error, 'cause');
+  const reason = safeTokenString(safeErrorField(error, 'reason')) ||
+    safeTokenString(safeOwnValue(details, 'reason')) ||
+    safeTokenString(safeOwnValue(detailsCause, 'code') || safeOwnValue(detailsCause, 'name')) ||
+    safeTokenString(safeErrorField(cause, 'code') || safeErrorField(cause, 'name'));
   if (reason && reason !== code) result.reason = reason;
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -675,9 +712,10 @@ function safeLifecycleStartupDetails(error, { code, status }) {
 function safeLifecycleDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
-  const status = safeTokenString(value.status);
+  const status = safeTokenString(safeOwnValue(value, 'status'));
   if (status) result.status = status;
-  const lastErrorCode = safeTokenString(value.lastError?.code);
+  const lastError = safeOwnValue(value, 'lastError');
+  const lastErrorCode = safeTokenString(safeErrorField(lastError, 'code') || safeOwnValue(lastError, 'code'));
   if (lastErrorCode) result.lastError = { code: lastErrorCode };
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -685,8 +723,9 @@ function safeLifecycleDiagnostics(value) {
 function safeHealthDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
-  if (typeof value.ok === 'boolean') result.ok = value.ok;
-  const version = safeDisplayString(value.version);
+  const ok = safeOwnValue(value, 'ok');
+  if (typeof ok === 'boolean') result.ok = ok;
+  const version = safeDisplayString(safeOwnValue(value, 'version'));
   if (version) result.version = version;
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -705,11 +744,11 @@ function publicServerUrl(value) {
 function errorDetails(error) {
   if (!error) return null;
   const result = {};
-  const status = safeHttpStatus(error.status);
+  const status = safeHttpStatus(safeErrorField(error, 'status'));
   if (status) result.status = status;
-  const code = safeTokenString(error.code || error.name);
+  const code = safeTokenString(safeErrorField(error, 'code') || safeErrorField(error, 'name'));
   if (code) result.code = code;
-  const details = safePublicErrorDetails(error.details);
+  const details = safePublicErrorDetails(safeErrorField(error, 'details'));
   if (details) result.details = details;
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -717,21 +756,21 @@ function errorDetails(error) {
 function safePublicErrorDetails(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const result = {};
-  const status = safeHttpStatus(value.status);
+  const status = safeHttpStatus(safeOwnValue(value, 'status'));
   if (status) result.status = status;
-  const method = safeHttpMethod(value.method);
+  const method = safeHttpMethod(safeOwnValue(value, 'method'));
   if (method) result.method = method;
-  const routePath = safeRoutePath(value.path);
+  const routePath = safeRoutePath(safeOwnValue(value, 'path'));
   if (routePath) result.path = routePath;
-  const code = safeTokenString(value.code);
+  const code = safeTokenString(safeOwnValue(value, 'code'));
   if (code) result.code = code;
-  const providerCode = safeTokenString(value.providerCode);
+  const providerCode = safeTokenString(safeOwnValue(value, 'providerCode'));
   if (providerCode) result.providerCode = providerCode;
-  const providerStatus = safeTokenString(value.providerStatus);
+  const providerStatus = safeTokenString(safeOwnValue(value, 'providerStatus'));
   if (providerStatus) result.providerStatus = providerStatus;
-  const reason = safeTokenString(value.reason);
+  const reason = safeTokenString(safeOwnValue(value, 'reason'));
   if (reason) result.reason = reason;
-  const timeoutMs = safeBoundedInteger(value.timeoutMs, 1, 300000);
+  const timeoutMs = safeBoundedInteger(safeOwnValue(value, 'timeoutMs'), 1, 300000);
   if (timeoutMs !== null) result.timeoutMs = timeoutMs;
   return Object.keys(result).length > 0 ? result : null;
 }
@@ -745,17 +784,29 @@ function safeDiagnosticObject(value, depth = 0, seen = new Set()) {
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
   if (Array.isArray(value)) {
-    const result = value.slice(0, 20).map((item) => safeDiagnosticObject(item, depth + 1, seen));
+    const result = [];
+    for (let index = 0; index < Math.min(value.length, 20); index += 1) {
+      result.push(safeDiagnosticObject(safeDataPropertyValue(value, String(index)), depth + 1, seen));
+    }
     seen.delete(value);
     return result;
   }
   const result = {};
-  for (const key of Object.keys(value).slice(0, 20)) {
+  for (const key of safeEnumerableKeys(value).slice(0, 20)) {
     if (key === '__proto__' || key === 'prototype' || key === 'constructor') continue;
-    result[key] = safeDiagnosticObject(value[key], depth + 1, seen);
+    const fieldValue = safeDataPropertyValue(value, key);
+    if (fieldValue !== undefined) result[key] = safeDiagnosticObject(fieldValue, depth + 1, seen);
   }
   seen.delete(value);
   return result;
+}
+
+function safeEnumerableKeys(value) {
+  try {
+    return Object.keys(value);
+  } catch (_) {
+    return [];
+  }
 }
 
 function firstNonBlank(values) {
@@ -778,12 +829,14 @@ function safeTokenString(value, maxLength = 128) {
 }
 
 function safeHttpStatus(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   const status = Number(value);
   if (!Number.isInteger(status) || status < 100 || status > 599) return null;
   return status;
 }
 
 function safeBoundedInteger(value, min, max) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < min || number > max) return null;
   return number;
