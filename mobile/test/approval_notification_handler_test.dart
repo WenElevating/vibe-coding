@@ -47,8 +47,7 @@ void main() {
     await bus.dispose();
   });
 
-  test(
-      'approval already seen in foreground is not replay-alerted in background',
+  test('pending foreground approval is shown once after entering background',
       () async {
     final bus = MobileAppEventBus();
     final presenter = _FakeApprovalNotificationPresenter();
@@ -60,10 +59,13 @@ void main() {
     bus.publish(_approvalRequested());
     await _flushAsync();
     handler.updateLifecycleState(AppLifecycleState.paused);
-    bus.publish(_approvalRequested());
+    await _flushAsync();
+    handler.updateLifecycleState(AppLifecycleState.inactive);
     await _flushAsync();
 
-    expect(presenter.shown, isEmpty);
+    expect(presenter.shown, hasLength(1));
+    expect(presenter.shown.single.conversationId, 'conv_1');
+    expect(presenter.shown.single.approvalId, 'ap_1');
 
     await handler.dispose();
     await bus.dispose();

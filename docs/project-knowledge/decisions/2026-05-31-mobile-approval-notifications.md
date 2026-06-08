@@ -18,7 +18,9 @@ Approval notifications are handled inside the mobile app. `CodingWorkbenchPage`
 publishes approval lifecycle events to the app-wide `MobileAppEventBus` only
 from the live conversation event stream. `ApprovalNotificationHandler` observes
 app lifecycle state and shows local Android notifications only when the app is
-not resumed.
+not resumed. If an approval was first received while the app was resumed and is
+still pending when the app later moves to a non-resumed lifecycle state, the
+handler emits the local notification once for that pending approval.
 
 The daemon protocol, `conversation.events`, and approval response APIs are
 unchanged.
