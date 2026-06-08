@@ -32,5 +32,5 @@ module.exports = {
 };
 
 if (require.main === module) {
-  console.log('OpenCode smoke helper loaded. Use the implementation task to add live route probes.');
+  console.log('OpenCode smoke helper loaded. Live route probes are still not_run unless manifest gates record pass.');
 }

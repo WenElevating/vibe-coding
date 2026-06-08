@@ -52,7 +52,12 @@ class ConversationManager {
     for (const loaded of this.persistentStore.loadConversations()) {
       const conversation = this.normalizeRestoredConversation(loaded);
       this.conversations.set(conversation.id, conversation);
-      if (conversation.status !== loaded.status || loaded.blockingItem || loaded.idleExpiresAt) {
+      if (
+        conversation.status !== loaded.status ||
+        loaded.blockingItem ||
+        loaded.idleExpiresAt ||
+        JSON.stringify(conversation.providerSession || null) !== JSON.stringify(loaded.providerSession || null)
+      ) {
         this.persistConversation(conversation);
       }
     }
@@ -60,6 +65,8 @@ class ConversationManager {
 
   normalizeRestoredConversation(conversation) {
     const restored = { ...conversation, handle: null };
+    const restoredProviderSession = publicProviderSession(restored.providerSession);
+    restored.providerSession = restoredProviderSession;
     restored.messageIdempotency = new Map();
     restored.messageInFlightIds = new Set();
     restored.blockingQueue = [];
@@ -696,6 +703,7 @@ class ConversationManager {
 
   recordAdapterEvent(conversation, event) {
     if (!event || typeof event !== 'object') return;
+    const publicEvent = sanitizeProviderSessionEvent(event);
     this.markPerf('adapter.raw_event.received', {
       conversationId: conversation.id,
       eventType: typeof event.type === 'string' ? event.type : null,
@@ -704,70 +712,70 @@ class ConversationManager {
         byteLength: safeJsonByteLength(event)
       }
     });
-    if (event.sessionId) {
-      const persisted = this.confirmSessionBinding(conversation, event.sessionId);
+    if (publicEvent.sessionId) {
+      const persisted = this.confirmSessionBinding(conversation, publicEvent.sessionId);
       if (!persisted) return;
     }
-    if (event.providerSession && typeof event.providerSession === 'object' && !Array.isArray(event.providerSession)) {
-      conversation.providerSession = sanitizeProviderSession(event.providerSession);
+    if (publicEvent.providerSession && typeof publicEvent.providerSession === 'object' && !Array.isArray(publicEvent.providerSession)) {
+      conversation.providerSession = publicEvent.providerSession;
       this.persistConversation(conversation);
     }
-    if (event.type === conversationEventTypes.ASSISTANT_QUESTION) {
+    if (publicEvent.type === conversationEventTypes.ASSISTANT_QUESTION) {
       this.setBlockingItem(conversation, {
         type: 'input_request',
-        questionId: event.questionId || event.toolUseId || `q_${crypto.randomUUID()}`,
-        text: event.text || '',
-        suggestions: Array.isArray(event.suggestions) ? event.suggestions : [],
-        multiSelect: event.multiSelect === true,
-        input: event.input || {}
-      }, conversationStatuses.WAITING_INPUT, event);
+        questionId: publicEvent.questionId || publicEvent.toolUseId || `q_${crypto.randomUUID()}`,
+        text: publicEvent.text || '',
+        suggestions: Array.isArray(publicEvent.suggestions) ? publicEvent.suggestions : [],
+        multiSelect: publicEvent.multiSelect === true,
+        input: publicEvent.input || {}
+      }, conversationStatuses.WAITING_INPUT, publicEvent);
       return;
     }
-    if (event.type === conversationEventTypes.APPROVAL_REQUESTED) {
+    if (publicEvent.type === conversationEventTypes.APPROVAL_REQUESTED) {
       const approvalOptions = normalizeApprovalOptions(
-        event.approvalOptions,
+        publicEvent.approvalOptions,
         adapterApprovalCapability(conversation)
       );
       this.setBlockingItem(conversation, {
         type: 'approval_request',
-        approvalId: event.approvalId,
-        toolName: event.toolName || null,
-        toolUseId: event.toolUseId || null,
-        input: event.input || {},
-        summary: event.summary || summarizeToolInput(event.toolName, event.input),
+        approvalId: publicEvent.approvalId,
+        toolName: publicEvent.toolName || null,
+        toolUseId: publicEvent.toolUseId || null,
+        input: publicEvent.input || {},
+        summary: publicEvent.summary || summarizeToolInput(publicEvent.toolName, publicEvent.input),
         approvalOptions
-      }, conversationStatuses.WAITING_APPROVAL, { ...event, approvalOptions });
+      }, conversationStatuses.WAITING_APPROVAL, { ...publicEvent, approvalOptions });
       return;
     }
-    if (event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED) {
+    if (publicEvent.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED) {
       const matchesApproval = conversation.blockingItem?.type === 'approval_request' &&
-        event.blockingType === 'approval_request' &&
-        conversation.blockingItem.approvalId === event.approvalId;
+        publicEvent.blockingType === 'approval_request' &&
+        conversation.blockingItem.approvalId === publicEvent.approvalId;
       const matchesQuestion = conversation.blockingItem?.type === 'input_request' &&
-        event.blockingType === 'input_request' &&
-        conversation.blockingItem.questionId === event.questionId;
+        publicEvent.blockingType === 'input_request' &&
+        conversation.blockingItem.questionId === publicEvent.questionId;
       if (matchesApproval || matchesQuestion) {
         conversation.status = conversationStatuses.RUNNING;
         conversation.blockingItem = null;
         conversation.idleExpiresAt = null;
         this.touch(conversation);
-        const { type, ...payload } = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+        const { type, ...payload } = sanitizeAdapterEvent(publicEvent, conversation.attachmentDispatchRedactionContext);
         this.eventStore.append(conversation.id, type, payload);
         this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
         this.promoteNextBlockingItem(conversation);
         return;
       }
-      if (this.removeQueuedBlockingItem(conversation, event)) return;
+      if (this.removeQueuedBlockingItem(conversation, publicEvent)) return;
       this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
         warning: 'blocking request cancellation ignored because no matching blocking item is pending',
         current: conversation.blockingItem || null,
-        ignored: event
+        ignored: publicEvent
       });
       return;
     }
-    if (event.type === conversationEventTypes.APPROVAL_RESOLVED) {
+    if (publicEvent.type === conversationEventTypes.APPROVAL_RESOLVED) {
       const matchesApproval = conversation.blockingItem?.type === 'approval_request' &&
-        conversation.blockingItem.approvalId === event.approvalId;
+        conversation.blockingItem.approvalId === publicEvent.approvalId;
       if (matchesApproval) {
         const blockingPayload = { ...conversation.blockingItem };
         delete blockingPayload.type;
@@ -779,16 +787,16 @@ class ConversationManager {
         this.touch(conversation);
         const { type, ...payload } = sanitizeAdapterEvent({
           ...blockingPayload,
-          ...event
+          ...publicEvent
         }, conversation.attachmentDispatchRedactionContext);
         this.eventStore.append(conversation.id, type, payload);
         this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
         this.promoteNextBlockingItem(conversation);
         return;
       }
-      if (this.removeQueuedResolvedApproval(conversation, event)) return;
+      if (this.removeQueuedResolvedApproval(conversation, publicEvent)) return;
     }
-    const eventToAppend = sanitizeAdapterEvent(event, conversation.attachmentDispatchRedactionContext);
+    const eventToAppend = sanitizeAdapterEvent(publicEvent, conversation.attachmentDispatchRedactionContext);
     this.markPerf('adapter.event.normalized', {
       conversationId: conversation.id,
       eventType: eventToAppend.type || conversationEventTypes.PROTOCOL_WARNING,
@@ -1227,7 +1235,9 @@ function missingAdapterCapabilities() {
 }
 
 function normalizeConversationEventsForReplay(events, conversation, eventStore) {
-  const normalized = events.map((event) => normalizeLegacyConversationEventForReplay(event, conversation));
+  const normalized = events
+    .map((event) => normalizeLegacyConversationEventForReplay(event, conversation))
+    .map(sanitizeProviderSessionEvent);
   if (effectiveAdapterName(conversation) !== 'claude' || normalized.length === 0) return normalized;
   const firstSeq = Number(normalized[0]?.seq || 0);
   const seed = buildClaudeTaskProgressSeed(
@@ -1823,7 +1833,7 @@ function sameAttachments(left, right) {
 
 function sanitizeProviderSession(input) {
   const output = {};
-  for (const key of ['provider', 'threadId', 'protocolVersion', 'cwd', 'model', 'sandboxProfile', 'createdAt']) {
+  for (const key of ['provider', 'threadId', 'protocolVersion', 'model', 'sandboxProfile', 'createdAt']) {
     const value = input[key];
     if (value === undefined || value === null) continue;
     if (typeof value === 'string') {
@@ -1836,6 +1846,22 @@ function sanitizeProviderSession(input) {
     }
   }
   return output;
+}
+
+function publicProviderSession(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const sanitized = sanitizeProviderSession(input);
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function sanitizeProviderSessionEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return event;
+  if (!Object.prototype.hasOwnProperty.call(event, 'providerSession')) return event;
+  const providerSession = publicProviderSession(event.providerSession);
+  if (providerSession) return { ...event, providerSession };
+  const sanitized = { ...event };
+  delete sanitized.providerSession;
+  return sanitized;
 }
 
 function publicConversation(conversation) {
@@ -1862,7 +1888,7 @@ function publicConversation(conversation) {
     capabilities,
     effectiveCapabilities,
     fallbackNotice: conversation.fallbackNotice || null,
-    providerSession: conversation.providerSession || null,
+    providerSession: publicProviderSession(conversation.providerSession),
     requestedPermissionMode: conversation.requestedPermissionMode || conversation.permissionMode || 'default',
     effectivePermissionMode: conversation.effectivePermissionMode || conversation.permissionMode || 'default',
     requestedTools: Array.isArray(conversation.requestedTools) ? conversation.requestedTools : [],

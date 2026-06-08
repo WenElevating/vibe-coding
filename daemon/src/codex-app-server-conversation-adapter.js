@@ -401,7 +401,6 @@ class CodexAppServerConversationHandle {
       provider: 'codex-app-server',
       threadId: this.threadId,
       protocolVersion: 2,
-      cwd: this.workspacePath,
       model: this.model,
       sandboxProfile: 'read-only-thread/workspace-write-turn',
       createdAt: this.providerSessionCreatedAt

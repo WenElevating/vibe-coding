@@ -16,6 +16,8 @@ class FakeOpenCodeServer extends EventEmitter {
     this.abortSessionIds = [];
     this.server = http.createServer((req, res) => this.handle(req, res));
     this.sseClients = new Set();
+    this.sseOpenCount = 0;
+    this.sseCloseCount = 0;
     this.nextSessionNumber = 1;
   }
 
@@ -63,7 +65,10 @@ class FakeOpenCodeServer extends EventEmitter {
       });
       res.flushHeaders?.();
       this.sseClients.add(res);
-      req.on('close', () => this.sseClients.delete(res));
+      this.sseOpenCount += 1;
+      req.on('close', () => {
+        if (this.sseClients.delete(res)) this.sseCloseCount += 1;
+      });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/session') {

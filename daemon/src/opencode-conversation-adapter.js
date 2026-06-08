@@ -72,10 +72,13 @@ class OpenCodeConversationAdapter {
       };
     } catch (error) {
       return unavailableCapability('OpenCode server unavailable. Start OpenCode server or check OpenCode installation.', {
-        code: safeString(error?.code) || 'OPENCODE_SERVER_UNAVAILABLE',
+        code: safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE',
         diagnostics: {
           lifecycle: this.lifecycleDiagnostics(),
-          cause: errorDetails(error)
+          cause: safeLifecycleStartupDetails(error, {
+            code: safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE',
+            status: 503
+          })
         }
       });
     }
@@ -157,7 +160,6 @@ class OpenCodeConversationAdapter {
     }
     const providerSession = buildProviderSession({
       sessionId: providerSessionId,
-      directory: sessionDirectory || workspace,
       now: this.now
     });
     const handle = new OpenCodeConversationHandle({
@@ -191,12 +193,7 @@ class OpenCodeConversationAdapter {
       }
       return started;
     } catch (error) {
-      if (error.status && error.code) throw error;
-      throw conversationError(error?.message || 'OpenCode server unavailable.', {
-        status: 503,
-        code: safeString(error?.code) || 'OPENCODE_SERVER_UNAVAILABLE',
-        details: { cause: errorDetails(error) }
-      });
+      throw publicLifecycleStartupError(error);
     }
   }
 
@@ -468,12 +465,11 @@ function cloneCapabilities() {
   };
 }
 
-function buildProviderSession({ sessionId, directory, now }) {
+function buildProviderSession({ sessionId, now }) {
   return {
     provider: 'opencode',
     threadId: sessionId,
     protocolVersion: 1,
-    cwd: directory,
     createdAt: now().toISOString()
   };
 }
@@ -536,8 +532,7 @@ function validateSessionDirectory(directory, workspacePath) {
       status: 409,
       code: 'OPENCODE_SESSION_DIRECTORY_MISMATCH',
       details: {
-        expectedWorkspacePath: workspacePath,
-        returnedDirectory: directory
+        reason: 'directory_mismatch'
       }
     });
   }
@@ -657,6 +652,28 @@ function conversationError(message, { status, code, details } = {}) {
   return error;
 }
 
+function publicLifecycleStartupError(error) {
+  const status = safeHttpStatus(error?.status) || 503;
+  const code = safeTokenString(error?.code || error?.name) || 'OPENCODE_SERVER_UNAVAILABLE';
+  return conversationError('OpenCode server unavailable.', {
+    status,
+    code,
+    details: safeLifecycleStartupDetails(error, { code, status })
+  });
+}
+
+function safeLifecycleStartupDetails(error, { code, status }) {
+  const result = {};
+  if (code) result.code = code;
+  if (status) result.status = status;
+  const reason = safeTokenString(error?.reason) ||
+    safeTokenString(error?.details?.reason) ||
+    safeTokenString(error?.details?.cause?.code) ||
+    safeTokenString(error?.cause?.code || error?.cause?.name);
+  if (reason && reason !== code) result.reason = reason;
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 function errorDetails(error) {
   if (!error) return null;
   return safeDiagnosticObject({
@@ -700,6 +717,18 @@ function firstNonBlank(values) {
 function safeString(value) {
   if (typeof value !== 'string' && typeof value !== 'number') return '';
   return String(value).trim();
+}
+
+function safeTokenString(value, maxLength = 128) {
+  const text = safeString(value);
+  if (!text || text.length > maxLength) return null;
+  return /^[A-Za-z0-9_.-]+$/.test(text) ? text : null;
+}
+
+function safeHttpStatus(value) {
+  const status = Number(value);
+  if (!Number.isInteger(status) || status < 100 || status > 599) return null;
+  return status;
 }
 
 function limitString(value, maxLength = 512) {

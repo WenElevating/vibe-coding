@@ -231,6 +231,16 @@ test('OpenCode server smoke manifest has explicit gate results', () => {
     'sessionStatusTerminalValues',
     'historyReplay'
   ];
+  const fakeContractGateNames = new Set([
+    'health',
+    'sessionCreateDirectory',
+    'promptAsyncBody',
+    'abort',
+    'permissionResponseBody',
+    'globalEventSse',
+    'sessionIdFieldNames',
+    'sessionReadReconcile'
+  ]);
   const manifestPath = path.join(
     __dirname,
     '..',
@@ -251,11 +261,14 @@ test('OpenCode server smoke manifest has explicit gate results', () => {
     [...expectedGateNames].sort()
   );
   const allowedGateResults = manifest.status === 'not_run'
-    ? ['not_run', 'blocked']
-    : ['pass', 'fail', 'blocked'];
+    ? ['not_run', 'blocked', 'fake_contract']
+    : ['pass', 'fail', 'blocked', 'fake_contract'];
   for (const gate of expectedGateNames) {
     const result = manifest.gates[gate];
     assert.ok(allowedGateResults.includes(result), `${gate} has invalid result ${result}`);
+    if (fakeContractGateNames.has(gate)) {
+      assert.notEqual(result, 'not_run', `${gate} is used by fake/integration tests and must have an explicit contract decision`);
+    }
   }
 });
 
@@ -2067,6 +2080,49 @@ test('OpenCode server client calls fake server JSON endpoints', async () => {
   }
 });
 
+test('OpenCode server client createSession errors do not leak directory query or provider body', async () => {
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-secret-workspace', 'child dir');
+  const providerBodyText = `provider body leaked ${workspacePath} directory=${workspacePath} TOP_SECRET_PROVIDER_BODY`;
+  const fixture = await listenHttpServerForTest((req, res) => {
+    sendJsonForTest(res, 500, {
+      error: {
+        code: 'UPSTREAM_FAILED',
+        message: providerBodyText,
+        path: workspacePath
+      },
+      details: providerBodyText
+    });
+  });
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fixture.url, timeoutMs: 1000 });
+    await assert.rejects(
+      () => client.createSession({ directory: workspacePath }),
+      (error) => {
+        const publicText = JSON.stringify({
+          message: error.message,
+          details: error.details
+        });
+
+        assert.equal(error.status, 500);
+        assert.equal(error.code, 'OPENCODE_SERVER_HTTP_ERROR');
+        assert.equal(error.details.method, 'POST');
+        assert.equal(error.details.path, '/session');
+        assert.equal(error.details.providerCode, 'UPSTREAM_FAILED');
+        assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'body'), false);
+        assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'bodyText'), false);
+        assert.equal(publicText.includes(workspacePath), false);
+        assert.equal(publicText.includes(encodeURIComponent(workspacePath)), false);
+        assert.equal(publicText.includes('directory='), false);
+        assert.equal(publicText.includes('TOP_SECRET_PROVIDER_BODY'), false);
+        return true;
+      }
+    );
+  } finally {
+    await closeHttpServerForTest(fixture.server);
+  }
+});
+
 test('OpenCode server client reads sessions by encoded path', async () => {
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
   let observedRequest = null;
@@ -2117,7 +2173,8 @@ test('OpenCode server client parses chunked SSE frames and closes the subscripti
     assert.deepEqual(events[0], { type: 'session.idle', sessionID: 'sess_1' });
     assert.deepEqual(events[1], { type: 'message.part.delta', text: 'hello' });
     assert.equal(errors[0].code, 'OPENCODE_SERVER_SSE_BAD_JSON');
-    assert.equal(errors[0].details.data.length <= 512, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'data'), false);
+    assert.equal(errors[0].details.reason, 'invalid_json');
 
     handle.close();
     await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode client SSE close');
@@ -2177,7 +2234,8 @@ test('OpenCode server client bounds non-ending SSE HTTP error bodies', async () 
     assert.equal(errors[0].details.status, 503);
     assert.equal(errors[0].details.method, 'GET');
     assert.equal(errors[0].details.path, '/global/event');
-    assert.equal(errors[0].details.bodyText.length <= 2048, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'body'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'bodyText'), false);
   } finally {
     handle?.close();
     await closeHttpServerForTest(fixture.server);
@@ -2201,8 +2259,9 @@ test('OpenCode server client reports bounded structured HTTP errors', async () =
       assert.equal(error.details.status, 503);
       assert.equal(error.details.method, 'GET');
       assert.equal(error.details.path, '/global/health');
-      assert.equal(error.details.body.error.code, 'UPSTREAM_FAILED');
-      assert.equal(error.details.body.error.message.length <= 512, true);
+      assert.equal(error.details.providerCode, 'UPSTREAM_FAILED');
+      assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'body'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(error.details, 'bodyText'), false);
       assert.equal(JSON.stringify(error.details).includes(giantBody), false);
       return true;
     });
@@ -2333,7 +2392,7 @@ test('OpenCode conversation adapter creates session and defers prompt until mess
     assert.equal(started.sessionId, 'sess_1');
     assert.equal(started.providerSession.provider, 'opencode');
     assert.equal(started.providerSession.threadId, 'sess_1');
-    assert.equal(started.providerSession.cwd, workspacePath);
+    assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
 
     await handle.sendUserMessage('hello OpenCode');
 
@@ -2463,6 +2522,87 @@ test('OpenCode conversation adapter filters SSE events to active session', async
     );
   } finally {
     await handle?.dispose();
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter shares one client SSE stream across handles', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handleOne = null;
+  let handleTwo = null;
+  try {
+    const sharedClient = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    const lifecycle = {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: fake.url,
+          client: sharedClient,
+          owned: false
+        };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    };
+    const adapter = new OpenCodeConversationAdapter({ lifecycle });
+    const eventsOne = [];
+    const eventsTwo = [];
+
+    handleOne = await adapter.startConversation({
+      conversationId: 'conv_opencode_shared_sse_one',
+      workspacePath: path.join(os.tmpdir(), 'opencode-shared-sse-one'),
+      onEvent: (event) => eventsOne.push(event)
+    });
+    await waitForConditionForTest(() => fake.sseOpenCount === 1, 'OpenCode first shared SSE connection');
+
+    handleTwo = await adapter.startConversation({
+      conversationId: 'conv_opencode_shared_sse_two',
+      workspacePath: path.join(os.tmpdir(), 'opencode-shared-sse-two'),
+      onEvent: (event) => eventsTwo.push(event)
+    });
+    await waitForConditionForTest(() => fake.createRequests.length === 2, 'OpenCode second shared SSE session');
+    assert.equal(fake.sseOpenCount, 1);
+    assert.equal(fake.sseClients.size, 1);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_1', text: 'for first handle' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_2', text: 'for second handle' });
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_other', text: 'for neither handle' });
+
+    await waitForConditionForTest(
+      () => eventsOne.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL) &&
+        eventsTwo.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL),
+      'OpenCode shared SSE session-filtered events'
+    );
+    assert.deepEqual(
+      eventsOne.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['for first handle']
+    );
+    assert.deepEqual(
+      eventsTwo.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => event.text),
+      ['for second handle']
+    );
+
+    await handleOne.dispose();
+    assert.equal(fake.sseCloseCount, 0);
+    assert.equal(fake.sseClients.size, 1);
+
+    fake.emitEvent({ type: 'message.part.delta', sessionID: 'sess_2', text: 'second still active' });
+    await waitForConditionForTest(
+      () => eventsTwo.some((event) => event.text === 'second still active'),
+      'OpenCode shared SSE remains active after first close'
+    );
+
+    await handleTwo.dispose();
+    await waitForConditionForTest(() => fake.sseCloseCount === 1, 'OpenCode shared SSE closes after last handle');
+    assert.equal(fake.sseClients.size, 0);
+  } finally {
+    await handleOne?.dispose();
+    await handleTwo?.dispose();
     await fake.close();
   }
 });
@@ -8252,6 +8392,297 @@ test('createApp does not expose synthetic adapters unless explicitly enabled', (
   }
 });
 
+test('createApp lists OpenCode through lifecycle-backed availability', async () => {
+  const appDbPath = tempConversationDbPath('opencode-listing-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-perf-');
+  let starts = 0;
+  let healthCalls = 0;
+  const lifecycle = {
+    async ensureStarted() {
+      starts += 1;
+      return {
+        mode: 'managed',
+        serverUrl: 'http://127.0.0.1:65535',
+        owned: true,
+        client: {
+          async health() {
+            healthCalls += 1;
+            return { ok: true, version: 'fake-managed-opencode' };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return { status: starts > 0 ? 'started' : 'idle', lastError: null };
+    },
+    async shutdown() {}
+  };
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: 'http://127.0.0.1:1',
+    opencodeServerLifecycle: lifecycle
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+
+    assert.ok(opencode);
+    assert.equal(starts, 1);
+    assert.equal(healthCalls, 1);
+    assert.equal(opencode.available, true);
+    assert.equal(opencode.selectable, true);
+    assert.equal(opencode.status, 'available');
+    assert.equal(opencode.mode, 'managed');
+    assert.deepEqual(opencode.capabilities.attachments, {
+      image: 'unsupported',
+      textDocument: 'text_extract',
+      pdf: 'unsupported'
+    });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('createApp OpenCode listing uses explicit server URL without injected lifecycle', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const appDbPath = tempConversationDbPath('opencode-listing-explicit-url-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-explicit-url-perf-');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeCommand: 'missing-opencode-command-for-explicit-url-test',
+    opencodeServerUrl: fake.url
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-explicit-url-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+
+    assert.ok(opencode);
+    assert.equal(opencode.available, true);
+    assert.equal(opencode.selectable, true);
+    assert.equal(opencode.status, 'available');
+    assert.equal(opencode.mode, 'external');
+    assert.equal(opencode.serverUrl, fake.url);
+  } finally {
+    await fake.close();
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('createApp OpenCode listing diagnostics expose only allowlisted health and lifecycle fields', async () => {
+  const appDbPath = tempConversationDbPath('opencode-listing-diagnostics-app-');
+  const perfDbPath = tempConversationDbPath('opencode-listing-diagnostics-perf-');
+  const secretPath = path.join(os.tmpdir(), 'opencode-listing-secret', 'provider.txt');
+  const providerBody = `provider body ${secretPath} SECRET_PROVIDER_BODY`;
+  const lifecycle = {
+    async ensureStarted() {
+      return {
+        mode: 'managed',
+        serverUrl: 'http://127.0.0.1:65535?directory=SECRET_QUERY',
+        owned: true,
+        client: {
+          async health() {
+            return {
+              ok: true,
+              version: `fake-version ${secretPath}`,
+              body: providerBody,
+              nested: { path: secretPath }
+            };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return {
+        status: 'started',
+        lastError: {
+          code: 'OPENCODE_SECRET_ERROR',
+          message: providerBody,
+          details: { path: secretPath, bodyText: providerBody }
+        },
+        serverUrl: `http://127.0.0.1:65535?directory=${encodeURIComponent(secretPath)}`
+      };
+    },
+    async shutdown() {}
+  };
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerLifecycle: lifecycle
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-diagnostics-listing-test'
+    });
+    const listed = await request(port, 'GET', '/api/adapters', null, paired.body.token);
+    const opencode = listed.body.adapters.find((adapter) => adapter.adapter === 'opencode');
+    const publicText = JSON.stringify(opencode);
+
+    assert.ok(opencode);
+    assert.deepEqual(opencode.diagnostics.lifecycle, {
+      status: 'started',
+      lastError: { code: 'OPENCODE_SECRET_ERROR' }
+    });
+    assert.deepEqual(opencode.diagnostics.health, {
+      ok: true,
+      version: 'fake-version'
+    });
+    assert.equal(publicText.includes(secretPath), false);
+    assert.equal(publicText.includes(encodeURIComponent(secretPath)), false);
+    assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+    assert.equal(publicText.includes('SECRET_QUERY'), false);
+    assert.equal(publicText.includes('directory='), false);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('OpenCode conversation startup failure redacts external URL path and query', async () => {
+  const closed = await listenHttpServerForTest((_req, res) => sendJsonForTest(res, 200, { ok: true }));
+  const secretUrl = `${closed.url}/secret/path?token=TOP_SECRET`;
+  await closeHttpServerForTest(closed.server);
+  const appDbPath = tempConversationDbPath('opencode-conversation-startup-redaction-app-');
+  const perfDbPath = tempConversationDbPath('opencode-conversation-startup-redaction-perf-');
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: secretUrl
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-conversation-startup-redaction'
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'OpenCode Startup Redaction'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/conversations', {
+      workspaceId,
+      adapter: 'opencode'
+    }, token);
+    const conversationId = created.body.conversation.id;
+
+    const failed = await request(port, 'POST', `/api/conversations/${conversationId}/messages`, {
+      text: 'trigger startup failure'
+    }, token);
+    assert.equal(failed.status, 503);
+
+    const listed = await request(port, 'GET', '/api/conversations', null, token);
+    const conversation = listed.body.conversations.find((item) => item.id === conversationId);
+    const events = await request(port, 'GET', `/api/conversations/${conversationId}/events?afterSeq=0`, null, token);
+    const runError = events.body.events.find((event) => event.type === conversationEventTypes.RUN_ERROR);
+
+    assert.ok(runError);
+    assert.equal(conversation.status, 'failed');
+    assert.equal(failed.body.error.message, 'OpenCode server unavailable.');
+    assert.equal(runError.message, 'OpenCode server unavailable.');
+    assertNoOpenCodeStartupSecretLeak({
+      response: failed.body,
+      conversation,
+      events: events.body.events
+    });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
+test('OpenCode legacy run startup failure redacts external URL path and query in events', async () => {
+  const closed = await listenHttpServerForTest((_req, res) => sendJsonForTest(res, 200, { ok: true }));
+  const secretUrl = `${closed.url}/secret/path?token=TOP_SECRET`;
+  await closeHttpServerForTest(closed.server);
+  const appDbPath = tempConversationDbPath('opencode-run-startup-redaction-app-');
+  const perfDbPath = tempConversationDbPath('opencode-run-startup-redaction-perf-');
+  const app = createApp({
+    port: 0,
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerUrl: secretUrl
+  });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-run-startup-redaction'
+    });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'OpenCode Run Startup Redaction'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    const created = await request(port, 'POST', '/api/runs', {
+      tool: 'opencode',
+      workspaceId,
+      prompt: 'trigger startup failure'
+    }, token);
+    assert.equal(created.status, 201);
+
+    await waitForConditionForTest(
+      () => app.eventStore.list(created.body.id, 0).some((event) => event.type === eventTypes.RUN_FAILED),
+      'OpenCode legacy run startup failure'
+    );
+    const events = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=0`, null, token);
+    const adapterError = events.body.events.find((event) => event.type === eventTypes.ADAPTER_ERROR);
+    const runFailed = events.body.events.find((event) => event.type === eventTypes.RUN_FAILED);
+
+    assert.ok(adapterError);
+    assert.ok(runFailed);
+    assert.equal(adapterError.message, 'OpenCode server unavailable.');
+    assert.equal(runFailed.error, 'OpenCode server unavailable.');
+    assertNoOpenCodeStartupSecretLeak({ events: events.body.events });
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+  }
+});
+
 test('createApp exposes codex-app-server by default behind probe gate and kill switch', async () => {
   const appDbPath = tempConversationDbPath('app-server-listing-');
   const defaultApp = createApp({
@@ -10401,6 +10832,65 @@ test('conversation public shape exposes requested and effective adapter fields',
   assert.deepEqual(conversation.effectiveCapabilities, conversation.capabilities);
   assert.equal(conversation.fallbackNotice, null);
   assert.equal(conversation.providerSession, null);
+});
+
+test('conversation manager omits provider cwd from restored summaries and event replay', () => {
+  const leakedCwd = path.join(os.tmpdir(), 'provider-session-secret-cwd');
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [{
+      id: 'conv_provider_session_public',
+      workspaceId: 'default',
+      workspacePath: process.cwd(),
+      adapter: 'opencode',
+      permissionMode: 'default',
+      deviceId: 'device_1',
+      status: 'idle',
+      cliSessionId: 'sess_1',
+      sessionBinding: conversationSessionBindings.CONFIRMED,
+      userMessageCount: 0,
+      blockingItem: null,
+      idleExpiresAt: null,
+      createdAt: '2026-06-08T00:00:00.000Z',
+      updatedAt: '2026-06-08T00:00:01.000Z',
+      capabilities: { resume: true },
+      handle: null,
+      providerSession: {
+        provider: 'opencode',
+        threadId: 'sess_1',
+        protocolVersion: 1,
+        cwd: leakedCwd,
+        createdAt: '2026-06-08T00:00:00.000Z'
+      }
+    }],
+    saveConversation(conversation) {
+      saves.push(conversation.providerSession);
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  eventStore.append('conv_provider_session_public', conversationEventTypes.SYSTEM_NOTICE, {
+    noticeKind: 'opencode_session_started',
+    visible: false,
+    providerSession: {
+      provider: 'opencode',
+      threadId: 'sess_1',
+      cwd: leakedCwd
+    }
+  });
+
+  const summary = manager.getConversation('conv_provider_session_public', device);
+  const events = manager.listEvents('conv_provider_session_public', 0, device);
+  const started = events.find((event) => event.noticeKind === 'opencode_session_started');
+  const publicJson = JSON.stringify({ summary, events, saves });
+
+  assert.equal(summary.providerSession.provider, 'opencode');
+  assert.equal(summary.providerSession.threadId, 'sess_1');
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.providerSession, 'cwd'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(saves[0], 'cwd'), false);
+  assert.equal(publicJson.includes(leakedCwd), false);
+  assert.equal(publicJson.includes(encodeURIComponent(leakedCwd)), false);
+  assert.equal(publicJson.includes('provider-session-secret-cwd'), false);
 });
 
 test('Codex app-server conversation adapter rejects sends before selectable probe', async () => {
@@ -12933,7 +13423,7 @@ test('OpenCode conversation HTTP API drives a fake-server turn to idle', async (
     assert.equal(idle.sessionBinding, conversationSessionBindings.CONFIRMED);
     assert.equal(idle.providerSession.provider, 'opencode');
     assert.equal(idle.providerSession.threadId, 'sess_1');
-    assert.equal(idle.providerSession.cwd, fixture.workspacePath);
+    assert.equal(Object.prototype.hasOwnProperty.call(idle.providerSession, 'cwd'), false);
     assert.deepEqual(fixture.fake.createRequests, [{ directory: fixture.workspacePath }]);
     assert.deepEqual(fixture.fake.promptBodies, [{
       sessionId: 'sess_1',
@@ -12947,12 +13437,15 @@ test('OpenCode conversation HTTP API drives a fake-server turn to idle', async (
     assert.equal(events.some((event) => event.type === conversationEventTypes.USER_MESSAGE && event.text === 'hello OpenCode HTTP'), true);
     assert.equal(started.providerSession.provider, 'opencode');
     assert.equal(started.providerSession.threadId, 'sess_1');
-    assert.equal(started.providerSession.cwd, fixture.workspacePath);
+    assert.equal(Object.prototype.hasOwnProperty.call(started.providerSession, 'cwd'), false);
     assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL && event.text === 'partial answer'), true);
     assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_STARTED && event.toolName === 'bash'), true);
     assert.equal(events.some((event) => event.type === conversationEventTypes.TOOL_COMPLETED && event.text === 'ok'), true);
     assert.equal(events.some((event) => event.type === conversationEventTypes.ASSISTANT_MESSAGE && event.text === 'final answer'), true);
     assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_COMPLETED && event.sessionId === 'sess_1'), true);
+    const publicJson = JSON.stringify({ idle, events });
+    assert.equal(publicJson.includes(fixture.workspacePath), false);
+    assert.equal(publicJson.includes(encodeURIComponent(fixture.workspacePath)), false);
   } finally {
     await fixture.close();
   }
@@ -13108,6 +13601,76 @@ test('OpenCode conversation HTTP missing stored session fails without replacemen
     assert.equal(expired.visible, true);
     assert.equal(expired.code, 'OPENCODE_SESSION_MISSING');
     assert.equal(runError.status, 409);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('OpenCode conversation HTTP directory mismatch error does not expose provider paths', async () => {
+  const fixture = await createOpenCodeHttpConversationFixture({
+    workspaceName: 'OpenCode HTTP Directory Mismatch'
+  });
+  try {
+    const created = await fixture.post('/api/conversations', {
+      workspaceId: fixture.workspaceId,
+      adapter: 'opencode'
+    });
+    const conversationId = created.body.conversation.id;
+    await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'first turn' });
+    await waitForConditionForTest(() => fixture.fake.sseClients.size === 1, 'OpenCode HTTP first-turn SSE client');
+    fixture.fake.emitEvent({ type: 'message.updated', sessionID: 'sess_1', message: { role: 'assistant', text: 'ok' } });
+    fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
+    await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'idle' && conversation.cliSessionId === 'sess_1',
+      'OpenCode HTTP directory mismatch first turn idle'
+    );
+
+    const outsideDirectory = path.join(os.tmpdir(), 'opencode-secret-returnedDirectory', 'outside-workspace');
+    fixture.fake.sessions.set('sess_1', {
+      id: 'sess_1',
+      sessionID: 'sess_1',
+      directory: outsideDirectory
+    });
+    const createRequestCount = fixture.fake.createRequests.length;
+    const promptCount = fixture.fake.promptBodies.length;
+    const failed = await fixture.post(`/api/conversations/${conversationId}/messages`, { text: 'later turn' });
+
+    assert.equal(failed.status, 409);
+    assert.equal(failed.body.error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.deepEqual(failed.body.error.details, { reason: 'directory_mismatch' });
+    assert.equal(fixture.fake.createRequests.length, createRequestCount);
+    assert.equal(fixture.fake.promptBodies.length, promptCount);
+    assert.deepEqual(fixture.fake.readSessionIds, ['sess_1']);
+
+    const summary = await waitForOpenCodeHttpConversation(
+      fixture,
+      conversationId,
+      (conversation) => conversation.status === 'failed',
+      'OpenCode HTTP directory mismatch failed'
+    );
+    assert.equal(summary.cliSessionId, null);
+    assert.equal(summary.sessionBinding, conversationSessionBindings.DRIFTED);
+    assert.equal(summary.providerSession, null);
+
+    const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
+    const runError = events.find((event) =>
+      event.type === conversationEventTypes.RUN_ERROR &&
+      event.code === 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+    assert.equal(runError.status, 409);
+
+    const responseJson = JSON.stringify(failed.body);
+    const eventsJson = JSON.stringify(events);
+    for (const publicJson of [responseJson, eventsJson]) {
+      assert.equal(publicJson.includes(fixture.workspacePath), false);
+      assert.equal(publicJson.includes(encodeURIComponent(fixture.workspacePath)), false);
+      assert.equal(publicJson.includes(outsideDirectory), false);
+      assert.equal(publicJson.includes(encodeURIComponent(outsideDirectory)), false);
+      assert.equal(publicJson.includes('opencode-secret-returnedDirectory'), false);
+      assert.equal(publicJson.includes('returnedDirectory'), false);
+      assert.equal(publicJson.includes('expectedWorkspacePath'), false);
+    }
   } finally {
     await fixture.close();
   }
@@ -22729,6 +23292,25 @@ function attemptPublicMutation(mutator) {
     // Getter-only properties throw in this strict test file; non-strict callers may see ignored writes.
   }
 }
+
+function assertNoOpenCodeStartupSecretLeak(value) {
+  const text = JSON.stringify(value);
+  const forbidden = [
+    'secret/path',
+    'token=',
+    'TOP_SECRET',
+    'secret%2Fpath',
+    '%2Fsecret%2Fpath',
+    'token%3D',
+    encodeURIComponent('/secret/path?token=TOP_SECRET'),
+    encodeURIComponent('secret/path?token=TOP_SECRET'),
+    encodeURIComponent('token=TOP_SECRET')
+  ];
+  for (const marker of forbidden) {
+    assert.equal(text.includes(marker), false, `OpenCode startup secret leaked marker ${marker} in ${text}`);
+  }
+}
+
 (async () => {
   let passed = 0;
   for (const item of tests) {

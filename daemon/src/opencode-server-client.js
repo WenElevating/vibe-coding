@@ -7,6 +7,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:4096';
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_BODY_TEXT_LENGTH = 2048;
 const MAX_DETAIL_STRING_LENGTH = 512;
+const MAX_PROVIDER_CODE_LENGTH = 128;
 const MAX_DETAIL_KEYS = 20;
 const MAX_DETAIL_ARRAY_ITEMS = 20;
 const MAX_DETAIL_DEPTH = 4;
@@ -15,6 +16,7 @@ class OpenCodeServerClient {
   constructor({ serverUrl = process.env.OPENCODE_SERVER_URL || DEFAULT_SERVER_URL, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     this.serverUrl = String(serverUrl || DEFAULT_SERVER_URL);
     this.timeoutMs = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
+    this.eventStream = null;
   }
 
   health(options = {}) {
@@ -23,24 +25,31 @@ class OpenCodeServerClient {
 
   async createSession({ directory } = {}) {
     const requestedDirectory = requiredString(directory, 'directory');
-    return this._requestJson('POST', `/session?directory=${encodeURIComponent(requestedDirectory)}`);
+    return this._requestJson('POST', `/session?directory=${encodeURIComponent(requestedDirectory)}`, {
+      route: '/session'
+    });
   }
 
   async readSession({ sessionId } = {}) {
     const requestedSessionId = requiredString(sessionId, 'sessionId');
-    return this._requestJson('GET', `/session/${encodeURIComponent(requestedSessionId)}`);
+    return this._requestJson('GET', `/session/${encodeURIComponent(requestedSessionId)}`, {
+      route: '/session/:sessionId'
+    });
   }
 
   async promptAsync({ sessionId, text } = {}) {
     const requestedSessionId = requiredString(sessionId, 'sessionId');
     return this._requestJson('POST', `/session/${encodeURIComponent(requestedSessionId)}/prompt_async`, {
+      route: '/session/:sessionId/prompt_async',
       body: buildPromptAsyncBody(text)
     });
   }
 
   async abortSession({ sessionId } = {}) {
     const requestedSessionId = requiredString(sessionId, 'sessionId');
-    return this._requestJson('POST', `/session/${encodeURIComponent(requestedSessionId)}/abort`);
+    return this._requestJson('POST', `/session/${encodeURIComponent(requestedSessionId)}/abort`, {
+      route: '/session/:sessionId/abort'
+    });
   }
 
   async replyPermission({ sessionId, permissionId, decision, scope } = {}) {
@@ -49,30 +58,78 @@ class OpenCodeServerClient {
     return this._requestJson(
       'POST',
       `/session/${encodeURIComponent(requestedSessionId)}/permissions/${encodeURIComponent(requestedPermissionId)}`,
-      { body: buildPermissionReplyBody({ decision, scope }) }
+      {
+        route: '/session/:sessionId/permissions/:permissionId',
+        body: buildPermissionReplyBody({ decision, scope })
+      }
     );
   }
 
   subscribeEvents(onEvent, onError) {
-    const eventHandler = typeof onEvent === 'function' ? onEvent : () => {};
-    const errorHandler = typeof onError === 'function' ? onError : () => {};
+    const stream = this._ensureEventStream();
+    const subscriber = {
+      eventHandler: typeof onEvent === 'function' ? onEvent : () => {},
+      errorHandler: typeof onError === 'function' ? onError : () => {},
+      closed: false
+    };
+    stream.subscribers.add(subscriber);
+    return {
+      close() {
+        if (subscriber.closed) return;
+        subscriber.closed = true;
+        stream.subscribers.delete(subscriber);
+        if (stream.subscribers.size === 0) stream.close();
+      }
+    };
+  }
+
+  _ensureEventStream() {
+    if (!this.eventStream || this.eventStream.closed) {
+      this.eventStream = this._openEventStream();
+    }
+    return this.eventStream;
+  }
+
+  _openEventStream() {
     const url = this._buildUrl('/global/event');
     const transport = transportForUrl(url);
-    let closed = false;
     let response = null;
     let req = null;
-    const parser = createSseParser(eventHandler, errorHandler);
-    const reportError = (error) => {
-      if (closed) return false;
-      closed = true;
-      clearTimeout(connectionTimer);
-      errorHandler(error);
-      return true;
+    let connectionTimer = null;
+    const stream = {
+      subscribers: new Set(),
+      closed: false,
+      close: () => {
+        closeStream();
+      }
     };
-    const connectionTimer = setTimeout(() => {
-      if (!reportError(buildTimeoutError('GET', '/global/event', this.timeoutMs))) return;
+    const closeStream = ({ error = null } = {}) => {
+      if (stream.closed) return false;
+      stream.closed = true;
+      if (this.eventStream === stream) this.eventStream = null;
+      if (connectionTimer) clearTimeout(connectionTimer);
+      connectionTimer = null;
+      const subscribers = Array.from(stream.subscribers);
+      stream.subscribers.clear();
+      for (const subscriber of subscribers) {
+        if (subscriber.closed) continue;
+        subscriber.closed = true;
+        if (error) subscriber.errorHandler(error);
+      }
       response?.destroy();
       req?.destroy();
+      return true;
+    };
+    const reportError = (error) => closeStream({ error });
+    const dispatchEvent = (event) => {
+      if (stream.closed) return;
+      for (const subscriber of Array.from(stream.subscribers)) {
+        if (!subscriber.closed) subscriber.eventHandler(event);
+      }
+    };
+    const parser = createSseParser(dispatchEvent, reportError);
+    connectionTimer = setTimeout(() => {
+      reportError(buildTimeoutError('GET', '/global/event', this.timeoutMs));
     }, this.timeoutMs);
 
     req = transport.request({
@@ -84,12 +141,11 @@ class OpenCodeServerClient {
       headers: { accept: 'text/event-stream' }
     }, (res) => {
       clearTimeout(connectionTimer);
+      connectionTimer = null;
       response = res;
       if (res.statusCode < 200 || res.statusCode >= 300) {
         collectBoundedResponseText(res, { timeoutMs: this.timeoutMs, maxBytes: MAX_BODY_TEXT_LENGTH }).then((text) => {
-          if (!reportError(buildHttpError('GET', '/global/event', res.statusCode, text))) return;
-          response?.destroy();
-          req.destroy();
+          reportError(buildHttpError('GET', '/global/event', res.statusCode, text));
         }).catch((error) => {
           reportError(buildNetworkError('GET', '/global/event', error));
         });
@@ -97,15 +153,13 @@ class OpenCodeServerClient {
       }
       res.setEncoding('utf8');
       const reportStreamClosed = (reason) => {
-        if (!reportError(buildSseClosedError(reason))) return;
-        req.destroy();
+        reportError(buildSseClosedError(reason));
       };
       res.on('data', (chunk) => {
-        if (!closed) parser.write(String(chunk));
+        if (!stream.closed) parser.write(String(chunk));
       });
       res.on('error', (error) => {
-        if (!reportError(buildNetworkError('GET', '/global/event', error))) return;
-        req.destroy();
+        reportError(buildNetworkError('GET', '/global/event', error));
       });
       res.on('end', () => reportStreamClosed('end'));
       res.on('close', () => reportStreamClosed('close'));
@@ -115,16 +169,7 @@ class OpenCodeServerClient {
       reportError(buildNetworkError('GET', '/global/event', error));
     });
     req.end();
-
-    return {
-      close() {
-        if (closed) return;
-        closed = true;
-        clearTimeout(connectionTimer);
-        response?.destroy();
-        req.destroy();
-      }
-    };
+    return stream;
   }
 
   _requestJson(method, path, options = {}) {
@@ -133,6 +178,7 @@ class OpenCodeServerClient {
     const body = options.body === undefined ? null : JSON.stringify(options.body);
     const signal = options.signal;
     const requestPath = `${url.pathname}${url.search}`;
+    const publicPath = publicPathForUrl(url, options.route);
     const headers = { accept: 'application/json' };
     if (body !== null) {
       headers['content-type'] = 'application/json';
@@ -163,11 +209,11 @@ class OpenCodeServerClient {
         else resolve(value);
       };
       if (signal?.aborted) {
-        finish(buildAbortError(method, requestPath));
+        finish(buildAbortError(method, publicPath));
         return;
       }
       abortHandler = () => {
-        const error = buildAbortError(method, requestPath);
+        const error = buildAbortError(method, publicPath);
         finish(error);
         response?.destroy(error);
         req?.destroy(error);
@@ -186,7 +232,7 @@ class OpenCodeServerClient {
         response = res;
         collectResponseText(res).then((text) => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            finish(buildHttpError(method, requestPath, res.statusCode, text));
+            finish(buildHttpError(method, publicPath, res.statusCode, text));
             return;
           }
           if (!text) {
@@ -195,20 +241,20 @@ class OpenCodeServerClient {
           }
           const parsed = parseJson(text);
           if (!parsed.ok) {
-            finish(buildBadJsonError(method, requestPath, text, parsed.error));
+            finish(buildBadJsonError(method, publicPath, text, parsed.error));
             return;
           }
           finish(null, parsed.value);
         }).catch((error) => {
-          finish(buildNetworkError(method, requestPath, error));
+          finish(buildNetworkError(method, publicPath, error));
         });
       });
       timer = setTimeout(() => {
-        finish(buildTimeoutError(method, requestPath, this.timeoutMs));
+        finish(buildTimeoutError(method, publicPath, this.timeoutMs));
         req.destroy();
       }, this.timeoutMs);
       req.on('error', (error) => {
-        finish(buildNetworkError(method, requestPath, error));
+        finish(buildNetworkError(method, publicPath, error));
       });
       if (body !== null) req.write(body);
       req.end();
@@ -337,32 +383,32 @@ function parseJson(text) {
 }
 
 function buildHttpError(method, path, status, text) {
-  const body = parseResponseBodyDetails(text);
+  const provider = parseResponseBodyDetails(text);
   return openCodeError(`OpenCode server ${method} ${path} failed with HTTP ${status}`, {
     status,
     code: 'OPENCODE_SERVER_HTTP_ERROR',
-    details: { status, method, path, ...body }
+    details: { status, method, path, ...provider }
   });
 }
 
-function buildBadJsonError(method, path, text, parseError) {
+function buildBadJsonError(method, path, _text, _parseError) {
   return openCodeError(`OpenCode server ${method} ${path} returned invalid JSON`, {
     code: 'OPENCODE_SERVER_BAD_JSON',
     details: {
       method,
       path,
-      bodyText: limitString(text, MAX_BODY_TEXT_LENGTH),
-      parseMessage: limitString(parseError?.message || 'invalid JSON', MAX_DETAIL_STRING_LENGTH)
+      reason: 'invalid_json'
     }
   });
 }
 
-function buildSseBadJsonError(data, parseError) {
+function buildSseBadJsonError(_data, _parseError) {
   return openCodeError('OpenCode server SSE event contained invalid JSON', {
     code: 'OPENCODE_SERVER_SSE_BAD_JSON',
     details: {
-      data: limitString(data, MAX_DETAIL_STRING_LENGTH),
-      parseMessage: limitString(parseError?.message || 'invalid JSON', MAX_DETAIL_STRING_LENGTH)
+      method: 'GET',
+      path: '/global/event',
+      reason: 'invalid_json'
     }
   });
 }
@@ -393,22 +439,56 @@ function buildAbortError(method, path) {
 }
 
 function buildNetworkError(method, path, error) {
-  return openCodeError(`OpenCode server ${method} ${path} network error: ${error?.message || 'request failed'}`, {
+  return openCodeError(`OpenCode server ${method} ${path} network error`, {
     code: 'OPENCODE_SERVER_NETWORK_ERROR',
     details: {
       method,
       path,
-      code: limitString(error?.code || error?.name || 'NETWORK_ERROR', MAX_DETAIL_STRING_LENGTH),
-      message: limitString(error?.message || 'request failed', MAX_DETAIL_STRING_LENGTH)
+      code: safeProviderCode(error?.code || error?.name) || 'NETWORK_ERROR',
+      reason: 'request_failed'
     }
   });
 }
 
 function parseResponseBodyDetails(text) {
-  if (!text) return { body: null };
+  if (!text) return {};
   const parsed = parseJson(text);
-  if (parsed.ok) return { body: sanitizeDetails(parsed.value) };
-  return { bodyText: limitString(text, MAX_BODY_TEXT_LENGTH) };
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') return {};
+  const result = {};
+  const providerCode = firstSafeProviderCode([
+    parsed.value.error?.code,
+    parsed.value.code,
+    parsed.value.errorCode
+  ]);
+  const providerStatus = firstSafeProviderCode([
+    parsed.value.error?.status,
+    parsed.value.status
+  ]);
+  if (providerCode) result.providerCode = providerCode;
+  if (providerStatus) result.providerStatus = providerStatus;
+  return result;
+}
+
+function firstSafeProviderCode(values) {
+  for (const value of values) {
+    const code = safeProviderCode(value);
+    if (code) return code;
+  }
+  return null;
+}
+
+function safeProviderCode(value) {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text || text.length > MAX_PROVIDER_CODE_LENGTH) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(text)) return null;
+  return text;
+}
+
+function publicPathForUrl(url, route) {
+  const label = String(route || url.pathname || '/').split('?')[0] || '/';
+  return limitString(label, MAX_DETAIL_STRING_LENGTH);
 }
 
 function openCodeError(message, { status, code, details }) {

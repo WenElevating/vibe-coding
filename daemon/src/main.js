@@ -84,7 +84,7 @@ function createApp({
   codexAppServerService = undefined,
   codexAppServerApprovalPolicy = undefined,
   opencodeCommand = process.env.OPENCODE_COMMAND || 'opencode',
-  opencodeServerUrl = process.env.OPENCODE_SERVER_URL || 'http://127.0.0.1:4096',
+  opencodeServerUrl = process.env.OPENCODE_SERVER_URL || '',
   opencodeServerLifecycle = null,
   devAdapters = process.env.DEV_ADAPTERS === '1',
   conversationAdapters = null,
@@ -113,7 +113,6 @@ function createApp({
   const perfTracer = new PerfTracer({ enabled: perfConfig.enabled, writer: perfStore });
   conversationEventStore.perfTracer = perfTracer;
   const auditLog = new AuditLog();
-  const adapters = [new ClaudeAdapter({ command: claudeCommand }), createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }), new OpenCodeAdapter({ serverUrl: opencodeServerUrl })];
   const codexAppServerRuntime = buildCodexAppServerRuntimeConfig({
     enabled: codexAppServerEnabled,
     transport: codexAppServerTransport,
@@ -130,9 +129,14 @@ function createApp({
     metrics: codexAppServerMetrics
   }) : null;
   const effectiveOpenCodeServerLifecycle = opencodeServerLifecycle || new OpenCodeServerLifecycle({
-    externalUrl: process.env.OPENCODE_SERVER_URL || '',
+    externalUrl: opencodeServerUrl || '',
     command: opencodeCommand
   });
+  const adapters = [
+    new ClaudeAdapter({ command: claudeCommand }),
+    createCodexAdapter({ command: codexCommand, explicitEnabled: codexEnabled }),
+    new OpenCodeAdapter({ serverUrl: opencodeServerUrl, lifecycle: effectiveOpenCodeServerLifecycle })
+  ];
   if (codexAppServerRouteEnabled) {
     adapters.push(new CodexAppServerListingAdapter({
       availabilityState: codexAppServerAvailabilityState,
