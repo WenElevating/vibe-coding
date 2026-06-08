@@ -118,8 +118,11 @@ void main() {
       baseUri: Uri.parse('http://127.0.0.1:4317'),
       tokenStore: MemoryTokenStore(),
       httpClient: MockClient((request) async {
-        expect(request.url.path,
-            '/api/conversations/conv_1/approvals/approval_1/respond');
+        expect(
+          request.url.toString(),
+          'http://127.0.0.1:4317/api/conversations/conv_1/'
+          'approvals/approval%2F1%20100%25/respond',
+        );
         body = jsonDecode(request.body) as Map<String, Object?>;
         return http.Response(
           jsonEncode(const <String, Object?>{
@@ -145,7 +148,7 @@ void main() {
 
     await repository.respondConversationApproval(
       'conv_1',
-      'approval_1',
+      'approval/1 100%',
       ApprovalResponse.allow(scope: ApprovalScope.session),
     );
 

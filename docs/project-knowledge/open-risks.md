@@ -98,3 +98,19 @@
 - Mitigation: keep managed OpenCode child cleanup best-effort and preserve
   regression tests when changing lifecycle shutdown behavior.
 - Last verified: 2026-06-09
+
+## Risk: Provider IDs Can Contain URL-Reserved Characters
+
+- Level: medium
+- Impact: OpenCode permission ids and other provider-owned ids may contain
+  characters such as `/`, spaces, or `%`. If mobile sends them as raw path text
+  or daemon compares percent-encoded route captures directly, approvals can fail
+  with a false id mismatch or miss the route entirely.
+- Evidence: `daemon/src/server.js` decodes route path segments before comparing
+  ids; `mobile/lib/src/services/daemon_client.dart` and
+  `mobile/lib/src/services/conversation_client.dart` encode id path segments.
+  `scripts/run-tests.js` covers an OpenCode approval id containing URL-reserved
+  characters.
+- Mitigation: encode every id inserted into mobile URL path segments and decode
+  every daemon route segment before domain/service lookup.
+- Last verified: 2026-06-09

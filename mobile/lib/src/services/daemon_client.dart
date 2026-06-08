@@ -502,7 +502,8 @@ class DaemonClient
 
   @override
   Future<List<AgentEvent>> fetchEvents(String runId, {int afterSeq = 0}) async {
-    final response = await _get('/api/runs/$runId/events?afterSeq=$afterSeq');
+    final response = await _get(
+        '/api/runs/${_pathSegment(runId)}/events?afterSeq=$afterSeq');
     final items = _readMapList(response, 'events');
     return items.map(AgentEvent.fromJson).toList();
   }
@@ -510,7 +511,8 @@ class DaemonClient
   @override
   Future<RunSummary> sendRunInput(String runId, String prompt,
       {String permissionMode = 'default'}) async {
-    final response = await _post('/api/runs/$runId/input', <String, Object?>{
+    final response =
+        await _post('/api/runs/${_pathSegment(runId)}/input', <String, Object?>{
       'prompt': prompt,
       'permissionMode': permissionMode,
     });
@@ -519,14 +521,14 @@ class DaemonClient
 
   @override
   Future<RunSummary> cancelRun(String runId) async {
-    final response =
-        await _post('/api/runs/$runId/cancel', const <String, Object?>{});
+    final response = await _post(
+        '/api/runs/${_pathSegment(runId)}/cancel', const <String, Object?>{});
     return RunSummary.fromJson(response);
   }
 
   @override
   Future<void> respondApproval(String approvalId, String decision) async {
-    await _post('/api/approvals/$approvalId/respond',
+    await _post('/api/approvals/${_pathSegment(approvalId)}/respond',
         <String, Object?>{'decision': decision});
   }
 
@@ -591,7 +593,7 @@ class DaemonClient
       String conversationId, String? model) async {
     final trimmedModel = model?.trim();
     final response = await _patch(
-        '/api/conversations/$conversationId/model', <String, Object?>{
+        '${_conversationPath(conversationId)}/model', <String, Object?>{
       'model':
           trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
     });
@@ -605,7 +607,7 @@ class DaemonClient
     String permissionMode,
   ) async {
     final response = await _patch(
-      '/api/conversations/$conversationId/permission-mode',
+      '${_conversationPath(conversationId)}/permission-mode',
       <String, Object?>{'permissionMode': permissionMode},
     );
     return ConversationSummary.fromJson(
@@ -615,7 +617,7 @@ class DaemonClient
   @override
   Future<ConversationSummary> sendConversationMessage(String conversationId,
       ConversationServiceMessageSendRequest request) async {
-    final path = '/api/conversations/$conversationId/messages';
+    final path = '${_conversationPath(conversationId)}/messages';
     final response = request.attachments.isEmpty
         ? await _post(
             path,
@@ -632,7 +634,8 @@ class DaemonClient
   @override
   Future<List<ConversationEvent>> fetchConversationEvents(String conversationId,
       {int afterSeq = 0}) async {
-    final path = '/api/conversations/$conversationId/events?afterSeq=$afterSeq';
+    final path =
+        '${_conversationPath(conversationId)}/events?afterSeq=$afterSeq';
     final response = await _get(path);
     final items = _readMapList(response, 'events');
     return items.map(ConversationEvent.fromJson).toList();
@@ -647,10 +650,8 @@ class DaemonClient
     final query = beforeSeq == null
         ? <String, String>{'tail': '$limit'}
         : <String, String>{'beforeSeq': '$beforeSeq', 'limit': '$limit'};
-    final path = Uri(
-      path: '/api/conversations/$conversationId/events',
-      queryParameters: query,
-    ).toString();
+    final path =
+        '${_conversationPath(conversationId)}/events?${Uri(queryParameters: query).query}';
     final response = await _get(path);
     return ConversationEventPage.fromJson(response, limit: limit);
   }
@@ -659,7 +660,7 @@ class DaemonClient
   Future<ConversationSummary> answerConversationQuestion(
       String conversationId, String questionId, String text) async {
     final response = await _post(
-        '/api/conversations/$conversationId/questions/respond',
+        '${_conversationPath(conversationId)}/questions/respond',
         <String, Object?>{
           'questionId': questionId,
           'text': text,
@@ -672,7 +673,7 @@ class DaemonClient
   Future<ConversationSummary> respondConversationApproval(String conversationId,
       String approvalId, ApprovalResponse response) async {
     final decoded = await _post(
-        '/api/conversations/$conversationId/approvals/$approvalId/respond',
+        '${_conversationPath(conversationId)}/approvals/${_pathSegment(approvalId)}/respond',
         response.toJson());
     return ConversationSummary.fromJson(
         decoded['conversation'] as Map<String, Object?>);
@@ -680,8 +681,8 @@ class DaemonClient
 
   @override
   Future<ConversationSummary> cancelConversation(String conversationId) async {
-    final response = await _post(
-        '/api/conversations/$conversationId/cancel', const <String, Object?>{});
+    final response = await _post('${_conversationPath(conversationId)}/cancel',
+        const <String, Object?>{});
     return ConversationSummary.fromJson(
         response['conversation'] as Map<String, Object?>);
   }
@@ -939,6 +940,11 @@ String daemonClientProxyForUri(Uri uri,
         : 'PROXY ${manualProxy.host}:${manualProxy.port}',
   };
 }
+
+String _conversationPath(String conversationId) =>
+    '/api/conversations/${_pathSegment(conversationId)}';
+
+String _pathSegment(String value) => Uri.encodeComponent(value);
 
 List<Object?> _readList(Map<String, Object?> json, String key) {
   final value = json[key];

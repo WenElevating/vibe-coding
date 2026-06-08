@@ -85,7 +85,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'GET' && slashCommands) {
         const workspaceId = url.searchParams.get('workspaceId');
         const workspace = workspaceId ? workspaces.getAuthorized(workspaceId, device) : null;
-        return json(res, 200, await slashCommandCatalog.list(decodeURIComponent(slashCommands[1]), {
+        return json(res, 200, await slashCommandCatalog.list(decodePathSegment(slashCommands[1], 'adapterId'), {
           workspacePath: workspace?.path
         }));
       }
@@ -152,7 +152,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'PATCH' && conversationModel) {
         return json(res, 200, {
           conversation: await conversations.updateModel(
-            conversationModel[1],
+            decodePathSegment(conversationModel[1], 'conversationId'),
             await readJson(req),
             device
           )
@@ -162,7 +162,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       if (method === 'PATCH' && conversationPermissionMode) {
         return json(res, 200, {
           conversation: await conversations.updatePermissionMode(
-            conversationPermissionMode[1],
+            decodePathSegment(conversationPermissionMode[1], 'conversationId'),
             await readJson(req),
             device
           )
@@ -171,7 +171,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       const conversationControl = url.pathname.match(/^\/api\/conversations\/([^/]+)\/control$/);
       if (method === 'POST' && conversationControl) {
         return json(res, 200, await conversations.controlConversation(
-          conversationControl[1],
+          decodePathSegment(conversationControl[1], 'conversationId'),
           await readJson(req),
           device
         ));
@@ -179,43 +179,63 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       const conversationEvents = url.pathname.match(/^\/api\/conversations\/([^/]+)\/events$/);
       if (method === 'GET' && conversationEvents) {
         const pageRequest = parseConversationEventPageRequest(url.searchParams);
+        const conversationId = decodePathSegment(conversationEvents[1], 'conversationId');
         if (pageRequest.mode === 'after') {
-          return json(res, 200, { events: conversations.listEvents(conversationEvents[1], pageRequest.afterSeq, device) });
+          return json(res, 200, { events: conversations.listEvents(conversationId, pageRequest.afterSeq, device) });
         }
-        return json(res, 200, conversations.listEventPage(conversationEvents[1], pageRequest, device));
+        return json(res, 200, conversations.listEventPage(conversationId, pageRequest, device));
       }
       const conversationMessages = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (method === 'POST' && conversationMessages) {
+        const conversationId = decodePathSegment(conversationMessages[1], 'conversationId');
         markPerf(serverContext.perfTracer, 'http.conversation.request.received', {
-          conversationId: conversationMessages[1],
+          conversationId,
           metadata: { route: '/api/conversations/:conversationId/messages' }
         });
         const contentType = String(req.headers['content-type'] || '').toLowerCase();
         if (contentType.startsWith('multipart/form-data')) {
           const body = {
-            conversation: await conversations.sendMultipartMessage(conversationMessages[1], req, device)
+            conversation: await conversations.sendMultipartMessage(conversationId, req, device)
           };
           markPerf(serverContext.perfTracer, 'http.conversation.response.sent', {
-            conversationId: conversationMessages[1],
+            conversationId,
             metadata: { route: '/api/conversations/:conversationId/messages', statusCode: 200 }
           });
           return json(res, 200, body);
         }
         const body = {
-          conversation: await conversations.sendMessage(conversationMessages[1], await readJson(req), device)
+          conversation: await conversations.sendMessage(conversationId, await readJson(req), device)
         };
         markPerf(serverContext.perfTracer, 'http.conversation.response.sent', {
-          conversationId: conversationMessages[1],
+          conversationId,
           metadata: { route: '/api/conversations/:conversationId/messages', statusCode: 200 }
         });
         return json(res, 200, body);
       }
       const conversationQuestion = url.pathname.match(/^\/api\/conversations\/([^/]+)\/questions\/respond$/);
-      if (method === 'POST' && conversationQuestion) return json(res, 200, { conversation: await conversations.answerQuestion(conversationQuestion[1], await readJson(req), device) });
+      if (method === 'POST' && conversationQuestion) {
+        const conversationId = decodePathSegment(conversationQuestion[1], 'conversationId');
+        return json(res, 200, {
+          conversation: await conversations.answerQuestion(conversationId, await readJson(req), device)
+        });
+      }
       const conversationApproval = url.pathname.match(/^\/api\/conversations\/([^/]+)\/approvals\/([^/]+)\/respond$/);
-      if (method === 'POST' && conversationApproval) return json(res, 200, { conversation: await conversations.respondApproval(conversationApproval[1], conversationApproval[2], await readJson(req), device) });
+      if (method === 'POST' && conversationApproval) {
+        const conversationId = decodePathSegment(conversationApproval[1], 'conversationId');
+        const approvalId = decodePathSegment(conversationApproval[2], 'approvalId');
+        return json(res, 200, {
+          conversation: await conversations.respondApproval(conversationId, approvalId, await readJson(req), device)
+        });
+      }
       const conversationCancel = url.pathname.match(/^\/api\/conversations\/([^/]+)\/cancel$/);
-      if (method === 'POST' && conversationCancel) return json(res, 200, { conversation: await conversations.cancelConversation(conversationCancel[1], device) });
+      if (method === 'POST' && conversationCancel) {
+        return json(res, 200, {
+          conversation: await conversations.cancelConversation(
+            decodePathSegment(conversationCancel[1], 'conversationId'),
+            device
+          )
+        });
+      }
 
       if (method === 'GET' && url.pathname === '/api/runs') return json(res, 200, { runs: runs.listRuns(device, Object.fromEntries(url.searchParams.entries())) });
       if (method === 'POST' && url.pathname === '/api/runs') {
@@ -226,16 +246,16 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
 
       const runEvents = url.pathname.match(/^\/api\/runs\/([^/]+)\/events$/);
       if (method === 'GET' && runEvents) {
-        const run = runs.getRun(runEvents[1], device);
+        const run = runs.getRun(decodePathSegment(runEvents[1], 'runId'), device);
         const afterSeq = parseNonNegativeInteger(url.searchParams.has('afterSeq') ? url.searchParams.get('afterSeq') : '0', 'afterSeq');
         return json(res, 200, { events: eventStore.list(run.id, afterSeq) });
       }
       const runCancel = url.pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-      if (method === 'POST' && runCancel) return json(res, 200, runs.cancelRun(runCancel[1], device));
+      if (method === 'POST' && runCancel) return json(res, 200, runs.cancelRun(decodePathSegment(runCancel[1], 'runId'), device));
       const runInput = url.pathname.match(/^\/api\/runs\/([^/]+)\/input$/);
-      if (method === 'POST' && runInput) return json(res, 200, runs.followUp(runInput[1], await readJson(req), device));
+      if (method === 'POST' && runInput) return json(res, 200, runs.followUp(decodePathSegment(runInput[1], 'runId'), await readJson(req), device));
       const approval = url.pathname.match(/^\/api\/approvals\/([^/]+)\/respond$/);
-      if (method === 'POST' && approval) return json(res, 200, await runs.respondApproval(approval[1], await readJson(req), device));
+      if (method === 'POST' && approval) return json(res, 200, await runs.respondApproval(decodePathSegment(approval[1], 'approvalId'), await readJson(req), device));
 
       throw Object.assign(new Error('not found'), { status: 404 });
     } catch (error) {
@@ -337,6 +357,14 @@ function httpError(status, code, message) {
   error.status = status;
   error.code = code;
   return error;
+}
+
+function decodePathSegment(segment, field) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw httpError(400, 'BAD_REQUEST', `${field} is not valid URL path encoding.`);
+  }
 }
 
 async function runSmoke({ config, adapterRegistry, eventStore }) {

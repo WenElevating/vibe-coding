@@ -14419,6 +14419,7 @@ test('OpenCode conversation HTTP approval response reaches fake server and dedup
     workspaceName: 'OpenCode HTTP Permission'
   });
   try {
+    const approvalId = 'perm/http 100%';
     const created = await fixture.post('/api/conversations', {
       workspaceId: fixture.workspaceId,
       adapter: 'opencode'
@@ -14429,7 +14430,7 @@ test('OpenCode conversation HTTP approval response reaches fake server and dedup
     fixture.fake.emitEvent({
       type: 'permission.asked',
       sessionID: 'sess_1',
-      id: 'perm_http',
+      id: approvalId,
       toolCallId: 'tool_http',
       tool: 'bash',
       command: 'npm test'
@@ -14442,26 +14443,26 @@ test('OpenCode conversation HTTP approval response reaches fake server and dedup
       'OpenCode HTTP waiting approval'
     );
     assert.equal(waiting.blockingItem.type, 'approval_request');
-    assert.equal(waiting.blockingItem.approvalId, 'perm_http');
+    assert.equal(waiting.blockingItem.approvalId, approvalId);
     assert.equal(waiting.blockingItem.toolName, 'bash');
     assert.equal(waiting.blockingItem.approvalOptions.supportsSessionScope, true);
 
     const responded = await fixture.post(
-      `/api/conversations/${conversationId}/approvals/perm_http/respond`,
+      `/api/conversations/${conversationId}/approvals/${encodeURIComponent(approvalId)}/respond`,
       { decision: 'allow', scope: 'session' }
     );
     assert.equal(responded.status, 200);
     assert.equal(responded.body.conversation.status, 'running');
     assert.deepEqual(fixture.fake.permissionReplies, [{
       sessionId: 'sess_1',
-      permissionId: 'perm_http',
+      permissionId: approvalId,
       body: { response: 'always' }
     }]);
 
     fixture.fake.emitEvent({
       type: 'permission.replied',
       sessionID: 'sess_1',
-      id: 'perm_http',
+      id: approvalId,
       decision: 'allow'
     });
     fixture.fake.emitEvent({ type: 'session.idle', sessionID: 'sess_1' });
@@ -14475,7 +14476,7 @@ test('OpenCode conversation HTTP approval response reaches fake server and dedup
     const events = (await fixture.get(`/api/conversations/${conversationId}/events?afterSeq=0`)).body.events;
     const approvalResolved = events.filter((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED);
     assert.equal(approvalResolved.length, 1);
-    assert.equal(approvalResolved[0].approvalId, 'perm_http');
+    assert.equal(approvalResolved[0].approvalId, approvalId);
     assert.equal(approvalResolved[0].decision, 'allow');
     assert.equal(approvalResolved[0].scope, 'session');
   } finally {

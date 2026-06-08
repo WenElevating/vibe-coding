@@ -69,7 +69,7 @@ class ConversationClient {
       return _sendMultipartMessage(conversationId, request);
     }
     final response = await _post(
-      '/api/conversations/$conversationId/messages',
+      '${_conversationPath(conversationId)}/messages',
       conversationServiceMessagePayload(
         request,
         includeAttachments: false,
@@ -86,7 +86,7 @@ class ConversationClient {
   ) async {
     final multipart = http.MultipartRequest(
       'POST',
-      baseUri.resolve('/api/conversations/$conversationId/messages'),
+      baseUri.resolve('${_conversationPath(conversationId)}/messages'),
     )
       ..headers.addAll(_authHeaders())
       ..fields['payload'] =
@@ -114,7 +114,7 @@ class ConversationClient {
     int afterSeq = 0,
   }) async {
     final response = await _get(
-      '/api/conversations/$conversationId/events?afterSeq=$afterSeq',
+      '${_conversationPath(conversationId)}/events?afterSeq=$afterSeq',
     );
     final items = response['events'] as List<Object?>;
     return items
@@ -129,7 +129,7 @@ class ConversationClient {
     String text,
   ) async {
     final response = await _post(
-      '/api/conversations/$conversationId/questions/respond',
+      '${_conversationPath(conversationId)}/questions/respond',
       <String, Object?>{
         'questionId': questionId,
         'text': text,
@@ -146,7 +146,7 @@ class ConversationClient {
     ApprovalResponse response,
   ) async {
     final decoded = await _post(
-      '/api/conversations/$conversationId/approvals/$approvalId/respond',
+      '${_conversationPath(conversationId)}/approvals/${_pathSegment(approvalId)}/respond',
       response.toJson(),
     );
     return ConversationSummary.fromJson(
@@ -156,7 +156,7 @@ class ConversationClient {
 
   Future<ConversationSummary> cancelConversation(String conversationId) async {
     final response = await _post(
-      '/api/conversations/$conversationId/cancel',
+      '${_conversationPath(conversationId)}/cancel',
       const <String, Object?>{},
     );
     return ConversationSummary.fromJson(
@@ -209,6 +209,11 @@ class ConversationClient {
       'config': config,
     };
   }
+
+  String _conversationPath(String conversationId) =>
+      '/api/conversations/${_pathSegment(conversationId)}';
+
+  String _pathSegment(String value) => Uri.encodeComponent(value);
 
   Future<Map<String, Object?>> _get(String path) async {
     final response = await _httpClient.get(
