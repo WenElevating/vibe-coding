@@ -4085,6 +4085,79 @@ test('OpenCode server lifecycle escalates process tree cleanup when child stays 
   ]);
 });
 
+test('OpenCode server lifecycle ignores process tree terminator failures during shutdown', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const terminations = [];
+  const child = createFakeOpenCodeServerChild({
+    pid: 3466,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 20,
+    findAvailablePort: async () => 45866,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      throw new Error(`taskkill unavailable for ${pid}`);
+    }
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.deepEqual(terminations, [
+    { pid: 3466, force: false, signal: 'SIGTERM' },
+    { pid: 3466, force: true, signal: 'SIGKILL' }
+  ]);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
+test('OpenCode server lifecycle ignores child kill failures during shutdown', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const child = createFakeOpenCodeServerChild({
+    pid: 3467,
+    kill(signal) {
+      child.killSignals.push(signal || 'SIGTERM');
+      throw new Error(`kill failed: ${signal}`);
+    }
+  });
+  child.killSignals = [];
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: '',
+    gracefulShutdownMs: 1,
+    hardKillGraceMs: 1,
+    findAvailablePort: async () => 45867,
+    spawnFn: () => child,
+    clientFactory: (serverUrl) => ({
+      serverUrl,
+      async health() {
+        return { ok: true };
+      }
+    }),
+    processTreeTerminator: null
+  });
+
+  await lifecycle.ensureStarted();
+  await lifecycle.shutdown();
+
+  assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(lifecycle.getDiagnostics().status, 'idle');
+});
+
 test('OpenCode server lifecycle shutdown during startup stops child and prevents started state', async () => {
   const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
   const child = createFakeOpenCodeServerChild({

@@ -85,3 +85,16 @@
 - Mitigation: preserve the SSE-open-before-prompt invariant when changing
   OpenCode client, adapter, lifecycle, or fake-server code.
 - Last verified: 2026-06-09
+
+## Risk: OpenCode Managed Shutdown Cleanup Can Fail By Platform API
+
+- Level: low
+- Impact: Windows process-tree cleanup (`taskkill`) or direct `child.kill` can
+  fail during daemon shutdown. Those failures must not abort daemon resource
+  cleanup or leave lifecycle status stuck in `stopping`.
+- Evidence: `daemon/src/opencode-server-lifecycle.js` wraps process-tree
+  termination and direct child kill as best-effort cleanup; `scripts/run-tests.js`
+  covers thrown process-tree terminators and thrown `child.kill` calls.
+- Mitigation: keep managed OpenCode child cleanup best-effort and preserve
+  regression tests when changing lifecycle shutdown behavior.
+- Last verified: 2026-06-09

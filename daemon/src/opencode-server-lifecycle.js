@@ -449,17 +449,12 @@ class OpenCodeServerLifecycle {
   async _shutdownChildOnce(child) {
     const childState = this._trackChild(child);
     if (childState.exited) return childState.exit;
-    if (this.processTreeTerminator && child.pid) {
-      this.processTreeTerminator(child.pid, { force: false, signal: 'SIGTERM' });
-    }
-    if (typeof child.kill === 'function') child.kill('SIGTERM');
+    tryProcessTreeTerminate(this.processTreeTerminator, child.pid, { force: false, signal: 'SIGTERM' });
+    tryKillChild(child, 'SIGTERM');
     await waitForChildExit(childState, this.gracefulShutdownMs, this.delayFn);
     if (!childState.exited) {
-      let terminated = false;
-      if (this.processTreeTerminator && child.pid) {
-        terminated = this.processTreeTerminator(child.pid, { force: true, signal: 'SIGKILL' }) === true;
-      }
-      if (!terminated && typeof child.kill === 'function') child.kill('SIGKILL');
+      const terminated = tryProcessTreeTerminate(this.processTreeTerminator, child.pid, { force: true, signal: 'SIGKILL' });
+      if (!terminated) tryKillChild(child, 'SIGKILL');
       await waitForChildExit(childState, this.hardKillGraceMs, this.delayFn);
     }
     return childState.exit;
@@ -536,6 +531,24 @@ function defaultProcessTreeTerminator(pid, { force = false, platform = process.p
     stdio: 'ignore'
   });
   return result?.status === 0;
+}
+
+function tryProcessTreeTerminate(processTreeTerminator, pid, options) {
+  if (!processTreeTerminator || !pid) return false;
+  try {
+    return processTreeTerminator(pid, options) === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function tryKillChild(child, signal) {
+  if (typeof child?.kill !== 'function') return false;
+  try {
+    return child.kill(signal) === true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function waitForChildExit(childState, timeoutMs, delayFn) {
