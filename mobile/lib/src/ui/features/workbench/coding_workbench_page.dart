@@ -7,7 +7,6 @@ import '../../../domain/models/approval_response.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../../services/mobile_app_event_bus.dart';
 import '../../core/theme/theme.dart' as theme;
 import '../../../workflows/workspace/create_workspace_workflow.dart'
     show
@@ -1531,8 +1530,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _publishApprovalNotificationEvent(ConversationEvent event) {
-    final bus = widget.dependencies.mobileAppEventBus;
-    if (bus == null) return;
     final approvalId = event.approvalId;
     final conversation = _workbenchViewModel.activeConversation;
     final conversationId = conversation?.id ?? event.conversationId;
@@ -1550,7 +1547,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             : event.toolName?.trim().isNotEmpty == true
                 ? event.toolName!.trim()
                 : l10n.workbenchApprovalCardTitle;
-        bus.publish(MobileApprovalRequested(
+        widget.dependencies.publishApprovalRequested(
           workspaceId: workspaceId,
           conversationId: conversationId,
           approvalId: approvalId,
@@ -1560,17 +1557,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           conversationTitle: conversation?.title,
           toolName: event.toolName,
           summary: event.summary,
-        ));
+        );
         break;
       case 'approval.resolved':
       case 'blocking.request_cancelled':
       case 'conversation.completed':
       case 'conversation.cancelled':
       case 'run.error':
-        bus.publish(MobileApprovalResolved(
+        widget.dependencies.publishApprovalResolved(
           conversationId: conversationId,
           approvalId: approvalId,
-        ));
+        );
         break;
     }
   }
