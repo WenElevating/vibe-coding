@@ -4414,6 +4414,49 @@ test('OpenCode server lifecycle external mode rejects ok false health body', asy
   assert.equal(lifecycle.getDiagnostics().status, 'failed');
 });
 
+test('OpenCode server lifecycle health error diagnostics ignore unsafe getters', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const providerDetails = {};
+  Object.defineProperty(providerDetails, 'body', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe nested provider detail getter should not escape');
+    }
+  });
+  const providerError = new Error('health failed');
+  Object.defineProperty(providerError, 'code', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe provider error code getter should not escape');
+    }
+  });
+  providerError.details = providerDetails;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:45772',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: () => ({
+      async health() {
+        throw providerError;
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_UNAVAILABLE');
+    assert.equal(error.details.cause.code, 'Error');
+    assert.equal(error.details.cause.message, 'health failed');
+    assert.equal(Object.prototype.hasOwnProperty.call(error.details.cause.details, 'body'), false);
+    assert.equal(JSON.stringify(error.details).includes('unsafe provider'), false);
+    return true;
+  });
+  const diagnostics = lifecycle.getDiagnostics();
+  assert.equal(diagnostics.status, 'failed');
+  assert.equal(diagnostics.lastError.code, 'OPENCODE_SERVER_UNAVAILABLE');
+  assert.equal(JSON.stringify(diagnostics).includes('unsafe provider'), false);
+});
+
 test('OpenCode server lifecycle external shutdown during health check prevents started state', async () => {
   const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
   let releaseHealth = null;

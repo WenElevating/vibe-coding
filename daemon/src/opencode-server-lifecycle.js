@@ -198,7 +198,7 @@ class OpenCodeServerLifecycle {
       this.lastError = null;
       return this.current;
     } catch (error) {
-      if (error?.code === 'OPENCODE_SERVER_STOPPED') {
+      if (safeErrorField(error, 'code') === 'OPENCODE_SERVER_STOPPED') {
         if (!this.current && !this.startPromise) {
           this.lastError = error;
           this.lastStatus = 'idle';
@@ -608,8 +608,9 @@ function createLifecycleError(message, { code, details = {}, cause } = {}) {
 }
 
 function ensureLifecycleError(error, fallbackCode) {
-  if (error?.code && String(error.code).startsWith('OPENCODE_SERVER_')) return error;
-  return createLifecycleError(error?.message || 'OpenCode managed server failed', {
+  const code = safeErrorField(error, 'code');
+  if (code && String(code).startsWith('OPENCODE_SERVER_')) return error;
+  return createLifecycleError(safeErrorField(error, 'message') || 'OpenCode managed server failed', {
     code: fallbackCode,
     details: { cause: errorDetails(error) },
     cause: error
@@ -617,10 +618,12 @@ function ensureLifecycleError(error, fallbackCode) {
 }
 
 function errorDetails(error) {
+  const code = safeErrorField(error, 'code') || safeErrorField(error, 'name') || 'ERROR';
+  const message = safeErrorField(error, 'message') || fallbackErrorMessage(error);
   return sanitizeDetails({
-    code: error?.code || error?.name || 'ERROR',
-    message: error?.message || String(error || 'unknown error'),
-    details: error?.details
+    code,
+    message,
+    details: safeErrorField(error, 'details')
   });
 }
 
@@ -634,19 +637,66 @@ function sanitizeDetails(value, depth = 0, seen = new Set()) {
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
   if (Array.isArray(value)) {
-    const items = value.slice(0, MAX_DETAIL_ARRAY_ITEMS).map((item) => sanitizeDetails(item, depth + 1, seen));
+    const items = [];
+    for (let index = 0; index < Math.min(value.length, MAX_DETAIL_ARRAY_ITEMS); index += 1) {
+      items.push(sanitizeDetails(safeOwnDataValue(value, String(index)), depth + 1, seen));
+    }
     if (value.length > MAX_DETAIL_ARRAY_ITEMS) items.push('[Truncated]');
     seen.delete(value);
     return items;
   }
   const result = {};
-  for (const key of Object.keys(value).slice(0, MAX_DETAIL_KEYS)) {
+  const keys = safeEnumerableKeys(value);
+  for (const key of keys.slice(0, MAX_DETAIL_KEYS)) {
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
-    result[key] = sanitizeDetails(value[key], depth + 1, seen);
+    const fieldValue = safeOwnDataValue(value, key);
+    if (fieldValue !== undefined) result[key] = sanitizeDetails(fieldValue, depth + 1, seen);
   }
-  if (Object.keys(value).length > MAX_DETAIL_KEYS) result.truncated = true;
+  if (keys.length > MAX_DETAIL_KEYS) result.truncated = true;
   seen.delete(value);
   return result;
+}
+
+function safeEnumerableKeys(value) {
+  try {
+    return Object.keys(value);
+  } catch (_) {
+    return [];
+  }
+}
+
+function safeOwnDataValue(value, key) {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+    return descriptor.value;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function safeErrorField(error, key) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return undefined;
+  let current = error;
+  while (current) {
+    const value = safeOwnDataValue(current, key);
+    if (value !== undefined) return value;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor && !Object.prototype.hasOwnProperty.call(descriptor, 'value')) return undefined;
+      current = Object.getPrototypeOf(current);
+    } catch (_) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function fallbackErrorMessage(error) {
+  if (error === null || error === undefined) return 'unknown error';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'number' || typeof error === 'boolean' || typeof error === 'bigint') return String(error);
+  return 'unknown error';
 }
 
 function limitString(value, maxLength) {
