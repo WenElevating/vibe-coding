@@ -4887,6 +4887,37 @@ test('OpenCode legacy run waits for SSE open before prompt dispatch', async () =
   await handle.kill();
 });
 
+test('OpenCode legacy run rejects auto permission mode before server start', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  let starts = 0;
+  const adapter = new OpenCodeAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        starts += 1;
+        return {};
+      },
+      getDiagnostics() {
+        return { status: 'not_started', lastError: null };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startRun({
+      prompt: 'legacy auto mode',
+      workspacePath: path.join(os.tmpdir(), 'opencode-legacy-auto-mode'),
+      permissionMode: 'auto',
+      onEvent: () => {}
+    }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.equal(error.code, 'OPENCODE_PERMISSION_MODE_UNSUPPORTED');
+      return true;
+    }
+  );
+  assert.equal(starts, 0);
+});
+
 test('OpenCode legacy run waits for session idle before completion', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');

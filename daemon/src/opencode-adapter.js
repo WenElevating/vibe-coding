@@ -119,7 +119,13 @@ class OpenCodeAdapter {
     return started;
   }
 
-  async startRun({ prompt, sessionId, resume = false, workspacePath, onEvent }) {
+  async startRun({ prompt, sessionId, resume = false, workspacePath, permissionMode = 'default', onEvent }) {
+    if (permissionMode === 'auto') {
+      throw adapterError('OpenCode does not support automatic permission bypass for legacy runs.', {
+        status: 422,
+        code: 'OPENCODE_PERMISSION_MODE_UNSUPPORTED'
+      });
+    }
     let started;
     try {
       started = await this.ensureStarted();
