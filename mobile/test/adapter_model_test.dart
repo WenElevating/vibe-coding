@@ -487,6 +487,60 @@ void main() {
       expect(viewModel.canSendComposer(text: 'inspect'), isFalse);
     });
 
+    test(
+        'active fallback conversation uses effective adapter attachment capabilities',
+        () async {
+      final repository = _FakeConversationRepository();
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[
+          _codexImageModel,
+          AdapterStatus(
+            adapter: 'codex-app-server',
+            available: false,
+            status: 'unavailable',
+          ),
+        ],
+        conversationRepository: repository,
+      );
+      viewModel.updateActiveConversation(
+        _conversation(
+          adapter: 'codex-app-server',
+          requestedAdapter: 'codex-app-server',
+          effectiveAdapter: 'codex',
+          effectiveCapabilities: const <String, Object?>{
+            'attachments': <String, Object?>{
+              'image': 'native',
+              'textDocument': 'text_extract',
+              'pdf': 'unsupported',
+            },
+          },
+          model: 'gpt-5-codex',
+        ),
+      );
+
+      viewModel.addDraftAttachmentForTest(const DraftAttachment(
+        localPath: r'D:\tmp\screenshot.png',
+        name: 'screenshot.png',
+        mimeType: 'image/png',
+        kind: AttachmentKind.image,
+        sizeBytes: 120034,
+      ));
+
+      expect(viewModel.selectedAdapter, 'codex-app-server');
+      expect(viewModel.selectedAdapterStatus, _codexImageModel);
+      expect(viewModel.draftAttachments.single.errorCode, isNull);
+      expect(viewModel.canSendComposer(text: ''), isTrue);
+
+      await viewModel.sendExistingConversationPrompt(
+        conversationId: 'conv_1',
+        prompt: 'inspect',
+      );
+
+      final request = repository.sentRequests.single;
+      expect(request.capabilityVersion, _codexImageModel.capabilityVersion);
+      expect(request.attachments.single.kind, AttachmentKind.image);
+    });
+
     test('existing conversation send forwards draft attachment metadata',
         () async {
       final repository = _FakeConversationRepository();
@@ -977,6 +1031,9 @@ class _NoOpRunRepository implements RunRepository {
 ConversationSummary _conversation({
   String id = 'conv_1',
   String adapter = 'codex',
+  String requestedAdapter = '',
+  String effectiveAdapter = '',
+  Map<String, Object?> effectiveCapabilities = const <String, Object?>{},
   String status = 'idle',
   String? model,
   ConversationBlockingItem? blockingItem,
@@ -989,6 +1046,9 @@ ConversationSummary _conversation({
       status: status,
       capabilities:
           ConversationCapabilities.fromJson(const <String, Object?>{}),
+      requestedAdapter: requestedAdapter.isEmpty ? adapter : requestedAdapter,
+      effectiveAdapter: effectiveAdapter.isEmpty ? adapter : effectiveAdapter,
+      effectiveCapabilities: effectiveCapabilities,
       createdAt: '2026-05-18T00:00:00.000Z',
       updatedAt: '2026-05-18T00:00:01.000Z',
       blockingItem: blockingItem,

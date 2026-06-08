@@ -117,9 +117,9 @@ class WorkbenchViewModel extends ChangeNotifier {
   List<SessionItem> get optimisticSessions =>
       List.unmodifiable(_optimisticSessions.values);
   String? get selectedAdapter => _selectedAdapter;
-  AdapterStatus? get selectedAdapterStatus => _adapterStatusFor(
-        _selectedAdapter,
-      );
+  AdapterStatus? get selectedAdapterStatus =>
+      _activeConversationEffectiveAdapterStatus() ??
+      _adapterStatusFor(_selectedAdapter);
   List<AdapterModelOption> get availableModels =>
       selectedAdapterStatus?.models ?? const <AdapterModelOption>[];
   List<AdapterStatus> get availableAdaptersFromCache =>
@@ -782,6 +782,21 @@ class WorkbenchViewModel extends ChangeNotifier {
 
   AdapterStatus? _adapterStatusFor(String? adapter) =>
       _adapterStatusForSelection(_adapters, adapter);
+
+  AdapterStatus? _activeConversationEffectiveAdapterStatus() {
+    final conversation = _activeConversation;
+    if (conversation == null) return null;
+    return _adapterStatusFor(_effectiveAdapterFor(conversation));
+  }
+
+  static String? _effectiveAdapterFor(ConversationSummary conversation) {
+    final effectiveAdapter = conversation.effectiveAdapter.trim();
+    if (effectiveAdapter.isNotEmpty) return effectiveAdapter;
+    final adapter = conversation.adapter.trim();
+    if (adapter.isNotEmpty) return adapter;
+    final requestedAdapter = conversation.requestedAdapter.trim();
+    return requestedAdapter.isEmpty ? null : requestedAdapter;
+  }
 
   void _reconcileSelectedModel() {
     final status = selectedAdapterStatus;

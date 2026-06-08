@@ -49,6 +49,11 @@
 - Local `ConversationSummary` status projections should use
   `ConversationSummary.copyWithStatus` so requested/effective adapter metadata,
   fallback notices, and capability maps stay intact.
+- Active conversation controls that depend on adapter capabilities, such as
+  model and attachment handling, should resolve status through
+  `effectiveAdapter`; UI labels may still show the requested adapter. Fallback
+  conversations keep `adapter` as the requested value while daemon dispatch uses
+  `effectiveAdapter`.
 - Conversation message clients should preserve `clientMessageId` and
   `capabilityVersion` on JSON and multipart sends. JSON sends must omit the
   `attachments` key; the daemon reserves attachments for multipart/form-data.
