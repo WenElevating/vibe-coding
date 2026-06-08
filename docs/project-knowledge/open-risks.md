@@ -192,11 +192,14 @@
   directories, recognizes `directory`, `cwd`, and `path` aliases, and keeps
   POSIX backslash siblings outside the workspace boundary. Its session id and
   directory extractors ignore inherited or getter-backed provider fields.
+  Non-missing `realpath` failures fail closed as stable directory mismatches
+  instead of exposing raw filesystem diagnostics.
   `scripts/run-tests.js` covers missing directory rejection before SSE
   subscription, POSIX backslash sibling containment, and safe own-field
-  extraction for provider session metadata. `scripts/smoke-opencode-server.js`
-  reuses the production extractors so smoke evidence accepts the same session id
-  and directory aliases as daemon runtime reconciliation.
+  extraction for provider session metadata, plus path-bearing realpath
+  failures. `scripts/smoke-opencode-server.js` reuses the production extractors
+  so smoke evidence accepts the same session id and directory aliases as daemon
+  runtime reconciliation.
 - Mitigation: preserve fail-closed directory reconciliation before prompt
   dispatch. Do not add new OpenCode session-directory aliases or direct
   provider-field reads without matching containment, descriptor-safety, and

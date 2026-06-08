@@ -3448,6 +3448,37 @@ test('OpenCode session boundary extracts only safe own session fields', () => {
   assert.equal(extractSessionDirectory({ session: { path: '/tmp/opencode-workspace/child' } }), '/tmp/opencode-workspace/child');
 });
 
+test('OpenCode session boundary realpath failures fail closed without provider paths', () => {
+  const { validateSessionDirectory } = require('../daemon/src/opencode-session-boundary');
+  const originalNativeRealpath = fs.realpathSync.native;
+  const secretPath = path.join(os.tmpdir(), 'opencode-secret-realpath', 'workspace');
+  fs.realpathSync.native = () => {
+    const error = new Error(`EACCES: permission denied, realpath '${secretPath}'`);
+    error.code = 'EACCES';
+    throw error;
+  };
+  try {
+    assert.throws(
+      () => validateSessionDirectory('/tmp/opencode-workspace/child', '/tmp/opencode-workspace'),
+      (error) => {
+        const publicJson = JSON.stringify({
+          message: error.message,
+          code: error.code,
+          details: error.details
+        });
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+        assert.deepEqual(error.details, { reason: 'directory_mismatch' });
+        assert.equal(publicJson.includes(secretPath), false);
+        assert.equal(publicJson.includes('opencode-secret-realpath'), false);
+        return true;
+      }
+    );
+  } finally {
+    fs.realpathSync.native = originalNativeRealpath;
+  }
+});
+
 test('OpenCode conversation adapter rejects auto permission mode before server start', async () => {
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
   let starts = 0;

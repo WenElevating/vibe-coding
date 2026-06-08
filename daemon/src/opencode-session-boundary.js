@@ -100,7 +100,7 @@ function tryRealpath(value) {
     return nativeRealpath(value);
   } catch (error) {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
-    throw error;
+    throw sessionBoundaryError();
   }
 }
 
