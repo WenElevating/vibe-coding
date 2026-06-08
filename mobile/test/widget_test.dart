@@ -1467,6 +1467,7 @@ class _LifecycleConversationRepository implements ConversationRepository {
   String? approvalConversationId;
   String? approvalId;
   String? approvalDecision;
+  ApprovalDecision? approvalResponseDecision;
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -1561,6 +1562,7 @@ class _LifecycleConversationRepository implements ConversationRepository {
     approvalConversationId = conversationId;
     this.approvalId = approvalId;
     approvalDecision = response.legacyDecision;
+    approvalResponseDecision = response.decision;
     return _conversationSummary(
       id: conversationId,
       workspaceId: 'workspace_1',
@@ -3800,6 +3802,104 @@ void main() {
     expect(repository.approvalConversationId, 'conv_approval_prompt');
     expect(repository.approvalId, 'approval_prompt_1');
     expect(repository.approvalDecision, 'allow');
+  });
+
+  testWidgets('conversation approval cancel preserves cancel decision',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    const approvalOptions = ApprovalRequestOptions(
+      kind: ApprovalRequestKind.command,
+      supportsCancel: true,
+      command: 'npm test',
+    );
+    final repository = _LifecycleConversationRepository(
+      events: <ConversationEvent>[
+        ConversationEvent.fromJson(const <String, Object?>{
+          'seq': 1,
+          'conversationId': 'conv_approval_cancel',
+          'type': 'approval.requested',
+          'createdAt': '2026-05-16T00:00:01.000Z',
+          'approvalId': 'approval_cancel_1',
+          'toolName': 'Bash',
+          'summary': 'npm test',
+          'input': {'command': 'npm test'},
+          'approvalOptions': <String, Object?>{
+            'kind': 'command',
+            'supportsCancel': true,
+            'command': 'npm test',
+          },
+        }),
+      ],
+    );
+    const capabilities = ConversationCapabilities(
+      longLivedProcess: true,
+      waitingInput: true,
+      waitingApproval: true,
+      resume: true,
+      partialOutput: true,
+    );
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_approval_cancel',
+        workspaceId: 'workspace_1',
+        status: 'waiting_approval',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Approval cancel task',
+        capabilities: capabilities,
+        blockingItem: const ConversationBlockingItem(
+          type: 'approval_request',
+          approvalId: 'approval_cancel_1',
+          toolName: 'Bash',
+          summary: 'npm test',
+          input: {'command': 'npm test'},
+          approvalOptions: approvalOptions,
+        ),
+      ),
+    ];
+
+    Future<void> pumpUntilApprovalPrompt() async {
+      for (var attempt = 0;
+          attempt < 20 &&
+              find
+                  .byKey(const ValueKey('workbench-approval-composer'))
+                  .evaluate()
+                  .isEmpty;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilApprovalResponse() async {
+      for (var attempt = 0;
+          attempt < 20 && repository.approvalResponseDecision == null;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(_pagedWorkbenchHarness(
+      conversationRepository: repository,
+      conversations: conversations,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Coding'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Current Project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approval cancel task'));
+    await pumpUntilApprovalPrompt();
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-cancel-button')));
+    await pumpUntilApprovalResponse();
+
+    expect(repository.approvalConversationId, 'conv_approval_cancel');
+    expect(repository.approvalId, 'approval_cancel_1');
+    expect(repository.approvalDecision, 'deny');
+    expect(repository.approvalResponseDecision, ApprovalDecision.cancel);
   });
 
   testWidgets('approval composer uses compact Codex-style approval panel',

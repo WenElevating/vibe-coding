@@ -158,6 +158,51 @@ void main() {
     });
   });
 
+  test('respondConversationApproval preserves cancel decisions', () async {
+    late Map<String, Object?> body;
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(
+          request.url.toString(),
+          'http://127.0.0.1:4317/api/conversations/conv_1/'
+          'approvals/approval_cancel/respond',
+        );
+        body = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'conversation': <String, Object?>{
+              'id': 'conv_1',
+              'workspaceId': 'workspace_1',
+              'adapter': 'claude',
+              'status': 'cancelled',
+              'createdAt': '2026-06-03T00:00:00.000Z',
+              'updatedAt': '2026-06-03T00:00:01.000Z',
+              'capabilities': <String, Object?>{},
+            },
+          }),
+          200,
+        );
+      }),
+    );
+    final repository = DaemonConversationRepository(
+      client: client,
+      notificationService: _FakeNotificationService(),
+    );
+    addTearDown(client.close);
+
+    await repository.respondConversationApproval(
+      'conv_1',
+      'approval_cancel',
+      ApprovalResponse.cancel(),
+    );
+
+    expect(body, const <String, Object?>{
+      'decision': 'cancel',
+    });
+  });
+
   test('conversation mutation errors map daemon details to repository errors',
       () async {
     final client = DaemonClient(

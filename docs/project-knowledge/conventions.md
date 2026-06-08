@@ -1,7 +1,7 @@
 # Conventions
 
 - Status: active seed
-- Last verified: 2026-06-08
+- Last verified: 2026-06-09
 
 ## Editing
 
@@ -65,6 +65,10 @@
   notice-card localization. Provider telemetry notices should stay
   `visible: false` instead of surfacing raw event names such as
   `OpenCode event: session.diff`.
+- Conversation approval responses must preserve structured
+  `ApprovalResponse.toJson()` semantics through the conversation repository.
+  `legacyDecision` is only for V1 run approvals and local legacy projection;
+  using it for conversation sends collapses `cancel` into `deny`.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test
