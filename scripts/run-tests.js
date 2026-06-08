@@ -329,7 +329,11 @@ test('OpenCode smoke helper runs fake route gates without prompt dispatch by def
     assert.equal(result.gates.sessionReadReconcile, 'pass');
     assert.equal(result.gates.globalEventSse, 'pass');
     assert.equal(result.gates.abort, 'pass');
+    assert.equal(result.gates.permissionResponseBody, 'pass');
     assert.equal(result.gates.promptAsyncBody, 'not_run');
+    assert.deepEqual(fake.permissionReplies.map((reply) => reply.body), [
+      { response: 'reject' }
+    ]);
     assert.deepEqual(fake.promptBodies, []);
   } finally {
     await fake.close();

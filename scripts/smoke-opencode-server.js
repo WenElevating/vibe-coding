@@ -151,6 +151,8 @@ async function runOpenCodeServerSmoke({
     });
   }
 
+  await runPermissionResponseBodyGate(normalizedServerUrl, sessionId, gates, evidence, { timeoutMs });
+
   await runGate('abort', gates, evidence, async () => {
     if (!sessionId) throw new Error('session create did not return a session id');
     const response = await requestJson(
@@ -163,7 +165,6 @@ async function runOpenCodeServerSmoke({
     assertOkResponse(response, 'abort');
   });
 
-  gates.permissionResponseBody = 'not_run';
   gates.sessionStatusTerminalValues = 'not_run';
   gates.historyReplay = 'blocked';
 
@@ -197,6 +198,44 @@ async function runGate(name, gates, evidence, action) {
     gates[name] = 'fail';
     evidence[name] = {
       ...(evidence[name] || {}),
+      error: error.message || String(error)
+    };
+  }
+}
+
+async function runPermissionResponseBodyGate(serverUrl, sessionId, gates, evidence, { timeoutMs }) {
+  const gateName = 'permissionResponseBody';
+  if (!sessionId) {
+    gates[gateName] = 'fail';
+    evidence[gateName] = { error: 'session create did not return a session id' };
+    return;
+  }
+  try {
+    const response = await requestJson(
+      serverUrl,
+      'POST',
+      `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent('opencode_smoke_permission')}`,
+      { timeoutMs, body: { response: 'reject' } }
+    );
+    evidence[gateName] = {
+      statusCode: response.statusCode,
+      bodyKeys: Object.keys(response.body || {})
+    };
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      gates[gateName] = 'pass';
+      return;
+    }
+    if ([400, 404, 409, 422].includes(response.statusCode)) {
+      gates[gateName] = 'blocked';
+      evidence[gateName].blockedReason = 'synthetic_permission_not_pending';
+      return;
+    }
+    gates[gateName] = 'fail';
+    evidence[gateName].error = `permission response returned HTTP ${response.statusCode}`;
+  } catch (error) {
+    gates[gateName] = 'fail';
+    evidence[gateName] = {
+      ...(evidence[gateName] || {}),
       error: error.message || String(error)
     };
   }
