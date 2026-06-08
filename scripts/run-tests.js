@@ -2345,6 +2345,44 @@ test('OpenCode server client parses chunked SSE frames and closes the subscripti
   }
 });
 
+test('OpenCode server client rejects oversized complete SSE frames', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  const events = [];
+  const errors = [];
+  let handle = null;
+  try {
+    const client = new OpenCodeServerClient({ serverUrl: fake.url, timeoutMs: 1000 });
+    handle = client.subscribeEvents(
+      (event) => events.push(event),
+      (error) => errors.push(error)
+    );
+    await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode oversized SSE connection');
+    assert.deepEqual(await handle.opened, { ok: true });
+    const [sseResponse] = fake.sseClients;
+    const oversizedText = 'x'.repeat(300 * 1024);
+
+    sseResponse.write(`data: {"type":"message.part.delta","sessionID":"sess_1","text":"${oversizedText}"}\n\n`);
+
+    await waitForConditionForTest(
+      () => errors.length === 1,
+      'OpenCode oversized SSE frame error'
+    );
+    assert.deepEqual(events, []);
+    assert.equal(errors[0].code, 'OPENCODE_SERVER_SSE_EVENT_TOO_LARGE');
+    assert.equal(errors[0].details.reason, 'event_too_large');
+    assert.equal(errors[0].details.maxChars, 256 * 1024);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'data'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(errors[0].details, 'body'), false);
+    await waitForConditionForTest(() => fake.sseClients.size === 0, 'OpenCode oversized SSE close');
+  } finally {
+    handle?.close();
+    await fake.close();
+  }
+});
+
 test('OpenCode server client reports SSE connection timeout once', async () => {
   const { OpenCodeServerClient } = require('../daemon/src/opencode-server-client');
   const fixture = await listenHttpServerForTest(() => {});

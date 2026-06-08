@@ -131,3 +131,20 @@
   conversation event details. Do not add raw provider exception messages/details
   to public status, timeline, or diagnostic-export surfaces.
 - Last verified: 2026-06-09
+
+## Risk: OpenCode SSE Frames Are Provider-Controlled Payloads
+
+- Level: medium
+- Impact: `/global/event` frames arrive from the provider and can be complete
+  but oversized, or oversized across multiple network chunks. Silently trimming
+  an incomplete frame can drop provider events without error, while parsing an
+  oversized complete frame can push unbounded payloads into mapper and
+  conversation storage paths.
+- Evidence: `daemon/src/opencode-server-client.js` enforces
+  `MAX_SSE_EVENT_TEXT_LENGTH` before JSON parsing complete or still-pending SSE
+  frames; `scripts/run-tests.js` covers oversized complete frame rejection,
+  structured error details, and stream closure.
+- Mitigation: keep SSE frame overflow fail-closed with
+  `OPENCODE_SERVER_SSE_EVENT_TOO_LARGE`; do not restore silent buffer
+  truncation for provider event frames.
+- Last verified: 2026-06-09

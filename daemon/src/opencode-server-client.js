@@ -7,6 +7,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:4096';
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_BODY_TEXT_LENGTH = 2048;
 const MAX_JSON_RESPONSE_TEXT_LENGTH = 256 * 1024;
+const MAX_SSE_EVENT_TEXT_LENGTH = 256 * 1024;
 const MAX_DETAIL_STRING_LENGTH = 512;
 const MAX_PROVIDER_CODE_LENGTH = 128;
 const MAX_DETAIL_KEYS = 20;
@@ -328,34 +329,48 @@ function createSseParser(onEvent, onError) {
       while (frameEnd !== -1) {
         const frame = buffer.slice(0, frameEnd);
         buffer = buffer.slice(frameEnd + 2);
-        dispatchSseFrame(frame, onEvent, onError);
+        if (dispatchSseFrame(frame, onEvent, onError) === false) {
+          buffer = '';
+          return;
+        }
         frameEnd = buffer.indexOf('\n\n');
       }
-      if (buffer.length > MAX_BODY_TEXT_LENGTH * 4) {
-        buffer = buffer.slice(-MAX_BODY_TEXT_LENGTH);
+      if (buffer.length > MAX_SSE_EVENT_TEXT_LENGTH) {
+        const chars = buffer.length;
+        buffer = '';
+        onError(buildSseEventTooLargeError(chars));
+        return;
       }
     }
   };
 }
 
 function dispatchSseFrame(frame, onEvent, onError) {
-  if (!frame.trim()) return;
+  if (!frame.trim()) return true;
   const dataLines = [];
+  let dataLength = 0;
   for (const line of frame.split('\n')) {
     if (!line || line.startsWith(':')) continue;
     if (!line.startsWith('data:')) continue;
     const value = line.slice(5);
-    dataLines.push(value.startsWith(' ') ? value.slice(1) : value);
+    const normalizedValue = value.startsWith(' ') ? value.slice(1) : value;
+    dataLength += normalizedValue.length + (dataLines.length > 0 ? 1 : 0);
+    if (dataLength > MAX_SSE_EVENT_TEXT_LENGTH) {
+      onError(buildSseEventTooLargeError(dataLength));
+      return false;
+    }
+    dataLines.push(normalizedValue);
   }
-  if (dataLines.length === 0) return;
+  if (dataLines.length === 0) return true;
   const data = dataLines.join('\n');
-  if (!data.trim()) return;
+  if (!data.trim()) return true;
   const parsed = parseJson(data);
   if (!parsed.ok) {
     onError(buildSseBadJsonError(data, parsed.error));
-    return;
+    return false;
   }
   onEvent(parsed.value);
+  return true;
 }
 
 function collectBoundedResponseText(res, { timeoutMs, maxBytes }) {
@@ -432,6 +447,19 @@ function buildSseBadJsonError(_data, _parseError) {
       method: 'GET',
       path: '/global/event',
       reason: 'invalid_json'
+    }
+  });
+}
+
+function buildSseEventTooLargeError(chars) {
+  return openCodeError('OpenCode server SSE event exceeded the size limit', {
+    code: 'OPENCODE_SERVER_SSE_EVENT_TOO_LARGE',
+    details: {
+      method: 'GET',
+      path: '/global/event',
+      reason: 'event_too_large',
+      chars,
+      maxChars: MAX_SSE_EVENT_TEXT_LENGTH
     }
   });
 }
