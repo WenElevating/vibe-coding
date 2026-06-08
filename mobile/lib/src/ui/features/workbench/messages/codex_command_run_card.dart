@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../workbench_messages.dart';
@@ -25,7 +26,7 @@ class SingleCommandRunCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _CommandRunFrame(
-        summary: _singleSummary(message),
+        summary: _singleSummary(AppLocalizations.of(context), message),
         running: !message.completed && !message.isError,
         error: message.isError,
         icon: Icons.terminal_rounded,
@@ -49,7 +50,7 @@ class CommandRunGroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _CommandRunFrame(
-        summary: _groupSummary(messages),
+        summary: _groupSummary(AppLocalizations.of(context), messages),
         running:
             messages.any((message) => !message.completed && !message.isError),
         error: messages.any((message) => message.isError),
@@ -169,7 +170,7 @@ class _CommandShellBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final output = commandOutputText(message);
-    final status = _exitStatusText(message);
+    final status = _exitStatusText(AppLocalizations.of(context), message);
     return Container(
         key: const ValueKey('workbench-command-shell-block'),
         width: double.infinity,
@@ -263,19 +264,22 @@ List<Widget> _withSpacing(List<Widget> children) {
   return spaced;
 }
 
-String _singleSummary(WorkbenchMessage message) {
+String _singleSummary(AppLocalizations l10n, WorkbenchMessage message) {
   final command = commandDisplayTitle(message);
-  if (!message.completed && !message.isError) return '正在运行 $command';
-  if (message.isError) return '已失败 $command';
-  return '已运行 $command';
+  if (!message.completed && !message.isError) {
+    return l10n.workbenchCommandSummaryRunning(command);
+  }
+  if (message.isError) return l10n.workbenchCommandSummaryFailed(command);
+  return l10n.workbenchCommandSummaryCompleted(command);
 }
 
-String _groupSummary(List<WorkbenchMessage> messages) {
-  final suffix = _usedCodeGraph(messages) ? ' 已使用 CodeGraph' : '';
+String _groupSummary(AppLocalizations l10n, List<WorkbenchMessage> messages) {
+  final suffix =
+      _usedCodeGraph(messages) ? l10n.workbenchCommandCodeGraphSuffix : '';
   if (messages.any((message) => !message.completed && !message.isError)) {
-    return '正在运行 ${messages.length} 条命令$suffix';
+    return '${l10n.workbenchCommandGroupRunning(messages.length)}$suffix';
   }
-  return '已运行 ${messages.length} 条命令$suffix';
+  return '${l10n.workbenchCommandGroupCompleted(messages.length)}$suffix';
 }
 
 bool _usedCodeGraph(List<WorkbenchMessage> messages) => messages.any((message) {
@@ -285,11 +289,11 @@ bool _usedCodeGraph(List<WorkbenchMessage> messages) => messages.any((message) {
           (toolName is String && toolName.toLowerCase().contains('codegraph'));
     });
 
-String _exitStatusText(WorkbenchMessage message) {
+String _exitStatusText(AppLocalizations l10n, WorkbenchMessage message) {
   final exitCode = commandExitCode(message);
-  if (exitCode != null) return '退出码 $exitCode';
-  if (message.isError) return '错误';
-  return commandStatusLabel(message);
+  if (exitCode != null) return l10n.workbenchCommandExitCode(exitCode);
+  if (message.isError) return l10n.workbenchCommandStatusError;
+  return commandStatusLabel(l10n, message);
 }
 
 @visibleForTesting

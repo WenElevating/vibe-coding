@@ -156,4 +156,5 @@ bool _isProviderAuthNotice(WorkbenchMessage message) {
 }
 
 bool _isRunFailedNotice(WorkbenchMessage message) =>
+    _noticeKind(message) == 'run_failed' ||
     message.body.toLowerCase().startsWith('run error:');

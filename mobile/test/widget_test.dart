@@ -7736,14 +7736,92 @@ diff --git a/lib/main.dart b/lib/main.dart
 
     expect(find.text('OpenCode 会话已重置'), findsOneWidget);
     expect(find.text('会话'), findsOneWidget);
-    expect(find.text('之前的 OpenCode 会话已不可用。发送新消息即可创建新的会话。'),
-        findsOneWidget);
+    expect(find.text('之前的 OpenCode 会话已不可用。发送新消息即可创建新的会话。'), findsOneWidget);
     expect(find.text('System notice'), findsNothing);
     expect(find.text('系统提示'), findsNothing);
     expect(
         find.text(
             'The previous OpenCode session is no longer available. Start a new message to create a fresh session.'),
         findsNothing);
+  });
+
+  testWidgets('run error notice uses localized title without prefixing body',
+      (WidgetTester tester) async {
+    final message = workbenchMessageFromConversation(const ConversationMessage(
+      role: 'notice',
+      text: 'Provider session is no longer available.',
+      noticeKind: 'run_failed',
+      isError: true,
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopApproval,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('运行失败'), findsOneWidget);
+    expect(find.text('失败'), findsOneWidget);
+    expect(
+        find.text('Provider session is no longer available.'), findsOneWidget);
+    expect(find.textContaining('Run error:'), findsNothing);
+  });
+
+  testWidgets('run error card uses active locale for trace actions',
+      (WidgetTester tester) async {
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (MethodCall methodCall) async {
+      if (methodCall.method == 'Clipboard.setData') {
+        final data = methodCall.arguments as Map<Object?, Object?>;
+        clipboardText = data['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: const Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: EdgeInsets.all(16),
+                child: WorkbenchRunErrorCard(
+                    error: 'Provider session is no longer available.',
+                    traceId: 'trace_1')))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('运行错误：Provider session is no longer available.'),
+        findsOneWidget);
+    expect(find.text('追踪 ID：trace_1'), findsOneWidget);
+    expect(find.text('复制追踪 ID'), findsOneWidget);
+    expect(find.textContaining('Run error:'), findsNothing);
+
+    await tester.tap(find.text('复制追踪 ID'));
+    await tester.pumpAndSettle();
+
+    expect(clipboardText, 'trace_1');
+    expect(find.text('追踪 ID 已复制'), findsOneWidget);
   });
 
   testWidgets('thinking card title uses active locale',
@@ -8649,14 +8727,14 @@ diff --git a/lib/main.dart b/lib/main.dart
     await tester.pumpWidget(buildTaskProgressCardPreview());
     await tester.pumpAndSettle();
 
-    expect(find.text('Tasks'), findsOneWidget);
-    expect(find.text('1/3 done'), findsOneWidget);
+    expect(find.text('任务'), findsOneWidget);
+    expect(find.text('1/3 已完成'), findsOneWidget);
     expect(find.text('分析工作区结构'), findsOneWidget);
     expect(find.text('实现进度卡片'), findsOneWidget);
     expect(find.text('运行回归测试'), findsOneWidget);
-    expect(find.text('done'), findsWidgets);
-    expect(find.text('active'), findsWidgets);
-    expect(find.text('queued'), findsWidgets);
+    expect(find.text('完成'), findsWidgets);
+    expect(find.text('进行中'), findsWidgets);
+    expect(find.text('排队'), findsWidgets);
   });
 
   test('empty completed conversation shows diagnostic warning', () {

@@ -470,6 +470,83 @@
   "workbenchPreviewStartedSession": "已启动 claude 会话",
   "workbenchApprovalCardTitle": "需要审批",
   "workbenchRunErrorPrefix": "运行错误：",
+  "workbenchRunErrorTraceId": "追踪 ID：{traceId}",
+  "@workbenchRunErrorTraceId": {
+    "placeholders": {
+      "traceId": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchRunErrorCopyTraceId": "复制追踪 ID",
+  "workbenchRunErrorTraceIdCopied": "追踪 ID 已复制",
+  "workbenchCommandSummaryRunning": "正在运行 {command}",
+  "@workbenchCommandSummaryRunning": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandSummaryFailed": "已失败 {command}",
+  "@workbenchCommandSummaryFailed": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandSummaryCompleted": "已运行 {command}",
+  "@workbenchCommandSummaryCompleted": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandGroupRunning": "正在运行 {count} 条命令",
+  "@workbenchCommandGroupRunning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandGroupCompleted": "已运行 {count} 条命令",
+  "@workbenchCommandGroupCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandCodeGraphSuffix": " · 已使用 CodeGraph",
+  "workbenchCommandExitCode": "退出码 {code}",
+  "@workbenchCommandExitCode": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandStatusError": "错误",
+  "workbenchCommandStatusRunning": "运行中",
+  "workbenchTaskProgressTitle": "任务",
+  "workbenchTaskProgressComplete": "已完成",
+  "workbenchTaskProgressDoneCount": "{completed}/{total} 已完成",
+  "@workbenchTaskProgressDoneCount": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchTaskProgressStatusDone": "完成",
+  "workbenchTaskProgressStatusActive": "进行中",
+  "workbenchTaskProgressStatusQueued": "排队",
   "workbenchPendingInterrupted": "会话已中断，发送新消息可恢复上下文",
   "workbenchPendingWaitingInput": "正在等待你的回复...",
   "workbenchPendingWaitingApproval": "正在等待权限确认...",

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../workbench_messages.dart';
@@ -11,6 +12,7 @@ class TaskProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final completed = message.completedCount ??
         message.taskItems.where((item) => item.status == 'completed').length;
     final total = message.totalCount ?? message.taskItems.length;
@@ -25,14 +27,14 @@ class TaskProgressCard extends StatelessWidget {
           Row(children: [
             const Icon(Icons.checklist_rounded, color: theme.muted, size: 15),
             const SizedBox(width: 7),
-            const Expanded(
-                child: Text('Tasks',
-                    style: TextStyle(
+            Expanded(
+                child: Text(l10n.workbenchTaskProgressTitle,
+                    style: const TextStyle(
                         color: theme.muted,
                         fontSize: 12.5,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0))),
-            TaskProgressBadge(completed: completed, total: total),
+            TaskProgressBadge(completed: completed, total: total, l10n: l10n),
           ]),
           const SizedBox(height: 9),
           ClipRRect(
@@ -48,6 +50,7 @@ class TaskProgressCard extends StatelessWidget {
             final item = message.taskItems[index];
             return TaskProgressRow(
                 item: item,
+                l10n: l10n,
                 index: index + 1,
                 last: index == message.taskItems.length - 1);
           }),
@@ -57,15 +60,22 @@ class TaskProgressCard extends StatelessWidget {
 
 class TaskProgressBadge extends StatelessWidget {
   const TaskProgressBadge(
-      {super.key, required this.completed, required this.total});
+      {super.key,
+      required this.completed,
+      required this.total,
+      required this.l10n});
 
   final int completed;
   final int total;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
     final done = total > 0 && completed >= total;
-    return Text(done ? 'complete' : '$completed/$total done',
+    return Text(
+        done
+            ? l10n.workbenchTaskProgressComplete
+            : l10n.workbenchTaskProgressDoneCount(completed, total),
         style: TextStyle(
             color: done ? theme.green : theme.faint,
             fontSize: 11,
@@ -78,17 +88,19 @@ class TaskProgressRow extends StatelessWidget {
   const TaskProgressRow({
     super.key,
     required this.item,
+    required this.l10n,
     required this.index,
     required this.last,
   });
 
   final TaskProgressItem item;
+  final AppLocalizations l10n;
   final int index;
   final bool last;
 
   @override
   Widget build(BuildContext context) {
-    final status = taskProgressStatus(item.status);
+    final status = taskProgressStatus(l10n, item.status);
     return Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
@@ -168,27 +180,28 @@ class TaskProgressStatePill extends StatelessWidget {
 }
 
 ({Color color, IconData icon, String label}) taskProgressStatus(
-        String status) =>
+        AppLocalizations l10n, String status) =>
     switch (status) {
       'completed' => (
           color: theme.green,
           icon: Icons.check_rounded,
-          label: 'done'
+          label: l10n.workbenchTaskProgressStatusDone
         ),
       'in_progress' => (
           color: theme.amber,
           icon: Icons.more_horiz_rounded,
-          label: 'active'
+          label: l10n.workbenchTaskProgressStatusActive
         ),
       'pending' => (
           color: theme.faint,
           icon: Icons.circle_outlined,
-          label: 'queued'
+          label: l10n.workbenchTaskProgressStatusQueued
         ),
       _ => (
           color: theme.muted,
           icon: Icons.circle_outlined,
-          label: status.isEmpty ? 'queued' : status
+          label:
+              status.isEmpty ? l10n.workbenchTaskProgressStatusQueued : status
         ),
     };
 

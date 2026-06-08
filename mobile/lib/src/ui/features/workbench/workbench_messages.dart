@@ -314,6 +314,7 @@ Duration? _conversationCommandDuration(ConversationMessage message) {
 
 String _noticeTitleFallback(ConversationMessage message) {
   if (!message.isError) return 'System notice';
+  if (message.noticeKind == 'run_failed') return 'Run failed';
   final text = message.text.toLowerCase();
   if (text.contains('claude') &&
       (text.contains('auth') || text.contains('401'))) {

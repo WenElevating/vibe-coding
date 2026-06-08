@@ -470,6 +470,83 @@
   "workbenchPreviewStartedSession": "Started claude session",
   "workbenchApprovalCardTitle": "Needs approval",
   "workbenchRunErrorPrefix": "Run error:",
+  "workbenchRunErrorTraceId": "Trace ID: {traceId}",
+  "@workbenchRunErrorTraceId": {
+    "placeholders": {
+      "traceId": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchRunErrorCopyTraceId": "Copy Trace ID",
+  "workbenchRunErrorTraceIdCopied": "Trace ID copied",
+  "workbenchCommandSummaryRunning": "Running {command}",
+  "@workbenchCommandSummaryRunning": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandSummaryFailed": "Failed {command}",
+  "@workbenchCommandSummaryFailed": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandSummaryCompleted": "Ran {command}",
+  "@workbenchCommandSummaryCompleted": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchCommandGroupRunning": "Running {count} commands",
+  "@workbenchCommandGroupRunning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandGroupCompleted": "Ran {count} commands",
+  "@workbenchCommandGroupCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandCodeGraphSuffix": " · used CodeGraph",
+  "workbenchCommandExitCode": "Exit code {code}",
+  "@workbenchCommandExitCode": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchCommandStatusError": "Error",
+  "workbenchCommandStatusRunning": "Running",
+  "workbenchTaskProgressTitle": "Tasks",
+  "workbenchTaskProgressComplete": "complete",
+  "workbenchTaskProgressDoneCount": "{completed}/{total} done",
+  "@workbenchTaskProgressDoneCount": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchTaskProgressStatusDone": "done",
+  "workbenchTaskProgressStatusActive": "active",
+  "workbenchTaskProgressStatusQueued": "queued",
   "workbenchPendingInterrupted": "Session interrupted. Send a new message to resume context",
   "workbenchPendingWaitingInput": "Waiting for your answer...",
   "workbenchPendingWaitingApproval": "Waiting for permission confirmation...",

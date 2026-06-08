@@ -421,6 +421,7 @@ class ConversationViewState {
               role: 'notice',
               text: errorText,
               eventSeq: event.seq,
+              noticeKind: 'run_failed',
               isError: true,
             ));
           }
@@ -876,7 +877,7 @@ String? _runErrorText(ConversationEvent event) {
       event.text ?? event.summary ?? (message is String ? message : null);
   final value = text?.trim();
   if (value == null || value.isEmpty) return null;
-  return 'Run error: $value';
+  return value;
 }
 
 String _toolCommandText(ConversationEvent event) {

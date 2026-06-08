@@ -244,6 +244,8 @@ void main() {
       const <String>['user', 'notice'],
     );
     expect(state.messages.last.text, contains('trusted directory'));
+    expect(state.messages.last.text, isNot(startsWith('Run error:')));
+    expect(state.messages.last.noticeKind, 'run_failed');
     expect(state.messages.last.isError, isTrue);
   });
 

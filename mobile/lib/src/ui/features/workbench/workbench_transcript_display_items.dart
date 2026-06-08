@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../l10n/app_localizations.dart';
 import 'workbench_messages.dart';
 
 sealed class WorkbenchTranscriptDisplayItem {
@@ -96,10 +97,12 @@ int? commandExitCode(WorkbenchMessage message) {
   return null;
 }
 
-String commandStatusLabel(WorkbenchMessage message) {
-  if (message.isError) return '错误';
-  if (message.completed) return '退出码 ${commandExitCode(message) ?? 0}';
-  return '运行中';
+String commandStatusLabel(AppLocalizations l10n, WorkbenchMessage message) {
+  if (message.isError) return l10n.workbenchCommandStatusError;
+  if (message.completed) {
+    return l10n.workbenchCommandExitCode(commandExitCode(message) ?? 0);
+  }
+  return l10n.workbenchCommandStatusRunning;
 }
 
 @visibleForTesting
