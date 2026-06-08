@@ -586,6 +586,7 @@
   "workbenchNoticeOpenCodeFileEditedTitle": "OpenCode 已编辑文件",
   "workbenchNoticeOpenCodeFileEditedMeta": "文件",
   "workbenchNoticeOpenCodeFileEditedBody": "OpenCode 已编辑 {path}",
+  "workbenchNoticeOpenCodeFileEditedBodyFallback": "OpenCode 已编辑一个文件。",
   "workbenchNoticeProviderAuthTitle": "服务商认证异常",
   "workbenchNoticeProviderAuthMeta": "认证",
   "workbenchNoticeRunFailedTitle": "运行失败",

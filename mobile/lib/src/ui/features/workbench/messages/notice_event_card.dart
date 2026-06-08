@@ -114,7 +114,7 @@ _NoticeCopy _noticeCopy(
       title: l10n.workbenchNoticeOpenCodeFileEditedTitle,
       meta: l10n.workbenchNoticeOpenCodeFileEditedMeta,
       body: path == null
-          ? message.body
+          ? l10n.workbenchNoticeOpenCodeFileEditedBodyFallback
           : l10n.workbenchNoticeOpenCodeFileEditedBody(path),
     );
   }

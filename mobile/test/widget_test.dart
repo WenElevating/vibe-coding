@@ -7928,6 +7928,47 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.text('OpenCode edited lib/src/main.dart'), findsNothing);
   });
 
+  testWidgets(
+      'OpenCode file edited notice without path uses localized fallback',
+      (WidgetTester tester) async {
+    final state = const ConversationViewState().apply([
+      ConversationEvent(
+        type: 'system.notice',
+        seq: 10,
+        conversationId: 'conv_opencode_file_notice_missing_path',
+        createdAt: DateTime(2026, 6, 9),
+        text: 'OpenCode edited an unknown provider file',
+        raw: const <String, Object?>{
+          'noticeKind': 'opencode_file_edited',
+        },
+      ),
+    ]);
+    final message = workbenchMessageFromConversation(state.messages.single);
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: WorkbenchMessageCard(
+                    message: message,
+                    onApproval: _noopApproval,
+                    onSuggestion: _noopString,
+                    expandThinking: false)))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('OpenCode 已编辑文件'), findsOneWidget);
+    expect(find.text('文件'), findsOneWidget);
+    expect(find.text('OpenCode 已编辑一个文件。'), findsOneWidget);
+    expect(find.text('OpenCode edited an unknown provider file'), findsNothing);
+  });
+
   testWidgets('run error notice uses localized title without prefixing body',
       (WidgetTester tester) async {
     final message = workbenchMessageFromConversation(const ConversationMessage(

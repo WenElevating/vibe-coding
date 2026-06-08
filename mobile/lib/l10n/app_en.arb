@@ -586,6 +586,7 @@
   "workbenchNoticeOpenCodeFileEditedTitle": "OpenCode edited a file",
   "workbenchNoticeOpenCodeFileEditedMeta": "file",
   "workbenchNoticeOpenCodeFileEditedBody": "OpenCode edited {path}",
+  "workbenchNoticeOpenCodeFileEditedBodyFallback": "OpenCode edited a file.",
   "workbenchNoticeProviderAuthTitle": "Provider auth issue",
   "workbenchNoticeProviderAuthMeta": "auth",
   "workbenchNoticeRunFailedTitle": "Run failed",
