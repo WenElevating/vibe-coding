@@ -69,3 +69,19 @@
   route.
 - Related: `docs/superpowers/specs/2026-06-03-codex-app-server-adapter-design.md`
 - Last verified: 2026-06-03
+
+## Risk: OpenCode Prompt Dispatch Can Race Provider Events
+
+- Level: medium
+- Impact: `opencode serve` emits turn events on the shared `/global/event`
+  stream. If the daemon sends `prompt_async` before the SSE subscription is
+  actually open, early `session.idle`, `permission.asked`, or error events can
+  be missed and leave a conversation running or waiting incorrectly.
+- Evidence: `daemon/src/opencode-server-client.js` exposes
+  `subscription.opened`; `daemon/src/opencode-conversation-adapter.js` and
+  `daemon/src/opencode-adapter.js` wait for that signal before prompt dispatch.
+  `scripts/run-tests.js` includes deterministic regression tests for both the
+  conversation adapter and legacy run path.
+- Mitigation: preserve the SSE-open-before-prompt invariant when changing
+  OpenCode client, adapter, lifecycle, or fake-server code.
+- Last verified: 2026-06-09

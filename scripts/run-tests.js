@@ -757,6 +757,33 @@ test('OpenCode critical missing session warnings redact retained raw paths', () 
   assert.equal(retained.includes('opencode-secret'), false);
 });
 
+test('OpenCode event mapper warns on permission events without permission id', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-workspace');
+  const outsidePath = path.join(os.tmpdir(), 'opencode-secret', 'missing-permission-id.txt');
+  const asked = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_1',
+    command: `cat ${outsidePath}`
+  }, { workspacePath });
+  const replied = mapOpenCodeEvent({
+    type: 'permission.replied',
+    sessionID: 'sess_1',
+    status: 'accepted',
+    input: { path: outsidePath }
+  }, { workspacePath });
+  const retained = JSON.stringify([asked, replied]);
+
+  assert.equal(asked.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(asked.warning, 'opencode_permission_event_missing_permission_id');
+  assert.equal(asked.sessionId, 'sess_1');
+  assert.equal(replied.type, conversationEventTypes.PROTOCOL_WARNING);
+  assert.equal(replied.warning, 'opencode_permission_event_missing_permission_id');
+  assert.equal(replied.sessionId, 'sess_1');
+  assert.equal(retained.includes(outsidePath), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
 test('OpenCode event mapper ignores inherited event fields', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const raw = Object.create({ type: 'session.idle', sessionID: 'sess_inherited' });
@@ -2088,14 +2115,12 @@ test('OpenCode server client calls fake server JSON endpoints', async () => {
     await client.replyPermission({ sessionId: session.id, permissionId: 'perm_session', decision: 'allow', scope: 'session' });
     await client.replyPermission({ sessionId: session.id, permissionId: 'perm_deny', decision: 'deny' });
     await client.replyPermission({ sessionId: session.id, permissionId: 'perm_cancel', decision: 'cancel' });
-    await client.replyPermission({ sessionId: session.id, permissionId: 'perm_unknown', decision: 'refuse' });
 
     assert.deepEqual(fake.permissionReplies.map((reply) => [reply.permissionId, reply.body]), [
       ['perm_once', { response: 'once' }],
       ['perm_session', { response: 'always' }],
       ['perm_deny', { response: 'reject' }],
-      ['perm_cancel', { response: 'reject' }],
-      ['perm_unknown', { response: 'reject' }]
+      ['perm_cancel', { response: 'reject' }]
     ]);
   } finally {
     await fake.close();
@@ -2178,6 +2203,7 @@ test('OpenCode server client parses chunked SSE frames and closes the subscripti
       (error) => errors.push(error)
     );
     await waitForConditionForTest(() => fake.sseClients.size === 1, 'OpenCode client SSE connection');
+    assert.deepEqual(await handle.opened, { ok: true });
     const [sseResponse] = fake.sseClients;
 
     sseResponse.write(': ignored comment\n\n');
@@ -2228,6 +2254,9 @@ test('OpenCode server client reports SSE connection timeout once', async () => {
 
     assert.equal(errors.length, 1);
     assert.equal(errors[0].code, 'OPENCODE_SERVER_TIMEOUT');
+    const opened = await handle.opened;
+    assert.equal(opened.ok, false);
+    assert.equal(opened.error.code, 'OPENCODE_SERVER_TIMEOUT');
   } finally {
     handle?.close();
     for (const socket of sockets) socket.destroy();
@@ -2357,6 +2386,16 @@ test('OpenCode server client rejects missing required inputs without sending req
         'replyPermission missing permissionId',
         () => client.replyPermission({ sessionId: 'sess_1', decision: 'allow' }),
         'permissionId'
+      ],
+      [
+        'replyPermission unsupported decision',
+        () => client.replyPermission({ sessionId: 'sess_1', permissionId: 'perm_1', decision: 'refuse' }),
+        'decision'
+      ],
+      [
+        'replyPermission unsupported allow scope',
+        () => client.replyPermission({ sessionId: 'sess_1', permissionId: 'perm_1', decision: 'allow', scope: 'always' }),
+        'scope'
       ]
     ];
 
@@ -2501,6 +2540,69 @@ test('OpenCode conversation adapter creates session and defers prompt until mess
   } finally {
     await handle?.dispose();
     await fake.close();
+  }
+});
+
+test('OpenCode conversation adapter waits for SSE open before prompt dispatch', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-wait-sse');
+  let resolveOpened = null;
+  const opened = new Promise((resolve) => {
+    resolveOpened = resolve;
+  });
+  const promptCalls = [];
+  const client = {
+    async createSession({ directory }) {
+      return { id: 'sess_wait_sse', directory };
+    },
+    subscribeEvents() {
+      return {
+        opened,
+        close() {}
+      };
+    },
+    async promptAsync(input) {
+      promptCalls.push(input);
+      return { ok: true };
+    }
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return { mode: 'external', serverUrl: 'http://127.0.0.1:1', client, owned: false };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_wait_sse',
+    workspacePath,
+    onEvent: () => {}
+  });
+  try {
+    const send = handle.sendUserMessage('wait for event stream');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(promptCalls, []);
+    await assert.rejects(
+      () => handle.sendUserMessage('second prompt while opening'),
+      (error) => {
+        assert.equal(error.status, 409);
+        assert.equal(error.code, 'OPENCODE_TURN_IN_PROGRESS');
+        return true;
+      }
+    );
+
+    resolveOpened({ ok: true });
+    await send;
+
+    assert.deepEqual(promptCalls, [{
+      sessionId: 'sess_wait_sse',
+      text: 'wait for event stream'
+    }]);
+  } finally {
+    await handle.dispose();
   }
 });
 
@@ -3112,6 +3214,41 @@ test('OpenCode conversation manager ends running state when approval response is
     const events = eventStore.list(created.id, 0);
     assert.equal(events.some((event) => event.type === conversationEventTypes.CONVERSATION_CANCELLED && event.reason === 'approval_cancelled'), true);
     assert.equal(events.at(-1).type, conversationEventTypes.CONVERSATION_CANCELLED);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode conversation manager does not block on permission event without id', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    const { manager, device, eventStore } = createConversationManagerForTest({
+      adapters: new Map([['opencode', adapter]])
+    });
+    const created = manager.createConversation({ workspaceId: 'default', adapter: 'opencode' }, device);
+    await manager.sendMessage(created.id, { text: 'permission event without id' }, device);
+    fake.emitEvent({
+      type: 'permission.asked',
+      sessionID: 'sess_1',
+      tool: 'bash',
+      command: 'npm test'
+    });
+
+    await waitForConditionForTest(
+      () => eventStore.list(created.id, 0).some((event) =>
+        event.type === conversationEventTypes.PROTOCOL_WARNING &&
+        event.warning === 'opencode_permission_event_missing_permission_id'),
+      'OpenCode missing permission id warning recorded'
+    );
+
+    const summary = manager.getConversation(created.id, device);
+    const events = eventStore.list(created.id, 0);
+    assert.equal(summary.status, 'running');
+    assert.equal(summary.blockingItem, null);
+    assert.equal(events.some((event) => event.type === conversationEventTypes.APPROVAL_REQUESTED), false);
   } finally {
     await fake.close();
   }
@@ -4319,6 +4456,58 @@ test('fake OpenCode server supports session, prompt, abort, permission, and SSE'
     await fake.close();
     assert.equal(fake.sseClients.size, 0);
   }
+});
+
+test('OpenCode legacy run waits for SSE open before prompt dispatch', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  let resolveOpened = null;
+  const opened = new Promise((resolve) => {
+    resolveOpened = resolve;
+  });
+  const promptCalls = [];
+  const client = {
+    async createSession() {
+      return { id: 'sess_legacy_wait' };
+    },
+    subscribeEvents() {
+      return {
+        opened,
+        close() {}
+      };
+    },
+    async promptAsync(input) {
+      promptCalls.push(input);
+      return { ok: true };
+    },
+    async abortSession() {}
+  };
+  const adapter = new OpenCodeAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return { mode: 'external', serverUrl: 'http://127.0.0.1:1', client, owned: false };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    }
+  });
+  const start = adapter.startRun({
+    prompt: 'legacy prompt waits',
+    workspacePath: path.join(os.tmpdir(), 'opencode-legacy-wait-sse'),
+    onEvent: () => {}
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(promptCalls, []);
+
+  resolveOpened({ ok: true });
+  const handle = await start;
+
+  assert.deepEqual(promptCalls, [{
+    sessionId: 'sess_legacy_wait',
+    text: 'legacy prompt waits'
+  }]);
+  await handle.kill();
 });
 
 test('OpenCode legacy run waits for session idle before completion', async () => {

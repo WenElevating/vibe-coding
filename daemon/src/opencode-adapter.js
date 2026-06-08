@@ -166,6 +166,7 @@ class OpenCodeAdapter {
     );
     onEvent({ type: eventTypes.RAW_OUTPUT, text: '', sessionId: activeSessionId, reason: 'opencode_session_active' });
     try {
+      await waitForSubscriptionOpen(subscription);
       await this.sendPrompt({ client: started.client, sessionId: activeSessionId, prompt });
     } catch (error) {
       closeSubscription();
@@ -413,6 +414,17 @@ function isTerminalRunEvent(event) {
   return event?.type === eventTypes.RUN_COMPLETED ||
     event?.type === eventTypes.RUN_FAILED ||
     event?.type === eventTypes.RUN_CANCELLED;
+}
+
+async function waitForSubscriptionOpen(subscription) {
+  if (!subscription || typeof subscription.opened?.then !== 'function') return;
+  const result = await subscription.opened;
+  if (result?.ok === true) return;
+  const cause = result?.error || null;
+  const error = new Error('OpenCode event stream interrupted before prompt dispatch.');
+  error.status = 503;
+  error.code = safeTokenString(cause?.code || cause?.name) || 'OPENCODE_EVENT_STREAM_INTERRUPTED';
+  throw error;
 }
 
 function safeString(value) {

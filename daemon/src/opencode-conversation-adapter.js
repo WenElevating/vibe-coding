@@ -222,9 +222,11 @@ class OpenCodeConversationHandle {
     this.onEvent = typeof onEvent === 'function' ? onEvent : () => {};
     this.mapper = mapper;
     this.subscription = null;
+    this.streamOpened = null;
     this.pendingApprovals = new Map();
     this.locallyResolvedApprovals = new Set();
     this.missingSessionWarnings = new Set();
+    this.promptDispatching = false;
     this.activeTurn = false;
     this.disposed = false;
     this.streamFailed = false;
@@ -237,6 +239,9 @@ class OpenCodeConversationHandle {
       (event) => this.handleRawEvent(event),
       (error) => this.handleStreamError(error)
     );
+    this.streamOpened = isPromiseLike(this.subscription?.opened)
+      ? this.subscription.opened
+      : Promise.resolve({ ok: true });
   }
 
   emitSessionNotice(noticeKind) {
@@ -256,7 +261,7 @@ class OpenCodeConversationHandle {
         code: 'OPENCODE_CONVERSATION_DISPOSED'
       });
     }
-    if (this.activeTurn) {
+    if (this.activeTurn || this.promptDispatching) {
       throw conversationError('OpenCode turn is already running.', {
         status: 409,
         code: 'OPENCODE_TURN_IN_PROGRESS'
@@ -265,9 +270,11 @@ class OpenCodeConversationHandle {
     if (this.streamDisconnected || !this.subscription) {
       throw streamInterruptedError();
     }
-    this.activeTurn = true;
-    this.streamFailed = false;
+    this.promptDispatching = true;
     try {
+      await this.waitForEventStreamOpen();
+      this.activeTurn = true;
+      this.streamFailed = false;
       await this.client.promptAsync({
         sessionId: this.sessionId,
         text: messageText(message)
@@ -275,6 +282,22 @@ class OpenCodeConversationHandle {
     } catch (error) {
       this.activeTurn = false;
       throw error;
+    } finally {
+      this.promptDispatching = false;
+    }
+  }
+
+  async waitForEventStreamOpen() {
+    if (!this.streamOpened) return;
+    const result = await this.streamOpened;
+    if (this.disposed) {
+      throw conversationError('OpenCode conversation handle is disposed.', {
+        status: 409,
+        code: 'OPENCODE_CONVERSATION_DISPOSED'
+      });
+    }
+    if (this.streamDisconnected || !this.subscription || result?.ok !== true) {
+      throw streamInterruptedError();
     }
   }
 
@@ -345,10 +368,12 @@ class OpenCodeConversationHandle {
       this.subscription.close();
     }
     this.subscription = null;
+    this.streamOpened = null;
   }
 
   terminalize() {
     this.disposed = true;
+    this.promptDispatching = false;
     this.activeTurn = false;
     this.closeSubscription();
   }
@@ -658,6 +683,10 @@ function messageText(message) {
     return String(message.text ?? message.prompt ?? '');
   }
   return '';
+}
+
+function isPromiseLike(value) {
+  return !!value && typeof value.then === 'function';
 }
 
 function isTerminalEvent(event) {

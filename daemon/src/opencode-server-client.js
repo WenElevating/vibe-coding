@@ -75,6 +75,7 @@ class OpenCodeServerClient {
     };
     stream.subscribers.add(subscriber);
     return {
+      opened: stream.opened,
       close() {
         if (subscriber.closed) return;
         subscriber.closed = true;
@@ -97,9 +98,20 @@ class OpenCodeServerClient {
     let response = null;
     let req = null;
     let connectionTimer = null;
+    let openedSettled = false;
+    let resolveOpened = null;
+    const opened = new Promise((resolve) => {
+      resolveOpened = resolve;
+    });
+    const settleOpened = (result) => {
+      if (openedSettled) return;
+      openedSettled = true;
+      resolveOpened(result);
+    };
     const stream = {
       subscribers: new Set(),
       closed: false,
+      opened,
       close: () => {
         closeStream();
       }
@@ -110,6 +122,7 @@ class OpenCodeServerClient {
       if (this.eventStream === stream) this.eventStream = null;
       if (connectionTimer) clearTimeout(connectionTimer);
       connectionTimer = null;
+      settleOpened(error ? { ok: false, error } : { ok: false, closed: true });
       const subscribers = Array.from(stream.subscribers);
       stream.subscribers.clear();
       for (const subscriber of subscribers) {
@@ -152,6 +165,7 @@ class OpenCodeServerClient {
         });
         return;
       }
+      settleOpened({ ok: true });
       res.setEncoding('utf8');
       const reportStreamClosed = (reason) => {
         reportError(buildSseClosedError(reason));
@@ -275,8 +289,22 @@ function buildPromptAsyncBody(text) {
 }
 
 function buildPermissionReplyBody({ decision, scope } = {}) {
-  if (decision === 'allow') {
-    return { response: scope === 'session' ? 'always' : 'once' };
+  const normalizedDecision = String(decision || '').trim();
+  if (!['allow', 'deny', 'cancel'].includes(normalizedDecision)) {
+    throw openCodeError('OpenCode server permission reply requires decision to be allow, deny, or cancel', {
+      code: 'OPENCODE_SERVER_INVALID_REQUEST',
+      details: { field: 'decision', reason: 'unsupported' }
+    });
+  }
+  if (normalizedDecision === 'allow') {
+    const normalizedScope = String(scope || 'once').trim() || 'once';
+    if (!['once', 'session'].includes(normalizedScope)) {
+      throw openCodeError('OpenCode server permission reply scope must be once or session', {
+        code: 'OPENCODE_SERVER_INVALID_REQUEST',
+        details: { field: 'scope', reason: 'unsupported' }
+      });
+    }
+    return { response: normalizedScope === 'session' ? 'always' : 'once' };
   }
   return { response: 'reject' };
 }

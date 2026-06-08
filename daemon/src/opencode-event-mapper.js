@@ -118,10 +118,12 @@ function mapOpenCodeEvent(raw, options = {}) {
     return mapPermissionAsked(raw, sessionId, rawType, normalizedOptions.workspacePath);
   }
   if (rawType === 'permission.replied') {
+    const approvalId = normalizeId(raw, ['permissionID', 'permissionId', 'permission_id', 'id']);
+    if (!approvalId) return missingPermissionIdWarning(raw, sessionId, rawType);
     return {
       type: conversationEventTypes.APPROVAL_RESOLVED,
       sessionId,
-      approvalId: normalizeId(raw, ['permissionID', 'permissionId', 'permission_id', 'id']),
+      approvalId,
       decision: firstBoundedProviderStringValue([
         ownValue(raw, 'decision'),
         ownValue(raw, 'reply'),
@@ -238,6 +240,7 @@ function mapPermissionAsked(raw, sessionId, rawType, workspacePath) {
     ownValue(raw, 'command'),
     inputObject ? ownValue(inputObject, 'command') : undefined
   ]));
+  if (!approvalId) return missingPermissionIdWarning(raw, sessionId, rawType);
   const rawFilePath = firstSafeStringValue([
     ownValue(raw, 'path'),
     ownValue(raw, 'filePath'),
@@ -436,6 +439,16 @@ function mapFileEdited(raw, sessionId, rawType, workspacePath) {
     visible: true,
     sessionId,
     path: filePath,
+    rawType,
+    raw: sanitizeRaw(raw, { redactPathFields: true, redactPathStrings: true })
+  };
+}
+
+function missingPermissionIdWarning(raw, sessionId, rawType) {
+  return {
+    type: conversationEventTypes.PROTOCOL_WARNING,
+    warning: 'opencode_permission_event_missing_permission_id',
+    sessionId,
     rawType,
     raw: sanitizeRaw(raw, { redactPathFields: true, redactPathStrings: true })
   };
