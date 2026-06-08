@@ -27,6 +27,7 @@ const { createCodexAdapter } = require('../daemon/src/jsonline-adapter');
 const { resolveCliInvocation } = require('../daemon/src/cli-resolver');
 const { AdapterRegistry } = require('../daemon/src/adapter-registry');
 const { createApp, shutdownAppResources } = require('../daemon/src/main');
+const { RunManager } = require('../daemon/src/run-manager');
 const { RunQueue } = require('../daemon/src/run-queue');
 const { AsrModelAsset } = require('../daemon/src/asr-model-asset');
 const { MODEL_CATALOG_MAX_BYTES, MODEL_SOURCES, discoverConfiguredModels, parseTomlScalarConfig } = require('../daemon/src/model-discovery');
@@ -8982,6 +8983,87 @@ test('createApp OpenCode listing diagnostics expose only allowlisted health and 
   }
 });
 
+test('diagnostic export uses sanitized OpenCode adapter diagnostics', async () => {
+  const appDbPath = tempConversationDbPath('opencode-export-diagnostics-app-');
+  const perfDbPath = tempConversationDbPath('opencode-export-diagnostics-perf-');
+  const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-export-diagnostics-'));
+  const secretPath = path.join(os.tmpdir(), 'opencode-export-secret', 'provider.txt');
+  const providerBody = `provider body ${secretPath} SECRET_PROVIDER_BODY`;
+  const lifecycle = {
+    async ensureStarted() {
+      return {
+        mode: 'managed',
+        serverUrl: 'http://127.0.0.1:65535?directory=SECRET_QUERY',
+        owned: true,
+        client: {
+          async health() {
+            return {
+              ok: true,
+              version: `fake-version ${secretPath}`,
+              body: providerBody,
+              nested: { path: secretPath }
+            };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      return {
+        status: 'started',
+        lastError: {
+          code: 'OPENCODE_SECRET_ERROR',
+          message: providerBody,
+          details: { path: secretPath, bodyText: providerBody }
+        },
+        serverUrl: `http://127.0.0.1:65535?directory=${encodeURIComponent(secretPath)}`
+      };
+    },
+    async shutdown() {}
+  };
+  const app = createApp({
+    port: 0,
+    mode: 'dev',
+    appDbPath,
+    perfDbPath,
+    codexAppServerEnabled: false,
+    opencodeServerLifecycle: lifecycle
+  });
+  app.diagnosticBundle.outputDir = exportDir;
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', {
+      code: pairing.body.code,
+      label: 'opencode-diagnostics-export-test'
+    });
+    const exported = await request(port, 'POST', '/api/diagnostics/export', {}, paired.body.token);
+    const bundle = JSON.parse(fs.readFileSync(exported.body.path, 'utf8'));
+    const opencode = bundle.daemon_status.adapters.find((adapter) => adapter.adapter === 'opencode');
+    const publicText = JSON.stringify(bundle.daemon_status.adapters);
+
+    assert.ok(opencode);
+    assert.deepEqual(opencode.diagnostics.lifecycle, {
+      status: 'started',
+      lastError: { code: 'OPENCODE_SECRET_ERROR' }
+    });
+    assert.deepEqual(opencode.diagnostics.health, {
+      ok: true,
+      version: 'fake-version'
+    });
+    assert.equal(publicText.includes(secretPath), false);
+    assert.equal(publicText.includes(encodeURIComponent(secretPath)), false);
+    assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+    assert.equal(publicText.includes('SECRET_QUERY'), false);
+    assert.equal(publicText.includes('directory='), false);
+  } finally {
+    await closeAppResources(app);
+    fs.rmSync(path.dirname(appDbPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(perfDbPath), { recursive: true, force: true });
+    fs.rmSync(exportDir, { recursive: true, force: true });
+  }
+});
+
 test('OpenCode conversation startup failure redacts external URL path and query', async () => {
   const closed = await listenHttpServerForTest((_req, res) => sendJsonForTest(res, 200, { ok: true }));
   const secretUrl = `${closed.url}/secret/path?token=TOP_SECRET`;
@@ -13647,6 +13729,118 @@ test('follow-up resumes only the captured Claude session', async () => {
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }
+});
+
+function createV1RunManagerForTest(adapter) {
+  const eventStore = new EventStore();
+  const workspaces = new WorkspaceRegistry();
+  const auditLog = new AuditLog();
+  const runQueue = new RunQueue();
+  const device = { id: `device_${nodeCrypto.randomUUID()}`, allowedWorkspaceIds: new Set() };
+  const workspace = workspaces.add({
+    id: `workspace_${nodeCrypto.randomUUID()}`,
+    workspacePath: process.cwd(),
+    name: 'V1 Run Manager'
+  });
+  workspaces.authorizeDeviceForWorkspace(device, workspace.id);
+  const manager = new RunManager({
+    workspaces,
+    eventStore,
+    adapterRegistry: new AdapterRegistry([{ name: 'claude', ...adapter }]),
+    auditLog,
+    runQueue
+  });
+  return { manager, eventStore, device, workspace, auditLog, runQueue };
+}
+
+test('V1 run approval response awaits provider failures and keeps approval retryable', async () => {
+  let failReply = true;
+  const decisions = [];
+  const { manager, eventStore, device, workspace } = createV1RunManagerForTest({
+    startRun({ onEvent }) {
+      onEvent({
+        type: eventTypes.APPROVAL_REQUIRED,
+        approvalId: 'approval_retry',
+        toolName: 'Shell',
+        input: { command: 'echo ok' },
+        respond: async (decision) => {
+          decisions.push(decision);
+          if (failReply) {
+            const error = new Error('provider approval failed');
+            error.status = 502;
+            error.code = 'PROVIDER_APPROVAL_FAILED';
+            throw error;
+          }
+        }
+      });
+      return { kill() {} };
+    }
+  });
+  const run = manager.createRun({ tool: 'claude', workspaceId: workspace.id, prompt: 'needs approval' }, device);
+  await waitForConditionForTest(
+    () => eventStore.list(run.id, 0).some((event) => event.type === eventTypes.APPROVAL_REQUIRED),
+    'V1 approval request recorded'
+  );
+
+  await assert.rejects(
+    () => manager.respondApproval('approval_retry', { decision: 'allow' }, device),
+    (error) => {
+      assert.equal(error.code, 'PROVIDER_APPROVAL_FAILED');
+      assert.equal(error.status, 502);
+      return true;
+    }
+  );
+  assert.deepEqual(decisions, ['allow']);
+  assert.equal(eventStore.list(run.id, 0).some((event) => event.type === eventTypes.APPROVAL_RESPONDED), false);
+
+  failReply = false;
+  const responded = await manager.respondApproval('approval_retry', { decision: 'deny' }, device);
+
+  assert.deepEqual(decisions, ['allow', 'deny']);
+  assert.deepEqual(responded, { approvalId: 'approval_retry', decision: 'deny' });
+  assert.equal(eventStore.list(run.id, 0).filter((event) => event.type === eventTypes.APPROVAL_RESPONDED).length, 1);
+});
+
+test('V1 run terminal and cancellation clear pending approvals', async () => {
+  const decisions = [];
+  const { manager, eventStore, device, workspace } = createV1RunManagerForTest({
+    startRun({ prompt, onEvent }) {
+      const approvalId = prompt === 'complete' ? 'approval_complete' : 'approval_cancel';
+      onEvent({
+        type: eventTypes.APPROVAL_REQUIRED,
+        approvalId,
+        toolName: 'Shell',
+        input: {},
+        respond: (decision) => decisions.push({ approvalId, decision })
+      });
+      if (prompt === 'complete') {
+        onEvent({ type: eventTypes.RUN_COMPLETED, exitCode: 0 });
+      }
+      return { kill() {} };
+    }
+  });
+
+  const completed = manager.createRun({ tool: 'claude', workspaceId: workspace.id, prompt: 'complete' }, device);
+  await waitForConditionForTest(
+    () => eventStore.list(completed.id, 0).some((event) => event.type === eventTypes.RUN_COMPLETED),
+    'V1 completed run terminal event recorded'
+  );
+  await assert.rejects(
+    () => manager.respondApproval('approval_complete', { decision: 'allow' }, device),
+    /approval not found/
+  );
+
+  const cancellable = manager.createRun({ tool: 'claude', workspaceId: workspace.id, prompt: 'cancel' }, device);
+  await waitForConditionForTest(
+    () => eventStore.list(cancellable.id, 0).some((event) => event.type === eventTypes.APPROVAL_REQUIRED),
+    'V1 cancellable run approval request recorded'
+  );
+  manager.cancelRun(cancellable.id, device);
+  await assert.rejects(
+    () => manager.respondApproval('approval_cancel', { decision: 'deny' }, device),
+    /approval not found/
+  );
+  assert.deepEqual(decisions, []);
 });
 
 test('Claude adapter turns AskUserQuestion into a user-facing question', async () => {

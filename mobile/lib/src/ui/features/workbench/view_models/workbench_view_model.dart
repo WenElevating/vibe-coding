@@ -1487,6 +1487,7 @@ class WorkbenchViewModel extends ChangeNotifier {
         toolName: event.toolName,
         summary: event.summary,
         input: event.input,
+        approvalOptions: event.approvalOptions,
       );
     } else if (event.type == 'approval.resolved') {
       status = 'running';

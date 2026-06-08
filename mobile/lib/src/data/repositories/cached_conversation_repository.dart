@@ -434,6 +434,7 @@ class CachedConversationRepository extends ChangeNotifier
         toolName: event.toolName,
         summary: event.summary,
         input: event.input,
+        approvalOptions: event.approvalOptions,
       );
     }
     return null;

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/l10n/app_localizations_zh.dart';
+import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cached_run_repository.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/cli_adapter_repository.dart';
@@ -387,6 +388,88 @@ void main() {
     expect(viewModel.messages.single.body, 'inspect image');
   });
 
+  test('conversation approval event status keeps approval options', () {
+    const approvalOptions = ApprovalRequestOptions(
+      supportsSessionScope: true,
+      supportsCancel: true,
+      denyBehavior: ApprovalDenyBehavior.continueTurn,
+      command: 'npm test',
+    );
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'approval.requested',
+          approvalId: 'approval_options',
+          toolName: 'Bash',
+          summary: 'Run npm test',
+          approvalOptions: approvalOptions,
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    final blockingOptions =
+        viewModel.activeConversation?.blockingItem?.approvalOptions;
+    expect(blockingOptions?.supportsSessionScope, isTrue);
+    expect(blockingOptions?.supportsCancel, isTrue);
+    expect(blockingOptions?.denyBehavior, ApprovalDenyBehavior.continueTurn);
+    expect(blockingOptions?.command, 'npm test');
+    final approvalMessage =
+        viewModel.messages.singleWhere((message) => message.role == 'approval');
+    expect(approvalMessage.approvalOptions.supportsSessionScope, isTrue);
+    expect(approvalMessage.approvalOptions.supportsCancel, isTrue);
+  });
+
+  test('cached conversation stream status keeps approval options', () async {
+    const approvalOptions = ApprovalRequestOptions(
+      supportsSessionScope: true,
+      supportsCancel: true,
+      command: 'opencode run',
+    );
+    final delegate = _FakeConversationRepository(
+      conversations: <ConversationSummary>[
+        _conversation(
+          id: 'conv_stream_options',
+          workspaceId: _workspace.id,
+          status: 'running',
+        ),
+      ],
+    );
+    final repository = CachedConversationRepository(delegate: delegate);
+    addTearDown(repository.dispose);
+
+    await repository.listConversations();
+    final subscription = repository
+        .watchConversationEvents('conv_stream_options', afterSeq: 0)
+        .listen((_) {});
+    addTearDown(subscription.cancel);
+
+    delegate.emitConversationEvent(_event(
+      seq: 1,
+      conversationId: 'conv_stream_options',
+      type: 'approval.requested',
+      approvalId: 'approval_stream_options',
+      toolName: 'Bash',
+      approvalOptions: approvalOptions,
+    ));
+    await Future<void>.delayed(Duration.zero);
+
+    final blockingOptions =
+        repository.conversations.single.blockingItem?.approvalOptions;
+    expect(repository.conversations.single.status, 'waiting_approval');
+    expect(blockingOptions?.supportsSessionScope, isTrue);
+    expect(blockingOptions?.supportsCancel, isTrue);
+    expect(blockingOptions?.command, 'opencode run');
+  });
+
   test('terminal conversation events override stale running summary status',
       () {
     final viewModel = _workbenchViewModel();
@@ -715,12 +798,15 @@ class _FakeConversationRepository implements ConversationRepository {
   _FakeConversationRepository({
     ConversationEventPage? eventPage,
     List<ConversationEventPage>? eventPages,
-  }) : eventPages = eventPages ??
+    List<ConversationSummary> conversations = const <ConversationSummary>[],
+  })  : eventPages = eventPages ??
             <ConversationEventPage>[
               if (eventPage != null) eventPage,
-            ];
+            ],
+        _conversations = List<ConversationSummary>.of(conversations);
 
   final List<ConversationEventPage> eventPages;
+  final List<ConversationSummary> _conversations;
   final List<String> calls = <String>[];
   final List<ConversationMessageSendRequest> sentRequests =
       <ConversationMessageSendRequest>[];
@@ -818,7 +904,7 @@ class _FakeConversationRepository implements ConversationRepository {
 
   @override
   Future<List<ConversationSummary>> listConversations() async =>
-      const <ConversationSummary>[];
+      List<ConversationSummary>.of(_conversations);
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -1046,6 +1132,7 @@ ConversationEvent _event({
   String? toolName,
   String? summary,
   Map<String, Object?> input = const <String, Object?>{},
+  ApprovalRequestOptions approvalOptions = const ApprovalRequestOptions(),
   Map<String, Object?> raw = const <String, Object?>{},
 }) =>
     ConversationEvent(
@@ -1060,5 +1147,6 @@ ConversationEvent _event({
       toolName: toolName,
       summary: summary,
       input: input,
+      approvalOptions: approvalOptions,
       raw: raw,
     );

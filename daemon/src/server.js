@@ -235,7 +235,7 @@ function createServer({ auth, workspaces, runs, conversations, adapterRegistry, 
       const runInput = url.pathname.match(/^\/api\/runs\/([^/]+)\/input$/);
       if (method === 'POST' && runInput) return json(res, 200, runs.followUp(runInput[1], await readJson(req), device));
       const approval = url.pathname.match(/^\/api\/approvals\/([^/]+)\/respond$/);
-      if (method === 'POST' && approval) return json(res, 200, runs.respondApproval(approval[1], await readJson(req), device));
+      if (method === 'POST' && approval) return json(res, 200, await runs.respondApproval(approval[1], await readJson(req), device));
 
       throw Object.assign(new Error('not found'), { status: 404 });
     } catch (error) {

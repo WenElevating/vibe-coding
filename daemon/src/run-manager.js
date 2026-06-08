@@ -63,6 +63,7 @@ class RunManager {
     }).catch((error) => {
       run.starting = false;
       run.status = 'failed';
+      clearPendingApprovals(run);
       this.eventStore.append(run.id, eventTypes.ADAPTER_ERROR, normalizeAdapterError(run.tool, error));
       this.eventStore.append(run.id, eventTypes.RUN_FAILED, { error: error.message });
       this.releaseQueue(run);
@@ -113,6 +114,7 @@ class RunManager {
     this.eventStore.append(runId, eventTypes.RUN_CANCELLING, {});
     if (run.child && typeof run.child.kill === 'function') run.child.kill('SIGTERM');
     run.status = 'cancelled';
+    clearPendingApprovals(run);
     this.auditLog.record('run.cancel', { runId, deviceId: device.id });
     this.eventStore.append(runId, eventTypes.RUN_CANCELLED, { reason: 'user_cancelled' });
     this.releaseQueue(run);
@@ -142,7 +144,7 @@ class RunManager {
     return publicRun(run);
   }
 
-  respondApproval(approvalId, payload, device) {
+  async respondApproval(approvalId, payload, device) {
     assertNoV1TerminalRequest(payload);
     if (!['allow', 'deny'].includes(payload.decision)) {
       const error = new Error('decision must be allow or deny');
@@ -151,10 +153,19 @@ class RunManager {
     }
     const run = Array.from(this.runs.values()).find((candidate) => candidate.deviceId === device.id && candidate.pendingApprovals?.has(approvalId));
     if (!run) throw notFound('approval not found');
+    if (run.status !== 'running') {
+      clearPendingApprovals(run);
+      throw notFound('approval not found');
+    }
     this.auditLog.record('approval.respond', { approvalId, decision: payload.decision, deviceId: device.id, runId: run.id });
     const approval = run.pendingApprovals.get(approvalId);
     run.pendingApprovals.delete(approvalId);
-    if (approval && typeof approval.respond === 'function') approval.respond(payload.decision);
+    try {
+      if (approval && typeof approval.respond === 'function') await approval.respond(payload.decision);
+    } catch (error) {
+      run.pendingApprovals.set(approvalId, approval);
+      throw error;
+    }
     this.eventStore.append(run.id, eventTypes.APPROVAL_RESPONDED, {
       approvalId,
       decision: payload.decision,
@@ -181,6 +192,7 @@ class RunManager {
     }
     if ([eventTypes.RUN_COMPLETED, eventTypes.RUN_FAILED, eventTypes.RUN_CANCELLED].includes(event.type)) {
       run.status = event.type === eventTypes.RUN_COMPLETED ? 'completed' : event.type === eventTypes.RUN_CANCELLED ? 'cancelled' : 'failed';
+      clearPendingApprovals(run);
     }
     const { type, respond, ...payload } = event;
     this.eventStore.append(run.id, type || eventTypes.RAW_OUTPUT, payload);
@@ -213,6 +225,10 @@ function validateFollowUpPrompt(payload) {
   const prompt = payload.prompt.trim();
   if (!prompt) throw badRequest('prompt is required');
   return prompt;
+}
+
+function clearPendingApprovals(run) {
+  if (run.pendingApprovals) run.pendingApprovals.clear();
 }
 
 function badRequest(message) {
