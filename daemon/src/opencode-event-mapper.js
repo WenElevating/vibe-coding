@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { URL } = require('node:url');
 const { conversationEventTypes } = require('./conversation-protocol');
 
 const RAW_PAYLOAD_MAX_CHARS = 4096;
@@ -774,13 +775,16 @@ function isPathLikeKey(key) {
 function workspaceBoundPath(filePath, workspacePath) {
   const rawPath = String(filePath || '').trim();
   if (!rawPath) return '';
-  const flavor = pathFlavor(rawPath, workspacePath);
+  const fileUrlPath = normalizeFileUrlPath(rawPath);
+  if (fileUrlPath === '') return '[Redacted path]';
+  const displayPath = fileUrlPath || rawPath;
+  const flavor = pathFlavor(displayPath, workspacePath);
   const pathApi = flavor === 'win32' ? path.win32 : path.posix;
-  if (!workspacePath || !String(workspacePath).trim()) return safeRelativeDisplayPath(rawPath, pathApi);
+  if (!workspacePath || !String(workspacePath).trim()) return safeRelativeDisplayPath(displayPath, pathApi);
   const workspaceRoot = pathApi.resolve(String(workspacePath));
-  const candidate = pathApi.isAbsolute(rawPath)
-    ? pathApi.normalize(rawPath)
-    : pathApi.resolve(workspaceRoot, rawPath);
+  const candidate = pathApi.isAbsolute(displayPath)
+    ? pathApi.normalize(displayPath)
+    : pathApi.resolve(workspaceRoot, displayPath);
   const comparableRoot = caseComparablePath(workspaceRoot, flavor);
   const comparableCandidate = caseComparablePath(candidate, flavor);
   if (
@@ -790,7 +794,30 @@ function workspaceBoundPath(filePath, workspacePath) {
     const relative = pathApi.relative(workspaceRoot, candidate);
     return safeRelativeDisplayPath(relative || pathApi.basename(candidate), pathApi);
   }
-  return boundedDisplayPath(pathApi.basename(candidate) || pathApi.basename(rawPath));
+  return boundedDisplayPath(pathApi.basename(candidate) || pathApi.basename(displayPath));
+}
+
+function normalizeFileUrlPath(value) {
+  const text = String(value || '').trim();
+  if (!/^file:\/\//i.test(text)) return null;
+  try {
+    const url = new URL(text);
+    if (url.protocol.toLowerCase() !== 'file:') return null;
+    const pathname = decodeFileUrlPathname(url.pathname || '');
+    if (url.hostname) return `\\\\${url.hostname}${pathname.replace(/\//g, '\\')}`;
+    if (/^\/[a-zA-Z]:[\\/]/.test(pathname)) return pathname.slice(1).replace(/\//g, '\\');
+    return pathname || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function decodeFileUrlPathname(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (_) {
+    return value;
+  }
 }
 
 function safeRelativeDisplayPath(filePath, pathApi = path) {

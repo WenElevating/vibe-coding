@@ -1744,6 +1744,62 @@ test('OpenCode command redaction redacts local file URLs while preserving traili
   assert.equal(retained.includes('opencode-secret'), false);
 });
 
+test('OpenCode direct file URL path metadata is workspace bounded', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const workspacePath = '/workspace/project';
+  const outsideUrl = 'file:///tmp/opencode-secret/outside.txt';
+  const insideUrl = 'file:///workspace/project/src/inside.txt';
+  const windowsUrl = 'file:///C:/opencode-secret/windows-outside.txt';
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 'sess_file_url_path',
+    id: 'perm_file_url_path',
+    filePath: outsideUrl
+  }, { workspacePath });
+  const fileEdited = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_file_url_path',
+    path: outsideUrl
+  }, { workspacePath });
+  const insideFileEdited = mapOpenCodeEvent({
+    type: 'file.edited',
+    sessionID: 'sess_file_url_path',
+    path: insideUrl
+  }, { workspacePath });
+  const diff = mapOpenCodeEvent({
+    type: 'session.diff',
+    sessionID: 'sess_file_url_path',
+    files: [{ path: outsideUrl, diff: '@@ -1 +1 @@\n-old\n+new' }]
+  }, { workspacePath });
+  const tool = mapOpenCodeEvent({
+    type: 'message.part.updated',
+    sessionID: 'sess_file_url_path',
+    partID: 'part_file_url_path',
+    part: {
+      type: 'tool_call',
+      tool: 'edit',
+      status: 'running',
+      path: windowsUrl
+    }
+  }, { workspacePath });
+  const retained = JSON.stringify({ permission, fileEdited, insideFileEdited, diff, tool });
+
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.input.path, 'outside.txt');
+  assert.equal(permission.summary.includes('outside.txt'), true);
+  assert.equal(fileEdited.type, conversationEventTypes.SYSTEM_NOTICE);
+  assert.equal(fileEdited.path, 'outside.txt');
+  assert.equal(fileEdited.text.includes('outside.txt'), true);
+  assert.equal(insideFileEdited.path, 'src/inside.txt');
+  assert.equal(diff.type, conversationEventTypes.DIFF_SUMMARY);
+  assert.equal(diff.files[0].path, 'outside.txt');
+  assert.equal(tool.type, conversationEventTypes.TOOL_STARTED);
+  assert.equal(tool.input.path, 'windows-outside.txt');
+  assert.equal(retained.includes(outsideUrl), false);
+  assert.equal(retained.includes(windowsUrl), false);
+  assert.equal(retained.includes('opencode-secret'), false);
+});
+
 test('OpenCode command redaction redacts final Windows path segments with spaces', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const windowsPath = 'C:\\Users\\John Doe';

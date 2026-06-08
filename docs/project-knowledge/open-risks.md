@@ -129,7 +129,8 @@
   through allowlists; `daemon/src/conversation-manager.js` redacts path-like
   session binding diagnostics before appending public helper events;
   `daemon/src/opencode-event-mapper.js` treats local `file://` URLs as path
-  diagnostics and requires session ids on visible file-edit events;
+  diagnostics in both direct path metadata and provider diagnostic strings, and
+  requires session ids on visible file-edit events;
   `daemon/src/opencode-conversation-adapter.js` projects startup, stream,
   abort, and session-missing errors through descriptor-safe allowlists;
   `daemon/src/opencode-adapter.js` applies the same descriptor-safe projection
