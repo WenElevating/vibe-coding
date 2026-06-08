@@ -75,14 +75,18 @@ async function runOpenCodeServerSmoke({
 
   await runGate('globalEventSse', gates, evidence, async () => {
     const response = await openSse(normalizedServerUrl, '/global/event', { timeoutMs });
-    evidence.globalEventSse = {
-      statusCode: response.statusCode,
-      contentType: response.contentType
-    };
-    if (!String(response.contentType || '').toLowerCase().includes('text/event-stream')) {
-      throw new Error('global event route did not return text/event-stream');
+    try {
+      evidence.globalEventSse = {
+        statusCode: response.statusCode,
+        contentType: response.contentType
+      };
+      assertOkResponse(response, 'global event');
+      if (!String(response.contentType || '').toLowerCase().includes('text/event-stream')) {
+        throw new Error('global event route did not return text/event-stream');
+      }
+    } finally {
+      response.close();
     }
-    response.close();
   });
 
   await runGate('sessionCreateDirectory', gates, evidence, async () => {

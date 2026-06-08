@@ -32,6 +32,10 @@ session read, SSE open, and abort. Prompt dispatch is intentionally opt-in:
 node scripts/smoke-opencode-server.js --server-url http://127.0.0.1:4096 --workspace D:\AIProject\vibe-coding --allow-prompt-dispatch
 ```
 
+The `globalEventSse` gate requires both a 2xx HTTP status and an
+`text/event-stream` content type. A non-success SSE-looking response is a failed
+smoke gate, not partial compatibility evidence.
+
 Last verified: 2026-06-09
 
 ## Codex App-Server Parity Release Gate

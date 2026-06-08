@@ -67,6 +67,15 @@ async function closeAppResources(app) {
   await shutdownAppResources(app);
 }
 
+function sendTestJson(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload)
+  });
+  res.end(payload);
+}
+
 function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = Buffer.from('fake-apk-v2') } = {}) {
   root = root || fs.mkdtempSync(path.join(os.tmpdir(), 'android-update-fixture-'));
   const apkName = `lan_ai_cli_control-1.4.0+${versionCode}.apk`;
@@ -361,6 +370,59 @@ test('OpenCode smoke helper sends prompt only when explicitly enabled', async ()
     ]);
   } finally {
     await fake.close();
+  }
+});
+
+test('OpenCode smoke helper fails SSE gate on non-success event stream status', async () => {
+  const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/global/health') {
+      return sendTestJson(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && url.pathname === '/doc') {
+      return sendTestJson(res, 200, { paths: { '/global/event': {} } });
+    }
+    if (req.method === 'GET' && url.pathname === '/global/event') {
+      res.writeHead(404, { 'content-type': 'text/event-stream' });
+      res.end();
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/session') {
+      return sendTestJson(res, 200, {
+        id: 'sess_sse_404',
+        sessionID: 'sess_sse_404',
+        directory: url.searchParams.get('directory')
+      });
+    }
+    if (req.method === 'GET' && url.pathname === '/session/sess_sse_404') {
+      return sendTestJson(res, 200, {
+        id: 'sess_sse_404',
+        sessionID: 'sess_sse_404',
+        directory: process.cwd()
+      });
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_sse_404/abort') {
+      return sendTestJson(res, 200, true);
+    }
+    if (req.method === 'POST' && url.pathname === '/session/sess_sse_404/permissions/opencode_smoke_permission') {
+      return sendTestJson(res, 400, { error: { code: 'PERMISSION_NOT_PENDING' } });
+    }
+    return sendTestJson(res, 404, { error: { code: 'NOT_FOUND' } });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await runOpenCodeServerSmoke({
+      serverUrl: `http://127.0.0.1:${server.address().port}`,
+      workspace: process.cwd(),
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.status, 'fail');
+    assert.equal(result.gates.globalEventSse, 'fail');
+    assert.match(result.evidence.globalEventSse.error, /global event.*HTTP 404/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
