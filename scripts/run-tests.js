@@ -2974,6 +2974,59 @@ test('OpenCode conversation adapter rejects resumed session directory symlink ou
   }
 });
 
+test('OpenCode conversation adapter rejects sessions without verifiable directory before subscribing', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  let subscribed = false;
+  const client = {
+    async createSession() {
+      return { id: 'sess_missing_directory', sessionID: 'sess_missing_directory' };
+    },
+    subscribeEvents() {
+      subscribed = true;
+      return {
+        opened: Promise.resolve({ ok: true }),
+        close() {}
+      };
+    }
+  };
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535',
+          owned: false,
+          client
+        };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_opencode_missing_directory',
+      workspacePath: path.join(os.tmpdir(), 'opencode-missing-directory-workspace'),
+      onEvent: () => {}
+    }),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.code, 'OPENCODE_SESSION_DIRECTORY_MISMATCH');
+      assert.deepEqual(error.details, { reason: 'directory_mismatch' });
+      return true;
+    }
+  );
+  assert.equal(subscribed, false);
+});
+
+test('OpenCode session boundary treats POSIX backslash siblings as outside workspace', () => {
+  const { extractSessionDirectory, pathContainsOrEquals } = require('../daemon/src/opencode-session-boundary');
+
+  assert.equal(extractSessionDirectory({ path: '/tmp/opencode-workspace' }), '/tmp/opencode-workspace');
+  assert.equal(extractSessionDirectory({ session: { path: '/tmp/opencode-workspace/child' } }), '/tmp/opencode-workspace/child');
+  assert.equal(pathContainsOrEquals('/tmp/opencode-workspace', '/tmp/opencode-workspace/child'), true);
+  assert.equal(pathContainsOrEquals('/tmp/opencode-workspace', '/tmp/opencode-workspace\\sibling'), false);
+});
+
 test('OpenCode conversation adapter rejects auto permission mode before server start', async () => {
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
   let starts = 0;

@@ -26,16 +26,18 @@ function extractSessionId(value) {
 
 function extractSessionDirectory(value) {
   if (!value || typeof value !== 'object') return null;
-  const direct = firstNonBlank([value.directory, value.cwd]);
+  const direct = firstNonBlank([value.directory, value.cwd, value.path]);
   if (direct) return direct;
   if (value.session && typeof value.session === 'object') {
-    return firstNonBlank([value.session.directory, value.session.cwd]);
+    return firstNonBlank([value.session.directory, value.session.cwd, value.session.path]);
   }
   return null;
 }
 
 function validateSessionDirectory(directory, workspacePath) {
-  if (!directory) return;
+  if (!directory) {
+    throw sessionBoundaryError();
+  }
   if (!pathContainsOrEquals(workspacePath, directory)) {
     throw sessionBoundaryError();
   }
@@ -68,9 +70,10 @@ function sessionBoundaryError() {
 }
 
 function pathFlavor(...paths) {
-  return paths.some((value) => /^[a-zA-Z]:[\\/]/.test(String(value || '')) || /^\\\\/.test(String(value || '')) || String(value || '').includes('\\'))
-    ? 'win32'
-    : 'posix';
+  const texts = paths.map((value) => String(value || '')).filter(Boolean);
+  if (texts.some((text) => /^[a-zA-Z]:[\\/]/.test(text) || /^\\\\/.test(text))) return 'win32';
+  if (texts.length > 0 && texts.every((text) => text.startsWith('/'))) return 'posix';
+  return texts.some((text) => text.includes('\\')) ? 'win32' : 'posix';
 }
 
 function normalizeForPathFlavor(value, pathApi, flavor) {

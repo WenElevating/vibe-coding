@@ -153,3 +153,20 @@
   `OPENCODE_SERVER_SSE_EVENT_TOO_LARGE`; do not restore silent buffer
   truncation for provider event frames.
 - Last verified: 2026-06-09
+
+## Risk: OpenCode Session Directory Reconciliation Can Fail Open
+
+- Level: medium
+- Impact: OpenCode session reads are the only proof that a stored provider
+  session still belongs to the authorized workspace. Accepting a missing
+  directory, or treating a POSIX path with a literal backslash as a Windows path,
+  can send a later prompt into an unverifiable or wrong workspace session.
+- Evidence: `daemon/src/opencode-session-boundary.js` rejects missing session
+  directories, recognizes `directory`, `cwd`, and `path` aliases, and keeps
+  POSIX backslash siblings outside the workspace boundary. `scripts/run-tests.js`
+  covers missing directory rejection before SSE subscription and POSIX
+  backslash sibling containment.
+- Mitigation: preserve fail-closed directory reconciliation before prompt
+  dispatch. Do not add new OpenCode session-directory aliases without matching
+  containment tests.
+- Last verified: 2026-06-09
