@@ -17,6 +17,23 @@ git diff --check
 `node scripts/run-tests.js`, `node scripts/check-project-knowledge.js`, and
 `npm run lint` were verified on 2026-05-22.
 
+## OpenCode Server Smoke Helper
+
+Run against an already running `opencode serve` process:
+
+```powershell
+node scripts/smoke-opencode-server.js --server-url http://127.0.0.1:4096 --workspace D:\AIProject\vibe-coding
+```
+
+The default smoke checks are non-model-consuming: health, doc, session create,
+session read, SSE open, and abort. Prompt dispatch is intentionally opt-in:
+
+```powershell
+node scripts/smoke-opencode-server.js --server-url http://127.0.0.1:4096 --workspace D:\AIProject\vibe-coding --allow-prompt-dispatch
+```
+
+Last verified: 2026-06-09
+
 ## Codex App-Server Parity Release Gate
 
 Run from repo root before shipping app-server parity changes:

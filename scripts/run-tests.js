@@ -309,6 +309,57 @@ test('OpenCode smoke helper parses SSE events', () => {
   assert.equal(frames[1].session_id, 'sess_1');
 });
 
+test('OpenCode smoke helper runs fake route gates without prompt dispatch by default', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const result = await runOpenCodeServerSmoke({
+      serverUrl: fake.url,
+      workspace: process.cwd(),
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.status, 'not_run');
+    assert.equal(result.gates.health, 'pass');
+    assert.equal(result.gates.doc, 'pass');
+    assert.equal(result.gates.sessionCreateDirectory, 'pass');
+    assert.equal(result.gates.sessionIdFieldNames, 'pass');
+    assert.equal(result.gates.sessionReadReconcile, 'pass');
+    assert.equal(result.gates.globalEventSse, 'pass');
+    assert.equal(result.gates.abort, 'pass');
+    assert.equal(result.gates.promptAsyncBody, 'not_run');
+    assert.deepEqual(fake.promptBodies, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('OpenCode smoke helper sends prompt only when explicitly enabled', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const { runOpenCodeServerSmoke } = require('./smoke-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  try {
+    const result = await runOpenCodeServerSmoke({
+      serverUrl: fake.url,
+      workspace: process.cwd(),
+      allowPromptDispatch: true,
+      prompt: 'smoke prompt',
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.status, 'not_run');
+    assert.equal(result.gates.promptAsyncBody, 'pass');
+    assert.deepEqual(fake.promptBodies.map((item) => item.body), [
+      { parts: [{ type: 'text', text: 'smoke prompt' }] }
+    ]);
+  } finally {
+    await fake.close();
+  }
+});
+
 test('OpenCode event mapper maps idle, errors, assistant deltas, and permissions', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
 
