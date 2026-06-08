@@ -3146,6 +3146,48 @@ test('OpenCode session boundary treats POSIX backslash siblings as outside works
   assert.equal(pathContainsOrEquals('/tmp/opencode-workspace', '/tmp/opencode-workspace\\sibling'), false);
 });
 
+test('OpenCode session boundary extracts only safe own session fields', () => {
+  const { extractSessionId, extractSessionDirectory } = require('../daemon/src/opencode-session-boundary');
+  const inherited = Object.create({
+    id: 'inherited-session',
+    directory: '/tmp/inherited-workspace'
+  });
+  const unsafe = { session: {} };
+  Object.defineProperty(unsafe, 'id', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe id getter should not escape');
+    }
+  });
+  Object.defineProperty(unsafe, 'directory', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe directory getter should not escape');
+    }
+  });
+  Object.defineProperty(unsafe.session, 'sessionID', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe nested session getter should not escape');
+    }
+  });
+  Object.defineProperty(unsafe.session, 'path', {
+    enumerable: true,
+    get() {
+      throw new Error('unsafe nested path getter should not escape');
+    }
+  });
+
+  assert.equal(extractSessionId(inherited), null);
+  assert.equal(extractSessionDirectory(inherited), null);
+  assert.doesNotThrow(() => extractSessionId(unsafe));
+  assert.doesNotThrow(() => extractSessionDirectory(unsafe));
+  assert.equal(extractSessionId(unsafe), null);
+  assert.equal(extractSessionDirectory(unsafe), null);
+  assert.equal(extractSessionId({ session: { sessionID: 'sess_nested' } }), 'sess_nested');
+  assert.equal(extractSessionDirectory({ session: { path: '/tmp/opencode-workspace/child' } }), '/tmp/opencode-workspace/child');
+});
+
 test('OpenCode conversation adapter rejects auto permission mode before server start', async () => {
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
   let starts = 0;

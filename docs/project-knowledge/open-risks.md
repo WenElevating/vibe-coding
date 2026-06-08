@@ -165,12 +165,14 @@
   can send a later prompt into an unverifiable or wrong workspace session.
 - Evidence: `daemon/src/opencode-session-boundary.js` rejects missing session
   directories, recognizes `directory`, `cwd`, and `path` aliases, and keeps
-  POSIX backslash siblings outside the workspace boundary. `scripts/run-tests.js`
-  covers missing directory rejection before SSE subscription and POSIX
-  backslash sibling containment.
+  POSIX backslash siblings outside the workspace boundary. Its session id and
+  directory extractors ignore inherited or getter-backed provider fields.
+  `scripts/run-tests.js` covers missing directory rejection before SSE
+  subscription, POSIX backslash sibling containment, and safe own-field
+  extraction for provider session metadata.
 - Mitigation: preserve fail-closed directory reconciliation before prompt
-  dispatch. Do not add new OpenCode session-directory aliases without matching
-  containment tests.
+  dispatch. Do not add new OpenCode session-directory aliases or direct
+  provider-field reads without matching containment and descriptor-safety tests.
 - Last verified: 2026-06-09
 
 ## Risk: OpenCode Session ID Alias Drift Can Drop Events
