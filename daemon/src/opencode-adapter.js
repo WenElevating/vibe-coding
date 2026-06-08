@@ -144,6 +144,7 @@ class OpenCodeAdapter {
     const activeSessionId = sessionId || await this.createSession({ client: started.client, workspacePath });
     let subscription = null;
     let terminal = false;
+    let subscriptionOpened = false;
     const closeSubscription = () => {
       if (subscription && typeof subscription.close === 'function') subscription.close();
       subscription = null;
@@ -173,6 +174,7 @@ class OpenCodeAdapter {
         else emitEvent(runEvent);
       },
       (error) => {
+        if (!subscriptionOpened) return;
         emitTerminal({
           type: eventTypes.RUN_FAILED,
           error: 'OpenCode event stream interrupted before the run completed.',
@@ -183,6 +185,7 @@ class OpenCodeAdapter {
     onEvent({ type: eventTypes.RAW_OUTPUT, text: '', sessionId: activeSessionId, reason: 'opencode_session_active' });
     try {
       await waitForSubscriptionOpen(subscription);
+      subscriptionOpened = true;
       await this.sendPrompt({ client: started.client, sessionId: activeSessionId, prompt });
     } catch (error) {
       closeSubscription();

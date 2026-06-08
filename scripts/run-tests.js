@@ -5221,6 +5221,71 @@ test('OpenCode legacy run waits for SSE open before prompt dispatch', async () =
   await handle.kill();
 });
 
+test('OpenCode legacy run treats SSE open failure as startup rejection only', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  let resolveOpened = null;
+  const opened = new Promise((resolve) => {
+    resolveOpened = resolve;
+  });
+  const events = [];
+  const promptCalls = [];
+  let closeCount = 0;
+  const streamError = new Error('OpenCode server SSE stream closed');
+  streamError.code = 'OPENCODE_SERVER_SSE_CLOSED';
+  const client = {
+    async createSession() {
+      return { id: 'sess_legacy_sse_open_fail' };
+    },
+    subscribeEvents(_onEvent, onError) {
+      setImmediate(() => {
+        onError(streamError);
+        resolveOpened({ ok: false, error: streamError });
+      });
+      return {
+        opened,
+        close() { closeCount += 1; }
+      };
+    },
+    async promptAsync(input) {
+      promptCalls.push(input);
+    },
+    async abortSession() {}
+  };
+  const adapter = new OpenCodeAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return { mode: 'external', serverUrl: 'http://127.0.0.1:1', client, owned: false };
+      },
+      getDiagnostics() {
+        return { status: 'started', lastError: null };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startRun({
+      prompt: 'legacy prompt must not dispatch',
+      workspacePath: path.join(os.tmpdir(), 'opencode-legacy-sse-open-fail'),
+      onEvent: (event) => events.push(event)
+    }),
+    (error) => {
+      assert.equal(error.status, 503);
+      assert.equal(error.code, 'OPENCODE_SERVER_SSE_CLOSED');
+      return true;
+    }
+  );
+
+  assert.deepEqual(promptCalls, []);
+  assert.equal(closeCount, 1);
+  assert.equal(events.some((event) => event.type === eventTypes.RUN_FAILED), false);
+  assert.deepEqual(events, [{
+    type: eventTypes.RAW_OUTPUT,
+    text: '',
+    sessionId: 'sess_legacy_sse_open_fail',
+    reason: 'opencode_session_active'
+  }]);
+});
+
 test('OpenCode legacy run rejects auto permission mode before server start', async () => {
   const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
   let starts = 0;
