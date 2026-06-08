@@ -98,6 +98,26 @@ function createAndroidUpdateFixture({ root = null, versionCode = 2, apkBytes = B
   return { root, apkBytes, manifest };
 }
 
+test('Android background download service disconnects HTTP connections', () => {
+  const servicePath = path.join(
+    __dirname,
+    '..',
+    'mobile',
+    'android',
+    'app',
+    'src',
+    'main',
+    'kotlin',
+    'com',
+    'example',
+    'lan_ai_cli_control',
+    'BackgroundDownloadService.kt'
+  );
+  const source = fs.readFileSync(servicePath, 'utf8');
+  assert.match(source, /var\s+connection:\s+HttpURLConnection\?\s*=\s*null/);
+  assert.match(source, /finally\s*\{[\s\S]*connection\?\.disconnect\(\)/);
+});
+
 test('project knowledge check validates links and active entry metadata', () => {
   const fs = require('node:fs');
   const { checkProjectKnowledge } = require('./check-project-knowledge');
@@ -1024,6 +1044,44 @@ test('Codex app-server operational metrics sanitize raw snapshot labels and use 
   assert.equal(metrics.methodLatencyMs.some((item) => item.method === 'environment/add' && item.pool === 'mutation'), true);
   assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'config/batchWrite'), true);
   assert.equal(metrics.metricSamples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'environment/add'), true);
+});
+
+test('Codex app-server operational metrics keep bounded latency samples', async () => {
+  const {
+    CodexAppServerService,
+    MAX_METHOD_LATENCY_SAMPLES
+  } = require('../daemon/src/codex-app-server/service');
+  let now = 3000;
+  const service = new CodexAppServerService({
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => {
+          now += 1;
+          if (method === 'initialize') return {};
+          return { ok: true };
+        };
+        transport.sendNotification = () => {};
+        return { transport, shutdown: async () => {} };
+      }
+    },
+    now: () => now
+  });
+
+  await service.withDiscoveryClient(async (client) => {
+    for (let index = 0; index < MAX_METHOD_LATENCY_SAMPLES + 5; index += 1) {
+      await client.sendRequest(`method/${index}`, {});
+    }
+  });
+
+  const retained = service.metrics.methodLatencyMs;
+  assert.equal(retained.length, MAX_METHOD_LATENCY_SAMPLES);
+  assert.equal(retained[0].method, 'method/5');
+  assert.equal(retained[retained.length - 1].method, `method/${MAX_METHOD_LATENCY_SAMPLES + 4}`);
+
+  const snapshot = service.snapshotMetrics();
+  assert.equal(snapshot.methodLatencyMs.length, MAX_METHOD_LATENCY_SAMPLES);
+  assert.equal(snapshot.methodLatencyMs[0].method, 'method/5');
 });
 
 test('Codex app-server conversation handle rejects auth token refresh server request fail closed', () => {
@@ -3219,6 +3277,41 @@ test('Codex app-server workspace path guard rejects prefix and platform path esc
       (error) => error.status === 403 && error.code === 'FORBIDDEN',
       candidate
     );
+  }
+});
+
+test('Codex app-server workspace path guard rejects symlink targets outside workspace', () => {
+  const { resolveWorkspaceRelativePath } = require('../daemon/src/codex-app-server/routes');
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-guard-root-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-guard-outside-'));
+  try {
+    const outsideFile = path.join(outsideRoot, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside secret', 'utf8');
+    const fileLink = path.join(workspaceRoot, 'linked.txt');
+    try {
+      fs.symlinkSync(outsideFile, fileLink, 'file');
+    } catch {
+      return;
+    }
+
+    assert.throws(
+      () => resolveWorkspaceRelativePath({ path: workspaceRoot }, 'linked.txt'),
+      (error) => error.status === 403 && error.code === 'FORBIDDEN'
+    );
+
+    const dirLink = path.join(workspaceRoot, 'linked-dir');
+    try {
+      fs.symlinkSync(outsideRoot, dirLink, 'dir');
+    } catch {
+      return;
+    }
+    assert.throws(
+      () => resolveWorkspaceRelativePath({ path: workspaceRoot }, 'linked-dir/new.txt'),
+      (error) => error.status === 403 && error.code === 'FORBIDDEN'
+    );
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
   }
 });
 
@@ -15961,6 +16054,33 @@ test('V1.2 git service parses status and diff output', () => {
   assert.equal(diff[0].additions, 2);
   assert.equal(diff[1].binary, true);
 });
+
+test('workspace inspector rejects symlinked files outside workspace', () => {
+  const { WorkspaceInspector } = require('../daemon/src/workspace-inspector');
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-inspector-root-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-inspector-outside-'));
+  try {
+    const outsideFile = path.join(outsideRoot, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside secret', 'utf8');
+    const linkPath = path.join(workspaceRoot, 'linked.txt');
+    try {
+      fs.symlinkSync(outsideFile, linkPath, 'file');
+    } catch {
+      return;
+    }
+
+    const inspector = new WorkspaceInspector();
+
+    assert.throws(
+      () => inspector.content({ id: 'workspace_1', path: workspaceRoot }, 'linked.txt'),
+      /path escapes workspace/
+    );
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
 test('V1.3 health and version expose release readiness without secrets', async () => {
   const app = createApp({ port: 0, mode: 'dev', devAdapters: true, conversationDbPath: tempConversationDbPath() });
   for (const adapter of app.adapterRegistry.adapters.values()) {

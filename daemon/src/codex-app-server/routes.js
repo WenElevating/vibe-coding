@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { recordCodexAppServerAudit } = require('./audit');
 const { summarizeCodexAppServerCapabilityMatrix } = require('./capability-matrix');
@@ -1398,14 +1399,8 @@ function resolveWorkspaceRelativePath(workspace, relativePath) {
   }
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, relativePath || '.');
-  const comparableRoot = normalizePathForGuard(resolvedRoot);
-  const comparableResolved = normalizePathForGuard(resolved);
-  if (comparableResolved !== comparableRoot && !comparableResolved.startsWith(`${comparableRoot}${path.sep}`)) {
-    throw Object.assign(new Error('path outside authorized workspace'), {
-      status: 403,
-      code: 'FORBIDDEN'
-    });
-  }
+  assertPathWithinWorkspace(resolved, resolvedRoot);
+  assertRealPathWithinWorkspace(resolved, resolvedRoot);
   return resolved;
 }
 
@@ -1417,6 +1412,61 @@ function resolveWorkspaceOptionalCwd(workspace, relativePath) {
 function pathsReferToSameLocation(left, right) {
   if (!left || !right) return false;
   return normalizePathForGuard(path.resolve(left)) === normalizePathForGuard(path.resolve(right));
+}
+
+function assertPathWithinWorkspace(target, root) {
+  const comparableRoot = normalizePathForGuard(root);
+  const comparableTarget = normalizePathForGuard(target);
+  if (comparableTarget === comparableRoot || comparableTarget.startsWith(`${comparableRoot}${path.sep}`)) return;
+  throwForbiddenPathEscape();
+}
+
+function assertRealPathWithinWorkspace(target, root) {
+  const realRoot = tryRealpath(root);
+  if (!realRoot) return;
+  const realTarget = realpathClosestExisting(target, root);
+  assertPathWithinWorkspace(realTarget, realRoot);
+}
+
+function realpathClosestExisting(target, root) {
+  let current = target;
+  while (true) {
+    try {
+      return realpath(current);
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+      const parent = path.dirname(current);
+      if (parent === current || !isLexicallyWithinRoot(parent, root)) return realpath(root);
+      current = parent;
+    }
+  }
+}
+
+function realpath(value) {
+  const nativeRealpath = fs.realpathSync.native || fs.realpathSync;
+  return nativeRealpath(value);
+}
+
+function tryRealpath(value) {
+  try {
+    return realpath(value);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  }
+}
+
+function isLexicallyWithinRoot(target, root) {
+  const comparableRoot = normalizePathForGuard(root);
+  const comparableTarget = normalizePathForGuard(target);
+  return comparableTarget === comparableRoot || comparableTarget.startsWith(`${comparableRoot}${path.sep}`);
+}
+
+function throwForbiddenPathEscape() {
+  throw Object.assign(new Error('path outside authorized workspace'), {
+    status: 403,
+    code: 'FORBIDDEN'
+  });
 }
 
 function hasAbsolutePathSyntax(value) {

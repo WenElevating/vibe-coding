@@ -56,22 +56,24 @@ class BackgroundDownloadService : Service() {
 
     private fun runDownload(request: BackgroundDownloadRequest, token: ActiveDownload) {
         val wakeLock = acquireWakeLock(request.id)
+        var connection: HttpURLConnection? = null
         try {
             val destination = File(request.destinationPath)
             destination.parentFile?.mkdirs()
-            val connection = URL(request.url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 30_000
+            val activeConnection = URL(request.url).openConnection() as HttpURLConnection
+            connection = activeConnection
+            activeConnection.connectTimeout = 15_000
+            activeConnection.readTimeout = 30_000
             request.headers.forEach { (name, value) ->
-                connection.setRequestProperty(name, value)
+                activeConnection.setRequestProperty(name, value)
             }
-            connection.connect()
-            val code = connection.responseCode
+            activeConnection.connect()
+            val code = activeConnection.responseCode
             if (code !in listOf(HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_PARTIAL)) {
                 throw IllegalStateException("Download server returned HTTP $code")
             }
             val append = request.resumeFromBytes > 0 && code == HttpURLConnection.HTTP_PARTIAL
-            val stream = connection.inputStream.buffered()
+            val stream = activeConnection.inputStream.buffered()
             var downloaded = if (append) request.resumeFromBytes else 0L
             token.lastProgressBytes = downloaded
             token.lastProgressAtMs = SystemClock.elapsedRealtime()
@@ -126,6 +128,7 @@ class BackgroundDownloadService : Service() {
                 )
             }
         } finally {
+            connection?.disconnect()
             if (wakeLock.isHeld) wakeLock.release()
             if (active.remove(request.id, token)) {
                 stopSelfIfIdle(request.id)
