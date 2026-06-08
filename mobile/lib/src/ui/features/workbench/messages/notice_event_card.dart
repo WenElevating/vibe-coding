@@ -101,6 +101,16 @@ _NoticeCopy _noticeCopy(
       body: l10n.workbenchNoticeOpenCodeSessionExpiredBody,
     );
   }
+  if (noticeKind == 'opencode_file_edited') {
+    final path = _noticePath(message);
+    return _NoticeCopy(
+      title: l10n.workbenchNoticeOpenCodeFileEditedTitle,
+      meta: l10n.workbenchNoticeOpenCodeFileEditedMeta,
+      body: path == null
+          ? message.body
+          : l10n.workbenchNoticeOpenCodeFileEditedBody(path),
+    );
+  }
   if (_isProviderAuthNotice(message)) {
     return _NoticeCopy(
       title: l10n.workbenchNoticeProviderAuthTitle,
@@ -147,6 +157,19 @@ Color _noticeAccent(_NoticeSeverity severity) => switch (severity) {
 String _noticeKind(WorkbenchMessage message) {
   final value = message.event?.raw['noticeKind'];
   return value is String ? value.trim().toLowerCase() : '';
+}
+
+String? _noticePath(WorkbenchMessage message) {
+  final value = message.event?.raw['path'];
+  final nested = message.event?.raw['input'];
+  final pathValue = value is String
+      ? value
+      : nested is Map
+          ? nested['path']
+          : null;
+  if (pathValue is! String) return null;
+  final path = pathValue.trim();
+  return path.isEmpty ? null : path;
 }
 
 bool _isProviderAuthNotice(WorkbenchMessage message) {

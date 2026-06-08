@@ -403,6 +403,25 @@ void main() {
     expect(state.messages.single.text, 'Claude retry 1/3');
   });
 
+  test('ConversationViewState keeps OpenCode edited file notice path', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-06-09T00:00:00.000Z',
+        'text': 'OpenCode edited lib/src/main.dart',
+        'noticeKind': 'opencode_file_edited',
+        'visible': true,
+        'path': 'lib/src/main.dart'
+      })
+    ]);
+
+    expect(state.messages.single.role, 'notice');
+    expect(state.messages.single.noticeKind, 'opencode_file_edited');
+    expect(state.messages.single.input['path'], 'lib/src/main.dart');
+  });
+
   test('ConversationViewState records but hides non-visible system notices',
       () {
     final state = const ConversationViewState().apply(<ConversationEvent>[

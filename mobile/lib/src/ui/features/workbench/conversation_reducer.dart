@@ -329,7 +329,7 @@ class ConversationViewState {
             text: event.text ?? event.summary ?? '',
             eventSeq: event.seq,
             summary: event.summary,
-            input: event.input,
+            input: _noticeInput(event),
             source: event.source,
             noticeKind: event.raw['noticeKind'] as String?,
             isError: event.isError,
@@ -469,6 +469,18 @@ bool isHiddenSystemNotice(ConversationEvent event) {
   if (noticeKind == 'codex_unknown_event') return true;
   final text = (event.text ?? event.summary ?? '').toLowerCase();
   return text.startsWith('codex event:');
+}
+
+Map<String, Object?> _noticeInput(ConversationEvent event) {
+  final input = <String, Object?>{...event.input};
+  final noticeKind = '${event.raw['noticeKind'] ?? ''}'.toLowerCase();
+  if (noticeKind == 'opencode_file_edited') {
+    final path = event.raw['path'];
+    if (path is String && path.trim().isNotEmpty) {
+      input.putIfAbsent('path', () => path.trim());
+    }
+  }
+  return input;
 }
 
 bool isTransitionSystemNotice(ConversationEvent event) {
