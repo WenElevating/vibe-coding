@@ -207,7 +207,7 @@ class OpenCodeConversationAdapter {
     try {
       return safeLifecycleDiagnostics(this.lifecycle.getDiagnostics());
     } catch (error) {
-      return { status: 'diagnostics_error', message: limitString(error?.message || 'diagnostics failed') };
+      return { status: 'diagnostics_error' };
     }
   }
 }

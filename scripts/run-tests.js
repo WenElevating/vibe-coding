@@ -2557,6 +2557,40 @@ test('OpenCode conversation adapter diagnostics expose only allowlisted health a
   assert.equal(publicText.includes('directory='), false);
 });
 
+test('OpenCode conversation adapter diagnostics errors do not expose provider messages', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-conversation-diagnostics-throw-secret', 'provider.txt');
+  const lifecycle = {
+    async ensureStarted() {
+      return {
+        mode: 'external',
+        serverUrl: 'http://127.0.0.1:65535/secret/path?token=SECRET_QUERY',
+        owned: false,
+        client: {
+          async health() {
+            return { ok: true, version: 'fake-version' };
+          }
+        }
+      };
+    },
+    getDiagnostics() {
+      throw new Error(`diagnostics failed for ${secretPath} SECRET_PROVIDER_BODY`);
+    }
+  };
+  const adapter = new OpenCodeConversationAdapter({ lifecycle });
+
+  const status = await adapter.detectCapabilities();
+  const publicText = JSON.stringify(status);
+
+  assert.equal(status.available, true);
+  assert.deepEqual(status.diagnostics.lifecycle, {
+    status: 'diagnostics_error'
+  });
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes('SECRET_PROVIDER_BODY'), false);
+  assert.equal(publicText.includes('SECRET_QUERY'), false);
+});
+
 test('OpenCode conversation adapter creates session and defers prompt until message send', async () => {
   const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
   const fake = new FakeOpenCodeServer();
