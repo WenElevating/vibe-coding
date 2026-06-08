@@ -1,6 +1,7 @@
 'use strict';
 
 const { conversationEventTypes } = require('./conversation-protocol');
+const { textAttachmentWrapper } = require('./attachment-validation');
 const { mapOpenCodeEvent } = require('./opencode-event-mapper');
 const { OpenCodeServerLifecycle } = require('./opencode-server-lifecycle');
 const {
@@ -593,9 +594,29 @@ function requireWorkspacePath(workspacePath) {
 function messageText(message) {
   if (typeof message === 'string' || typeof message === 'number') return String(message);
   if (message && typeof message === 'object') {
-    return String(message.text ?? message.prompt ?? '');
+    return buildOpenCodePromptText({
+      text: message.text ?? message.prompt ?? '',
+      attachments: message.attachments
+    });
   }
   return '';
+}
+
+function buildOpenCodePromptText({ text, attachments = [] } = {}) {
+  const parts = [];
+  const prompt = String(text ?? '');
+  if (prompt) parts.push(prompt);
+  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+    if (!attachment || typeof attachment !== 'object') continue;
+    if (attachment.kind === 'textDocument' && attachment.handling === 'text_extract') {
+      parts.push(textAttachmentWrapper({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        text: attachment.text
+      }));
+    }
+  }
+  return parts.join('\n\n');
 }
 
 function isPromiseLike(value) {

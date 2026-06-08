@@ -2730,6 +2730,43 @@ test('OpenCode conversation adapter creates session and defers prompt until mess
   }
 });
 
+test('OpenCode conversation adapter includes text_extract attachments in prompt text', async () => {
+  const { FakeOpenCodeServer } = require('../daemon/test/fakes/fake-opencode-server');
+  const fake = new FakeOpenCodeServer();
+  await fake.listen();
+  let handle = null;
+  try {
+    const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-text-attachment');
+    const { adapter } = createOpenCodeConversationAdapterForFake(fake);
+    handle = await adapter.startConversation({
+      conversationId: 'conv_opencode_text_attachment',
+      workspacePath,
+      onEvent: () => {}
+    });
+
+    await handle.sendUserMessage({
+      text: 'Inspect this.',
+      attachments: [{
+        kind: 'textDocument',
+        handling: 'text_extract',
+        text: 'alpha',
+        mimeType: 'text/plain',
+        name: 'a.txt'
+      }]
+    });
+
+    assert.equal(fake.promptBodies.length, 1);
+    const text = fake.promptBodies[0].body.parts[0].text;
+    assert.match(text, /^Inspect this\./);
+    assert.match(text, /<attachment name="a.txt" mime="text\/plain">/);
+    assert.match(text, /alpha/);
+    assert.match(text, /<\/attachment>/);
+  } finally {
+    await handle?.dispose();
+    await fake.close();
+  }
+});
+
 test('OpenCode conversation adapter waits for SSE open before prompt dispatch', async () => {
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
   const workspacePath = path.join(os.tmpdir(), 'opencode-adapter-wait-sse');
