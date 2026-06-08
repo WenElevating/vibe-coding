@@ -2817,7 +2817,7 @@ void main() {
     await controller.connect();
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('workspace-list')), findsNothing);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
     expect(find.byType(BottomNav), findsOneWidget);
     expect(find.text('Home'), findsNothing);
     expect(find.text('Coding'), findsOneWidget);
@@ -7415,7 +7415,10 @@ void main() {
                     statusText: zh.workbenchPendingWaitingNextEvent)))));
     await tester.pump();
 
-    expect(find.text('酝酿中...'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is SweepingStatusText && widget.text == '酝酿中...'),
+        findsOneWidget);
     expect(find.text('正在等待下一个事件...'), findsNothing);
     expect(find.byType(SweepingStatusText), findsOneWidget);
 
@@ -7433,7 +7436,10 @@ void main() {
 
     await tester.pump(const Duration(seconds: 5));
 
-    expect(find.text('正在推演下一步...'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is SweepingStatusText && widget.text == '正在推演下一步...'),
+        findsOneWidget);
   });
 
   testWidgets('pending sentinel resumes elapsed time from stable start',

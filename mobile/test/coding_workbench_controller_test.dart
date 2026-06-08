@@ -88,7 +88,7 @@ void main() {
       adapter: 'codex',
     );
 
-    expect(viewModel.selectedAdapter, 'codex');
+    expect(viewModel.selectedAdapter, 'claude');
 
     viewModel.openSession(SessionItem(
       run: WorkbenchViewModel.runSummaryFromConversation(conversation),
