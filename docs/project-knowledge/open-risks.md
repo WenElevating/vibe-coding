@@ -357,6 +357,27 @@
   dispatch failures rather than retryable pending responses.
 - Last verified: 2026-06-10
 
+## Risk: Conversation Control State Can Drift From Failed Persistence
+
+- Level: medium
+- Impact: live conversation controls such as permission mode changes can update
+  daemon memory or provider state before the corresponding conversation record
+  is durably saved. If the save fails and in-memory state is not restored, later
+  summaries can report a setting that the failed request did not commit.
+- Evidence: `daemon/src/conversation-manager.js` restores the previous
+  permission-mode triple when `updatePermissionMode` persistence fails, and
+  treats the follow-up `status_changed` notification as best-effort after the
+  state has been committed.
+  `scripts/run-tests.js` covers permission-mode persistence failure restoring
+  `permissionMode`, `requestedPermissionMode`, and `effectivePermissionMode`,
+  plus status event append failure preserving the committed mode while recording
+  an audit entry.
+- Mitigation: for conversation controls that persist manager-owned state,
+  snapshot the previous public state before mutation. Roll back on persistence
+  failure; once persistence succeeds, do not fail the user request solely
+  because an auxiliary notification event could not be appended.
+- Last verified: 2026-06-10
+
 ## Risk: Non-Current Approval Events Can Corrupt Mobile Waiting State
 
 - Level: medium

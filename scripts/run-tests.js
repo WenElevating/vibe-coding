@@ -14335,6 +14335,49 @@ test('PATCH conversation model event append failure keeps persisted model', asyn
   assert.equal(auditLog.list().some((record) => record.type === 'conversation.model_change_event_error'), true);
 });
 
+test('PATCH conversation permission mode persistence failure restores in-memory mode and skips event', async () => {
+  const { manager, device } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+  const originalPersist = manager.persistConversation.bind(manager);
+  manager.persistConversation = (item) => {
+    if (item.id === conversation.id && item.permissionMode === 'auto') throw new Error('persist failed');
+    originalPersist(item);
+  };
+
+  await assert.rejects(
+    () => manager.updatePermissionMode(conversation.id, { permissionMode: 'auto' }, device),
+    /persist failed/
+  );
+
+  assert.equal(internal.permissionMode, 'default');
+  assert.equal(internal.requestedPermissionMode, 'default');
+  assert.equal(internal.effectivePermissionMode, 'default');
+  assert.equal(
+    manager.listEvents(conversation.id, 0, device).some((event) =>
+      event.type === conversationEventTypes.STATUS_CHANGED && event.permissionMode === 'auto'),
+    false
+  );
+});
+
+test('PATCH conversation permission mode event append failure keeps persisted mode', async () => {
+  const { manager, device, auditLog } = createConversationManagerForTest();
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const originalAppend = manager.eventStore.append.bind(manager.eventStore);
+  manager.eventStore.append = (conversationId, type, payload) => {
+    if (conversationId === conversation.id && type === conversationEventTypes.STATUS_CHANGED && payload?.permissionMode === 'auto') {
+      throw new Error('event failed');
+    }
+    return originalAppend(conversationId, type, payload);
+  };
+
+  const updated = await manager.updatePermissionMode(conversation.id, { permissionMode: 'auto' }, device);
+
+  assert.equal(updated.effectivePermissionMode, 'auto');
+  assert.equal(manager.requireConversation(conversation.id, device).permissionMode, 'auto');
+  assert.equal(auditLog.list().some((record) => record.type === 'conversation.permission_mode_event_error'), true);
+});
+
 test('conversation manager titles from first user message and keeps it stable', async () => {
   const sent = [];
   const adapter = {

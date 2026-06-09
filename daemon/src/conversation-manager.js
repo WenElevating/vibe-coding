@@ -288,17 +288,36 @@ class ConversationManager {
     const conversation = this.requireConversation(conversationId, device);
     const input = normalizePermissionModeUpdate(payload);
     if ((conversation.permissionMode || 'default') === input.permissionMode) return publicConversation(conversation);
-    if (effectiveAdapterName(conversation) === 'claude' && conversation.handle && typeof conversation.handle.setPermissionMode === 'function') {
-      await conversation.handle.setPermissionMode(input.permissionMode);
+    const previousPermissionMode = {
+      permissionMode: conversation.permissionMode,
+      requestedPermissionMode: conversation.requestedPermissionMode,
+      effectivePermissionMode: conversation.effectivePermissionMode
+    };
+    try {
+      if (effectiveAdapterName(conversation) === 'claude' && conversation.handle && typeof conversation.handle.setPermissionMode === 'function') {
+        await conversation.handle.setPermissionMode(input.permissionMode);
+      }
+      conversation.permissionMode = input.permissionMode;
+      conversation.requestedPermissionMode = input.permissionMode;
+      conversation.effectivePermissionMode = input.permissionMode;
+      this.touch(conversation);
+    } catch (error) {
+      conversation.permissionMode = previousPermissionMode.permissionMode;
+      conversation.requestedPermissionMode = previousPermissionMode.requestedPermissionMode;
+      conversation.effectivePermissionMode = previousPermissionMode.effectivePermissionMode;
+      throw error;
     }
-    conversation.permissionMode = input.permissionMode;
-    conversation.requestedPermissionMode = input.permissionMode;
-    conversation.effectivePermissionMode = input.permissionMode;
-    this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, {
-      status: conversation.status,
-      permissionMode: input.permissionMode
-    });
+    try {
+      this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, {
+        status: conversation.status,
+        permissionMode: input.permissionMode
+      });
+    } catch (error) {
+      this.auditLog.record('conversation.permission_mode_event_error', {
+        conversationId: conversation.id,
+        error: error.message
+      });
+    }
     return publicConversation(conversation);
   }
 
