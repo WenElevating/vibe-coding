@@ -733,15 +733,37 @@ Map<String, Object?> _traceFrameMetadata(Object? raw) {
 }
 
 ConversationEvent? _eventFromFrame(Map<String, Object?> frame) {
+  final topic = frame['topic'];
+  if (topic != null && topic != NotificationProtocol.topicConversationEvents) {
+    return null;
+  }
   final payload = frame['payload'];
   if (payload is! Map) {
     return null;
   }
   try {
-    return ConversationEvent.fromJson(Map<String, Object?>.from(payload));
+    final event = ConversationEvent.fromJson(
+      Map<String, Object?>.from(payload),
+    );
+    final scopedConversationId = _conversationIdFromFrameScope(frame);
+    if (scopedConversationId != null &&
+        scopedConversationId != event.conversationId) {
+      return null;
+    }
+    return event;
   } catch (_) {
     return null;
   }
+}
+
+String? _conversationIdFromFrameScope(Map<String, Object?> frame) {
+  final scope = frame['scope'];
+  if (scope == null) return null;
+  if (scope is! Map) return '';
+  final conversationId = scope['conversationId'];
+  return conversationId is String && conversationId.isNotEmpty
+      ? conversationId
+      : '';
 }
 
 String _conversationEventCorrelationId(ConversationEvent event) =>

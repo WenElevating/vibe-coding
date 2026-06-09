@@ -206,6 +206,91 @@ void main() {
     await client.close();
   });
 
+  test('ignores event frames with mismatched scope and payload conversation',
+      () async {
+    final socket = FakeNotificationSocket();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(
+        connector: (_, __) async => socket,
+        reconnectDelays: const <Duration>[Duration(milliseconds: 1)],
+      ),
+    );
+
+    final conv1Events = <ConversationEvent>[];
+    final conv2Events = <ConversationEvent>[];
+    final conv1Subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(conv1Events.add);
+    final conv2Subscription = client
+        .watchConversationEvents('conv_2', afterSeq: 7)
+        .listen(conv2Events.add);
+
+    await waitFor(() => socket.sentJson.length == 2);
+    socket.serverAddJson(<String, Object?>{
+      'type': 'event',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'seq': 8,
+      'payload': <String, Object?>{
+        'seq': 8,
+        'conversationId': 'conv_2',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-23T05:18:14.000Z',
+        'text': 'wrong route',
+      },
+    });
+    await pumpEventQueue();
+
+    expect(conv1Events, isEmpty);
+    expect(conv2Events, isEmpty);
+
+    await conv1Subscription.cancel();
+    await conv2Subscription.cancel();
+    await client.close();
+  });
+
+  test('ignores event frames for unsupported topics', () async {
+    final socket = FakeNotificationSocket();
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (_, {required afterSeq}) async => <ConversationEvent>[],
+      config: NotificationClientConfig(
+        connector: (_, __) async => socket,
+        reconnectDelays: const <Duration>[Duration(milliseconds: 1)],
+      ),
+    );
+
+    final events = <ConversationEvent>[];
+    final subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 7)
+        .listen(events.add);
+
+    await waitFor(() => socket.sentJson.isNotEmpty);
+    socket.serverAddJson(<String, Object?>{
+      'type': 'event',
+      'topic': 'other.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'seq': 8,
+      'payload': <String, Object?>{
+        'seq': 8,
+        'conversationId': 'conv_1',
+        'type': 'assistant.message',
+        'createdAt': '2026-05-23T05:18:14.000Z',
+        'text': 'wrong topic',
+      },
+    });
+    await pumpEventQueue();
+
+    expect(events, isEmpty);
+
+    await subscription.cancel();
+    await client.close();
+  });
+
   test(
       'reconnects and resubscribes from backfill cursor after replay truncated',
       () async {

@@ -190,6 +190,26 @@
   serialization path as writes.
 - Last verified: 2026-06-09
 
+## Risk: Notification Event Frames Need Scope-Payload Agreement
+
+- Level: medium
+- Impact: mobile multiplexes multiple conversation subscriptions over one
+  WebSocket. If a malformed event frame is routed only by payload
+  `conversationId`, a frame whose `scope.conversationId` names one
+  conversation but whose payload names another can be delivered to the wrong
+  watcher.
+- Evidence: daemon `notification-protocol.createEventFrame` carries both
+  `scope` and `payload`, and `daemon/src/notification-hub.js` creates live
+  frames from the same event conversation id. Mobile
+  `mobile/lib/src/services/daemon_notification_client.dart` now ignores event
+  frames for unsupported topics and rejects frames whose explicit scope
+  conversation id does not match the parsed payload. `mobile/test/daemon_notification_client_test.dart`
+  covers mismatched scope/payload and unsupported-topic frames.
+- Mitigation: keep daemon event-frame construction and mobile frame parsing in
+  agreement. Treat `scope` and payload identity as a consistency check before
+  delivery to a watcher.
+- Last verified: 2026-06-09
+
 ## Risk: Approval Response Options Need Daemon-Side Enforcement
 
 - Level: medium
