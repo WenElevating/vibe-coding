@@ -385,8 +385,8 @@ class CachedConversationRepository extends ChangeNotifier
         _conversations.indexWhere((item) => item.id == event.conversationId);
     if (index < 0) return;
     final current = _conversations[index];
-    final nextStatus =
-        _statusFromConversationEvent(event, current.blockingItem);
+    final nextStatus = _statusFromConversationEvent(
+        event, current.status, current.blockingItem);
     if (nextStatus == null) return;
     final updated = _copyConversationStatus(
       current,
@@ -404,6 +404,7 @@ class CachedConversationRepository extends ChangeNotifier
 
   String? _statusFromConversationEvent(
     ConversationEvent event,
+    String? currentStatus,
     ConversationBlockingItem? blockingItem,
   ) {
     if (event.type == 'conversation.status_changed') {
@@ -417,6 +418,9 @@ class CachedConversationRepository extends ChangeNotifier
     if (event.type == 'assistant.question') return 'waiting_input';
     if (event.type == 'approval.requested') return 'waiting_approval';
     if (event.type == 'approval.resolved') {
+      if (!conversationStatusCanResumeAfterApprovalResolution(currentStatus)) {
+        return null;
+      }
       if (blockingItem != null) {
         return blockingItem.type == 'approval_request' &&
                 event.approvalId != null &&

@@ -256,22 +256,26 @@
   remains the active blocking item. If mobile summary caches or transcript
   reducers treat every resolved/cancelled approval as the active one, the
   conversation can appear `running` while the daemon is still waiting for user
-  approval.
+  approval, or a late approval echo can resurrect an already terminal
+  conversation.
 - Evidence:
   `mobile/lib/src/data/repositories/cached_conversation_repository.dart` only
-  maps `approval.resolved` to `running` when it matches the current cached
+  maps `approval.resolved` to `running` when the current cached status can
+  resume from an approval response and the event matches the current cached
   blocking item, and
   `mobile/lib/src/ui/features/workbench/conversation_reducer.dart` only clears
-  waiting status when the resolved/cancelled event matches a pending blocking
-  message. `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
+  waiting status when the current reducer status can resume and the
+  resolved/cancelled event matches a pending blocking message.
+  `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
   applies the same correlation before updating the active conversation summary.
   `mobile/test/cached_connected_repositories_test.dart`,
   `mobile/test/conversation_reducer_test.dart`, and
   `mobile/test/coding_workbench_controller_test.dart` cover non-current
-  approval resolution preserving `waiting_approval`.
+  approval resolution preserving `waiting_approval` and late approval
+  resolution preserving terminal `idle`.
 - Mitigation: correlate blocking-state transitions by current approval/question
-  id before changing mobile status. Do not infer state solely from event type
-  when queued provider events are possible.
+  id and resumable current status before changing mobile status. Do not infer
+  state solely from event type when queued or late provider events are possible.
 - Last verified: 2026-06-09
 
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics

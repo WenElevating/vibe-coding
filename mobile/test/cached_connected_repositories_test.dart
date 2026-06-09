@@ -540,6 +540,38 @@ void main() {
       expect(repository.conversations.single.status, 'idle');
     });
 
+    test('late approval resolution does not reactivate terminal conversation',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(id: 'c1', status: 'running'),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 1,
+          type: 'conversation.completed',
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 2,
+          type: 'approval.resolved',
+          approvalId: 'approval_late',
+          raw: const <String, Object?>{'decision': 'deny'},
+        ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'idle');
+      expect(repository.conversations.single.blockingItem, isNull);
+    });
+
     test('streamed blocking cancellations clear cached conversation status',
         () async {
       final delegate = _FakeConversationRepository(

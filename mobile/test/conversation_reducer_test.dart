@@ -1204,6 +1204,33 @@ void main() {
         hasLength(1));
   });
 
+  test('late approval resolution preserves terminal conversation status', () {
+    final terminal = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'conversation.completed',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+      }),
+    ]);
+    final afterLateApproval = terminal.apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'approval.resolved',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'ap_late',
+        'decision': 'deny'
+      }),
+    ]);
+
+    expect(afterLateApproval.status, 'idle');
+    expect(
+        afterLateApproval.messages
+            .where((message) => message.role == 'approval'),
+        isEmpty);
+  });
+
   test('approval requested message preserves approval options', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

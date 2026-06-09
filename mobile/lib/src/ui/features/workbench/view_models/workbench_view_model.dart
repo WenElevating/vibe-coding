@@ -1524,6 +1524,9 @@ class WorkbenchViewModel extends ChangeNotifier {
         approvalOptions: event.approvalOptions,
       );
     } else if (event.type == 'approval.resolved') {
+      if (!conversationStatusCanResumeAfterApprovalResolution(status)) {
+        return;
+      }
       if (blockingItem == null) {
         status = 'running';
       } else if (blockingItem.type == 'approval_request' &&

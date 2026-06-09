@@ -635,6 +635,33 @@ void main() {
     expect(viewModel.isTerminalConversation, isTrue);
   });
 
+  test('late approval resolution does not reactivate terminal conversation',
+      () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(seq: 1, type: 'conversation.completed'),
+        _event(
+          seq: 2,
+          type: 'approval.resolved',
+          approvalId: 'approval_late',
+          raw: const <String, Object?>{'decision': 'deny'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'idle');
+    expect(viewModel.effectiveConversationStatus, 'idle');
+    expect(viewModel.isTerminalConversation, isTrue);
+  });
+
   test('committed attachment event binds cache identity', () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',

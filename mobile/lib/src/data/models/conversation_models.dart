@@ -7,6 +7,12 @@ bool conversationEventCompletesTurn(ConversationEvent event) {
   return event.raw['turnFinal'] != false;
 }
 
+bool conversationStatusCanResumeAfterApprovalResolution(String? status) {
+  return status == 'sending' ||
+      status == 'running' ||
+      status == 'waiting_approval';
+}
+
 bool conversationBlockingItemMatchesCancellation(
   ConversationBlockingItem? blockingItem,
   ConversationEvent event,

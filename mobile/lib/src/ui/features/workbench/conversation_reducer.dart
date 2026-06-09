@@ -299,8 +299,9 @@ class ConversationViewState {
                       startedAt: event.createdAt));
             }
           }
-          if (resolvedPendingApproval ||
-              !_hasPendingBlockingMessages(nextMessages)) {
+          if (conversationStatusCanResumeAfterApprovalResolution(nextStatus) &&
+              (resolvedPendingApproval ||
+                  !_hasPendingBlockingMessages(nextMessages))) {
             nextStatus = 'running';
           }
           break;
