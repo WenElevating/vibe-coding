@@ -226,7 +226,7 @@ class ApprovalNotificationHandler {
     final extraCount = approvals.length - 1;
     final body = extraCount <= 0
         ? latest.body
-        : '${latest.body}\n+$extraCount more approvals waiting';
+        : '${latest.body}\n${_additionalApprovalsBody(latest, extraCount)}';
     return ApprovalNotificationDisplay(
       id: approvalNotificationIdForConversation(conversationId),
       title: latest.title,
@@ -235,6 +235,15 @@ class ApprovalNotificationHandler {
       conversationId: latest.conversationId,
       approvalId: latest.approvalId,
     );
+  }
+
+  String _additionalApprovalsBody(
+    MobileApprovalRequested latest,
+    int extraCount,
+  ) {
+    final localized = latest.additionalApprovalsBody?.call(extraCount).trim();
+    if (localized != null && localized.isNotEmpty) return localized;
+    return '+$extraCount more approvals waiting';
   }
 }
 

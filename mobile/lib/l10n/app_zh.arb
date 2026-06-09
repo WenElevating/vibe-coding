@@ -299,6 +299,14 @@
   "notificationsTabUnread": "未读",
   "notificationsTabMentions": "提及我",
   "notificationsApprovalRequired": "需要审批",
+  "notificationsAdditionalApprovalsWaiting": "还有 {count} 个审批待处理",
+  "@notificationsAdditionalApprovalsWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "notificationsRequestModify": "Claude Code 请求修改\nlib/services/auth_service.dart",
   "notificationsTaskComplete": "任务完成",
   "notificationsRunCompletedDuration": "为用户服务添加单元测试\n运行完成，用时 28m 15s",

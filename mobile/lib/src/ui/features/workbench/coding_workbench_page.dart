@@ -1554,6 +1554,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           title: l10n.notificationsApprovalRequired,
           body: body,
           createdAt: event.createdAt,
+          additionalApprovalsBody: l10n.notificationsAdditionalApprovalsWaiting,
           conversationTitle: conversation?.title,
           toolName: event.toolName,
           summary: event.summary,

@@ -152,6 +152,25 @@
   `ApprovalRequestOptions` before submit.
 - Last verified: 2026-06-09
 
+## Risk: Service-Layer Notification Copy Can Bypass Localization
+
+- Level: medium
+- Impact: mobile service classes do not have `BuildContext` or locale access.
+  If they synthesize user-visible notification text directly, paired devices in
+  non-English locales can receive mixed-language approval notifications.
+- Evidence:
+  `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` injects the
+  localized additional-approval formatter from `AppLocalizations`, while
+  `mobile/lib/src/services/approval_notification_handler.dart` only composes
+  notification bodies from event-provided localized strings.
+  `mobile/test/approval_notification_handler_test.dart` covers grouped
+  background approvals using localized extra-count copy.
+- Mitigation: keep user-visible system notification strings generated in UI or
+  localization-aware composition code, then pass them through event/service
+  contracts. Do not add hardcoded English notification body suffixes in
+  services.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
 
 - Level: medium

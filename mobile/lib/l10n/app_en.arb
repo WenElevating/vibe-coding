@@ -299,6 +299,14 @@
   "notificationsTabUnread": "Unread",
   "notificationsTabMentions": "@me",
   "notificationsApprovalRequired": "Approval required",
+  "notificationsAdditionalApprovalsWaiting": "+{count} more approvals waiting",
+  "@notificationsAdditionalApprovalsWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "notificationsRequestModify": "Claude Code requests changes\nlib/services/auth_service.dart",
   "notificationsTaskComplete": "Task complete",
   "notificationsRunCompletedDuration": "Add unit tests for user service\nRun completed, duration 28m 15s",

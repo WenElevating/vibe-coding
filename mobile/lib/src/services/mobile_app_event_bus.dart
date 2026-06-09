@@ -4,6 +4,8 @@ abstract class MobileAppEvent {
   const MobileAppEvent();
 }
 
+typedef MobileApprovalExtraBodyBuilder = String Function(int count);
+
 class MobileApprovalRequested extends MobileAppEvent {
   const MobileApprovalRequested({
     required this.workspaceId,
@@ -12,6 +14,7 @@ class MobileApprovalRequested extends MobileAppEvent {
     required this.title,
     required this.body,
     required this.createdAt,
+    this.additionalApprovalsBody,
     this.conversationTitle,
     this.toolName,
     this.summary,
@@ -23,6 +26,7 @@ class MobileApprovalRequested extends MobileAppEvent {
   final String title;
   final String body;
   final DateTime createdAt;
+  final MobileApprovalExtraBodyBuilder? additionalApprovalsBody;
   final String? conversationTitle;
   final String? toolName;
   final String? summary;

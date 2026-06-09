@@ -71,6 +71,36 @@ void main() {
     await bus.dispose();
   });
 
+  test('background grouped approvals use localized extra count copy', () async {
+    final bus = MobileAppEventBus();
+    final presenter = _FakeApprovalNotificationPresenter();
+    final handler = ApprovalNotificationHandler(
+      eventBus: bus,
+      presenter: presenter,
+      initialLifecycleState: AppLifecycleState.paused,
+    );
+
+    bus
+      ..publish(_approvalRequested(
+        approvalId: 'ap_1',
+        body: '运行 git status',
+        createdAt: DateTime.utc(2026, 5, 31, 12),
+        additionalApprovalsBody: (count) => '还有 $count 个审批待处理',
+      ))
+      ..publish(_approvalRequested(
+        approvalId: 'ap_2',
+        body: '运行 npm test',
+        createdAt: DateTime.utc(2026, 5, 31, 12, 1),
+        additionalApprovalsBody: (count) => '还有 $count 个审批待处理',
+      ));
+    await _flushAsync();
+
+    expect(presenter.shown.last.body, '运行 npm test\n还有 1 个审批待处理');
+
+    await handler.dispose();
+    await bus.dispose();
+  });
+
   test('pending foreground approval is shown once after entering background',
       () async {
     final bus = MobileAppEventBus();
@@ -181,15 +211,18 @@ void main() {
 MobileApprovalRequested _approvalRequested({
   String approvalId = 'ap_1',
   String conversationId = 'conv_1',
+  String body = 'Bash: git status',
   DateTime? createdAt,
+  String Function(int count)? additionalApprovalsBody,
 }) =>
     MobileApprovalRequested(
       workspaceId: 'ws_1',
       conversationId: conversationId,
       approvalId: approvalId,
       title: 'Approval required',
-      body: 'Bash: git status',
+      body: body,
       createdAt: createdAt ?? DateTime.utc(2026, 5, 31, 12),
+      additionalApprovalsBody: additionalApprovalsBody,
     );
 
 Future<void> _flushAsync() => Future<void>.delayed(Duration.zero);
