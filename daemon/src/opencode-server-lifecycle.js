@@ -585,10 +585,19 @@ function normalizeExternalUrl(value) {
 }
 
 function assertHealthyResponse(value) {
-  if (!value || typeof value !== 'object' || value.ok !== false) return;
-  throw createLifecycleError('OpenCode server health check reported unavailable', {
+  const healthy = safeOwnDataValue(value, 'healthy');
+  const ok = safeOwnDataValue(value, 'ok');
+  if (healthy === false || ok === false) {
+    throw createLifecycleHealthError('health_not_ok');
+  }
+  if (healthy === true || ok === true) return;
+  throw createLifecycleHealthError('health_malformed');
+}
+
+function createLifecycleHealthError(reason) {
+  return createLifecycleError('OpenCode server health check reported unavailable', {
     code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
-    details: { reason: 'health_not_ok' }
+    details: { reason }
   });
 }
 

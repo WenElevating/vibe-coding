@@ -4654,7 +4654,7 @@ test('OpenCode server lifecycle external mode health-checks URL without spawning
         serverUrl,
         async health() {
           healthCalls.push(serverUrl);
-          return { ok: true };
+          return { healthy: true };
         }
       };
       clients.push(client);
@@ -4702,6 +4702,47 @@ test('OpenCode server lifecycle external mode health-checks URL without spawning
     assert.equal(JSON.stringify(error.details).includes('x'.repeat(1000)), false);
     return true;
   });
+});
+
+test('OpenCode server lifecycle rejects malformed successful health bodies', async () => {
+  const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
+  const secretPath = path.join(os.tmpdir(), 'opencode-health-getter-secret', 'health.txt');
+  const healthBody = { version: 'not-enough-to-prove-health' };
+  Object.defineProperty(healthBody, 'ok', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe ok getter leaked ${secretPath}`);
+    }
+  });
+  Object.defineProperty(healthBody, 'healthy', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe healthy getter leaked ${secretPath}`);
+    }
+  });
+  let healthCalls = 0;
+  const lifecycle = new OpenCodeServerLifecycle({
+    externalUrl: 'http://127.0.0.1:45770',
+    spawnFn: () => {
+      throw new Error('external mode must not spawn');
+    },
+    clientFactory: () => ({
+      async health() {
+        healthCalls += 1;
+        return healthBody;
+      }
+    })
+  });
+
+  await assert.rejects(() => lifecycle.ensureStarted(), (error) => {
+    assert.equal(error.code, 'OPENCODE_SERVER_UNAVAILABLE');
+    assert.equal(error.details.cause.code, 'OPENCODE_SERVER_HEALTH_UNAVAILABLE');
+    assert.equal(error.details.cause.details.reason, 'health_malformed');
+    assert.equal(JSON.stringify(error.details).includes(secretPath), false);
+    return true;
+  });
+  assert.equal(healthCalls, 1);
+  assert.equal(lifecycle.getDiagnostics().status, 'failed');
 });
 
 test('OpenCode server lifecycle external mode rejects ok false health body', async () => {
