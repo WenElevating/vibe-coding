@@ -670,6 +670,7 @@ function normalizeId(raw, keys, nestedKeys = ['id']) {
 
 function normalizeIdValue(value) {
   if (typeof value === 'string' && value.trim()) return boundedProviderString(value.trim());
+  if (typeof value === 'number' && Number.isFinite(value)) return boundedProviderString(String(value));
   return null;
 }
 

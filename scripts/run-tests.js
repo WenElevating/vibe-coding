@@ -708,6 +708,27 @@ test('OpenCode event mapper accepts nested session id aliases', () => {
   assert.equal(updated.sessionId, 'sess_snake');
 });
 
+test('OpenCode event mapper normalizes numeric provider ids', () => {
+  const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
+  const delta = mapOpenCodeEvent({
+    type: 'message.part.delta',
+    sessionID: 123,
+    text: 'numeric session id'
+  });
+  const permission = mapOpenCodeEvent({
+    type: 'permission.asked',
+    sessionID: 123,
+    id: 456,
+    command: 'npm test'
+  });
+
+  assert.equal(delta.type, conversationEventTypes.ASSISTANT_PARTIAL);
+  assert.equal(delta.sessionId, '123');
+  assert.equal(permission.type, conversationEventTypes.APPROVAL_REQUESTED);
+  assert.equal(permission.sessionId, '123');
+  assert.equal(permission.approvalId, '456');
+});
+
 test('OpenCode session lifecycle notices redact path-like metadata', () => {
   const { mapOpenCodeEvent } = require('../daemon/src/opencode-event-mapper');
   const outsideDir = path.join(os.tmpdir(), 'opencode-secret');
@@ -3707,6 +3728,55 @@ test('OpenCode conversation adapter filters SSE events to active session', async
     await handle?.dispose();
     await fake.close();
   }
+});
+
+test('OpenCode conversation adapter forwards numeric provider session ids', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-numeric-session-id');
+  const events = [];
+  let eventHandler = null;
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535',
+          owned: false,
+          client: {
+            async createSession() {
+              return { id: 123, directory: workspacePath };
+            },
+            subscribeEvents(onEvent) {
+              eventHandler = onEvent;
+              return {
+                opened: Promise.resolve({ ok: true }),
+                close() {}
+              };
+            },
+            async promptAsync() {}
+          }
+        };
+      }
+    }
+  });
+  const handle = await adapter.startConversation({
+    conversationId: 'conv_opencode_numeric_session_id',
+    workspacePath,
+    onEvent: (event) => events.push(event)
+  });
+  try {
+    eventHandler({ type: 'message.part.delta', sessionID: 123, text: 'numeric session id' });
+  } finally {
+    await handle.dispose();
+  }
+
+  assert.deepEqual(
+    events.filter((event) => event.type === conversationEventTypes.ASSISTANT_PARTIAL).map((event) => ({
+      sessionId: event.sessionId,
+      text: event.text
+    })),
+    [{ sessionId: '123', text: 'numeric session id' }]
+  );
 });
 
 test('OpenCode conversation adapter handles unsafe event session getters', async () => {

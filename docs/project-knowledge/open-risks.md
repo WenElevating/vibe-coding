@@ -380,8 +380,10 @@
 - Evidence: `daemon/src/opencode-conversation-adapter.js` extracts nested
   `session.id`, `session.sessionId`, `session.sessionID`, and
   `session.session_id`; `daemon/src/opencode-event-mapper.js` now normalizes the
-  same nested aliases. `scripts/run-tests.js` covers nested `session.sessionID`
-  on `message.part.delta` and nested `session.session_id` on `session.updated`.
+  same nested aliases and finite numeric provider ids. `scripts/run-tests.js`
+  covers nested `session.sessionID` on `message.part.delta`, nested
+  `session.session_id` on `session.updated`, direct numeric session ids through
+  the conversation adapter, and numeric permission ids through the mapper.
   `daemon/src/conversation-manager.js` drops drifted-session events after
   recording a `session_id_drift` warning so a providerSession from the wrong
   session cannot overwrite the current conversation binding.
