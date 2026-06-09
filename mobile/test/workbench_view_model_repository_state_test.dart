@@ -388,18 +388,18 @@ void main() {
               events: <ConversationEvent>[
                 for (var i = 0; i < 80; i++)
                   _event(
-                    seq: 87 + page * 80 + i,
+                    seq: 247 - page * 80 + i,
                     type: 'assistant.partial',
-                    text: 'tail partial ${87 + page * 80 + i}',
+                    text: 'tail partial ${247 - page * 80 + i}',
                   ),
                 _event(
-                  seq: 167 + page * 80,
+                  seq: 327 - page * 80,
                   type: 'assistant.message',
-                  text: page == 2 ? 'final answer' : 'intermediate answer',
+                  text: page == 0 ? 'final answer' : 'intermediate answer',
                 ),
               ],
-              oldestSeq: 87 + page * 80,
-              newestSeq: 167 + page * 80,
+              oldestSeq: 247 - page * 80,
+              newestSeq: 327 - page * 80,
               hasMoreBefore: true,
             ),
           ConversationEventPage(
@@ -447,6 +447,31 @@ void main() {
           containsAllInOrder(const <String>['first prompt', 'pwd']));
       expect(viewModel.messages.last.body, 'final answer');
       expect(viewModel.oldestLoadedConversationSeq, 1);
+      expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
+    });
+
+    test('initial event page stops when older page does not advance cursor',
+        () async {
+      final workspaceRepository = _FakeWorkspaceRepository(
+        workspaces: const <WorkspaceSummary>[
+          WorkspaceSummary(id: 'w1', name: 'One', path: r'D:\one'),
+        ],
+      );
+      final conversationRepository = _RepeatingConversationPageRepository();
+      final viewModel = _workbenchViewModel(
+        workspaceRepository,
+        conversationRepository: conversationRepository,
+      );
+
+      await viewModel.loadInitialConversationEventPage(
+        conversationId: 'c1',
+        limit: 1,
+        streamOutput: false,
+      );
+
+      expect(conversationRepository.fetchPageCalls, 2);
+      expect(viewModel.conversationEvents.map((event) => event.seq),
+          const <int>[5]);
       expect(viewModel.hasMoreHistoricalConversationEvents, isFalse);
     });
 
@@ -914,6 +939,31 @@ class _FakeCachedConversationRepository extends CachedConversationRepository {
   ) async {
     respondedApprovalIds.add(approvalId);
     return _conversation(id: conversationId, workspaceId: 'w1');
+  }
+}
+
+class _RepeatingConversationPageRepository
+    extends _FakeCachedConversationRepository {
+  int fetchPageCalls = 0;
+
+  @override
+  Future<ConversationEventPage> fetchConversationEventPage(
+    String conversationId, {
+    int? beforeSeq,
+    required int limit,
+  }) async {
+    fetchPageCalls += 1;
+    if (fetchPageCalls > 3) {
+      throw StateError('history cursor did not advance');
+    }
+    return ConversationEventPage(
+      events: <ConversationEvent>[
+        _event(seq: 5, type: 'assistant.message', text: 'same page'),
+      ],
+      oldestSeq: 5,
+      newestSeq: 5,
+      hasMoreBefore: true,
+    );
   }
 }
 

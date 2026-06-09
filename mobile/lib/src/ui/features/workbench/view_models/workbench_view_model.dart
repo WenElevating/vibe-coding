@@ -1240,11 +1240,19 @@ class WorkbenchViewModel extends ChangeNotifier {
           _notifyListeners();
           break;
         }
+        final olderOldestSeq =
+            olderPage.oldestSeq ?? olderPage.events.first.seq;
+        if (olderOldestSeq >= beforeSeq) {
+          _hasMoreHistoricalConversationEvents = false;
+          _loadingOlderConversationEvents = false;
+          _notifyListeners();
+          break;
+        }
         final merged =
             _mergeConversationEventPages(olderPage.events, page.events);
         page = ConversationEventPage(
           events: merged,
-          oldestSeq: olderPage.oldestSeq ?? merged.first.seq,
+          oldestSeq: olderOldestSeq,
           newestSeq: page.newestSeq ?? merged.last.seq,
           hasMoreBefore: olderPage.hasMoreBefore,
         );
@@ -1310,10 +1318,17 @@ class WorkbenchViewModel extends ChangeNotifier {
         _notifyListeners();
         return false;
       }
+      final pageOldestSeq = page.oldestSeq ?? page.events.first.seq;
+      if (pageOldestSeq >= beforeSeq) {
+        _hasMoreHistoricalConversationEvents = false;
+        _loadingOlderConversationEvents = false;
+        _notifyListeners();
+        return false;
+      }
       final historicalEvents = _compactHistoricalConversationEvents(
         page.events,
       );
-      _oldestLoadedConversationSeq = page.oldestSeq ?? page.events.first.seq;
+      _oldestLoadedConversationSeq = pageOldestSeq;
       _hasMoreHistoricalConversationEvents = page.hasMoreBefore;
       _replaceConversationEventWindow(
         _mergeConversationEventWindow(historicalEvents),

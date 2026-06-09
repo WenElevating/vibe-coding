@@ -210,6 +210,26 @@
   delivery to a watcher.
 - Last verified: 2026-06-09
 
+## Risk: Workbench History Pagination Requires Cursor Progress
+
+- Level: medium
+- Impact: the Workbench initial history loader follows `hasMoreBefore` to pull
+  enough older events for useful context. If a cache or daemon response repeats
+  the same oldest sequence while still reporting `hasMoreBefore: true`, the
+  loader can keep requesting older pages and never finish opening the
+  conversation.
+- Evidence:
+  `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
+  stops initial expansion and manual older-page loading when the returned
+  oldest sequence does not move below the requested `beforeSeq`.
+  `mobile/test/workbench_view_model_repository_state_test.dart` covers a
+  repeated-page response and keeps dense partial-history expansion fixtures in
+  realistic newest-to-oldest page order.
+- Mitigation: maintain the invariant that every `beforeSeq` page either returns
+  no events, reports no more history, or advances the oldest loaded sequence
+  lower than the requested cursor.
+- Last verified: 2026-06-09
+
 ## Risk: Approval Response Options Need Daemon-Side Enforcement
 
 - Level: medium
