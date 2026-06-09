@@ -276,6 +276,9 @@ class ConversationViewState {
           nextStatus = 'waiting_approval';
           break;
         case 'approval.resolved':
+          final resolvedPendingApproval = nextMessages.any((message) =>
+              message.role == 'approval' &&
+              message.approvalId == event.approvalId);
           nextMessages.removeWhere((message) =>
               message.role == 'approval' &&
               message.approvalId == event.approvalId);
@@ -296,11 +299,22 @@ class ConversationViewState {
                       startedAt: event.createdAt));
             }
           }
-          nextStatus = 'running';
+          if (resolvedPendingApproval ||
+              !_hasPendingBlockingMessages(nextMessages)) {
+            nextStatus = 'running';
+          }
           break;
         case 'blocking.request_cancelled':
           final approvalId = event.approvalId;
           final questionId = event.questionId;
+          final cancelledPendingBlocking = nextMessages.any((message) =>
+              (approvalId != null &&
+                  message.role == 'approval' &&
+                  message.approvalId == approvalId) ||
+              (questionId != null &&
+                  (message.role == 'question' ||
+                      message.role == 'question_hidden') &&
+                  message.questionId == questionId));
           nextMessages.removeWhere((message) =>
               (approvalId != null &&
                   message.role == 'approval' &&
@@ -309,7 +323,10 @@ class ConversationViewState {
                   (message.role == 'question' ||
                       message.role == 'question_hidden') &&
                   message.questionId == questionId));
-          nextStatus = 'running';
+          if (cancelledPendingBlocking ||
+              !_hasPendingBlockingMessages(nextMessages)) {
+            nextStatus = 'running';
+          }
           break;
         case 'system.notice':
           if (event.raw['visible'] == false) break;
@@ -461,6 +478,13 @@ class ConversationViewState {
       pendingPartial: partial,
     );
   }
+}
+
+bool _hasPendingBlockingMessages(List<ConversationMessage> messages) {
+  return messages.any((message) =>
+      message.role == 'approval' ||
+      message.role == 'question' ||
+      message.role == 'question_hidden');
 }
 
 bool isHiddenSystemNotice(ConversationEvent event) {

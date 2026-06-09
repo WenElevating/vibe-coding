@@ -573,6 +573,41 @@ void main() {
       expect(repository.conversations.single.blockingItem, isNull);
     });
 
+    test('streamed non-current approval resolution preserves waiting status',
+        () async {
+      const blockingItem = ConversationBlockingItem(
+        type: 'approval_request',
+        approvalId: 'approval_current',
+      );
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(
+            id: 'c1',
+            status: 'waiting_approval',
+            blockingItem: blockingItem,
+          ),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate.emitConversationEvent(_conversationEvent(
+        conversationId: 'c1',
+        seq: 1,
+        type: 'approval.resolved',
+        approvalId: 'approval_queued',
+        raw: const <String, Object?>{'decision': 'deny'},
+      ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'waiting_approval');
+      expect(repository.conversations.single.blockingItem?.approvalId,
+          'approval_current');
+    });
+
     test('streamed waiting status preserves cached approval request', () async {
       final delegate = _FakeConversationRepository(
         conversations: <ConversationSummary>[

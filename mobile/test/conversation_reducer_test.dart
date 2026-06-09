@@ -1174,6 +1174,36 @@ void main() {
         isEmpty);
   });
 
+  test('non-current approval resolution preserves pending approval state', () {
+    final pending = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.requested',
+        'createdAt': '2026-05-03T00:00:00.000Z',
+        'approvalId': 'ap_current',
+        'toolName': 'Bash',
+        'summary': 'npm test'
+      }),
+    ]);
+    final afterQueuedResolved = pending.apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'approval.resolved',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'ap_queued',
+        'decision': 'deny'
+      }),
+    ]);
+
+    expect(afterQueuedResolved.status, 'waiting_approval');
+    expect(
+        afterQueuedResolved.messages.where((message) =>
+            message.role == 'approval' && message.approvalId == 'ap_current'),
+        hasLength(1));
+  });
+
   test('approval requested message preserves approval options', () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

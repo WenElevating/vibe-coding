@@ -1509,8 +1509,14 @@ class WorkbenchViewModel extends ChangeNotifier {
         approvalOptions: event.approvalOptions,
       );
     } else if (event.type == 'approval.resolved') {
-      status = 'running';
-      blockingItem = null;
+      if (blockingItem == null) {
+        status = 'running';
+      } else if (blockingItem.type == 'approval_request' &&
+          event.approvalId != null &&
+          event.approvalId == blockingItem.approvalId) {
+        status = 'running';
+        blockingItem = null;
+      }
     } else if (conversationBlockingItemMatchesCancellation(
         blockingItem, event)) {
       status = 'running';

@@ -416,7 +416,16 @@ class CachedConversationRepository extends ChangeNotifier
     if (event.type == 'run.error') return 'failed';
     if (event.type == 'assistant.question') return 'waiting_input';
     if (event.type == 'approval.requested') return 'waiting_approval';
-    if (event.type == 'approval.resolved') return 'running';
+    if (event.type == 'approval.resolved') {
+      if (blockingItem != null) {
+        return blockingItem.type == 'approval_request' &&
+                event.approvalId != null &&
+                event.approvalId == blockingItem.approvalId
+            ? 'running'
+            : null;
+      }
+      return 'running';
+    }
     if (conversationBlockingItemMatchesCancellation(blockingItem, event)) {
       return 'running';
     }

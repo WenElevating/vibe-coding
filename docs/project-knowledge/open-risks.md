@@ -189,6 +189,32 @@
   appending resolved events or calling adapter response methods.
 - Last verified: 2026-06-09
 
+## Risk: Non-Current Approval Events Can Corrupt Mobile Waiting State
+
+- Level: medium
+- Impact: daemon may append `approval.resolved` or
+  `blocking.request_cancelled` for a queued approval while another approval
+  remains the active blocking item. If mobile summary caches or transcript
+  reducers treat every resolved/cancelled approval as the active one, the
+  conversation can appear `running` while the daemon is still waiting for user
+  approval.
+- Evidence:
+  `mobile/lib/src/data/repositories/cached_conversation_repository.dart` only
+  maps `approval.resolved` to `running` when it matches the current cached
+  blocking item, and
+  `mobile/lib/src/ui/features/workbench/conversation_reducer.dart` only clears
+  waiting status when the resolved/cancelled event matches a pending blocking
+  message. `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
+  applies the same correlation before updating the active conversation summary.
+  `mobile/test/cached_connected_repositories_test.dart`,
+  `mobile/test/conversation_reducer_test.dart`, and
+  `mobile/test/coding_workbench_controller_test.dart` cover non-current
+  approval resolution preserving `waiting_approval`.
+- Mitigation: correlate blocking-state transitions by current approval/question
+  id before changing mobile status. Do not infer state solely from event type
+  when queued provider events are possible.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
 
 - Level: medium
