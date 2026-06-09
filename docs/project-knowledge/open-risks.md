@@ -237,10 +237,13 @@
 - Evidence: `daemon/src/opencode-server-lifecycle.js` requires an own
   `healthy: true` or `ok: true` health field, reads those fields through
   descriptor-safe accessors, and validates unhealthy or malformed bodies as
-  `OPENCODE_SERVER_HEALTH_UNAVAILABLE`; `scripts/run-tests.js` covers external
-  malformed-body rejection, unsafe health getters, and managed retry/cleanup
-  for false health bodies.
-- Mitigation: preserve semantic health validation in lifecycle code. Do not
-  replace it with transport-only success checks unless the provider contract is
-  re-smoked and tests are updated.
+  `OPENCODE_SERVER_HEALTH_UNAVAILABLE`; `daemon/src/opencode-adapter.js`
+  applies the same semantic check to its listing-time health probe instead of
+  trusting a lifecycle started state alone; `scripts/run-tests.js` covers
+  external malformed-body rejection, unsafe health getters, listing-time
+  unhealthy/malformed responses, and managed retry/cleanup for false health
+  bodies.
+- Mitigation: preserve semantic health validation in lifecycle and listing-time
+  health probe code. Do not replace it with transport-only success checks unless
+  the provider contract is re-smoked and tests are updated.
 - Last verified: 2026-06-09

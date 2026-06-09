@@ -60,6 +60,7 @@ class OpenCodeAdapter {
         });
       }
       const health = await started.client.health();
+      assertListingHealthResponse(health);
       const healthDiagnostics = listingHealthDiagnostics(health);
       this.capability = capability(true, 'available', null, {
         version: healthDiagnostics?.version || null,
@@ -358,11 +359,29 @@ function listingLifecycleDiagnostics(value) {
 function listingHealthDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
+  const healthy = safeOwnValue(value, 'healthy');
+  if (typeof healthy === 'boolean') result.healthy = healthy;
   const ok = safeOwnValue(value, 'ok');
   if (typeof ok === 'boolean') result.ok = ok;
   const version = safeDisplayString(safeOwnValue(value, 'version'));
   if (version) result.version = version;
   return Object.keys(result).length > 0 ? result : null;
+}
+
+function assertListingHealthResponse(value) {
+  const healthy = safeOwnValue(value, 'healthy');
+  const ok = safeOwnValue(value, 'ok');
+  if (healthy === false || ok === false) {
+    throw adapterError('OpenCode server health check reported unavailable', {
+      code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
+      details: { reason: 'health_not_ok' }
+    });
+  }
+  if (healthy === true || ok === true) return;
+  throw adapterError('OpenCode server health check reported unavailable', {
+    code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
+    details: { reason: 'health_malformed' }
+  });
 }
 
 function publicServerUrl(value) {

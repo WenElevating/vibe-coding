@@ -5957,6 +5957,61 @@ test('fake OpenCode server supports session, prompt, abort, permission, and SSE'
   }
 });
 
+test('OpenCode legacy adapter detects unhealthy listing health responses', async () => {
+  const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-legacy-listing-health-secret', 'health.txt');
+  const malformedHealth = { version: 'not-enough' };
+  Object.defineProperty(malformedHealth, 'healthy', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe healthy getter leaked ${secretPath}`);
+    }
+  });
+  Object.defineProperty(malformedHealth, 'ok', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe ok getter leaked ${secretPath}`);
+    }
+  });
+  const cases = [
+    ['explicit false', { healthy: false, version: 'unready' }],
+    ['malformed getter-backed body', malformedHealth]
+  ];
+
+  for (const [name, health] of cases) {
+    const adapter = new OpenCodeAdapter({
+      lifecycle: {
+        async ensureStarted() {
+          return {
+            mode: 'external',
+            serverUrl: 'http://127.0.0.1:65535?token=SECRET_QUERY',
+            owned: false,
+            client: {
+              async health() {
+                return health;
+              }
+            }
+          };
+        },
+        getDiagnostics() {
+          return { status: 'started', lastError: null };
+        }
+      }
+    });
+
+    const status = await adapter.detectCapabilities();
+    const publicText = JSON.stringify(status);
+
+    assert.equal(status.available, false, name);
+    assert.equal(status.selectable, false, name);
+    assert.equal(status.status, 'unavailable', name);
+    assert.equal(status.unavailableReason, 'OPENCODE_SERVER_HEALTH_UNAVAILABLE', name);
+    assert.deepEqual(status.diagnostics.cause, { code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE' }, name);
+    assert.equal(publicText.includes(secretPath), false, name);
+    assert.equal(publicText.includes('SECRET_QUERY'), false, name);
+  }
+});
+
 test('OpenCode legacy run waits for SSE open before prompt dispatch', async () => {
   const { OpenCodeAdapter } = require('../daemon/src/opencode-adapter');
   let resolveOpened = null;
