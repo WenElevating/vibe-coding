@@ -207,20 +207,23 @@
 - Evidence:
   `mobile/lib/src/data/services/conversation_event_cache_store.dart` validates
   stored `namespace` and `conversationId` against the requested cache key,
-  filters persisted events to the record conversation, and serializes
-  `clearConversation` with upserts.
+  filters persisted events to the record conversation, ignores page upserts
+  whose events all belong to other conversations before updating known-start
+  metadata, and serializes `clearConversation` with upserts.
   `mobile/lib/src/services/daemon_notification_client.dart` also filters REST
   backfill rows to the requested route conversation before delivering them to
   active watchers, so a scoped backfill response cannot inject events into a
   different conversation route.
   `mobile/test/conversation_event_cache_store_test.dart` covers mismatched
-  record identity deletion and clear-after-pending-write ordering;
+  record identity deletion, mismatched page events not marking known history
+  start, and clear-after-pending-write ordering;
   `mobile/test/daemon_notification_client_test.dart` covers scoped backfill
   ignoring events for other conversations.
 - Mitigation: keep the daemon as the authoritative event store, treat local
   cache files as untrusted, and keep destructive cache operations in the same
   serialization path as writes. Any scoped replay/backfill response must be
-  re-validated against its requested conversation before delivery.
+  re-validated against its requested conversation before delivery or cache
+  metadata updates.
 - Last verified: 2026-06-09
 
 ## Risk: Notification Event Frames Need Scope-Payload Agreement

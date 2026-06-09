@@ -160,16 +160,19 @@ class LocalConversationEventCacheStore implements ConversationEventCacheStore {
     String conversationId,
     ConversationEventPage page,
   ) {
-    if (page.events.isEmpty) return Future<void>.value();
+    final scopedEvents = page.events
+        .where((event) => event.conversationId == conversationId)
+        .toList(growable: false);
+    if (scopedEvents.isEmpty) return Future<void>.value();
     return _serialized(() async {
       final record = await _readRecord(namespace, conversationId) ??
           _ConversationEventCacheRecord.empty(namespace, conversationId);
       final updated = record.upsert(
-        page.events,
+        scopedEvents,
         updatedAt: _now().toUtc(),
         knownStartSeq: page.hasMoreBefore
             ? record.knownStartSeq
-            : page.oldestSeq ?? page.events.first.seq,
+            : page.oldestSeq ?? scopedEvents.first.seq,
       );
       await _writeRecord(updated);
     });

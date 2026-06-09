@@ -145,6 +145,34 @@ void main() {
     expect(page, isNull);
   });
 
+  test('ignores mismatched page events before marking known history start',
+      () async {
+    await store.upsertEvents('daemon', 'conv_1', <ConversationEvent>[
+      _event(seq: 10),
+    ]);
+    await store.upsertPage(
+      'daemon',
+      'conv_1',
+      ConversationEventPage(
+        events: <ConversationEvent>[
+          _event(conversationId: 'conv_2', seq: 10),
+        ],
+        oldestSeq: 10,
+        newestSeq: 10,
+        hasMoreBefore: false,
+      ),
+    );
+
+    final page = await store.readBefore(
+      'daemon',
+      'conv_1',
+      beforeSeq: 10,
+      limit: 80,
+    );
+
+    expect(page, isNull);
+  });
+
   test('corrupt cache file is ignored and removed', () async {
     final file = await _firstRecordFileAfterWrite(store, tempDir);
     await file.writeAsString('{not json');
