@@ -467,9 +467,26 @@ bool isHiddenSystemNotice(ConversationEvent event) {
   if (event.type != 'system.notice') return false;
   final noticeKind = '${event.raw['noticeKind'] ?? ''}'.toLowerCase();
   if (noticeKind == 'codex_unknown_event') return true;
+  if (event.raw['visible'] == true) return false;
+  if (_hiddenOpenCodeNoticeKinds.contains(noticeKind)) return true;
   final text = (event.text ?? event.summary ?? '').toLowerCase();
-  return text.startsWith('codex event:');
+  return text.startsWith('codex event:') || text.startsWith('opencode event:');
 }
+
+const Set<String> _hiddenOpenCodeNoticeKinds = <String>{
+  'opencode_unknown_event',
+  'opencode_hidden_event',
+  'opencode_session_created',
+  'opencode_session_started',
+  'opencode_session_resumed',
+  'opencode_session_updated',
+  'opencode_session_status',
+  'opencode_message_update',
+  'opencode_message_part_removed',
+  'opencode_message_removed',
+  'opencode_file_watcher_updated',
+  'opencode_project_updated',
+};
 
 Map<String, Object?> _noticeInput(ConversationEvent event) {
   final input = <String, Object?>{...event.input};

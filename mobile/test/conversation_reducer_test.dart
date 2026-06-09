@@ -472,6 +472,45 @@ void main() {
     expect(state.messages, isEmpty);
   });
 
+  test('ConversationViewState hides OpenCode provider lifecycle notices', () {
+    final state = const ConversationViewState().apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-06-09T00:00:00.000Z',
+        'text': 'OpenCode event: future.event',
+        'noticeKind': 'opencode_unknown_event'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 2,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-06-09T00:00:01.000Z',
+        'text': 'OpenCode event: message.part.delta',
+        'noticeKind': 'opencode_hidden_event'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 3,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-06-09T00:00:02.000Z',
+        'text': 'OpenCode event: session.updated'
+      }),
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 4,
+        'conversationId': 'conv_1',
+        'type': 'system.notice',
+        'createdAt': '2026-06-09T00:00:03.000Z',
+        'text': 'Session metadata refreshed',
+        'noticeKind': 'opencode_session_updated'
+      }),
+    ]);
+
+    expect(state.lastSeq, 4);
+    expect(state.messages, isEmpty);
+  });
+
   test('ConversationViewState promotes Codex file changes to diff messages',
       () {
     final state = const ConversationViewState().apply(<ConversationEvent>[
