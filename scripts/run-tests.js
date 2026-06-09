@@ -24936,6 +24936,31 @@ test('adapter capability listing isolates adapter detection failures', async () 
   assert.equal(listed[1].available, true);
 });
 
+test('adapter capability listing redacts sensitive detection failure diagnostics', async () => {
+  const secretPath = path.join(os.tmpdir(), 'opencode-secret-registry', 'capability.txt');
+  const registry = new AdapterRegistry([
+    {
+      name: 'opencode',
+      async detectCapabilities() {
+        throw new Error(`probe failed at ${secretPath}?token=TOP_SECRET with body TOP_SECRET`);
+      }
+    }
+  ]);
+
+  const [listed] = await registry.listCapabilities();
+  const publicText = JSON.stringify(listed);
+
+  assert.equal(listed.adapter, 'opencode');
+  assert.equal(listed.available, false);
+  assert.equal(listed.status, 'unavailable');
+  assert.match(listed.error, /Adapter capability detection failed/);
+  assert.equal(publicText.includes(secretPath), false);
+  assert.equal(publicText.includes(encodeURIComponent(secretPath)), false);
+  assert.equal(publicText.includes('opencode-secret-registry'), false);
+  assert.equal(publicText.includes('token='), false);
+  assert.equal(publicText.includes('TOP_SECRET'), false);
+});
+
 test('V1.3 diagnostic export is authenticated, redacted, and audited', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
