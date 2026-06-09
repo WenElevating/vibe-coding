@@ -1288,4 +1288,23 @@ void main() {
     expect(cancelled.messages.where((message) => message.role == 'question'),
         isEmpty);
   });
+
+  test('ConversationViewState ignores cancellation for non-pending blocking id',
+      () {
+    final state = const ConversationViewState(status: 'idle').apply(
+      <ConversationEvent>[
+        ConversationEvent.fromJson(const <String, Object?>{
+          'seq': 1,
+          'conversationId': 'conv_1',
+          'type': 'blocking.request_cancelled',
+          'createdAt': '2026-05-03T00:00:01.000Z',
+          'approvalId': 'ap_missing',
+          'blockingType': 'approval_request'
+        }),
+      ],
+    );
+
+    expect(state.status, 'idle');
+    expect(state.messages, isEmpty);
+  });
 }

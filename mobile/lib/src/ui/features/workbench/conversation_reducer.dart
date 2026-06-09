@@ -323,10 +323,7 @@ class ConversationViewState {
                   (message.role == 'question' ||
                       message.role == 'question_hidden') &&
                   message.questionId == questionId));
-          if (cancelledPendingBlocking ||
-              !_hasPendingBlockingMessages(nextMessages)) {
-            nextStatus = 'running';
-          }
+          if (cancelledPendingBlocking) nextStatus = 'running';
           break;
         case 'system.notice':
           if (event.raw['visible'] == false) break;
