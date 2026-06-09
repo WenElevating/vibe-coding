@@ -3035,8 +3035,10 @@ test('OpenCode server client rejects missing required inputs without sending req
     const cases = [
       ['createSession missing directory', () => client.createSession({}), 'directory'],
       ['createSession blank directory', () => client.createSession({ directory: '   ' }), 'directory'],
+      ['createSession object directory', () => client.createSession({ directory: { path: process.cwd() } }), 'directory'],
       ['readSession missing sessionId', () => client.readSession({}), 'sessionId'],
       ['readSession blank sessionId', () => client.readSession({ sessionId: '   ' }), 'sessionId'],
+      ['readSession non-finite sessionId', () => client.readSession({ sessionId: Infinity }), 'sessionId'],
       ['promptAsync missing sessionId', () => client.promptAsync({ text: 'hello' }), 'sessionId'],
       ['abortSession missing sessionId', () => client.abortSession({}), 'sessionId'],
       [
@@ -3047,6 +3049,11 @@ test('OpenCode server client rejects missing required inputs without sending req
       [
         'replyPermission missing permissionId',
         () => client.replyPermission({ sessionId: 'sess_1', decision: 'allow' }),
+        'permissionId'
+      ],
+      [
+        'replyPermission object permissionId',
+        () => client.replyPermission({ sessionId: 'sess_1', permissionId: { id: 'perm_1' }, decision: 'allow' }),
         'permissionId'
       ],
       [

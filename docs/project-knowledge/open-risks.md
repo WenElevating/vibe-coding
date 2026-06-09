@@ -385,6 +385,8 @@
   `session.session_id` on `session.updated`, direct numeric session ids through
   the conversation adapter, numeric permission ids through the mapper, and
   rejection of non-finite numeric session ids before binding/subscribing.
+  `daemon/src/opencode-server-client.js` rejects unnormalized non-string route
+  inputs before dispatching session, directory, or permission requests.
   `daemon/src/conversation-manager.js` drops drifted-session events after
   recording a `session_id_drift` warning so a providerSession from the wrong
   session cannot overwrite the current conversation binding.

@@ -338,8 +338,13 @@ function buildPermissionReplyBody({ decision, scope } = {}) {
 }
 
 function requiredString(value, field) {
-  const text = String(value ?? '');
-  if (text.trim()) return text;
+  if (typeof value !== 'string') {
+    throw openCodeError(`OpenCode server request requires ${field}`, {
+      code: 'OPENCODE_SERVER_INVALID_REQUEST',
+      details: { field, reason: 'invalid' }
+    });
+  }
+  if (value.trim()) return value;
   throw openCodeError(`OpenCode server request requires ${field}`, {
     code: 'OPENCODE_SERVER_INVALID_REQUEST',
     details: { field, reason: 'required' }
