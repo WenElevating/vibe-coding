@@ -480,6 +480,9 @@ class DaemonNotificationClient implements NotificationService {
       ..sort((a, b) => a.seq.compareTo(b.seq));
     var advanced = false;
     for (final event in sorted) {
+      if (event.conversationId != route.conversationId) {
+        continue;
+      }
       final currentRoute = _conversationRoutes[event.conversationId];
       if (currentRoute == null) {
         continue;

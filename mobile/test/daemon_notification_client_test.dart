@@ -437,6 +437,55 @@ void main() {
     await client.close();
   });
 
+  test('scoped backfill ignores events for other conversations', () async {
+    final socket = FakeNotificationSocket();
+    final backfillCalls = <String>[];
+    final client = DaemonNotificationClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenProvider: () => 'token_1',
+      fetchBackfill: (conversationId, {required afterSeq}) async {
+        backfillCalls.add('$conversationId:$afterSeq');
+        return <ConversationEvent>[
+          ConversationEvent(
+            seq: 21,
+            conversationId: 'conv_2',
+            type: 'assistant.message',
+            createdAt: DateTime.parse('2026-05-23T05:18:14.000Z'),
+            text: 'wrong conversation',
+          ),
+        ];
+      },
+      config: NotificationClientConfig(connector: (_, __) async => socket),
+    );
+    final conv1Events = <ConversationEvent>[];
+    final conv2Events = <ConversationEvent>[];
+    final conv1Subscription = client
+        .watchConversationEvents('conv_1', afterSeq: 8)
+        .listen(conv1Events.add);
+    final conv2Subscription = client
+        .watchConversationEvents('conv_2', afterSeq: 20)
+        .listen(conv2Events.add);
+    await waitFor(() => socket.sentJson.length == 2);
+
+    socket.serverAddJson(<String, Object?>{
+      'type': 'error',
+      'topic': 'conversation.events',
+      'scope': <String, Object?>{'conversationId': 'conv_1'},
+      'code': 'REPLAY_TRUNCATED',
+      'message': 'Replay too large.',
+    });
+
+    await waitFor(() => backfillCalls.length == 1);
+    await pumpEventQueue();
+    expect(backfillCalls, <String>['conv_1:8']);
+    expect(conv1Events, isEmpty);
+    expect(conv2Events, isEmpty);
+
+    await conv1Subscription.cancel();
+    await conv2Subscription.cancel();
+    await client.close();
+  });
+
   test('refreshes token and reconnects from cursor after auth error', () async {
     final sockets = <FakeNotificationSocket>[];
     final tokens = <String>['token_old'];
