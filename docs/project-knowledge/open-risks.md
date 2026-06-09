@@ -134,6 +134,24 @@
   separately.
 - Last verified: 2026-06-09
 
+## Risk: Approval Composer State Can Outlive Provider Approval Options
+
+- Level: medium
+- Impact: the mobile approval composer is stateful while provider approval
+  capabilities are event-owned. If a new approval replaces the previous one in
+  the same widget position, stale local choices such as session scope can be
+  submitted even when the new approval no longer supports that option.
+- Evidence:
+  `mobile/lib/src/ui/features/workbench/messages/approval_event_card.dart`
+  resets the composer selection on provider approval id change and clamps a
+  stale session selection when `supportsSessionScope` turns false.
+  `mobile/test/widget_test.dart` covers replacing a session-capable approval
+  with a once-only approval before submit.
+- Mitigation: key or reset approval-composer local state by current provider
+  approval identity, and clamp every local decision to the current
+  `ApprovalRequestOptions` before submit.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
 
 - Level: medium

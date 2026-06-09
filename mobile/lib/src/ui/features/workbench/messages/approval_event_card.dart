@@ -118,6 +118,21 @@ class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
 
   ApprovalRequestOptions get _options => widget.message.approvalOptions;
 
+  @override
+  void didUpdateWidget(covariant ApprovalComposerPrompt oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previousApprovalId = oldWidget.message.event?.approvalId?.trim();
+    final nextApprovalId = widget.message.event?.approvalId?.trim();
+    if (previousApprovalId != nextApprovalId) {
+      _selected = _ApprovalChoice.allowOnce;
+      return;
+    }
+    if (_selected == _ApprovalChoice.allowSession &&
+        !_options.supportsSessionScope) {
+      _selected = _ApprovalChoice.allowOnce;
+    }
+  }
+
   ApprovalResponse get _selectedResponse => switch (_selected) {
         _ApprovalChoice.allowOnce =>
           ApprovalResponse.allow(scope: ApprovalScope.once),

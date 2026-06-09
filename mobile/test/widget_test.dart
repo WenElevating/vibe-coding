@@ -157,13 +157,14 @@ class _WorkbenchMessageListHarnessState
 Widget _approvalComposerHarness({
   required ApprovalRequestOptions approvalOptions,
   required ValueChanged<ApprovalResponse> onApproval,
+  String approvalId = 'approval_prompt_1',
 }) {
   final event = AgentEvent(
     type: 'approval.requested',
     seq: 1,
     runId: 'run_approval_prompt',
     createdAt: DateTime.parse('2026-05-16T00:00:01.000Z'),
-    approvalId: 'approval_prompt_1',
+    approvalId: approvalId,
     name: 'Bash',
     raw: <String, Object?>{
       'toolName': 'Bash',
@@ -3978,6 +3979,38 @@ void main() {
         .tap(find.byKey(const ValueKey('workbench-approval-submit-button')));
     expect(approvals.single.decision, ApprovalDecision.allow);
     expect(approvals.single.scope, ApprovalScope.session);
+  });
+
+  testWidgets(
+      'approval composer resets session selection when next approval does not support it',
+      (WidgetTester tester) async {
+    final approvals = <ApprovalResponse>[];
+    await tester.pumpWidget(_approvalComposerHarness(
+      approvalId: 'approval_session_scope',
+      approvalOptions: const ApprovalRequestOptions(
+        supportsSessionScope: true,
+        command: 'npm test',
+      ),
+      onApproval: approvals.add,
+    ));
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-option-session')));
+    await tester.pump();
+
+    await tester.pumpWidget(_approvalComposerHarness(
+      approvalId: 'approval_once_only',
+      approvalOptions: const ApprovalRequestOptions(command: 'npm test'),
+      onApproval: approvals.add,
+    ));
+
+    expect(find.text('Allow for this session'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-approval-submit-button')));
+
+    expect(approvals.single.decision, ApprovalDecision.allow);
+    expect(approvals.single.scope, ApprovalScope.once);
   });
 
   testWidgets('approval composer shows cancel only when supported',
