@@ -12411,6 +12411,57 @@ test('notification hub removes live subscription and sends forbidden when access
   assert.equal(closed, null);
 });
 
+test('notification hub stops replay when access is revoked between batches', async () => {
+  let authorized = true;
+  const replayEvents = [
+    { seq: 2, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:00.000Z', text: 'allowed' },
+    { seq: 3, conversationId: 'conv_1', type: 'assistant.message', createdAt: '2026-05-23T00:00:01.000Z', text: 'revoked' }
+  ];
+  const hub = new NotificationHub({
+    conversations: {
+      requireConversation: () => {
+        if (!authorized) {
+          const error = new Error('conversation not found');
+          error.status = 404;
+          throw error;
+        }
+        return { id: 'conv_1' };
+      },
+      listEvents: () => replayEvents
+    },
+    version: { daemonVersion: 'test' },
+    replayBatchSize: 1
+  });
+  const connection = createNotificationHubTestConnection();
+  hub.send = (_connection, frame) => {
+    connection.sentFrames.push(frame);
+    return true;
+  };
+  hub.onReplayBatchSent = ({ subscription }) => {
+    if (subscription.conversationId === 'conv_1') {
+      authorized = false;
+    }
+  };
+
+  await hub.subscribe(connection, {
+    type: 'subscribe',
+    id: 'req_replay_revoke',
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    afterSeq: 1
+  });
+
+  assert.equal(connection.subscriptions.size, 0);
+  assert.deepEqual(
+    connection.sentFrames.filter((frame) => frame.type === 'event').map((frame) => frame.seq),
+    [2]
+  );
+  const error = connection.sentFrames.at(-1);
+  assert.equal(error.type, 'error');
+  assert.equal(error.code, notificationErrorCodes.FORBIDDEN);
+  assert.deepEqual(error.scope, { conversationId: 'conv_1' });
+});
+
 test('notification hub maps initial subscription access failures to forbidden', async () => {
   const hub = new NotificationHub({
     conversations: {

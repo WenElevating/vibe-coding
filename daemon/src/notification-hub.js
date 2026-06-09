@@ -366,6 +366,7 @@ class NotificationHub {
     const sentSeqs = new Set();
     for (let index = 0; index < events.length; index += this.replayBatchSize) {
       if (!this.isCurrentSubscription(connection, subscription)) return;
+      if (!this.isLiveSubscriptionAuthorized(connection, subscription)) return;
       for (const event of events.slice(index, index + this.replayBatchSize)) {
         sentSeqs.add(event.seq);
         this.send(connection, createEventFrame({ topic: subscription.topic, scope: subscription.scope, event }));

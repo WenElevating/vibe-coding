@@ -278,6 +278,22 @@
   delivery to a watcher.
 - Last verified: 2026-06-09
 
+## Risk: Notification Replay Authorization Can Drift Mid-Stream
+
+- Level: medium
+- Impact: WebSocket replay can span multiple async batches. If a paired device
+  loses access to a conversation between replay batches, continuing to send
+  historical events can expose conversation content after authorization has
+  been revoked.
+- Evidence: `daemon/src/notification-hub.js` revalidates subscription
+  authorization before each replay batch as well as before live delivery.
+  `scripts/run-tests.js` covers replay stopping with a `FORBIDDEN` error when
+  access is revoked between batches.
+- Mitigation: keep replay and live notification delivery on the same
+  authorization boundary. Do not add awaits or replay batching paths that send
+  events without rechecking current subscription authorization.
+- Last verified: 2026-06-10
+
 ## Risk: Workbench History Pagination Requires Cursor Progress
 
 - Level: medium
