@@ -3636,6 +3636,8 @@ test('OpenCode session boundary extracts only safe own session fields', () => {
   assert.equal(extractSessionId(unsafe), null);
   assert.equal(extractSessionDirectory(unsafe), null);
   assert.equal(extractSessionId({ session: { sessionID: 'sess_nested' } }), 'sess_nested');
+  assert.equal(extractSessionId({ id: Infinity }), null);
+  assert.equal(extractSessionId({ session: { sessionID: NaN } }), null);
   assert.equal(extractSessionDirectory({ session: { path: '/tmp/opencode-workspace/child' } }), '/tmp/opencode-workspace/child');
 });
 
@@ -3696,6 +3698,49 @@ test('OpenCode conversation adapter rejects auto permission mode before server s
     }
   );
   assert.equal(starts, 0);
+});
+
+test('OpenCode conversation adapter rejects non-finite provider session ids', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const workspacePath = path.join(os.tmpdir(), 'opencode-non-finite-session-id');
+  let subscribed = false;
+  const adapter = new OpenCodeConversationAdapter({
+    lifecycle: {
+      async ensureStarted() {
+        return {
+          mode: 'external',
+          serverUrl: 'http://127.0.0.1:65535',
+          owned: false,
+          client: {
+            async createSession() {
+              return { id: Infinity, directory: workspacePath };
+            },
+            subscribeEvents() {
+              subscribed = true;
+              return {
+                opened: Promise.resolve({ ok: true }),
+                close() {}
+              };
+            }
+          }
+        };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.startConversation({
+      conversationId: 'conv_opencode_non_finite_session_id',
+      workspacePath,
+      onEvent: () => {}
+    }),
+    (error) => {
+      assert.equal(error.status, 502);
+      assert.equal(error.code, 'OPENCODE_SESSION_ID_MISSING');
+      return true;
+    }
+  );
+  assert.equal(subscribed, false);
 });
 
 test('OpenCode conversation adapter filters SSE events to active session', async () => {

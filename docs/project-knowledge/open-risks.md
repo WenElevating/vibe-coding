@@ -383,7 +383,8 @@
   same nested aliases and finite numeric provider ids. `scripts/run-tests.js`
   covers nested `session.sessionID` on `message.part.delta`, nested
   `session.session_id` on `session.updated`, direct numeric session ids through
-  the conversation adapter, and numeric permission ids through the mapper.
+  the conversation adapter, numeric permission ids through the mapper, and
+  rejection of non-finite numeric session ids before binding/subscribing.
   `daemon/src/conversation-manager.js` drops drifted-session events after
   recording a `session_id_drift` warning so a providerSession from the wrong
   session cannot overwrite the current conversation binding.

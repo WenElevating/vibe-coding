@@ -839,6 +839,7 @@ function firstNonBlank(values) {
 }
 
 function safeString(value) {
+  if (typeof value === 'number' && !Number.isFinite(value)) return '';
   if (typeof value !== 'string' && typeof value !== 'number') return '';
   return String(value).trim();
 }
