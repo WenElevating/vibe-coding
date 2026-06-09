@@ -213,8 +213,13 @@ class CachedConversationRepository extends ChangeNotifier
     String conversationId, {
     int afterSeq = 0,
   }) async {
-    final events = await _delegate.fetchConversationEvents(conversationId,
-        afterSeq: afterSeq);
+    final events = _filterConversationEvents(
+      conversationId,
+      await _delegate.fetchConversationEvents(
+        conversationId,
+        afterSeq: afterSeq,
+      ),
+    );
     _cacheBestEffort(_eventCache.upsertEvents(
       _eventCacheNamespace,
       conversationId,
@@ -235,10 +240,13 @@ class CachedConversationRepository extends ChangeNotifier
       limit: limit,
     );
     if (cached != null) return cached;
-    final page = await _delegate.fetchConversationEventPage(
+    final page = _filterConversationEventPage(
       conversationId,
-      beforeSeq: beforeSeq,
-      limit: limit,
+      await _delegate.fetchConversationEventPage(
+        conversationId,
+        beforeSeq: beforeSeq,
+        limit: limit,
+      ),
     );
     _cacheBestEffort(_eventCache.upsertPage(
       _eventCacheNamespace,
@@ -255,9 +263,10 @@ class CachedConversationRepository extends ChangeNotifier
   }) =>
       _delegate
           .watchConversationEvents(
-        conversationId,
-        afterSeq: afterSeq,
-      )
+            conversationId,
+            afterSeq: afterSeq,
+          )
+          .where((event) => event.conversationId == conversationId)
           .map((event) {
         _cacheBestEffort(_eventCache.upsertEvents(
           _eventCacheNamespace,
@@ -483,7 +492,7 @@ class CachedConversationRepository extends ChangeNotifier
     required int limit,
   }) async {
     try {
-      return beforeSeq == null
+      final page = beforeSeq == null
           ? await _eventCache.readTail(
               _eventCacheNamespace,
               conversationId,
@@ -495,6 +504,10 @@ class CachedConversationRepository extends ChangeNotifier
               beforeSeq: beforeSeq,
               limit: limit,
             );
+      if (page == null) return null;
+      final filtered = _filterConversationEventPage(conversationId, page);
+      if (filtered.events.isEmpty && page.events.isNotEmpty) return null;
+      return filtered;
     } catch (_) {
       return null;
     }
@@ -549,4 +562,41 @@ int _compareByUpdatedAtDescending(
   if (leftTime != null) return -1;
   if (rightTime != null) return 1;
   return 0;
+}
+
+List<ConversationEvent> _filterConversationEvents(
+  String conversationId,
+  List<ConversationEvent> events,
+) =>
+    events
+        .where((event) => event.conversationId == conversationId)
+        .toList(growable: false);
+
+ConversationEventPage _filterConversationEventPage(
+  String conversationId,
+  ConversationEventPage page,
+) {
+  final events = _filterConversationEvents(conversationId, page.events);
+  if (events.length == page.events.length) return page;
+  if (events.isEmpty) {
+    return const ConversationEventPage(
+      events: <ConversationEvent>[],
+      oldestSeq: null,
+      newestSeq: null,
+      hasMoreBefore: false,
+    );
+  }
+  var oldestSeq = events.first.seq;
+  var newestSeq = events.first.seq;
+  for (final event in events.skip(1)) {
+    if (event.seq < oldestSeq) oldestSeq = event.seq;
+    if (event.seq > newestSeq) newestSeq = event.seq;
+  }
+  return ConversationEventPage(
+    events: events,
+    oldestSeq: oldestSeq,
+    newestSeq: newestSeq,
+    hasMoreBefore: page.hasMoreBefore ||
+        (page.oldestSeq != null && page.oldestSeq! < oldestSeq),
+  );
 }

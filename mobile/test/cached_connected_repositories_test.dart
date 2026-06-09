@@ -475,6 +475,69 @@ void main() {
           const <int>[7, 8]);
     });
 
+    test('fetched conversation events filter mismatched conversation events',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      )..fetchedEvents = <ConversationEvent>[
+          _conversationEvent(conversationId: 'c2', seq: 8),
+          _conversationEvent(conversationId: 'c1', seq: 9),
+        ];
+      final eventCache = _MemoryConversationEventCacheStore();
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      final events =
+          await repository.fetchConversationEvents('c1', afterSeq: 0);
+      await pumpEventQueue();
+
+      expect(
+        events.map((event) => event.conversationId),
+        const <String>['c1'],
+      );
+      expect(
+        eventCache.upsertedEvents.single.map((event) => event.conversationId),
+        const <String>['c1'],
+      );
+    });
+
+    test('daemon event page filters mismatched conversation events', () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      )..eventPage = ConversationEventPage(
+          events: <ConversationEvent>[
+            _conversationEvent(conversationId: 'c2', seq: 6),
+            _conversationEvent(conversationId: 'c1', seq: 7),
+          ],
+          oldestSeq: 6,
+          newestSeq: 7,
+          hasMoreBefore: false,
+        );
+      final eventCache = _MemoryConversationEventCacheStore();
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      final page = await repository.fetchConversationEventPage('c1', limit: 2);
+      await pumpEventQueue();
+
+      expect(
+        page.events.map((event) => event.conversationId),
+        const <String>['c1'],
+      );
+      expect(
+        eventCache.upsertedPages.single.events.map(
+          (event) => event.conversationId,
+        ),
+        const <String>['c1'],
+      );
+    });
+
     test('streamed conversation events are persisted', () async {
       final delegate = _FakeConversationRepository(
         conversations: <ConversationSummary>[_conversation(id: 'c1')],
@@ -497,6 +560,41 @@ void main() {
       expect(
         eventCache.upsertedEvents.single.map((event) => event.seq),
         const <int>[9],
+      );
+    });
+
+    test('streamed mismatched conversation events are not delivered or cached',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[_conversation(id: 'c1')],
+      );
+      final eventCache = _MemoryConversationEventCacheStore();
+      final repository = CachedConversationRepository(
+        delegate: delegate,
+        eventCache: eventCache,
+        eventCacheNamespace: 'daemon',
+      );
+
+      final firstMatchingEvent =
+          repository.watchConversationEvents('c1', afterSeq: 0).first;
+      delegate
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c2',
+          seq: 1,
+        ))
+        ..emitConversationEvent(_conversationEvent(
+          conversationId: 'c1',
+          seq: 2,
+        ));
+      final event = await firstMatchingEvent;
+      await pumpEventQueue();
+
+      expect(event.conversationId, 'c1');
+      expect(
+        eventCache.upsertedEvents.expand((events) => events).map(
+              (event) => event.conversationId,
+            ),
+        const <String>['c1'],
       );
     });
 
@@ -1236,6 +1334,8 @@ class _FakeConversationRepository implements ConversationRepository {
   final queuedConversations = <Future<List<ConversationSummary>>>[];
   final queuedModelUpdates = <Future<ConversationSummary>>[];
   final eventPageCalls = <String>[];
+  List<ConversationEvent>? fetchedEvents;
+  ConversationEventPage? eventPage;
   final _conversationEvents = StreamController<ConversationEvent>.broadcast();
 
   void emitConversationEvent(ConversationEvent event) {
@@ -1326,7 +1426,7 @@ class _FakeConversationRepository implements ConversationRepository {
     String conversationId, {
     int afterSeq = 0,
   }) async =>
-      const <ConversationEvent>[];
+      fetchedEvents ?? const <ConversationEvent>[];
 
   @override
   Future<ConversationEventPage> fetchConversationEventPage(
@@ -1335,6 +1435,8 @@ class _FakeConversationRepository implements ConversationRepository {
     required int limit,
   }) async {
     eventPageCalls.add('$conversationId:$beforeSeq:$limit');
+    final configuredPage = eventPage;
+    if (configuredPage != null) return configuredPage;
     return ConversationEventPage(
       events: <ConversationEvent>[
         _conversationEvent(conversationId: conversationId, seq: 7),

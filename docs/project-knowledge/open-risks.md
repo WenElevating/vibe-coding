@@ -214,9 +214,15 @@
   backfill rows to the requested route conversation before delivering them to
   active watchers, so a scoped backfill response cannot inject events into a
   different conversation route.
+  `mobile/lib/src/data/repositories/cached_conversation_repository.dart`
+  filters fetched event lists, event pages, cache hits, and live stream events
+  to the requested conversation before returning them to UI callers or writing
+  them into the read-through cache.
   `mobile/test/conversation_event_cache_store_test.dart` covers mismatched
   record identity deletion, mismatched page events not marking known history
   start, and clear-after-pending-write ordering;
+  `mobile/test/cached_connected_repositories_test.dart` covers repository-level
+  filtering for fetch, page, and stream event entry points;
   `mobile/test/daemon_notification_client_test.dart` covers scoped backfill
   ignoring events for other conversations.
 - Mitigation: keep the daemon as the authoritative event store, treat local
