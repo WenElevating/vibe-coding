@@ -10,7 +10,9 @@ class SystemApprovalNotificationPresenter
     implements ApprovalNotificationPresenter {
   SystemApprovalNotificationPresenter({
     FlutterLocalNotificationsPlugin? plugin,
-  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+    bool Function()? isAndroid,
+  })  : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+        _isAndroid = isAndroid ?? (() => Platform.isAndroid);
 
   static const String _channelId = 'approval_requests';
   static const String _channelName = 'Approval requests';
@@ -18,6 +20,7 @@ class SystemApprovalNotificationPresenter
       'Notifications for CLI approval requests.';
 
   final FlutterLocalNotificationsPlugin _plugin;
+  final bool Function() _isAndroid;
   final StreamController<ApprovalNotificationTap> _taps =
       StreamController<ApprovalNotificationTap>.broadcast();
   Future<void>? _initialization;
@@ -28,14 +31,14 @@ class SystemApprovalNotificationPresenter
 
   @override
   Future<void> initialize() {
-    if (!Platform.isAndroid || _disposed) return Future<void>.value();
+    if (!_isAndroid() || _disposed) return Future<void>.value();
     return _ensureInitialized();
   }
 
   @override
   Future<void> showOrUpdateApproval(
       ApprovalNotificationDisplay notification) async {
-    if (!Platform.isAndroid || _disposed) return;
+    if (!_isAndroid() || _disposed) return;
     await _ensureInitialized();
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -69,7 +72,7 @@ class SystemApprovalNotificationPresenter
     required int id,
     required String conversationId,
   }) async {
-    if (!Platform.isAndroid || _disposed) return;
+    if (!_isAndroid() || _disposed) return;
     await _ensureInitialized();
     await _plugin.cancel(id);
   }
@@ -82,7 +85,17 @@ class SystemApprovalNotificationPresenter
   }
 
   Future<void> _ensureInitialized() {
-    return _initialization ??= _initialize();
+    final current = _initialization;
+    if (current != null) return current;
+    late final Future<void> initialization;
+    initialization = _initialize().catchError((Object error, StackTrace stack) {
+      if (identical(_initialization, initialization)) {
+        _initialization = null;
+      }
+      Error.throwWithStackTrace(error, stack);
+    });
+    _initialization = initialization;
+    return initialization;
   }
 
   Future<void> _initialize() async {

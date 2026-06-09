@@ -176,15 +176,21 @@
 - Level: medium
 - Impact: Android local notifications are best-effort, but a transient
   presenter/plugin failure must not mark an approval as already notified. If it
-  does, a background approval can stay pending in the app without any later
-  retry opportunity.
+  does, or if the local presenter permanently caches a failed plugin
+  initialization future, a background approval can stay pending in the app
+  without any later retry opportunity.
 - Evidence:
   `mobile/lib/src/services/approval_notification_handler.dart` marks provider
   approval ids as notified only after `showOrUpdateApproval` succeeds, keeps
   per-conversation show operations in flight to avoid duplicate notifications,
   and leaves failed approvals retryable on later background lifecycle changes.
+  `mobile/lib/src/services/local_approval_notification_service.dart` clears a
+  failed initialization future so the next show/cancel/initialize operation can
+  retry the Flutter local-notifications plugin.
   `mobile/test/approval_notification_handler_test.dart` covers failed
-  background notification show retrying after the presenter recovers.
+  background notification show retrying after the presenter recovers, and
+  `mobile/test/local_approval_notification_service_test.dart` covers retrying
+  plugin initialization after a transient failure.
 - Mitigation: keep "notified" as a successful presentation state, not an
   attempted presentation state. When changing notification presenter error
   handling, preserve retryability without introducing duplicate notification
