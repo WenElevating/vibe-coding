@@ -61,6 +61,7 @@ class OpenCodeConversationAdapter {
         });
       }
       const health = await started.client.health();
+      assertHealthResponse(health);
       const healthDiagnostics = safeHealthDiagnostics(health);
       return {
         adapter: this.name,
@@ -723,11 +724,31 @@ function safeLifecycleDiagnostics(value) {
 function safeHealthDiagnostics(value) {
   if (!value || typeof value !== 'object') return null;
   const result = {};
+  const healthy = safeOwnValue(value, 'healthy');
+  if (typeof healthy === 'boolean') result.healthy = healthy;
   const ok = safeOwnValue(value, 'ok');
   if (typeof ok === 'boolean') result.ok = ok;
   const version = safeDisplayString(safeOwnValue(value, 'version'));
   if (version) result.version = version;
   return Object.keys(result).length > 0 ? result : null;
+}
+
+function assertHealthResponse(value) {
+  const healthy = safeOwnValue(value, 'healthy');
+  const ok = safeOwnValue(value, 'ok');
+  if (healthy === false || ok === false) {
+    throw conversationError('OpenCode server health check reported unavailable', {
+      status: 503,
+      code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
+      details: { reason: 'health_not_ok' }
+    });
+  }
+  if (healthy === true || ok === true) return;
+  throw conversationError('OpenCode server health check reported unavailable', {
+    status: 503,
+    code: 'OPENCODE_SERVER_HEALTH_UNAVAILABLE',
+    details: { reason: 'health_malformed' }
+  });
 }
 
 function publicServerUrl(value) {

@@ -3183,6 +3183,62 @@ test('OpenCode conversation adapter diagnostics errors do not expose provider me
   assert.equal(publicText.includes('SECRET_QUERY'), false);
 });
 
+test('OpenCode conversation adapter detects unhealthy health responses', async () => {
+  const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
+  const secretPath = path.join(os.tmpdir(), 'opencode-conversation-health-secret', 'health.txt');
+  const malformedHealth = { version: 'not-enough' };
+  Object.defineProperty(malformedHealth, 'healthy', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe healthy getter leaked ${secretPath}`);
+    }
+  });
+  Object.defineProperty(malformedHealth, 'ok', {
+    enumerable: true,
+    get() {
+      throw new Error(`unsafe ok getter leaked ${secretPath}`);
+    }
+  });
+  const cases = [
+    ['explicit false', { healthy: false, version: 'unready' }],
+    ['malformed getter-backed body', malformedHealth]
+  ];
+
+  for (const [name, health] of cases) {
+    const adapter = new OpenCodeConversationAdapter({
+      lifecycle: {
+        async ensureStarted() {
+          return {
+            mode: 'external',
+            serverUrl: 'http://127.0.0.1:65535?token=SECRET_QUERY',
+            owned: false,
+            client: {
+              async health() {
+                return health;
+              }
+            }
+          };
+        },
+        getDiagnostics() {
+          return { status: 'started', lastError: null };
+        }
+      }
+    });
+
+    const status = await adapter.detectCapabilities();
+    const publicText = JSON.stringify(status);
+
+    assert.equal(status.available, false, name);
+    assert.equal(status.selectable, false, name);
+    assert.equal(status.status, 'unavailable', name);
+    assert.equal(status.unavailableReason, 'OPENCODE_SERVER_HEALTH_UNAVAILABLE', name);
+    assert.equal(status.diagnostics.cause.code, 'OPENCODE_SERVER_HEALTH_UNAVAILABLE', name);
+    assert.equal(status.diagnostics.cause.status, 503, name);
+    assert.equal(publicText.includes(secretPath), false, name);
+    assert.equal(publicText.includes('SECRET_QUERY'), false, name);
+  }
+});
+
 test('OpenCode conversation adapter startup errors ignore unsafe getters', async () => {
   const { OpenCodeConversationAdapter } = require('../daemon/src/opencode-conversation-adapter');
   const startupError = new Error('startup failed');
