@@ -225,6 +225,9 @@
   `session.session_id`; `daemon/src/opencode-event-mapper.js` now normalizes the
   same nested aliases. `scripts/run-tests.js` covers nested `session.sessionID`
   on `message.part.delta` and nested `session.session_id` on `session.updated`.
+  `daemon/src/conversation-manager.js` drops drifted-session events after
+  recording a `session_id_drift` warning so a providerSession from the wrong
+  session cannot overwrite the current conversation binding.
 - Mitigation: keep the OpenCode handle extraction and mapper session-id
   normalization alias sets aligned when adding provider event shapes.
 - Last verified: 2026-06-09

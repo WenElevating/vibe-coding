@@ -881,7 +881,7 @@ class ConversationManager {
         receivedSessionId: sessionBindingEventString(receivedSessionId),
         adapter: conversation.adapter
       });
-      return true;
+      return false;
     }
     if (conversation.sessionBinding !== conversationSessionBindings.DRIFTED) {
       conversation.sessionBinding = conversationSessionBindings.CONFIRMED;

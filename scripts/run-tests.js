@@ -14359,6 +14359,36 @@ test('conversation session drift keeps original CLI session id', async () => {
   assert.equal(warning.receivedSessionId, 'drifted-session');
 });
 
+test('conversation session drift does not accept provider session from drifted event', () => {
+  const { manager, device, eventStore } = createConversationManagerForTest();
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  conversation.cliSessionId = 'original-session';
+  conversation.sessionBinding = conversationSessionBindings.CONFIRMED;
+  conversation.providerSession = { provider: 'opencode', threadId: 'original-session' };
+
+  manager.recordAdapterEvent(conversation, {
+    type: conversationEventTypes.SYSTEM_NOTICE,
+    noticeKind: 'opencode_session_resumed',
+    visible: false,
+    sessionId: 'drifted-session',
+    providerSession: { provider: 'opencode', threadId: 'drifted-session' }
+  });
+
+  const summary = manager.getConversation(conversation.id, device);
+  const events = eventStore.list(conversation.id, 0);
+
+  assert.equal(summary.cliSessionId, 'original-session');
+  assert.equal(summary.sessionBinding, conversationSessionBindings.DRIFTED);
+  assert.deepEqual(summary.providerSession, { provider: 'opencode', threadId: 'original-session' });
+  assert.equal(events.some((event) =>
+    event.type === conversationEventTypes.PROTOCOL_WARNING &&
+    event.warning === 'session_id_drift'), true);
+  assert.equal(events.some((event) =>
+    event.type === conversationEventTypes.SYSTEM_NOTICE &&
+    event.noticeKind === 'opencode_session_resumed'), false);
+});
+
 test('conversation session drift warning redacts path-like session ids', () => {
   const { manager, device, eventStore } = createConversationManagerForTest();
   const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
