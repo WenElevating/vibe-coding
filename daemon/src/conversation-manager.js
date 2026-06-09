@@ -912,12 +912,18 @@ class ConversationManager {
       restoreSessionBindingState(conversation, snapshot);
       throw error;
     }
-    this.eventStore.append(conversation.id, conversationEventTypes.SYSTEM_NOTICE, {
-      noticeKind: safeNoticeKind,
-      visible: visible === true,
-      ...(safeReason ? { reason: safeReason } : {}),
-      ...(safeCode ? { code: safeCode } : {})
-    });
+    try {
+      this.eventStore.append(conversation.id, conversationEventTypes.SYSTEM_NOTICE, {
+        noticeKind: safeNoticeKind,
+        visible: visible === true,
+        ...(safeReason ? { reason: safeReason } : {}),
+        ...(safeCode ? { code: safeCode } : {})
+      });
+    } catch (error) {
+      restoreSessionBindingState(conversation, snapshot);
+      this.persistConversation(conversation);
+      throw error;
+    }
     return { ok: true };
   }
 
@@ -946,13 +952,19 @@ class ConversationManager {
       restoreSessionBindingState(conversation, snapshot);
       throw error;
     }
-    this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
-      warning: 'session_binding_drifted',
-      ...(safeExpectedSessionId ? { expectedSessionId: safeExpectedSessionId } : {}),
-      ...(safeReceivedSessionId ? { receivedSessionId: safeReceivedSessionId } : {}),
-      ...(safeReason ? { reason: safeReason } : {}),
-      ...(safeCode ? { code: safeCode } : {})
-    });
+    try {
+      this.eventStore.append(conversation.id, conversationEventTypes.PROTOCOL_WARNING, {
+        warning: 'session_binding_drifted',
+        ...(safeExpectedSessionId ? { expectedSessionId: safeExpectedSessionId } : {}),
+        ...(safeReceivedSessionId ? { receivedSessionId: safeReceivedSessionId } : {}),
+        ...(safeReason ? { reason: safeReason } : {}),
+        ...(safeCode ? { code: safeCode } : {})
+      });
+    } catch (error) {
+      restoreSessionBindingState(conversation, snapshot);
+      this.persistConversation(conversation);
+      throw error;
+    }
     return { ok: true };
   }
 

@@ -14678,6 +14678,55 @@ test('conversation manager clearSessionBinding persistence failure rolls back st
   assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.SYSTEM_NOTICE), false);
 });
 
+test('conversation manager clearSessionBinding event append failure rolls back state', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession,
+        updatedAt: conversation.updatedAt
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  saves.length = 0;
+  const originalAppend = eventStore.append.bind(eventStore);
+  eventStore.append = (conversationId, type, payload) => {
+    if (type === conversationEventTypes.SYSTEM_NOTICE) throw new Error('event append failed');
+    return originalAppend(conversationId, type, payload);
+  };
+
+  assert.throws(
+    () => manager.clearSessionBinding(conversation, {
+      expectedSessionId: 'session_1',
+      reason: 'invalid session',
+      noticeKind: 'opencode_session_invalidated'
+    }),
+    /event append failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.deepEqual(saves.at(-1), originalState);
+});
+
 test('conversation manager markSessionBindingDrifted marks drift and appends warning', () => {
   const saves = [];
   const persistentStore = {
@@ -14835,6 +14884,56 @@ test('conversation manager markSessionBindingDrifted clear persistence failure r
   assert.deepEqual(conversation.providerSession, originalState.providerSession);
   assert.equal(conversation.updatedAt, originalState.updatedAt);
   assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.PROTOCOL_WARNING), false);
+});
+
+test('conversation manager markSessionBindingDrifted event append failure rolls back state', () => {
+  const saves = [];
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation(conversation) {
+      saves.push({
+        cliSessionId: conversation.cliSessionId,
+        sessionBinding: conversation.sessionBinding,
+        providerSession: conversation.providerSession,
+        updatedAt: conversation.updatedAt
+      });
+    }
+  };
+  const { manager, device, eventStore } = createConversationManagerForTest({ persistentStore });
+  const created = manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device);
+  const conversation = manager.requireConversation(created.id, device);
+  const originalState = {
+    cliSessionId: 'session_1',
+    sessionBinding: conversationSessionBindings.CONFIRMED,
+    providerSession: { provider: 'opencode', threadId: 'thread_1' },
+    updatedAt: '2026-05-08T00:00:00.000Z'
+  };
+  conversation.cliSessionId = originalState.cliSessionId;
+  conversation.sessionBinding = originalState.sessionBinding;
+  conversation.providerSession = originalState.providerSession;
+  conversation.updatedAt = originalState.updatedAt;
+  saves.length = 0;
+  const originalAppend = eventStore.append.bind(eventStore);
+  eventStore.append = (conversationId, type, payload) => {
+    if (type === conversationEventTypes.PROTOCOL_WARNING) throw new Error('event append failed');
+    return originalAppend(conversationId, type, payload);
+  };
+
+  assert.throws(
+    () => manager.markSessionBindingDrifted(conversation, {
+      expectedSessionId: 'session_1',
+      receivedSessionId: 'session_2',
+      reason: 'invalid session',
+      clear: true
+    }),
+    /event append failed/
+  );
+
+  assert.equal(conversation.cliSessionId, originalState.cliSessionId);
+  assert.equal(conversation.sessionBinding, originalState.sessionBinding);
+  assert.deepEqual(conversation.providerSession, originalState.providerSession);
+  assert.equal(conversation.updatedAt, originalState.updatedAt);
+  assert.deepEqual(saves.at(-1), originalState);
 });
 
 test('conversation manager markSessionBindingDrifted expected mismatch leaves state unchanged', () => {

@@ -391,6 +391,21 @@
   normalization alias sets aligned when adding provider event shapes.
 - Last verified: 2026-06-09
 
+## Risk: Session Binding Helper Events Are Part Of The State Transition
+
+- Level: medium
+- Impact: OpenCode missing-session and drift recovery clears or marks the
+  conversation session binding before appending a public helper notice/warning.
+  If the helper event append fails after state persistence, the conversation can
+  lose its provider binding without a timeline explanation or audit trail.
+- Evidence: `daemon/src/conversation-manager.js` rolls back and re-persists the
+  previous session-binding state when `clearSessionBinding` or
+  `markSessionBindingDrifted` cannot append its helper event.
+  `scripts/run-tests.js` covers event append failures for both helpers.
+- Mitigation: keep helper event append inside the same rollback boundary as the
+  session binding mutation. Do not treat these helper events as optional logging.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Health Checks Can Pass Transport But Fail Semantics
 
 - Level: medium
