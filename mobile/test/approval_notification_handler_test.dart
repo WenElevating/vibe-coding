@@ -206,6 +206,33 @@ void main() {
     await guarded;
     expect(uncaughtErrors, isEmpty);
   });
+
+  test('failed background notification show remains retryable', () async {
+    final bus = MobileAppEventBus();
+    final presenter = _FakeApprovalNotificationPresenter()
+      ..showError = StateError('notification show failed');
+    final handler = ApprovalNotificationHandler(
+      eventBus: bus,
+      presenter: presenter,
+      initialLifecycleState: AppLifecycleState.paused,
+    );
+
+    bus.publish(_approvalRequested());
+    await _flushAsync();
+
+    expect(presenter.showAttempts, 1);
+    expect(presenter.shown, isEmpty);
+
+    presenter.showError = null;
+    handler.updateLifecycleState(AppLifecycleState.inactive);
+    await _flushAsync();
+
+    expect(presenter.showAttempts, 2);
+    expect(presenter.shown.single.approvalId, 'ap_1');
+
+    await handler.dispose();
+    await bus.dispose();
+  });
 }
 
 MobileApprovalRequested _approvalRequested({

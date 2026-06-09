@@ -93,6 +93,7 @@ class ApprovalNotificationHandler {
       _pendingByConversation = <String, Map<String, MobileApprovalRequested>>{};
   final Set<_ApprovalNotificationKey> _notifiedApprovalIds =
       <_ApprovalNotificationKey>{};
+  final Set<String> _notificationShowInFlightConversationIds = <String>{};
   final StreamController<ApprovalNotificationTap> _taps =
       StreamController<ApprovalNotificationTap>.broadcast();
   late final StreamSubscription<MobileAppEvent> _eventSubscription;
@@ -195,26 +196,45 @@ class ApprovalNotificationHandler {
   }
 
   Future<void> _showConversationNotification(String conversationId) async {
-    final notification = _displayForConversation(conversationId);
-    if (notification == null) return;
-    final approvals = _pendingByConversation[conversationId];
-    if (approvals != null) {
-      _notifiedApprovalIds.addAll(approvals.keys.map(
-        (approvalId) => _approvalNotificationKey(conversationId, approvalId),
-      ));
+    if (!_notificationShowInFlightConversationIds.add(conversationId)) return;
+    var shown = false;
+    try {
+      final notification = _displayForConversation(conversationId);
+      if (notification == null) return;
+      final approvalIds =
+          _pendingByConversation[conversationId]?.keys.toList() ??
+              const <String>[];
+      shown = await _runPresenterOperation(
+        () => _presenter.showOrUpdateApproval(notification),
+      );
+      if (!shown) return;
+      final approvals = _pendingByConversation[conversationId];
+      if (approvals != null) {
+        _notifiedApprovalIds.addAll(approvalIds
+            .where(approvals.containsKey)
+            .map((approvalId) =>
+                _approvalNotificationKey(conversationId, approvalId)));
+      }
+    } finally {
+      _notificationShowInFlightConversationIds.remove(conversationId);
     }
-    await _runPresenterOperation(
-      () => _presenter.showOrUpdateApproval(notification),
-    );
+    if (shown &&
+        !_disposed &&
+        _lifecycleState != AppLifecycleState.resumed &&
+        _hasUnnotifiedApproval(conversationId)) {
+      await _showConversationNotification(conversationId);
+    }
   }
 
-  Future<void> _runPresenterOperation(Future<void> Function() operation) async {
-    if (_disposed) return;
+  Future<bool> _runPresenterOperation(Future<void> Function() operation) async {
+    if (_disposed) return false;
     try {
       await operation();
+      return true;
     } catch (_) {
       // System notifications are best-effort; approval handling must keep
       // flowing even when the platform plugin rejects initialization/show/cancel.
+      return false;
     }
   }
 
