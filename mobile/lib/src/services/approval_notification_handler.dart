@@ -244,9 +244,11 @@ class ApprovalNotificationHandler {
     final latest = approvals.values.reduce((left, right) =>
         left.createdAt.isAfter(right.createdAt) ? left : right);
     final extraCount = approvals.length - 1;
-    final body = extraCount <= 0
+    final additionalBody =
+        extraCount <= 0 ? null : _additionalApprovalsBody(latest, extraCount);
+    final body = additionalBody == null
         ? latest.body
-        : '${latest.body}\n${_additionalApprovalsBody(latest, extraCount)}';
+        : '${latest.body}\n$additionalBody';
     return ApprovalNotificationDisplay(
       id: approvalNotificationIdForConversation(conversationId),
       title: latest.title,
@@ -257,13 +259,13 @@ class ApprovalNotificationHandler {
     );
   }
 
-  String _additionalApprovalsBody(
+  String? _additionalApprovalsBody(
     MobileApprovalRequested latest,
     int extraCount,
   ) {
     final localized = latest.additionalApprovalsBody?.call(extraCount).trim();
     if (localized != null && localized.isNotEmpty) return localized;
-    return '+$extraCount more approvals waiting';
+    return null;
   }
 }
 

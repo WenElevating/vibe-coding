@@ -101,6 +101,35 @@ void main() {
     await bus.dispose();
   });
 
+  test('background grouped approvals omit extra count without localized copy',
+      () async {
+    final bus = MobileAppEventBus();
+    final presenter = _FakeApprovalNotificationPresenter();
+    final handler = ApprovalNotificationHandler(
+      eventBus: bus,
+      presenter: presenter,
+      initialLifecycleState: AppLifecycleState.paused,
+    );
+
+    bus
+      ..publish(_approvalRequested(
+        approvalId: 'ap_1',
+        body: '运行 git status',
+        createdAt: DateTime.utc(2026, 5, 31, 12),
+      ))
+      ..publish(_approvalRequested(
+        approvalId: 'ap_2',
+        body: '运行 npm test',
+        createdAt: DateTime.utc(2026, 5, 31, 12, 1),
+      ));
+    await _flushAsync();
+
+    expect(presenter.shown.last.body, '运行 npm test');
+
+    await handler.dispose();
+    await bus.dispose();
+  });
+
   test('pending foreground approval is shown once after entering background',
       () async {
     final bus = MobileAppEventBus();

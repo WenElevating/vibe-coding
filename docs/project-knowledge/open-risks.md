@@ -161,15 +161,16 @@
 - Evidence:
   `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` injects the
   localized additional-approval formatter from `AppLocalizations`, while
-  `mobile/lib/src/services/approval_notification_handler.dart` only composes
-  notification bodies from event-provided localized strings.
+  `mobile/lib/src/services/approval_notification_handler.dart` only appends
+  grouped notification copy when the event provides a localized formatter.
   `mobile/test/approval_notification_handler_test.dart` covers grouped
-  background approvals using localized extra-count copy.
+  background approvals using localized extra-count copy and omitting the extra
+  count when no localized copy is available.
 - Mitigation: keep user-visible system notification strings generated in UI or
   localization-aware composition code, then pass them through event/service
   contracts. Do not add hardcoded English notification body suffixes in
   services.
-- Last verified: 2026-06-09
+- Last verified: 2026-06-10
 
 ## Risk: Approval Notification Show Failures Can Consume Pending Approvals
 
