@@ -63,6 +63,35 @@ void main() {
 
     await presenter.dispose();
   });
+
+  test('show reports false when notification permission is denied', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+      calls.add(call.method);
+      switch (call.method) {
+        case 'initialize':
+          return true;
+        case 'getNotificationAppLaunchDetails':
+          return <String, Object?>{'notificationLaunchedApp': false};
+        case 'requestNotificationsPermission':
+          return false;
+        case 'show':
+          fail('show should not be called when permission is denied');
+      }
+      return null;
+    });
+    final presenter = SystemApprovalNotificationPresenter(
+      isAndroid: () => true,
+    );
+
+    final shown = await presenter.showOrUpdateApproval(_approvalNotification());
+
+    expect(shown, isFalse);
+    expect(calls, isNot(contains('show')));
+
+    await presenter.dispose();
+  });
 }
 
 ApprovalNotificationDisplay _approvalNotification() =>

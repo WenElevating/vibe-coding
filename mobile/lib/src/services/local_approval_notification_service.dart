@@ -36,14 +36,14 @@ class SystemApprovalNotificationPresenter
   }
 
   @override
-  Future<void> showOrUpdateApproval(
+  Future<bool> showOrUpdateApproval(
       ApprovalNotificationDisplay notification) async {
-    if (!_isAndroid() || _disposed) return;
+    if (!_isAndroid() || _disposed) return true;
     await _ensureInitialized();
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     final allowed = await android?.requestNotificationsPermission();
-    if (allowed == false) return;
+    if (allowed == false) return false;
     await _plugin.show(
       notification.id,
       notification.title,
@@ -65,6 +65,7 @@ class SystemApprovalNotificationPresenter
         'approvalId': notification.approvalId,
       }),
     );
+    return true;
   }
 
   @override

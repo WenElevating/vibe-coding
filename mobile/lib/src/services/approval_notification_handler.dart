@@ -39,7 +39,7 @@ abstract class ApprovalNotificationPresenter {
 
   Future<void> initialize();
 
-  Future<void> showOrUpdateApproval(ApprovalNotificationDisplay notification);
+  Future<bool> showOrUpdateApproval(ApprovalNotificationDisplay notification);
 
   Future<void> cancelApproval({
     required int id,
@@ -61,8 +61,10 @@ class NoopApprovalNotificationPresenter
   Future<void> initialize() async {}
 
   @override
-  Future<void> showOrUpdateApproval(
-      ApprovalNotificationDisplay notification) async {}
+  Future<bool> showOrUpdateApproval(
+      ApprovalNotificationDisplay notification) async {
+    return true;
+  }
 
   @override
   Future<void> cancelApproval({
@@ -204,7 +206,7 @@ class ApprovalNotificationHandler {
       final approvalIds =
           _pendingByConversation[conversationId]?.keys.toList() ??
               const <String>[];
-      shown = await _runPresenterOperation(
+      shown = await _runPresenterShowOperation(
         () => _presenter.showOrUpdateApproval(notification),
       );
       if (!shown) return;
@@ -234,6 +236,19 @@ class ApprovalNotificationHandler {
     } catch (_) {
       // System notifications are best-effort; approval handling must keep
       // flowing even when the platform plugin rejects initialization/show/cancel.
+      return false;
+    }
+  }
+
+  Future<bool> _runPresenterShowOperation(
+    Future<bool> Function() operation,
+  ) async {
+    if (_disposed) return false;
+    try {
+      return await operation();
+    } catch (_) {
+      // System notifications are best-effort; approval handling must keep
+      // flowing even when the platform plugin rejects initialization/show.
       return false;
     }
   }

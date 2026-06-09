@@ -184,19 +184,24 @@
   `mobile/lib/src/services/approval_notification_handler.dart` marks provider
   approval ids as notified only after `showOrUpdateApproval` succeeds, keeps
   per-conversation show operations in flight to avoid duplicate notifications,
-  and leaves failed approvals retryable on later background lifecycle changes.
+  and leaves failed or presenter-skipped approvals retryable on later
+  background lifecycle changes.
   `mobile/lib/src/services/local_approval_notification_service.dart` clears a
   failed initialization future so the next show/cancel/initialize operation can
-  retry the Flutter local-notifications plugin.
+  retry the Flutter local-notifications plugin, and reports Android
+  notification-permission denial as an unshown approval rather than a
+  successful presentation.
   `mobile/test/approval_notification_handler_test.dart` covers failed
-  background notification show retrying after the presenter recovers, and
+  background notification show retrying after the presenter recovers and
+  silent presenter skips staying retryable, while
   `mobile/test/local_approval_notification_service_test.dart` covers retrying
-  plugin initialization after a transient failure.
+  plugin initialization after a transient failure and permission denial
+  returning an unshown result.
 - Mitigation: keep "notified" as a successful presentation state, not an
   attempted presentation state. When changing notification presenter error
   handling, preserve retryability without introducing duplicate notification
   spam for the same provider approval id.
-- Last verified: 2026-06-09
+- Last verified: 2026-06-10
 
 ## Risk: Mobile Event Cache Files Are Not Authoritative
 

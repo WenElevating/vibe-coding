@@ -262,6 +262,32 @@ void main() {
     await handler.dispose();
     await bus.dispose();
   });
+
+  test('skipped background notification show remains retryable', () async {
+    final bus = MobileAppEventBus();
+    final presenter = _FakeApprovalNotificationPresenter()..showResult = false;
+    final handler = ApprovalNotificationHandler(
+      eventBus: bus,
+      presenter: presenter,
+      initialLifecycleState: AppLifecycleState.paused,
+    );
+
+    bus.publish(_approvalRequested());
+    await _flushAsync();
+
+    expect(presenter.showAttempts, 1);
+    expect(presenter.shown, isEmpty);
+
+    presenter.showResult = true;
+    handler.updateLifecycleState(AppLifecycleState.inactive);
+    await _flushAsync();
+
+    expect(presenter.showAttempts, 2);
+    expect(presenter.shown.single.approvalId, 'ap_1');
+
+    await handler.dispose();
+    await bus.dispose();
+  });
 }
 
 MobileApprovalRequested _approvalRequested({
@@ -291,6 +317,7 @@ class _FakeApprovalNotificationPresenter
   Object? initializeError;
   Object? showError;
   Object? cancelError;
+  bool showResult = true;
   var showAttempts = 0;
   var cancelAttempts = 0;
 
@@ -304,12 +331,14 @@ class _FakeApprovalNotificationPresenter
   }
 
   @override
-  Future<void> showOrUpdateApproval(
+  Future<bool> showOrUpdateApproval(
       ApprovalNotificationDisplay notification) async {
     showAttempts += 1;
     final error = showError;
     if (error != null) throw error;
+    if (!showResult) return false;
     shown.add(notification);
+    return true;
   }
 
   @override
