@@ -337,6 +337,26 @@
   appending resolved events or calling adapter response methods.
 - Last verified: 2026-06-09
 
+## Risk: Blocking Response Event Persistence Can Strand Pending UI
+
+- Level: medium
+- Impact: answering a question or approval changes a conversation from
+  `waiting_*` back to `running`. If that state change is persisted before the
+  response event is durably appended, an event-store failure can make the
+  client request fail while also clearing the pending blocking item, leaving the
+  user unable to retry the same response.
+- Evidence: `daemon/src/conversation-manager.js` snapshots blocking response
+  state before `answerQuestion` and `respondApproval` pre-commit mutations, and
+  rolls back when the `user.message` or `approval.resolved` response event
+  append fails before provider dispatch.
+  `scripts/run-tests.js` covers both response-event append failures preserving
+  `waiting_input` / `waiting_approval` state and preventing provider calls.
+- Mitigation: keep blocking response state transitions on the same pre-commit
+  rollback boundary as their durable response events. If the response event has
+  already been appended, treat later provider dispatch failures as committed
+  dispatch failures rather than retryable pending responses.
+- Last verified: 2026-06-10
+
 ## Risk: Non-Current Approval Events Can Corrupt Mobile Waiting State
 
 - Level: medium

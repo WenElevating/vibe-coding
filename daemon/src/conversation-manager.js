@@ -578,15 +578,22 @@ class ConversationManager {
       throw conflict('conversation is not waiting for input response');
     }
     if (conversation.blockingItem.questionId !== answer.questionId) throw conflict('questionId does not match pending input request');
-    conversation.status = conversationStatuses.RUNNING;
-    conversation.blockingItem = null;
-    conversation.idleExpiresAt = null;
-    this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: answer.text, questionId: answer.questionId });
-    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+    const preCommitSnapshot = snapshotPreCommitState(conversation);
+    let committed = false;
     try {
+      conversation.status = conversationStatuses.RUNNING;
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.USER_MESSAGE, { text: answer.text, questionId: answer.questionId });
+      committed = true;
+      this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await conversation.handle.answerQuestion(answer.questionId, answer.text);
     } catch (error) {
+      if (!committed) {
+        this.rollbackPreCommitState(conversation, preCommitSnapshot, error);
+        throw error;
+      }
       this.markConversationDispatchFailed(conversation, error);
       throw error;
     }
@@ -610,15 +617,22 @@ class ConversationManager {
       ...(decision.scope ? { scope: decision.scope } : {}),
       ...(Object.prototype.hasOwnProperty.call(decision, 'interrupt') ? { interrupt: decision.interrupt } : {})
     };
-    conversation.status = conversationStatuses.RUNNING;
-    conversation.blockingItem = null;
-    conversation.idleExpiresAt = null;
-    this.touch(conversation);
-    this.eventStore.append(conversation.id, conversationEventTypes.APPROVAL_RESOLVED, resolved);
-    this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
+    const preCommitSnapshot = snapshotPreCommitState(conversation);
+    let committed = false;
     try {
+      conversation.status = conversationStatuses.RUNNING;
+      conversation.blockingItem = null;
+      conversation.idleExpiresAt = null;
+      this.touch(conversation);
+      this.eventStore.append(conversation.id, conversationEventTypes.APPROVAL_RESOLVED, resolved);
+      committed = true;
+      this.eventStore.append(conversation.id, conversationEventTypes.STATUS_CHANGED, { status: conversation.status });
       await conversation.handle.respondApproval(approvalId, decision);
     } catch (error) {
+      if (!committed) {
+        this.rollbackPreCommitState(conversation, preCommitSnapshot, error);
+        throw error;
+      }
       this.markConversationDispatchFailed(conversation, error);
       throw error;
     }

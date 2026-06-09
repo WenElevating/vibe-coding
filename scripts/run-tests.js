@@ -13337,6 +13337,73 @@ test('conversation manager fails conversation when blocking response write fails
   assert.equal(eventStore.list(approvalConversation.id, 0).at(-1).status, 'failed');
 });
 
+test('conversation manager keeps blocking responses pending when response event append fails', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const fakeHandle = {
+    answered: [],
+    approvals: [],
+    sendUserMessage() {},
+    answerQuestion(questionId, text) { this.answered.push({ questionId, text }); },
+    respondApproval(approvalId, decision) { this.approvals.push({ approvalId, decision }); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    async startConversation({ onEvent }) { adapter.onEvent = onEvent; return fakeHandle; }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    now: () => new Date('2026-05-03T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+
+  const questionConversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(questionConversation.id, { text: 'hello' }, device);
+  adapter.onEvent({ type: 'assistant.question', questionId: 'q_append_fail', text: 'Continue?' });
+  const originalAppend = eventStore.append.bind(eventStore);
+  eventStore.append = (conversationId, type, payload) => {
+    if (conversationId === questionConversation.id && type === conversationEventTypes.USER_MESSAGE) {
+      throw new Error('simulated answer event append failure');
+    }
+    return originalAppend(conversationId, type, payload);
+  };
+
+  await assert.rejects(
+    () => manager.answerQuestion(questionConversation.id, { questionId: 'q_append_fail', text: 'yes' }, device),
+    /simulated answer event append failure/
+  );
+  const stillWaitingQuestion = manager.getConversation(questionConversation.id, device);
+  assert.equal(stillWaitingQuestion.status, 'waiting_input');
+  assert.equal(stillWaitingQuestion.blockingItem.questionId, 'q_append_fail');
+  assert.deepEqual(fakeHandle.answered, []);
+
+  eventStore.append = originalAppend;
+  const approvalConversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(approvalConversation.id, { text: 'run command' }, device);
+  adapter.onEvent({ type: 'approval.requested', approvalId: 'ap_append_fail', toolName: 'Bash', input: { command: 'dir' } });
+  eventStore.append = (conversationId, type, payload) => {
+    if (conversationId === approvalConversation.id && type === conversationEventTypes.APPROVAL_RESOLVED) {
+      throw new Error('simulated approval event append failure');
+    }
+    return originalAppend(conversationId, type, payload);
+  };
+
+  await assert.rejects(
+    () => manager.respondApproval(approvalConversation.id, 'ap_append_fail', { decision: 'allow' }, device),
+    /simulated approval event append failure/
+  );
+  const stillWaitingApproval = manager.getConversation(approvalConversation.id, device);
+  assert.equal(stillWaitingApproval.status, 'waiting_approval');
+  assert.equal(stillWaitingApproval.blockingItem.approvalId, 'ap_append_fail');
+  assert.deepEqual(fakeHandle.approvals, []);
+});
+
 test('conversation manager controls active Claude conversation dynamically', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
