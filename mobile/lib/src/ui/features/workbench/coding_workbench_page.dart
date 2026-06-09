@@ -200,13 +200,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted) return false;
     SessionItem? item;
     for (final candidate in _sessionItems) {
-      if (candidate.conversation?.id == conversationId) {
+      final conversation = candidate.conversation;
+      if (conversation?.id == conversationId &&
+          conversation?.workspaceId == workspaceId) {
         item = candidate;
         break;
       }
     }
     if (item == null) {
-      final workspace = _workspaceForId(workspaceId);
+      final workspace = _workspaceById(workspaceId);
+      if (workspace == null) return false;
       _workbenchViewModel.showSessions(workspace.id);
       _navigatorKey.currentState?.pushNamedAndRemoveUntil(
           _routeSessions, (route) => route.settings.name == _routeWorkspaces);
@@ -477,12 +480,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   WorkspaceSummary _workspaceForId(String workspaceId) {
-    for (final workspace in _workspaces) {
-      if (workspace.id == workspaceId) return workspace;
-    }
+    final exact = _workspaceById(workspaceId);
+    if (exact != null) return exact;
     return _routeWorkspace ??
         _workbenchViewModel.selectedWorkspace ??
         _workspaces.first;
+  }
+
+  WorkspaceSummary? _workspaceById(String workspaceId) {
+    for (final workspace in _workspaces) {
+      if (workspace.id == workspaceId) return workspace;
+    }
+    return null;
   }
 
   Future<void> _cancelActiveRun() async {

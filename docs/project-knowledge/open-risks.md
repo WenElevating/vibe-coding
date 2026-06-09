@@ -203,6 +203,26 @@
   spam for the same provider approval id.
 - Last verified: 2026-06-10
 
+## Risk: Notification Taps Can Cross Workspace Boundaries
+
+- Level: medium
+- Impact: approval notification payloads carry provider-owned workspace and
+  conversation ids. If tap routing falls back to the current or first workspace
+  when the payload workspace is missing, a stale notification can open the wrong
+  workspace session list and make the tap look valid.
+- Evidence:
+  `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` handles
+  `openConversationFromNotification` with exact workspace matching before
+  opening a session list, and only opens an existing conversation when both
+  conversation id and workspace id match the notification payload.
+  `mobile/test/widget_test.dart` covers a notification tap for a missing
+  workspace staying on the workspace list instead of opening a fallback session
+  list.
+- Mitigation: keep notification tap routing strict. Use UI workspace fallback
+  helpers only for interactive in-app navigation, not for external
+  notification payload identity.
+- Last verified: 2026-06-10
+
 ## Risk: Mobile Event Cache Files Are Not Authoritative
 
 - Level: medium

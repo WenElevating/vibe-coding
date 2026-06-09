@@ -6815,6 +6815,48 @@ void main() {
     expect(find.text('Select workspace for this coding session'), findsNothing);
   });
 
+  testWidgets('notification tap for missing workspace stays on workspace list',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final client = _AdapterRefreshClient();
+    final pageDependencies = dependencies.createMainDependencies(
+      client,
+      initialData: _testSnapshot().toDaemonInitialData(),
+    );
+    final workbenchKey = GlobalKey<CodingWorkbenchPageState>();
+
+    await tester.pumpWidget(MaterialApp(
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            body: CodingWorkbenchPage(
+                key: workbenchKey,
+                onBack: () {},
+                onSessionListChanged: (_) {},
+                openSessionListRequest: 0,
+                streamOutput: false,
+                expandThinking: false,
+                permissionMode: 'default',
+                dependencies: pageDependencies.workbenchDependencies))));
+    await tester.pumpAndSettle();
+
+    final opened =
+        await workbenchKey.currentState!.openConversationFromNotification(
+      workspaceId: 'workspace_missing',
+      conversationId: 'conv_missing',
+    );
+    await tester.pumpAndSettle();
+
+    expect(opened, isFalse);
+    expect(find.byKey(const ValueKey('workspace-list')), findsOneWidget);
+    expect(find.byKey(const ValueKey('coding-session-list')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('returning to coding tab from Codex shows workspace list',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
