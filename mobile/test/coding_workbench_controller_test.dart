@@ -491,6 +491,30 @@ void main() {
         'approval_current');
   });
 
+  test('uncorrelated approval resolution preserves waiting approval state', () {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_1',
+      workspaceId: _workspace.id,
+      status: 'waiting_approval',
+    ));
+
+    viewModel.applyConversationEvents(
+      <ConversationEvent>[
+        _event(
+          seq: 1,
+          type: 'approval.resolved',
+          approvalId: 'approval_queued',
+          raw: const <String, Object?>{'decision': 'deny'},
+        ),
+      ],
+      streamOutput: false,
+    );
+
+    expect(viewModel.activeConversation?.status, 'waiting_approval');
+    expect(viewModel.activeConversation?.blockingItem, isNull);
+  });
+
   test('waiting status events preserve active approval request', () {
     final viewModel = _workbenchViewModel();
     viewModel.updateActiveConversation(_conversation(

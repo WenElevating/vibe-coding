@@ -1204,6 +1204,26 @@ void main() {
         hasLength(1));
   });
 
+  test('uncorrelated approval resolution preserves waiting approval status',
+      () {
+    final pending = const ConversationViewState(
+      status: 'waiting_approval',
+    ).apply(<ConversationEvent>[
+      ConversationEvent.fromJson(const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_1',
+        'type': 'approval.resolved',
+        'createdAt': '2026-05-03T00:00:01.000Z',
+        'approvalId': 'ap_queued',
+        'decision': 'deny'
+      }),
+    ]);
+
+    expect(pending.status, 'waiting_approval');
+    expect(pending.messages.where((message) => message.role == 'approval'),
+        isEmpty);
+  });
+
   test('late approval resolution preserves terminal conversation status', () {
     final terminal = const ConversationViewState().apply(<ConversationEvent>[
       ConversationEvent.fromJson(const <String, Object?>{

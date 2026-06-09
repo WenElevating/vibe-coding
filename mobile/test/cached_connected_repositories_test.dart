@@ -738,6 +738,35 @@ void main() {
           'approval_current');
     });
 
+    test('streamed uncorrelated approval resolution preserves waiting status',
+        () async {
+      final delegate = _FakeConversationRepository(
+        conversations: <ConversationSummary>[
+          _conversation(
+            id: 'c1',
+            status: 'waiting_approval',
+          ),
+        ],
+      );
+      final repository = CachedConversationRepository(delegate: delegate);
+      await repository.refresh();
+      final subscription =
+          repository.watchConversationEvents('c1', afterSeq: 0).listen((_) {});
+
+      delegate.emitConversationEvent(_conversationEvent(
+        conversationId: 'c1',
+        seq: 1,
+        type: 'approval.resolved',
+        approvalId: 'approval_queued',
+        raw: const <String, Object?>{'decision': 'deny'},
+      ));
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(repository.conversations.single.status, 'waiting_approval');
+      expect(repository.conversations.single.blockingItem, isNull);
+    });
+
     test('streamed waiting status preserves cached approval request', () async {
       final delegate = _FakeConversationRepository(
         conversations: <ConversationSummary>[

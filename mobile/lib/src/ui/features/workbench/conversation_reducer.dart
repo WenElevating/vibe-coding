@@ -301,7 +301,8 @@ class ConversationViewState {
           }
           if (conversationStatusCanResumeAfterApprovalResolution(nextStatus) &&
               (resolvedPendingApproval ||
-                  !_hasPendingBlockingMessages(nextMessages))) {
+                  (nextStatus != 'waiting_approval' &&
+                      !_hasPendingBlockingMessages(nextMessages)))) {
             nextStatus = 'running';
           }
           break;

@@ -437,6 +437,7 @@ class CachedConversationRepository extends ChangeNotifier
             ? 'running'
             : null;
       }
+      if (currentStatus == 'waiting_approval') return null;
       return 'running';
     }
     if (conversationBlockingItemMatchesCancellation(blockingItem, event)) {
