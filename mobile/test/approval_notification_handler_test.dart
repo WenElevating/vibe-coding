@@ -47,6 +47,30 @@ void main() {
     await bus.dispose();
   });
 
+  test('background approvals with same provider id notify per conversation',
+      () async {
+    final bus = MobileAppEventBus();
+    final presenter = _FakeApprovalNotificationPresenter();
+    final handler = ApprovalNotificationHandler(
+      eventBus: bus,
+      presenter: presenter,
+      initialLifecycleState: AppLifecycleState.paused,
+    );
+
+    bus
+      ..publish(_approvalRequested(conversationId: 'conv_1'))
+      ..publish(_approvalRequested(conversationId: 'conv_2'));
+    await _flushAsync();
+
+    expect(presenter.shown.map((item) => item.conversationId),
+        <String>['conv_1', 'conv_2']);
+    expect(presenter.shown.map((item) => item.approvalId),
+        <String>['ap_1', 'ap_1']);
+
+    await handler.dispose();
+    await bus.dispose();
+  });
+
   test('pending foreground approval is shown once after entering background',
       () async {
     final bus = MobileAppEventBus();
@@ -156,11 +180,12 @@ void main() {
 
 MobileApprovalRequested _approvalRequested({
   String approvalId = 'ap_1',
+  String conversationId = 'conv_1',
   DateTime? createdAt,
 }) =>
     MobileApprovalRequested(
       workspaceId: 'ws_1',
-      conversationId: 'conv_1',
+      conversationId: conversationId,
       approvalId: approvalId,
       title: 'Approval required',
       body: 'Bash: git status',

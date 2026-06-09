@@ -117,6 +117,23 @@
   every daemon route segment before domain/service lookup.
 - Last verified: 2026-06-09
 
+## Risk: Provider Approval IDs Are Conversation Scoped
+
+- Level: medium
+- Impact: OpenCode permission ids are provider/session-owned identifiers, not
+  mobile-global identifiers. If mobile notification or cache code de-dupes by
+  bare approval id, a pending approval in one conversation can suppress or clear
+  another conversation's notification when providers reuse ids.
+- Evidence: `mobile/lib/src/services/approval_notification_handler.dart`
+  scopes notified approval keys by `conversationId` and `approvalId`.
+  `mobile/test/approval_notification_handler_test.dart` covers two background
+  conversations with the same provider approval id producing separate
+  notifications.
+- Mitigation: compare or de-dupe provider approval ids only within their
+  conversation/session scope. Preserve URL encoding for route path usage
+  separately.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
 
 - Level: medium

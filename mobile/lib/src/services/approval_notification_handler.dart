@@ -91,7 +91,8 @@ class ApprovalNotificationHandler {
   final ApprovalNotificationPresenter _presenter;
   final Map<String, Map<String, MobileApprovalRequested>>
       _pendingByConversation = <String, Map<String, MobileApprovalRequested>>{};
-  final Set<String> _notifiedApprovalIds = <String>{};
+  final Set<_ApprovalNotificationKey> _notifiedApprovalIds =
+      <_ApprovalNotificationKey>{};
   final StreamController<ApprovalNotificationTap> _taps =
       StreamController<ApprovalNotificationTap>.broadcast();
   late final StreamSubscription<MobileAppEvent> _eventSubscription;
@@ -150,11 +151,18 @@ class ApprovalNotificationHandler {
     if (approvals == null) return;
     final approvalId = event.approvalId;
     if (approvalId == null || approvalId.isEmpty) {
-      _notifiedApprovalIds.removeAll(approvals.keys);
+      _notifiedApprovalIds.removeAll(approvals.keys.map(
+        (approvalId) => _approvalNotificationKey(
+          event.conversationId,
+          approvalId,
+        ),
+      ));
       approvals.clear();
     } else {
       approvals.remove(approvalId);
-      _notifiedApprovalIds.remove(approvalId);
+      _notifiedApprovalIds.remove(
+        _approvalNotificationKey(event.conversationId, approvalId),
+      );
     }
     if (approvals.isEmpty) {
       _pendingByConversation.remove(event.conversationId);
@@ -181,8 +189,9 @@ class ApprovalNotificationHandler {
   bool _hasUnnotifiedApproval(String conversationId) {
     final approvals = _pendingByConversation[conversationId];
     if (approvals == null || approvals.isEmpty) return false;
-    return approvals.keys
-        .any((approvalId) => !_notifiedApprovalIds.contains(approvalId));
+    return approvals.keys.any((approvalId) => !_notifiedApprovalIds.contains(
+          _approvalNotificationKey(conversationId, approvalId),
+        ));
   }
 
   Future<void> _showConversationNotification(String conversationId) async {
@@ -190,7 +199,9 @@ class ApprovalNotificationHandler {
     if (notification == null) return;
     final approvals = _pendingByConversation[conversationId];
     if (approvals != null) {
-      _notifiedApprovalIds.addAll(approvals.keys);
+      _notifiedApprovalIds.addAll(approvals.keys.map(
+        (approvalId) => _approvalNotificationKey(conversationId, approvalId),
+      ));
     }
     await _runPresenterOperation(
       () => _presenter.showOrUpdateApproval(notification),
@@ -226,6 +237,29 @@ class ApprovalNotificationHandler {
     );
   }
 }
+
+class _ApprovalNotificationKey {
+  const _ApprovalNotificationKey(this.conversationId, this.approvalId);
+
+  final String conversationId;
+  final String approvalId;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ApprovalNotificationKey &&
+          other.conversationId == conversationId &&
+          other.approvalId == approvalId;
+
+  @override
+  int get hashCode => Object.hash(conversationId, approvalId);
+}
+
+_ApprovalNotificationKey _approvalNotificationKey(
+  String conversationId,
+  String approvalId,
+) =>
+    _ApprovalNotificationKey(conversationId, approvalId);
 
 int approvalNotificationIdForConversation(String conversationId) {
   var hash = 0x811c9dc5;
