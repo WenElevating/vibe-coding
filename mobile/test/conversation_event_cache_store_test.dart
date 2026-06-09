@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/models/approval_models.dart';
 import 'package:lan_ai_cli_control/src/data/services/conversation_event_cache_store.dart';
@@ -152,6 +155,57 @@ void main() {
     expect(await file.exists(), isFalse);
   });
 
+  test('cache file with mismatched record identity is ignored and removed',
+      () async {
+    final file = _recordFileFor(tempDir, 'daemon', 'conv_1');
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(<String, Object?>{
+      'version': 1,
+      'namespace': 'daemon',
+      'conversationId': 'conv_other',
+      'updatedAt': '2026-05-31T00:00:00.000Z',
+      'events': <Object?>[
+        _event(conversationId: 'conv_other', seq: 1).raw,
+      ],
+    }));
+
+    final page = await store.readTail('daemon', 'conv_1', limit: 80);
+
+    expect(page, isNull);
+    expect(await file.exists(), isFalse);
+  });
+
+  test('clearConversation is ordered after pending writes', () async {
+    final writeEnteredRootProvider = Completer<void>();
+    final releaseWriteRootProvider = Completer<void>();
+    var rootCalls = 0;
+    final racingStore = LocalConversationEventCacheStore(
+      rootDirectoryProvider: () async {
+        rootCalls += 1;
+        if (rootCalls == 1) {
+          writeEnteredRootProvider.complete();
+          await releaseWriteRootProvider.future;
+        }
+        return tempDir;
+      },
+      now: () => DateTime.parse('2026-05-31T00:00:00.000Z'),
+    );
+
+    final writeFuture = racingStore.upsertEvents(
+      'daemon',
+      'conv_1',
+      <ConversationEvent>[_event(seq: 1)],
+    );
+    await writeEnteredRootProvider.future;
+    final clearFuture = racingStore.clearConversation('daemon', 'conv_1');
+
+    releaseWriteRootProvider.complete();
+    await Future.wait(<Future<void>>[writeFuture, clearFuture]);
+    final page = await racingStore.readTail('daemon', 'conv_1', limit: 80);
+
+    expect(page, isNull);
+  });
+
   test('does not prune stored conversations automatically', () async {
     for (var i = 0; i < 5; i += 1) {
       await store.upsertEvents('daemon', 'conv_$i', <ConversationEvent>[
@@ -180,6 +234,18 @@ Future<File> _firstRecordFileAfterWrite(
       .where((entity) => entity is File && entity.path.endsWith('.json'))
       .cast<File>()
       .first;
+}
+
+File _recordFileFor(
+  Directory root,
+  String namespace,
+  String conversationId,
+) {
+  final namespaceHash = sha256.convert(utf8.encode(namespace)).toString();
+  final conversationHash =
+      sha256.convert(utf8.encode(conversationId)).toString();
+  return File('${root.path}${Platform.pathSeparator}'
+      '$namespaceHash${Platform.pathSeparator}$conversationHash.json');
 }
 
 ConversationEvent _event({

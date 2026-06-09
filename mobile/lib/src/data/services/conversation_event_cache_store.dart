@@ -191,12 +191,16 @@ class LocalConversationEventCacheStore implements ConversationEventCacheStore {
 
   @override
   Future<void> clearConversation(
-      String namespace, String conversationId) async {
-    final root = await _ensureRootDirectory();
-    final file = _recordFile(root, namespace, conversationId);
-    if (await file.exists()) {
-      await file.delete();
-    }
+    String namespace,
+    String conversationId,
+  ) {
+    return _serialized(() async {
+      final root = await _ensureRootDirectory();
+      final file = _recordFile(root, namespace, conversationId);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    });
   }
 
   Future<T> _serialized<T>(Future<T> Function() operation) {
@@ -221,9 +225,15 @@ class LocalConversationEventCacheStore implements ConversationEventCacheStore {
     try {
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! Map) return null;
-      return _ConversationEventCacheRecord.fromJson(
+      final record = _ConversationEventCacheRecord.fromJson(
         Map<String, Object?>.from(decoded),
       );
+      if (record.namespace != namespace ||
+          record.conversationId != conversationId) {
+        await _deleteBestEffort(file);
+        return null;
+      }
+      return record;
     } catch (_) {
       await _deleteBestEffort(file);
       return null;
@@ -285,16 +295,18 @@ class _ConversationEventCacheRecord {
       );
 
   factory _ConversationEventCacheRecord.fromJson(Map<String, Object?> json) {
+    final conversationId = json['conversationId'] as String? ?? '';
     final events = ((json['events'] as List<Object?>?) ?? const <Object?>[])
         .whereType<Map>()
         .map((item) => ConversationEvent.fromJson(
               Map<String, Object?>.from(item),
             ))
+        .where((event) => event.conversationId == conversationId)
         .toList()
       ..sort((left, right) => left.seq.compareTo(right.seq));
     return _ConversationEventCacheRecord(
       namespace: json['namespace'] as String? ?? '',
-      conversationId: json['conversationId'] as String? ?? '',
+      conversationId: conversationId,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       knownStartSeq: json['knownStartSeq'] as int?,

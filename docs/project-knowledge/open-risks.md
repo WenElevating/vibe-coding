@@ -171,6 +171,25 @@
   services.
 - Last verified: 2026-06-09
 
+## Risk: Mobile Event Cache Files Are Not Authoritative
+
+- Level: medium
+- Impact: local read-through cache files can be corrupted, stale, or cleared
+  while best-effort writes are still queued. Trusting file contents without key
+  validation, or letting clear operations bypass the write queue, can replay
+  another conversation's transcript or resurrect cleared events.
+- Evidence:
+  `mobile/lib/src/data/services/conversation_event_cache_store.dart` validates
+  stored `namespace` and `conversationId` against the requested cache key,
+  filters persisted events to the record conversation, and serializes
+  `clearConversation` with upserts. `mobile/test/conversation_event_cache_store_test.dart`
+  covers mismatched record identity deletion and clear-after-pending-write
+  ordering.
+- Mitigation: keep the daemon as the authoritative event store, treat local
+  cache files as untrusted, and keep destructive cache operations in the same
+  serialization path as writes.
+- Last verified: 2026-06-09
+
 ## Risk: Approval Response Options Need Daemon-Side Enforcement
 
 - Level: medium
