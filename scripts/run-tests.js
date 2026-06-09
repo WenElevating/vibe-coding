@@ -12977,6 +12977,88 @@ test('conversation manager queues concurrent blocking approvals', async () => {
   assert.deepEqual(fakeHandle.approvals.map((item) => item.approvalId), ['ap_web_1', 'ap_web_2']);
 });
 
+test('conversation manager rejects approval responses unsupported by current request options', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const fakeHandle = {
+    approvals: [],
+    sendUserMessage() {},
+    respondApproval(approvalId, decision) { this.approvals.push({ approvalId, decision }); }
+  };
+  const adapter = {
+    capabilities: {
+      longLivedProcess: true,
+      waitingApproval: true,
+      approval: {
+        mobileCallbacks: true,
+        scopes: ['once', 'session'],
+        supportsCancel: false,
+        denyBehaviors: ['interrupt', 'continue']
+      }
+    },
+    async startConversation({ onEvent }) { adapter.onEvent = onEvent; return fakeHandle; }
+  };
+  const eventStore = new ConversationEventStore({ now: () => new Date('2026-05-03T00:00:00.000Z') });
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore,
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]]),
+    idleTtlMs: 600000,
+    now: () => new Date('2026-05-03T00:00:00.000Z')
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(conversation.id, { text: 'run restricted command' }, device);
+
+  adapter.onEvent({
+    type: 'approval.requested',
+    approvalId: 'ap_once_only',
+    toolName: 'Shell',
+    toolUseId: 'tool_once_only',
+    input: { command: 'npm test' },
+    summary: 'npm test',
+    approvalOptions: {
+      kind: 'command',
+      supportsSessionScope: false,
+      supportsCancel: false,
+      denyBehavior: 'interrupt',
+      command: 'npm test'
+    }
+  });
+  assert.equal(manager.getConversation(conversation.id, device).status, 'waiting_approval');
+
+  await assert.rejects(
+    () => manager.respondApproval(conversation.id, 'ap_once_only', { decision: 'allow', scope: 'session' }, device),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, 'BAD_REQUEST');
+      assert.match(error.message, /session scope/);
+      return true;
+    }
+  );
+  await assert.rejects(
+    () => manager.respondApproval(conversation.id, 'ap_once_only', { decision: 'deny', interrupt: false }, device),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, 'BAD_REQUEST');
+      assert.match(error.message, /continuing after deny/);
+      return true;
+    }
+  );
+
+  const stillWaiting = manager.getConversation(conversation.id, device);
+  assert.equal(stillWaiting.status, 'waiting_approval');
+  assert.equal(stillWaiting.blockingItem.approvalId, 'ap_once_only');
+  assert.deepEqual(fakeHandle.approvals, []);
+  assert.equal(eventStore.list(conversation.id, 0).some((event) => event.type === conversationEventTypes.APPROVAL_RESOLVED), false);
+
+  await manager.respondApproval(conversation.id, 'ap_once_only', { decision: 'allow', scope: 'once' }, device);
+  assert.deepEqual(fakeHandle.approvals, [{ approvalId: 'ap_once_only', decision: { decision: 'allow', scope: 'once' } }]);
+});
+
 test('conversation manager clears blocking approval when adapter resolves it directly', async () => {
   const { ConversationManager } = require('../daemon/src/conversation-manager');
   const { ConversationEventStore } = require('../daemon/src/conversation-event-store');

@@ -171,6 +171,24 @@
   services.
 - Last verified: 2026-06-09
 
+## Risk: Approval Response Options Need Daemon-Side Enforcement
+
+- Level: medium
+- Impact: approval request options such as session scope support and
+  deny-and-continue support are provider/request-owned capabilities. If the
+  daemon trusts only mobile UI affordances, a stale or direct client can submit
+  broader approval responses than the current request allowed.
+- Evidence: `daemon/src/conversation-manager.js` validates approval responses
+  against the current `blockingItem.approvalOptions` before writing
+  `approval.resolved` or forwarding to the provider handle.
+  `scripts/run-tests.js` covers rejecting unsupported session-scope approval
+  and unsupported deny-and-continue responses without clearing the pending
+  approval.
+- Mitigation: when adding approval options, enforce them in
+  `ConversationManager.respondApproval` or an equivalent daemon boundary before
+  appending resolved events or calling adapter response methods.
+- Last verified: 2026-06-09
+
 ## Risk: OpenCode Public Error Surfaces Can Leak Provider Diagnostics
 
 - Level: medium

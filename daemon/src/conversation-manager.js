@@ -602,6 +602,7 @@ class ConversationManager {
       throw conflict('conversation is not waiting for approval response');
     }
     if (conversation.blockingItem.approvalId !== approvalId) throw conflict('approvalId does not match pending approval request');
+    validateApprovalDecisionForRequest(decision, conversation.blockingItem);
     const { type: _blockingType, ...blockingPayload } = conversation.blockingItem;
     const resolved = {
       ...blockingPayload,
@@ -1817,6 +1818,16 @@ function resolvedApprovalMatches(blockingItem, event) {
     blockingItem.type === 'approval_request' &&
     !!blockingItem.approvalId &&
     blockingItem.approvalId === event.approvalId;
+}
+
+function validateApprovalDecisionForRequest(decision, blockingItem) {
+  const options = blockingItem?.approvalOptions || {};
+  if (decision.decision === 'allow' && decision.scope === 'session' && options.supportsSessionScope !== true) {
+    throw badRequest('approval request does not support session scope');
+  }
+  if (decision.decision === 'deny' && decision.interrupt === false && options.denyBehavior !== 'continue') {
+    throw badRequest('approval request does not support continuing after deny');
+  }
 }
 
 function snapshotPreCommitState(conversation) {
