@@ -264,9 +264,14 @@
   `mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart`
   stops initial expansion and manual older-page loading when the returned
   oldest sequence does not move below the requested `beforeSeq`.
+  `mobile/lib/src/data/models/conversation_models.dart` clamps parsed
+  `hasMoreBefore` to false for empty explicit event pages, because an empty
+  page has no cursor for older-history requests.
   `mobile/test/workbench_view_model_repository_state_test.dart` covers a
   repeated-page response and keeps dense partial-history expansion fixtures in
   realistic newest-to-oldest page order.
+  `mobile/test/daemon_client_test.dart` covers empty daemon event pages not
+  surfacing `hasMoreBefore: true` to Workbench.
 - Mitigation: maintain the invariant that every `beforeSeq` page either returns
   no events, reports no more history, or advances the oldest loaded sequence
   lower than the requested cursor.

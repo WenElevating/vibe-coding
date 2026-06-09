@@ -248,6 +248,35 @@ void main() {
     expect(page.hasMoreBefore, isTrue);
   });
 
+  test('fetchConversationEventPage clamps empty page hasMoreBefore', () async {
+    final client = DaemonClient(
+      baseUri: Uri.parse('http://127.0.0.1:4317'),
+      tokenStore: MemoryTokenStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/conversations/conv_1/events');
+        return http.Response(
+          jsonEncode(const <String, Object?>{
+            'events': <Object?>[],
+            'page': <String, Object?>{
+              'mode': 'tail',
+              'oldestSeq': null,
+              'newestSeq': null,
+              'hasMoreBefore': true,
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final page = await client.fetchConversationEventPage('conv_1', limit: 80);
+
+    expect(page.events, isEmpty);
+    expect(page.oldestSeq, isNull);
+    expect(page.newestSeq, isNull);
+    expect(page.hasMoreBefore, isFalse);
+  });
+
   test('recordException returns daemon trace id', () async {
     final client = DaemonClient(
       baseUri: Uri.parse('http://127.0.0.1:4317'),

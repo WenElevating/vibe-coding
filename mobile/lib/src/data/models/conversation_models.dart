@@ -374,7 +374,8 @@ class ConversationEventPage {
       events: events,
       oldestSeq: _optionalInt(page['oldestSeq']),
       newestSeq: _optionalInt(page['newestSeq']),
-      hasMoreBefore: page['hasMoreBefore'] as bool? ?? false,
+      hasMoreBefore:
+          events.isNotEmpty && (page['hasMoreBefore'] as bool? ?? false),
     );
   }
 }
