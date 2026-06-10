@@ -967,9 +967,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.addDraftAttachments(attachments);
     } catch (_) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
       setState(() {
         _workbenchViewModel.setOperationError(
-          'Attachment selection failed. Please try again.',
+          l10n.workbenchAttachmentSelectionFailed,
           notify: false,
         );
       });

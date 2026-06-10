@@ -62,6 +62,7 @@ String? localizedAttachmentError(
   final l10n = AppLocalizations.of(context);
   return switch (code) {
     'attachment_kind_unsupported' => l10n.workbenchAttachmentUnsupported,
+    'attachment_empty' => l10n.workbenchAttachmentEmpty,
     'attachment_too_large' ||
     'attachment_total_too_large' =>
       l10n.workbenchAttachmentTooLarge,

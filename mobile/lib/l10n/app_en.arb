@@ -464,8 +464,10 @@
   "workbenchVoiceInputEnabledTooltip": "Tap or hold to speak",
   "workbenchVoiceInputUnavailableTooltip": "Voice input is not available on this platform yet.",
   "workbenchAttachmentUnsupported": "This file is not supported by the selected model.",
+  "workbenchAttachmentEmpty": "This file is empty.",
   "workbenchAttachmentTooLarge": "This file is too large.",
   "workbenchAttachmentAddInstruction": "Add an instruction for these files.",
+  "workbenchAttachmentSelectionFailed": "Attachment selection failed. Please try again.",
   "workbenchWorkspaceSwitchBlocked": "CLI is running; workspace cannot be switched right now",
   "workbenchWorkspaceOpenFailed": "Workspace failed to open: {error}",
   "@workbenchWorkspaceOpenFailed": {

@@ -464,8 +464,10 @@
   "workbenchVoiceInputEnabledTooltip": "点击或按住说话",
   "workbenchVoiceInputUnavailableTooltip": "当前平台暂不支持语音输入。",
   "workbenchAttachmentUnsupported": "所选模型不支持这个文件。",
+  "workbenchAttachmentEmpty": "这个文件是空的。",
   "workbenchAttachmentTooLarge": "这个文件太大。",
   "workbenchAttachmentAddInstruction": "为这些文件补充一条说明。",
+  "workbenchAttachmentSelectionFailed": "附件选择失败，请重试。",
   "workbenchWorkspaceSwitchBlocked": "CLI 正在运行，暂时不能切换工作区",
   "workbenchWorkspaceOpenFailed": "工作区打开失败：{error}",
   "@workbenchWorkspaceOpenFailed": {
