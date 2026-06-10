@@ -1254,3 +1254,22 @@
   lines, not only on completed lines, and should flush residual structured
   output before deriving terminal state from child exit.
 - Last verified: 2026-06-11
+
+## Risk: Native Background Download Events Can Be Malformed
+
+- Level: medium
+- Impact: Android background download events cross a MethodChannel/EventChannel
+  boundary. If a malformed native progress frame propagates as a Dart stream
+  error, ASR model or app update downloads can keep waiting for a later
+  terminal event that still exists but is no longer delivered through the
+  poisoned stream.
+- Evidence:
+  `mobile/lib/src/services/method_channel_background_download_bridge.dart`
+  drops malformed native event frames and continues yielding later valid
+  `BackgroundDownloadSnapshot` events.
+  `mobile/test/background_download_bridge_test.dart` covers a malformed native
+  event followed by a valid completed event.
+- Mitigation: keep native background download event parsing best-effort and
+  frame-local. Do not let one malformed event terminate the shared download
+  event stream.
+- Last verified: 2026-06-11

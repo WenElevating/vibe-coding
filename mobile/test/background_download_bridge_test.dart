@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart';
@@ -178,6 +180,40 @@ void main() {
         .setMockMethodCallHandler(methodChannel, null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMessageHandler(eventChannel.name, null);
+  });
+
+  test('method channel bridge drops malformed native events and keeps stream',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final controller = StreamController<Object?>.broadcast();
+    addTearDown(controller.close);
+    final bridge = MethodChannelBackgroundDownloadBridge(
+      eventStream: controller.stream,
+    );
+
+    final expectation = expectLater(
+      bridge.events,
+      emitsThrough(isA<BackgroundDownloadSnapshot>()
+          .having((event) => event.id, 'id', 'update:19')
+          .having(
+            (event) => event.status,
+            'status',
+            BackgroundDownloadStatus.completed,
+          )),
+    );
+
+    await Future<void>.delayed(Duration.zero);
+    controller.add(const <String, Object?>{'unexpected': 'shape'});
+    controller.add('not a native event map');
+    controller.add(const <String, Object?>{
+      'id': 'update:19',
+      'status': 'completed',
+      'downloadedBytes': 120,
+      'totalBytes': 120,
+      'destinationPath': '/tmp/app-update-19.apk.part',
+    });
+
+    await expectation;
   });
 
   test('method channel bridge permits download when notification is denied',

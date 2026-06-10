@@ -16,18 +16,15 @@ class MethodChannelBackgroundDownloadBridge
     FlutterLocalNotificationsPlugin? notificationsPlugin,
     Future<bool> Function()? notificationPermissionRequester,
     bool? forceAndroidForTesting,
+    Stream<Object?>? eventStream,
   })  : _methodChannel = methodChannel,
         _notificationsPlugin =
             notificationsPlugin ?? FlutterLocalNotificationsPlugin(),
         _notificationPermissionRequester = notificationPermissionRequester,
         _forceAndroidForTesting = forceAndroidForTesting,
-        _events = eventChannel
-            .receiveBroadcastStream()
-            .where((event) => event is Map)
-            .map((event) => BackgroundDownloadSnapshot.fromJson(
-                  Map<String, Object?>.from(event as Map),
-                ))
-            .asBroadcastStream();
+        _events = _parseBackgroundDownloadEvents(
+          eventStream ?? eventChannel.receiveBroadcastStream(),
+        ).asBroadcastStream();
 
   final MethodChannel _methodChannel;
   final FlutterLocalNotificationsPlugin _notificationsPlugin;
@@ -124,5 +121,22 @@ class MethodChannelBackgroundDownloadBridge
       <String, Object?>{'id': id},
     );
     return result == null ? null : BackgroundDownloadSnapshot.fromJson(result);
+  }
+}
+
+Stream<BackgroundDownloadSnapshot> _parseBackgroundDownloadEvents(
+  Stream<Object?> events,
+) async* {
+  await for (final event in events) {
+    if (event is! Map) continue;
+    try {
+      yield BackgroundDownloadSnapshot.fromJson(
+        Map<String, Object?>.from(event),
+      );
+    } on Object {
+      // Native transfer events are best-effort progress notifications. A
+      // malformed frame must not poison the broadcast stream and strand the
+      // download manager waiting for a later terminal event.
+    }
   }
 }
