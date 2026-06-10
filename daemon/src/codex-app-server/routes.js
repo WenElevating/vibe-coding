@@ -198,11 +198,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/skills') {
-    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    parseOptionalString(url.searchParams.get('cursor'));
     return discoveryRoute(
       context,
       json,
-      (client) => client.listSkills(compactObject({ cursor })),
+      (client) => client.listSkills(),
       { collectionKey: 'skills', candidateKeys: ['skills', 'data', 'items'] }
     );
   }
@@ -889,14 +889,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/config/mcp-server/reload') {
-    const body = await readJson();
-    const request = compactObject({
-      serverId: parseOptionalBodyString(body?.serverId, 'serverId')
-    });
+    await readJson();
     return highRiskMutationRoute(context, json, {
       method: 'config/mcpServer/reload',
       risk: 'write',
-      action: (client) => client.reloadMcpServerConfig(request)
+      action: (client) => client.reloadMcpServerConfig(null)
     });
   }
 
@@ -975,7 +972,14 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/config') {
     const body = await readJson();
-    const request = { config: parseRequiredObject(body?.config, 'config') };
+    const source = body?.config && typeof body.config === 'object' && !Array.isArray(body.config)
+      ? body.config
+      : body;
+    const request = compactObject({
+      enabled: parseRequiredBoolean(source?.enabled, 'enabled'),
+      name: parseOptionalBodyString(source?.name, 'name'),
+      path: parseOptionalBodyString(source?.path, 'path')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'skills/config/write',
       risk: 'write',
@@ -985,7 +989,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/skills/extra-roots') {
     const body = await readJson();
-    const request = { roots: parseRequiredStringArray(body?.roots, 'roots') };
+    const request = { extraRoots: parseRequiredStringArray(body?.extraRoots ?? body?.roots, 'extraRoots') };
     return highRiskMutationRoute(context, json, {
       method: 'skills/extraRoots/set',
       risk: 'write',
@@ -998,11 +1002,14 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/remote-control/clients') {
+    const environmentId = parseRequiredQueryString(url.searchParams.get('environmentId'), 'environmentId');
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    const limit = parseOptionalPositiveIntegerParam(url.searchParams.get('limit'), 'limit');
+    const order = parseRemoteControlClientOrder(url.searchParams.get('order'));
     return discoveryRoute(
       context,
       json,
-      (client) => client.listRemoteControlClients(compactObject({ cursor })),
+      (client) => client.listRemoteControlClients(compactObject({ environmentId, cursor, limit, order })),
       { collectionKey: 'clients', candidateKeys: ['clients', 'data', 'items'] }
     );
   }
@@ -1025,8 +1032,9 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/remote-control/pairing/start') {
     const body = await readJson();
+    parseOptionalPositiveInteger(body?.timeoutSecs, 'timeoutSecs');
     const request = compactObject({
-      timeoutSecs: parseOptionalPositiveInteger(body?.timeoutSecs, 'timeoutSecs')
+      manualCode: parseOptionalBoolean(body?.manualCode, 'manualCode')
     });
     return highRiskMutationRoute(context, json, {
       method: 'remoteControl/pairing/start',
@@ -1037,11 +1045,16 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   const remoteClientRevoke = url.pathname.match(/^\/api\/codex-app-server\/remote-control\/clients\/([^/]+)\/revoke$/);
   if (method === 'POST' && remoteClientRevoke) {
-    const clientId = decodePathParam(remoteClientRevoke[1]);
+    const body = await readJson();
+    const clientId = parseRequiredPathString(decodePathParam(remoteClientRevoke[1]), 'clientId');
+    const environmentId = parseRequiredBodyString(
+      url.searchParams.get('environmentId') ?? body?.environmentId,
+      'environmentId'
+    );
     return highRiskMutationRoute(context, json, {
       method: 'remoteControl/client/revoke',
       risk: 'network',
-      action: (client) => client.revokeRemoteControlClient({ clientId })
+      action: (client) => client.revokeRemoteControlClient({ clientId, environmentId })
     });
   }
 
@@ -1374,10 +1387,28 @@ function parseOptionalPositiveInteger(value, name) {
   return value;
 }
 
+function parseOptionalPositiveIntegerParam(value, name) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw badRequest(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function parseRequiredBoolean(value, name) {
+  if (typeof value !== 'boolean') throw badRequest(`${name} must be a boolean`);
+  return value;
+}
+
 function parseOptionalBoolean(value, name) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'boolean') throw badRequest(`${name} must be a boolean`);
   return value;
+}
+
+function parseRemoteControlClientOrder(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === 'asc' || value === 'desc') return value;
+  throw badRequest('order must be asc or desc');
 }
 
 function parseRequiredQueryString(value, name) {

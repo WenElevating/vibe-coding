@@ -103,7 +103,8 @@ class CodexAppServerClient {
 
   listSkills(options = {}) {
     return this.sendRequest('skills/list', compactObject({
-      cursor: options.cursor
+      cwds: options.cwds,
+      forceReload: options.forceReload
     }), options);
   }
 
@@ -271,9 +272,7 @@ class CodexAppServerClient {
   }
 
   reloadMcpServerConfig(options = {}) {
-    return this.sendRequest('config/mcpServer/reload', compactObject({
-      serverId: options.serverId
-    }), options);
+    return this.sendRequest('config/mcpServer/reload', null, options || {});
   }
 
   addEnvironment(options = {}) {
@@ -318,14 +317,19 @@ class CodexAppServerClient {
   }
 
   writeSkillsConfig(options = {}) {
+    const config = options.config && typeof options.config === 'object' && !Array.isArray(options.config)
+      ? options.config
+      : options;
     return this.sendRequest('skills/config/write', compactObject({
-      config: options.config
+      enabled: config.enabled,
+      name: config.name,
+      path: config.path
     }), options);
   }
 
   setSkillsExtraRoots(options = {}) {
     return this.sendRequest('skills/extraRoots/set', compactObject({
-      roots: options.roots
+      extraRoots: options.extraRoots ?? options.roots
     }), options);
   }
 
@@ -335,7 +339,10 @@ class CodexAppServerClient {
 
   listRemoteControlClients(options = {}) {
     return this.sendRequest('remoteControl/client/list', compactObject({
-      cursor: options.cursor
+      environmentId: options.environmentId,
+      cursor: options.cursor,
+      limit: options.limit,
+      order: options.order
     }), options);
   }
 
@@ -349,13 +356,14 @@ class CodexAppServerClient {
 
   startRemoteControlPairing(options = {}) {
     return this.sendRequest('remoteControl/pairing/start', compactObject({
-      timeoutSecs: options.timeoutSecs
+      manualCode: options.manualCode
     }), options);
   }
 
   revokeRemoteControlClient(options = {}) {
     return this.sendRequest('remoteControl/client/revoke', compactObject({
-      clientId: options.clientId
+      clientId: options.clientId,
+      environmentId: options.environmentId
     }), options);
   }
 

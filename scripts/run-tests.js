@@ -7071,7 +7071,7 @@ test('Codex app-server client sends typed discovery requests', async () => {
   await client.readConfigRequirements();
   await client.listMcpServerStatus({ cursor: 'mcp_next', ignored: 'nope' });
   await client.readMcpServerResource({ serverId: 'server_1', uri: 'file://one', cursor: 'ignored' });
-  await client.listSkills({ cursor: 'skill_next' });
+  await client.listSkills({ cursor: 'ignored', cwds: ['D:\\Repo'], forceReload: true });
   await client.listPlugins({ cursor: 'plugin_next' });
   await client.readPlugin({ pluginId: 'plugin_1', cursor: 'ignored' });
   await client.readPluginSkill({ remoteMarketplaceName: 'market_1', remotePluginId: 'plugin_1', skillId: 'skill_1' });
@@ -7090,7 +7090,7 @@ test('Codex app-server client sends typed discovery requests', async () => {
     { method: 'configRequirements/read', params: {} },
     { method: 'mcpServerStatus/list', params: { cursor: 'mcp_next' } },
     { method: 'mcpServer/resource/read', params: { server: 'server_1', uri: 'file://one' } },
-    { method: 'skills/list', params: { cursor: 'skill_next' } },
+    { method: 'skills/list', params: { cwds: ['D:\\Repo'], forceReload: true } },
     { method: 'plugin/list', params: {} },
     { method: 'plugin/read', params: { pluginName: 'plugin_1' } },
     { method: 'plugin/skill/read', params: { remoteMarketplaceName: 'market_1', remotePluginId: 'plugin_1', skillName: 'skill_1' } },
@@ -7262,6 +7262,35 @@ test('Codex app-server client sends typed plugin and marketplace requests', asyn
     { method: 'marketplace/add', params: { source: 'https://example.test/repo.git' } },
     { method: 'marketplace/remove', params: { marketplaceName: 'market_1' } },
     { method: 'marketplace/upgrade', params: { marketplaceName: 'market_1' } }
+  ]);
+});
+
+test('Codex app-server client sends typed skills, mcp reload, and remote-control requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.reloadMcpServerConfig({ serverId: 'ignored' });
+  await client.writeSkillsConfig({ config: { enabled: true, name: 'skill_1' } });
+  await client.setSkillsExtraRoots({ roots: ['D:\\Repo\\skills'] });
+  await client.listRemoteControlClients({ environmentId: 'env_1', cursor: 'client_next', limit: 10, order: 'desc' });
+  await client.startRemoteControlPairing({ manualCode: true, timeoutSecs: 5 });
+  await client.revokeRemoteControlClient({ clientId: 'client_1', environmentId: 'env_1' });
+
+  assert.deepEqual(calls, [
+    { method: 'config/mcpServer/reload', params: null },
+    { method: 'skills/config/write', params: { enabled: true, name: 'skill_1' } },
+    { method: 'skills/extraRoots/set', params: { extraRoots: ['D:\\Repo\\skills'] } },
+    { method: 'remoteControl/client/list', params: { environmentId: 'env_1', cursor: 'client_next', limit: 10, order: 'desc' } },
+    { method: 'remoteControl/pairing/start', params: { manualCode: true } },
+    { method: 'remoteControl/client/revoke', params: { clientId: 'client_1', environmentId: 'env_1' } }
   ]);
 });
 
@@ -9023,7 +9052,7 @@ test('Codex app-server discovery routes use discovery client and normalize respo
     { path: '/api/codex-app-server/config/requirements', clientMethod: 'readConfigRequirements', payload: { requirements: [{ id: 'apiKey' }], nextCursor: 'ignored' } },
     { path: '/api/codex-app-server/mcp/servers?cursor=next', clientMethod: 'listMcpServerStatus', options: { cursor: 'next' }, payload: { data: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' }, expectedBody: { servers: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' } },
     { path: '/api/codex-app-server/mcp/resources?serverId=server_1&uri=file%3A%2F%2Fone', clientMethod: 'readMcpServerResource', options: { server: 'server_1', uri: 'file://one' }, payload: { resource: { uri: 'file://one', text: 'hello' }, serverId: 'server_1' } },
-    { path: '/api/codex-app-server/skills?cursor=skill_next', clientMethod: 'listSkills', options: { cursor: 'skill_next' }, payload: { data: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' }, expectedBody: { skills: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' } },
+    { path: '/api/codex-app-server/skills?cursor=skill_next', clientMethod: 'listSkills', payload: { data: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' }, expectedBody: { skills: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' } },
     { path: '/api/codex-app-server/plugins?cursor=plugin_next', clientMethod: 'listPlugins', payload: { items: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' }, expectedBody: { plugins: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' } },
     { path: '/api/codex-app-server/plugins/plugin%2Fone', clientMethod: 'readPlugin', options: { pluginName: 'plugin/one' }, payload: { plugin: { id: 'plugin/one', enabled: true }, extra: 'kept' } },
     { path: '/api/codex-app-server/plugins/plugin%2Fone/skills/skill%2Fone?remoteMarketplaceName=market%2Fone', clientMethod: 'readPluginSkill', options: { remoteMarketplaceName: 'market/one', remotePluginId: 'plugin/one', skillName: 'skill/one' }, payload: { skill: { id: 'skill/one', pluginId: 'plugin/one' } } },
@@ -10056,11 +10085,11 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
       () => app.patch('/api/codex-app-server/skills/config', { config: { enabled: true } }),
       () => app.patch('/api/codex-app-server/skills/extra-roots', { roots: ['skills'] }),
       () => app.get('/api/codex-app-server/remote-control/status'),
-      () => app.get('/api/codex-app-server/remote-control/clients?cursor=abc'),
+      () => app.get('/api/codex-app-server/remote-control/clients?environmentId=env_1&cursor=abc'),
       () => app.post('/api/codex-app-server/remote-control/enable'),
       () => app.post('/api/codex-app-server/remote-control/disable'),
-      () => app.post('/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: 5 }),
-      () => app.post('/api/codex-app-server/remote-control/clients/client_1/revoke')
+      () => app.post('/api/codex-app-server/remote-control/pairing/start', { manualCode: true, timeoutSecs: 5 }),
+      () => app.post('/api/codex-app-server/remote-control/clients/client_1/revoke', { environmentId: 'env_1' })
     ];
 
     for (const run of cases) {
@@ -10113,6 +10142,24 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
     assert.deepEqual(calls.filter((call) => call.method === 'upgradeMarketplace')[0].options, {
       marketplaceName: 'market_1'
     });
+    assert.equal(calls.filter((call) => call.method === 'reloadMcpServerConfig')[0].options, null);
+    assert.deepEqual(calls.filter((call) => call.method === 'writeSkillsConfig')[0].options, {
+      enabled: true
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'setSkillsExtraRoots')[0].options, {
+      extraRoots: ['skills']
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'listRemoteControlClients')[0].options, {
+      environmentId: 'env_1',
+      cursor: 'abc'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'startRemoteControlPairing')[0].options, {
+      manualCode: true
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'revokeRemoteControlClient')[0].options, {
+      clientId: 'client_1',
+      environmentId: 'env_1'
+    });
     assert.equal(calls.some((call) => call.method === 'enableRemoteControl'), true);
     assert.equal(calls.some((call) => call.method === 'readRemoteControlStatus'), true);
   } finally {
@@ -10149,8 +10196,8 @@ test('Codex app-server high-risk routes reject malformed bodies before approval 
       ['PATCH', '/api/codex-app-server/skills/config', {}],
       ['PATCH', '/api/codex-app-server/skills/extra-roots', { roots: 'skills' }],
       ['PATCH', '/api/codex-app-server/skills/extra-roots', { roots: ['skills', 1] }],
-      ['POST', '/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: '5' }],
-      ['POST', '/api/codex-app-server/remote-control/pairing/start', { timeoutSecs: 0 }]
+      ['POST', '/api/codex-app-server/remote-control/pairing/start', { manualCode: 'yes' }],
+      ['POST', '/api/codex-app-server/remote-control/clients/client_1/revoke', {}]
     ]) {
       const response = method === 'PATCH'
         ? await app.patch(route, body)

@@ -796,3 +796,28 @@
   fields to upstream plugin, marketplace, or MCP resource RPC payloads unless
   schema fixtures and route tests change together.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Skills And Remote Control Routes Need Schema Fields
+
+- Level: medium
+- Impact: mobile-facing skills, MCP reload, and remote-control routes use
+  compatibility bodies and query fields that do not match the upstream
+  app-server schemas. Forwarding route fields such as skills `cursor`, nested
+  `config`, `roots`, remote pairing `timeoutSecs`, or client revoke requests
+  without `environmentId` can make provider calls fail or silently target the
+  wrong scope.
+- Evidence: `daemon/src/codex-app-server/client.js` maps `skills/list` to
+  `cwds` and `forceReload`, sends `config/mcpServer/reload` with `null`
+  params, maps skills config writes to top-level `enabled`/`name`/`path`, maps
+  extra roots to `extraRoots`, maps remote client list and revoke requests with
+  `environmentId`, and maps pairing start to `manualCode`. The matching route
+  translations and request validation live in
+  `daemon/src/codex-app-server/routes.js`. `scripts/run-tests.js` covers typed
+  client payloads, discovery route translation, high-risk route translation,
+  and malformed-body rejection for these schema boundaries.
+- Mitigation: keep mobile compatibility fields at the daemon route boundary.
+  Do not forward skills `cursor`, nested `config`, `roots`, pairing
+  `timeoutSecs`, or remote-control requests without `environmentId` into
+  upstream app-server RPC payloads unless the schema fixtures and route tests
+  change together.
+- Last verified: 2026-06-10
