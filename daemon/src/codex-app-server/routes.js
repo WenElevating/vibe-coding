@@ -187,12 +187,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/mcp/resources') {
-    const serverId = parseRequiredQueryString(url.searchParams.get('serverId'), 'serverId');
+    const server = parseRequiredQueryString(url.searchParams.get('server') ?? url.searchParams.get('serverId'), 'server');
     const uri = parseRequiredQueryString(url.searchParams.get('uri'), 'uri');
     return discoveryRoute(
       context,
       json,
-      (client) => client.readMcpServerResource({ serverId, uri }),
+      (client) => client.readMcpServerResource({ server, uri }),
       {}
     );
   }
@@ -208,44 +208,48 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/plugins') {
-    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    parseOptionalString(url.searchParams.get('cursor'));
     return discoveryRoute(
       context,
       json,
-      (client) => client.listPlugins(compactObject({ cursor })),
+      (client) => client.listPlugins(),
       { collectionKey: 'plugins', candidateKeys: ['plugins', 'data', 'items'] }
     );
   }
 
   const pluginRead = url.pathname.match(/^\/api\/codex-app-server\/plugins\/([^/]+)$/);
   if (method === 'GET' && pluginRead) {
-    const pluginId = decodePathParam(pluginRead[1]);
+    const pluginName = parseRequiredPathString(decodePathParam(pluginRead[1]), 'pluginName');
     return discoveryRoute(
       context,
       json,
-      (client) => client.readPlugin({ pluginId }),
+      (client) => client.readPlugin({ pluginName }),
       { objectKey: 'plugin' }
     );
   }
 
   const pluginSkillRead = url.pathname.match(/^\/api\/codex-app-server\/plugins\/([^/]+)\/skills\/([^/]+)$/);
   if (method === 'GET' && pluginSkillRead) {
-    const pluginId = decodePathParam(pluginSkillRead[1]);
-    const skillId = decodePathParam(pluginSkillRead[2]);
+    const remotePluginId = parseRequiredPathString(decodePathParam(pluginSkillRead[1]), 'remotePluginId');
+    const skillName = parseRequiredPathString(decodePathParam(pluginSkillRead[2]), 'skillName');
+    const remoteMarketplaceName = parseRequiredQueryString(
+      url.searchParams.get('remoteMarketplaceName') ?? url.searchParams.get('marketplaceName'),
+      'remoteMarketplaceName'
+    );
     return discoveryRoute(
       context,
       json,
-      (client) => client.readPluginSkill({ pluginId, skillId }),
+      (client) => client.readPluginSkill({ remoteMarketplaceName, remotePluginId, skillName }),
       { objectKey: 'skill' }
     );
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/plugin-shares') {
-    const cursor = parseOptionalString(url.searchParams.get('cursor'));
+    parseOptionalString(url.searchParams.get('cursor'));
     return discoveryRoute(
       context,
       json,
-      (client) => client.listPluginShares(compactObject({ cursor })),
+      (client) => client.listPluginShares(),
       { collectionKey: 'shares', candidateKeys: ['shares', 'data', 'items'] }
     );
   }
@@ -430,10 +434,9 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const body = await readJson();
     const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
     const request = compactObject({
-      command: parseRequiredBodyString(body?.command, 'command'),
-      args: parseOptionalStringArray(body?.args, 'args'),
+      command: parseCommandVector(body),
       cwd,
-      workspacePath: workspaceRoot(workspace)
+      processHandle: `process_${crypto.randomUUID()}`
     });
     return highRiskMutationRoute(context, json, {
       workspace,
@@ -446,12 +449,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   const workspaceProcessKill = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/processes\/([^/]+)\/kill$/);
   if (method === 'POST' && workspaceProcessKill) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceProcessKill[1]), context.device);
-    const processId = decodePathParam(workspaceProcessKill[2]);
+    const processHandle = parseRequiredPathString(decodePathParam(workspaceProcessKill[2]), 'processHandle');
     return highRiskMutationRoute(context, json, {
       workspace,
       method: 'process/kill',
       risk: 'process',
-      action: (client) => client.killProcess({ processId })
+      action: (client) => client.killProcess({ processHandle })
     });
   }
 
@@ -461,9 +464,8 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const body = await readJson();
     const cwd = resolveWorkspaceOptionalCwd(workspace, body?.cwd);
     const request = {
-      command: parseRequiredBodyString(body?.command, 'command'),
-      cwd,
-      workspacePath: workspaceRoot(workspace)
+      command: parseCommandVector(body),
+      cwd
     };
     return highRiskMutationRoute(context, json, {
       workspace,
@@ -509,11 +511,10 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'GET' && workspaceFuzzySearch) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearch[1]), context.device);
     const query = parseRequiredQueryString(url.searchParams.get('q'), 'q');
-    const limit = parseLimit(url.searchParams.get('limit'), 50);
+    parseLimit(url.searchParams.get('limit'), 50);
     const request = {
       query,
-      workspacePath: workspaceRoot(workspace),
-      limit
+      roots: [workspaceRoot(workspace)]
     };
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.fuzzyFileSearch(request));
     json(200, normalizeDiscoveryResponse(response, {}));
@@ -524,12 +525,16 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && workspaceFuzzySearchSessions) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSessions[1]), context.device);
     const body = await readJson();
-    const request = {
-      query: parseRequiredBodyString(body?.query ?? body?.q, 'query'),
-      workspacePath: workspaceRoot(workspace),
-      limit: parseOptionalPositiveInteger(body?.limit, 'limit')
-    };
-    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.startFuzzyFileSearchSession(compactObject(request)));
+    const query = parseRequiredBodyString(body?.query ?? body?.q, 'query');
+    parseOptionalPositiveInteger(body?.limit, 'limit');
+    const sessionId = `fuzzy_${crypto.randomUUID()}`;
+    const response = await requireService(context).withWorkspaceClient(workspace, async (client) => {
+      await client.startFuzzyFileSearchSession({
+        sessionId,
+        roots: [workspaceRoot(workspace)]
+      });
+      return client.updateFuzzyFileSearchSession({ sessionId, query });
+    });
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;
   }
@@ -539,11 +544,10 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
     const sessionId = parseRequiredPathString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
     const body = await readJson();
+    parseOptionalPositiveInteger(body?.limit, 'limit');
     const request = {
       sessionId,
-      query: parseRequiredBodyString(body?.query ?? body?.q, 'query'),
-      workspacePath: workspaceRoot(workspace),
-      limit: parseOptionalPositiveInteger(body?.limit, 'limit')
+      query: parseRequiredBodyString(body?.query ?? body?.q, 'query')
     };
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.updateFuzzyFileSearchSession(compactObject(request)));
     json(200, normalizeDiscoveryResponse(response, {}));
@@ -554,8 +558,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFuzzySearchSession[1]), context.device);
     const sessionId = parseRequiredPathString(decodePathParam(workspaceFuzzySearchSession[2]), 'sessionId');
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.stopFuzzyFileSearchSession({
-      sessionId,
-      workspacePath: workspaceRoot(workspace)
+      sessionId
     }));
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;
@@ -864,7 +867,8 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/config/value') {
     const body = await readJson();
     const request = {
-      key: parseRequiredBodyString(body?.key, 'key'),
+      keyPath: parseRequiredBodyString(body?.keyPath ?? body?.key, 'keyPath'),
+      mergeStrategy: parseMergeStrategy(body?.mergeStrategy),
       value: parseDefinedValue(body?.value, 'value')
     };
     return highRiskMutationRoute(context, json, {
@@ -876,11 +880,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'PATCH' && url.pathname === '/api/codex-app-server/config/batch') {
     const body = await readJson();
-    const values = parseRequiredObject(body?.values, 'values');
+    const edits = parseConfigBatchEdits(body);
     return highRiskMutationRoute(context, json, {
       method: 'config/batchWrite',
       risk: 'write',
-      action: (client) => client.writeConfigBatch({ values })
+      action: (client) => client.writeConfigBatch({ edits })
     });
   }
 
@@ -899,8 +903,8 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && url.pathname === '/api/codex-app-server/environment') {
     const body = await readJson();
     const request = {
-      name: parseRequiredBodyString(body?.name, 'name'),
-      value: parseDefinedValue(body?.value, 'value')
+      environmentId: parseRequiredBodyString(body?.environmentId ?? body?.name, 'environmentId'),
+      execServerUrl: parseRequiredBodyString(body?.execServerUrl ?? body?.value, 'execServerUrl')
     };
     return highRiskMutationRoute(context, json, {
       method: 'environment/add',
@@ -911,7 +915,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/plugins/install') {
     const body = await readJson();
-    const request = { pluginId: parseRequiredBodyString(body?.pluginId, 'pluginId') };
+    const request = compactObject({
+      pluginName: parseRequiredBodyString(body?.pluginName ?? body?.pluginId, 'pluginName'),
+      marketplacePath: parseOptionalBodyString(body?.marketplacePath, 'marketplacePath'),
+      remoteMarketplaceName: parseOptionalBodyString(body?.remoteMarketplaceName, 'remoteMarketplaceName')
+    });
     return highRiskMutationRoute(context, json, {
       method: 'plugin/install',
       risk: 'write',
@@ -932,8 +940,9 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/add') {
     const body = await readJson();
     const request = compactObject({
-      marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId'),
-      url: parseRequiredBodyString(body?.url, 'url')
+      source: parseRequiredBodyString(body?.source ?? body?.url, 'source'),
+      refName: parseOptionalBodyString(body?.refName, 'refName'),
+      sparsePaths: parseOptionalStringArray(body?.sparsePaths, 'sparsePaths')
     });
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/add',
@@ -944,7 +953,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/remove') {
     const body = await readJson();
-    const request = { marketplaceId: parseRequiredBodyString(body?.marketplaceId, 'marketplaceId') };
+    const request = { marketplaceName: parseRequiredBodyString(body?.marketplaceName ?? body?.marketplaceId, 'marketplaceName') };
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/remove',
       risk: 'write',
@@ -955,7 +964,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && url.pathname === '/api/codex-app-server/marketplace/upgrade') {
     const body = await readJson();
     const request = compactObject({
-      marketplaceId: parseOptionalBodyString(body?.marketplaceId, 'marketplaceId')
+      marketplaceName: parseOptionalBodyString(body?.marketplaceName ?? body?.marketplaceId, 'marketplaceName')
     });
     return highRiskMutationRoute(context, json, {
       method: 'marketplace/upgrade',
@@ -1310,6 +1319,48 @@ function parseDefinedValue(value, name) {
 function parseRequiredStringArray(value, name) {
   if (!Array.isArray(value)) throw badRequest(`${name} must be an array of strings`);
   return value.map((entry) => parseRequiredStringValue(entry, name));
+}
+
+function parseCommandVector(body) {
+  if (Array.isArray(body?.command)) {
+    if (body?.args !== undefined && body?.args !== null) {
+      throw badRequest('args cannot be combined with command array');
+    }
+    const command = parseRequiredStringArray(body.command, 'command');
+    if (command.length === 0) throw badRequest('command must not be empty');
+    return command;
+  }
+  const executable = parseRequiredBodyString(body?.command, 'command');
+  const args = parseOptionalStringArray(body?.args, 'args') || [];
+  return [executable, ...args];
+}
+
+function parseConfigBatchEdits(body) {
+  if (Array.isArray(body?.edits)) {
+    if (body.edits.length === 0) throw badRequest('edits must not be empty');
+    return body.edits.map((edit, index) => parseConfigEdit(edit, `edits[${index}]`));
+  }
+  const values = parseRequiredObject(body?.values, 'values');
+  return Object.entries(values).map(([keyPath, value]) => ({
+    keyPath: parseRequiredStringValue(keyPath, 'keyPath'),
+    mergeStrategy: 'replace',
+    value
+  }));
+}
+
+function parseConfigEdit(edit, name) {
+  const parsed = parseRequiredObject(edit, name);
+  return {
+    keyPath: parseRequiredBodyString(parsed.keyPath ?? parsed.key, `${name}.keyPath`),
+    mergeStrategy: parseMergeStrategy(parsed.mergeStrategy),
+    value: parseDefinedValue(parsed.value, `${name}.value`)
+  };
+}
+
+function parseMergeStrategy(value) {
+  if (value === undefined || value === null || value === '') return 'replace';
+  if (value === 'replace' || value === 'upsert') return value;
+  throw badRequest('mergeStrategy must be replace or upsert');
 }
 
 function parseOptionalStringArray(value, name) {

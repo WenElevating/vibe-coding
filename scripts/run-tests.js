@@ -7074,7 +7074,7 @@ test('Codex app-server client sends typed discovery requests', async () => {
   await client.listSkills({ cursor: 'skill_next' });
   await client.listPlugins({ cursor: 'plugin_next' });
   await client.readPlugin({ pluginId: 'plugin_1', cursor: 'ignored' });
-  await client.readPluginSkill({ pluginId: 'plugin_1', skillId: 'skill_1' });
+  await client.readPluginSkill({ remoteMarketplaceName: 'market_1', remotePluginId: 'plugin_1', skillId: 'skill_1' });
   await client.listPluginShares({ cursor: 'share_next' });
   await client.listApps({ cursor: 'app_next' });
   await client.listHooks();
@@ -7089,12 +7089,12 @@ test('Codex app-server client sends typed discovery requests', async () => {
     { method: 'config/read', params: {} },
     { method: 'configRequirements/read', params: {} },
     { method: 'mcpServerStatus/list', params: { cursor: 'mcp_next' } },
-    { method: 'mcpServer/resource/read', params: { serverId: 'server_1', uri: 'file://one' } },
+    { method: 'mcpServer/resource/read', params: { server: 'server_1', uri: 'file://one' } },
     { method: 'skills/list', params: { cursor: 'skill_next' } },
-    { method: 'plugin/list', params: { cursor: 'plugin_next' } },
-    { method: 'plugin/read', params: { pluginId: 'plugin_1' } },
-    { method: 'plugin/skill/read', params: { pluginId: 'plugin_1', skillId: 'skill_1' } },
-    { method: 'plugin/share/list', params: { cursor: 'share_next' } },
+    { method: 'plugin/list', params: {} },
+    { method: 'plugin/read', params: { pluginName: 'plugin_1' } },
+    { method: 'plugin/skill/read', params: { remoteMarketplaceName: 'market_1', remotePluginId: 'plugin_1', skillName: 'skill_1' } },
+    { method: 'plugin/share/list', params: {} },
     { method: 'app/list', params: { cursor: 'app_next' } },
     { method: 'hooks/list', params: {} },
     { method: 'collaborationMode/list', params: {} },
@@ -7157,12 +7157,12 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     path: 'D:\\Repo\\README.md',
     dataBase64: Buffer.from(fileContent, 'utf8').toString('base64')
   });
-  await client.watchFileSystem({ path: 'D:\\Repo\\src' });
+  await client.watchFileSystem({ path: 'D:\\Repo\\src', watchId: 'watch_1' });
   await client.unwatchFileSystem({ watchId: 'watch_1' });
-  await client.fuzzyFileSearch({ query: 'readme', workspacePath: 'D:\\Repo', limit: 10 });
-  await client.startFuzzyFileSearchSession({ query: 'src', workspacePath: 'D:\\Repo' });
-  await client.updateFuzzyFileSearchSession({ sessionId: 'fuzzy_1', query: 'daemon', workspacePath: 'D:\\Repo', limit: 5 });
-  await client.stopFuzzyFileSearchSession({ sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' });
+  await client.fuzzyFileSearch({ query: 'readme', roots: ['D:\\Repo'], limit: 10 });
+  await client.startFuzzyFileSearchSession({ sessionId: 'fuzzy_1', roots: ['D:\\Repo'], query: 'src' });
+  await client.updateFuzzyFileSearchSession({ sessionId: 'fuzzy_1', query: 'daemon', roots: ['D:\\Repo'], limit: 5 });
+  await client.stopFuzzyFileSearchSession({ sessionId: 'fuzzy_1', roots: ['D:\\Repo'] });
   await client.startReview({ workspacePath: 'D:\\Repo', maxItems: 20 });
   await client.generateAttestation({ workspacePath: 'D:\\Repo', challenge: 'nonce' });
   await client.listRealtimeVoices();
@@ -7172,15 +7172,96 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     { method: 'fs/readDirectory', params: { path: 'D:\\Repo\\src' } },
     { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md', encoding: 'utf8' } },
     { method: 'fs/writeFile', params: { path: 'D:\\Repo\\README.md', dataBase64: Buffer.from(fileContent, 'utf8').toString('base64') } },
-    { method: 'fs/watch', params: { path: 'D:\\Repo\\src' } },
+    { method: 'fs/watch', params: { path: 'D:\\Repo\\src', watchId: 'watch_1' } },
     { method: 'fs/unwatch', params: { watchId: 'watch_1' } },
-    { method: 'fuzzyFileSearch', params: { query: 'readme', workspacePath: 'D:\\Repo', limit: 10 } },
-    { method: 'fuzzyFileSearch/sessionStart', params: { query: 'src', workspacePath: 'D:\\Repo' } },
-    { method: 'fuzzyFileSearch/sessionUpdate', params: { sessionId: 'fuzzy_1', query: 'daemon', workspacePath: 'D:\\Repo', limit: 5 } },
-    { method: 'fuzzyFileSearch/sessionStop', params: { sessionId: 'fuzzy_1', workspacePath: 'D:\\Repo' } },
+    { method: 'fuzzyFileSearch', params: { query: 'readme', roots: ['D:\\Repo'] } },
+    { method: 'fuzzyFileSearch/sessionStart', params: { sessionId: 'fuzzy_1', roots: ['D:\\Repo'] } },
+    { method: 'fuzzyFileSearch/sessionUpdate', params: { sessionId: 'fuzzy_1', query: 'daemon' } },
+    { method: 'fuzzyFileSearch/sessionStop', params: { sessionId: 'fuzzy_1' } },
     { method: 'review/start', params: { workspacePath: 'D:\\Repo', maxItems: 20 } },
     { method: 'attestation/generate', params: { workspacePath: 'D:\\Repo', challenge: 'nonce' } },
     { method: 'thread/realtime/listVoices', params: {} }
+  ]);
+});
+
+test('Codex app-server client sends typed process requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.spawnProcess({ command: ['node', '--version'], cwd: 'D:\\Repo', processHandle: 'process_1', args: ['ignored'] });
+  await client.killProcess({ processHandle: 'process_1', processId: 'ignored' });
+  await client.executeCommand({ command: ['npm', 'test'], cwd: 'D:\\Repo', processId: 'cmd_1', workspacePath: 'ignored' });
+
+  assert.deepEqual(calls, [
+    { method: 'process/spawn', params: { command: ['node', '--version'], cwd: 'D:\\Repo', processHandle: 'process_1' } },
+    { method: 'process/kill', params: { processHandle: 'process_1' } },
+    { method: 'command/exec', params: { command: ['npm', 'test'], cwd: 'D:\\Repo', processId: 'cmd_1' } }
+  ]);
+});
+
+test('Codex app-server client sends typed config and environment requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.writeConfigValue({ key: 'theme', value: 'dark' });
+  await client.writeConfigBatch({ values: { theme: 'dark', approval_policy: 'on-request' } });
+  await client.addEnvironment({ name: 'env_1', value: 'http://127.0.0.1:3000' });
+
+  assert.deepEqual(calls, [
+    { method: 'config/value/write', params: { keyPath: 'theme', mergeStrategy: 'replace', value: 'dark' } },
+    {
+      method: 'config/batchWrite',
+      params: {
+        edits: [
+          { keyPath: 'theme', mergeStrategy: 'replace', value: 'dark' },
+          { keyPath: 'approval_policy', mergeStrategy: 'replace', value: 'on-request' }
+        ]
+      }
+    },
+    { method: 'environment/add', params: { environmentId: 'env_1', execServerUrl: 'http://127.0.0.1:3000' } }
+  ]);
+});
+
+test('Codex app-server client sends typed plugin and marketplace requests', async () => {
+  const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
+  const calls = [];
+  const transport = {
+    sendRequest(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve({ ok: true });
+    },
+    sendNotification() {}
+  };
+  const client = new CodexAppServerClient({ transport });
+
+  await client.installPlugin({ pluginId: 'plugin_1' });
+  await client.uninstallPlugin({ pluginId: 'plugin_1' });
+  await client.addMarketplace({ url: 'https://example.test/repo.git', marketplaceId: 'ignored' });
+  await client.removeMarketplace({ marketplaceId: 'market_1' });
+  await client.upgradeMarketplace({ marketplaceId: 'market_1' });
+
+  assert.deepEqual(calls, [
+    { method: 'plugin/install', params: { pluginName: 'plugin_1' } },
+    { method: 'plugin/uninstall', params: { pluginId: 'plugin_1' } },
+    { method: 'marketplace/add', params: { source: 'https://example.test/repo.git' } },
+    { method: 'marketplace/remove', params: { marketplaceName: 'market_1' } },
+    { method: 'marketplace/upgrade', params: { marketplaceName: 'market_1' } }
   ]);
 });
 
@@ -8608,7 +8689,7 @@ test('Codex app-server fuzzy search is workspace scoped and read-only', async ()
         },
         async startFuzzyFileSearchSession(options) {
           calls.push({ method: 'startFuzzyFileSearchSession', options });
-          return { session: { id: 'fuzzy_1', query: options.query }, matches: [] };
+          return { session: { id: options.sessionId, roots: options.roots }, matches: [] };
         },
         async updateFuzzyFileSearchSession(options) {
           calls.push({ method: 'updateFuzzyFileSearchSession', options });
@@ -8642,20 +8723,24 @@ test('Codex app-server fuzzy search is workspace scoped and read-only', async ()
     assert.equal(search.status, 200);
     assert.deepEqual(search.body.matches, [{ path: 'daemon/src/index.js', score: 0.9 }]);
     assert.equal(start.status, 200);
-    assert.deepEqual(start.body.session, { id: 'fuzzy_1', query: 'src' });
+    assert.equal(typeof start.body.session.id, 'string');
+    assert.notEqual(start.body.session.id, '');
+    assert.deepEqual(start.body.session, { id: start.body.session.id, query: 'src' });
+    assert.deepEqual(start.body.matches, [{ path: 'scripts/run-tests.js' }]);
     assert.equal(update.status, 200);
     assert.deepEqual(update.body.session, { id: 'fuzzy_1', query: 'tests' });
     assert.equal(stop.status, 200);
     assert.deepEqual(stop.body.session, { id: 'fuzzy_1', stopped: true });
     assert.deepEqual(calls, [
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'fuzzyFileSearch', options: { query: 'daemon', workspacePath: app.workspace.path, limit: 7 } },
+      { method: 'fuzzyFileSearch', options: { query: 'daemon', roots: [app.workspace.path] } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'startFuzzyFileSearchSession', options: { query: 'src', workspacePath: app.workspace.path, limit: 9 } },
+      { method: 'startFuzzyFileSearchSession', options: { sessionId: start.body.session.id, roots: [app.workspace.path] } },
+      { method: 'updateFuzzyFileSearchSession', options: { sessionId: start.body.session.id, query: 'src' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'updateFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1', query: 'tests', workspacePath: app.workspace.path, limit: 3 } },
+      { method: 'updateFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1', query: 'tests' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'stopFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1', workspacePath: app.workspace.path } }
+      { method: 'stopFuzzyFileSearchSession', options: { sessionId: 'fuzzy_1' } }
     ]);
   } finally {
     await app.close();
@@ -8937,12 +9022,12 @@ test('Codex app-server discovery routes use discovery client and normalize respo
     },
     { path: '/api/codex-app-server/config/requirements', clientMethod: 'readConfigRequirements', payload: { requirements: [{ id: 'apiKey' }], nextCursor: 'ignored' } },
     { path: '/api/codex-app-server/mcp/servers?cursor=next', clientMethod: 'listMcpServerStatus', options: { cursor: 'next' }, payload: { data: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' }, expectedBody: { servers: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' } },
-    { path: '/api/codex-app-server/mcp/resources?serverId=server_1&uri=file%3A%2F%2Fone', clientMethod: 'readMcpServerResource', options: { serverId: 'server_1', uri: 'file://one' }, payload: { resource: { uri: 'file://one', text: 'hello' }, serverId: 'server_1' } },
+    { path: '/api/codex-app-server/mcp/resources?serverId=server_1&uri=file%3A%2F%2Fone', clientMethod: 'readMcpServerResource', options: { server: 'server_1', uri: 'file://one' }, payload: { resource: { uri: 'file://one', text: 'hello' }, serverId: 'server_1' } },
     { path: '/api/codex-app-server/skills?cursor=skill_next', clientMethod: 'listSkills', options: { cursor: 'skill_next' }, payload: { data: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' }, expectedBody: { skills: [{ id: 'skill_1', title: 'Skill' }], nextCursor: 'skill_more' } },
-    { path: '/api/codex-app-server/plugins?cursor=plugin_next', clientMethod: 'listPlugins', options: { cursor: 'plugin_next' }, payload: { items: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' }, expectedBody: { plugins: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' } },
-    { path: '/api/codex-app-server/plugins/plugin%2Fone', clientMethod: 'readPlugin', options: { pluginId: 'plugin/one' }, payload: { plugin: { id: 'plugin/one', enabled: true }, extra: 'kept' } },
-    { path: '/api/codex-app-server/plugins/plugin%2Fone/skills/skill%2Fone', clientMethod: 'readPluginSkill', options: { pluginId: 'plugin/one', skillId: 'skill/one' }, payload: { skill: { id: 'skill/one', pluginId: 'plugin/one' } } },
-    { path: '/api/codex-app-server/plugin-shares?cursor=share_next', clientMethod: 'listPluginShares', options: { cursor: 'share_next' }, payload: { shares: [{ id: 'share_1' }], nextCursor: 'share_more' } },
+    { path: '/api/codex-app-server/plugins?cursor=plugin_next', clientMethod: 'listPlugins', payload: { items: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' }, expectedBody: { plugins: [{ id: 'plugin_1', name: 'Plugin' }], nextCursor: 'plugin_more' } },
+    { path: '/api/codex-app-server/plugins/plugin%2Fone', clientMethod: 'readPlugin', options: { pluginName: 'plugin/one' }, payload: { plugin: { id: 'plugin/one', enabled: true }, extra: 'kept' } },
+    { path: '/api/codex-app-server/plugins/plugin%2Fone/skills/skill%2Fone?remoteMarketplaceName=market%2Fone', clientMethod: 'readPluginSkill', options: { remoteMarketplaceName: 'market/one', remotePluginId: 'plugin/one', skillName: 'skill/one' }, payload: { skill: { id: 'skill/one', pluginId: 'plugin/one' } } },
+    { path: '/api/codex-app-server/plugin-shares?cursor=share_next', clientMethod: 'listPluginShares', payload: { shares: [{ id: 'share_1' }], nextCursor: 'share_more' } },
     { path: '/api/codex-app-server/apps?cursor=app_next', clientMethod: 'listApps', options: { cursor: 'app_next' }, payload: { apps: [{ id: 'app_1' }], nextCursor: 'app_more' } },
     { path: '/api/codex-app-server/hooks', clientMethod: 'listHooks', payload: { hooks: [{ id: 'hook_1' }] } },
     { path: '/api/codex-app-server/collaboration-modes', clientMethod: 'listCollaborationModes', payload: { modes: [{ id: 'solo' }] } },
@@ -9958,7 +10043,7 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
       () => app.delete(`${root}/fs/remove`, { path: 'tmp/file.txt' }),
       () => app.post(`${root}/processes`, { command: 'node', args: ['--version'], cwd: 'tools' }),
       () => app.post(`${root}/processes/proc_1/kill`),
-      () => app.post(`${root}/commands/exec`, { command: 'npm test', cwd: '.' }),
+      () => app.post(`${root}/commands/exec`, { command: 'npm', args: ['test'], cwd: '.' }),
       () => app.patch('/api/codex-app-server/config/value', { key: 'theme', value: 'dark' }),
       () => app.patch('/api/codex-app-server/config/batch', { values: { theme: 'dark' } }),
       () => app.post('/api/codex-app-server/config/mcp-server/reload', { serverId: 'server_1' }),
@@ -9988,15 +10073,45 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
       dataBase64: Buffer.from(fileContent, 'utf8').toString('base64')
     });
     assert.deepEqual(calls.filter((call) => call.method === 'spawnProcess')[0].options, {
-      command: 'node',
-      args: ['--version'],
+      command: ['node', '--version'],
       cwd: resolveInWorkspace('tools'),
-      workspacePath: app.workspace.path
+      processHandle: calls.filter((call) => call.method === 'spawnProcess')[0].options.processHandle
+    });
+    assert.equal(typeof calls.filter((call) => call.method === 'spawnProcess')[0].options.processHandle, 'string');
+    assert.notEqual(calls.filter((call) => call.method === 'spawnProcess')[0].options.processHandle, '');
+    assert.deepEqual(calls.filter((call) => call.method === 'killProcess')[0].options, {
+      processHandle: 'proc_1'
     });
     assert.deepEqual(calls.filter((call) => call.method === 'executeCommand')[0].options, {
-      command: 'npm test',
-      cwd: app.workspace.path,
-      workspacePath: app.workspace.path
+      command: ['npm', 'test'],
+      cwd: app.workspace.path
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'writeConfigValue')[0].options, {
+      keyPath: 'theme',
+      mergeStrategy: 'replace',
+      value: 'dark'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'writeConfigBatch')[0].options, {
+      edits: [{ keyPath: 'theme', mergeStrategy: 'replace', value: 'dark' }]
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'addEnvironment')[0].options, {
+      environmentId: 'KEY',
+      execServerUrl: 'value'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'installPlugin')[0].options, {
+      pluginName: 'plugin_1'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'uninstallPlugin')[0].options, {
+      pluginId: 'plugin_1'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'addMarketplace')[0].options, {
+      source: 'https://example.test'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'removeMarketplace')[0].options, {
+      marketplaceName: 'market_1'
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'upgradeMarketplace')[0].options, {
+      marketplaceName: 'market_1'
     });
     assert.equal(calls.some((call) => call.method === 'enableRemoteControl'), true);
     assert.equal(calls.some((call) => call.method === 'readRemoteControlStatus'), true);
@@ -10123,11 +10238,14 @@ test('Codex app-server plugin discovery routes reject malformed path encoding be
   try {
     const plugin = await app.get('/api/codex-app-server/plugins/%E0%A4%A');
     const skill = await app.get('/api/codex-app-server/plugins/plugin_1/skills/%E0%A4%A');
+    const skillWithoutMarketplace = await app.get('/api/codex-app-server/plugins/plugin_1/skills/skill_1');
 
     assert.equal(plugin.status, 400);
     assert.equal(plugin.body.error.code, 'BAD_REQUEST');
     assert.equal(skill.status, 400);
     assert.equal(skill.body.error.code, 'BAD_REQUEST');
+    assert.equal(skillWithoutMarketplace.status, 400);
+    assert.equal(skillWithoutMarketplace.body.error.code, 'BAD_REQUEST');
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();

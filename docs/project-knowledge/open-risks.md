@@ -711,3 +711,88 @@
   preserve the invariant that `fs/watch` and `fs/unwatch` use the same
   provider watch id.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Fuzzy Search Routes Need Schema Roots
+
+- Level: medium
+- Impact: the mobile-facing fuzzy-search routes are workspace scoped, but the
+  upstream app-server schema expects search roots and provider-owned session
+  ids rather than `workspacePath` or `limit`. Forwarding the mobile route shape
+  directly can make fuzzy search and session startup fail against the provider.
+- Evidence: `daemon/src/codex-app-server/client.js` maps fuzzy search calls to
+  `roots`, `sessionId`, and `query` only. `daemon/src/codex-app-server/routes.js`
+  derives `roots` from the authorized workspace, generates `fuzzy_<uuid>` for
+  session startup, and applies the initial mobile query with
+  `fuzzyFileSearch/sessionUpdate` after `sessionStart`.
+  `scripts/run-tests.js` covers the typed client payloads and route calls for
+  search, session start, session update, and session stop.
+- Mitigation: keep route-facing pagination/limit validation separate from
+  upstream fuzzy-search payloads. If the provider schema later accepts limits or
+  different root shapes, update the generated fixtures and route tests together.
+- Last verified: 2026-06-10
+
+## Risk: Codex App-Server Process Routes Need Schema Handles
+
+- Level: medium
+- Impact: mobile-facing process routes accept workspace-scoped command requests,
+  but upstream `process/spawn`, `process/kill`, and `command/exec` use argv
+  vectors and connection-scoped process identifiers. Forwarding route fields
+  such as `args`, `workspacePath`, or `processId` directly can make high-risk
+  process operations fail against the provider schema.
+- Evidence: `daemon/src/codex-app-server/routes.js` combines route
+  `command`/`args` fields into upstream argv vectors, generates
+  `process_<uuid>` handles for `process/spawn`, and maps kill path ids to
+  `processHandle`. `daemon/src/codex-app-server/client.js` sends only schema
+  process fields. `scripts/run-tests.js` covers typed client payloads and
+  high-risk route translation for process spawn, kill, and command exec.
+- Mitigation: keep mobile route compatibility fields at the daemon boundary.
+  Do not forward `args`, `workspacePath`, or route-level process ids directly
+  to process RPC payloads unless the generated schema changes and route tests
+  are updated together.
+- Last verified: 2026-06-10
+
+## Risk: Codex App-Server Config Routes Need Schema Edits
+
+- Level: medium
+- Impact: mobile-facing config and environment routes use compact compatibility
+  bodies, while upstream app-server config writes require `keyPath`,
+  `mergeStrategy`, and `edits[]`, and environment registration requires
+  `environmentId` plus `execServerUrl`. Forwarding `key`, `values`, `name`, or
+  `value` directly can make high-risk config mutations fail against the
+  provider schema.
+- Evidence: `daemon/src/codex-app-server/routes.js` maps legacy `key` to
+  `keyPath`, defaults single-value and legacy batch writes to
+  `mergeStrategy: replace`, expands legacy `values` objects into schema
+  `edits[]`, and maps environment aliases to `environmentId`/`execServerUrl`.
+  `daemon/src/codex-app-server/client.js` sends only schema config and
+  environment fields. `scripts/run-tests.js` covers typed client payloads and
+  high-risk route translation for config value, config batch, and environment
+  add.
+- Mitigation: keep mobile compatibility bodies at the daemon route boundary.
+  Do not reintroduce raw `key`, `values`, `name`, or `value` fields into
+  upstream config/environment RPC payloads unless schema fixtures and route
+  tests change together.
+- Last verified: 2026-06-10
+
+## Risk: Codex App-Server Plugin Routes Need Provider Names
+
+- Level: medium
+- Impact: mobile-facing plugin, marketplace, and MCP resource routes historically
+  used UI-oriented ids such as `pluginId`, `marketplaceId`, and `serverId`, but
+  upstream app-server schemas use provider terms such as `pluginName`,
+  `remotePluginId`, `remoteMarketplaceName`, `marketplaceName`, `source`, and
+  `server`. Forwarding UI ids directly can make discovery and high-risk plugin
+  mutations fail against the provider schema.
+- Evidence: `daemon/src/codex-app-server/client.js` maps MCP resource reads,
+  plugin discovery, plugin install, marketplace add/remove/upgrade, and plugin
+  share listing to schema fields. `daemon/src/codex-app-server/routes.js`
+  keeps legacy mobile aliases at the route boundary and requires
+  `remoteMarketplaceName` for plugin skill reads before dispatching. `scripts/run-tests.js`
+  covers typed client payloads, discovery route translation, high-risk plugin
+  and marketplace mutation translation, and the missing-marketplace skill-read
+  rejection path.
+- Mitigation: treat UI ids as route compatibility aliases only. Do not forward
+  `pluginId`, `marketplaceId`, `serverId`, or cursor-only plugin list/share
+  fields to upstream plugin, marketplace, or MCP resource RPC payloads unless
+  schema fixtures and route tests change together.
+- Last verified: 2026-06-10

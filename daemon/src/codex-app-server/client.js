@@ -96,7 +96,7 @@ class CodexAppServerClient {
 
   readMcpServerResource(options = {}) {
     return this.sendRequest('mcpServer/resource/read', compactObject({
-      serverId: options.serverId,
+      server: options.server ?? options.serverId,
       uri: options.uri
     }), options);
   }
@@ -109,27 +109,29 @@ class CodexAppServerClient {
 
   listPlugins(options = {}) {
     return this.sendRequest('plugin/list', compactObject({
-      cursor: options.cursor
+      cwds: options.cwds,
+      marketplaceKinds: options.marketplaceKinds
     }), options);
   }
 
   readPlugin(options = {}) {
     return this.sendRequest('plugin/read', compactObject({
-      pluginId: options.pluginId
+      pluginName: options.pluginName ?? options.pluginId,
+      marketplacePath: options.marketplacePath,
+      remoteMarketplaceName: options.remoteMarketplaceName
     }), options);
   }
 
   readPluginSkill(options = {}) {
     return this.sendRequest('plugin/skill/read', compactObject({
-      pluginId: options.pluginId,
-      skillId: options.skillId
+      remoteMarketplaceName: options.remoteMarketplaceName,
+      remotePluginId: options.remotePluginId ?? options.pluginId,
+      skillName: options.skillName ?? options.skillId
     }), options);
   }
 
   listPluginShares(options = {}) {
-    return this.sendRequest('plugin/share/list', compactObject({
-      cursor: options.cursor
-    }), options);
+    return this.sendRequest('plugin/share/list', {}, options);
   }
 
   listApps(options = {}) {
@@ -235,15 +237,14 @@ class CodexAppServerClient {
   spawnProcess(options = {}) {
     return this.sendRequest('process/spawn', compactObject({
       command: options.command,
-      args: options.args,
       cwd: options.cwd,
-      workspacePath: options.workspacePath
+      processHandle: options.processHandle
     }), options);
   }
 
   killProcess(options = {}) {
     return this.sendRequest('process/kill', compactObject({
-      processId: options.processId
+      processHandle: options.processHandle ?? options.processId
     }), options);
   }
 
@@ -251,20 +252,21 @@ class CodexAppServerClient {
     return this.sendRequest('command/exec', compactObject({
       command: options.command,
       cwd: options.cwd,
-      workspacePath: options.workspacePath
+      processId: options.processId
     }), options);
   }
 
   writeConfigValue(options = {}) {
     return this.sendRequest('config/value/write', compactObject({
-      key: options.key,
+      keyPath: options.keyPath ?? options.key,
+      mergeStrategy: options.mergeStrategy ?? 'replace',
       value: options.value
     }), options);
   }
 
   writeConfigBatch(options = {}) {
     return this.sendRequest('config/batchWrite', compactObject({
-      values: options.values
+      edits: options.edits ?? configEditsFromValues(options.values)
     }), options);
   }
 
@@ -276,14 +278,16 @@ class CodexAppServerClient {
 
   addEnvironment(options = {}) {
     return this.sendRequest('environment/add', compactObject({
-      name: options.name,
-      value: options.value
+      environmentId: options.environmentId ?? options.name,
+      execServerUrl: options.execServerUrl ?? options.value
     }), options);
   }
 
   installPlugin(options = {}) {
     return this.sendRequest('plugin/install', compactObject({
-      pluginId: options.pluginId
+      pluginName: options.pluginName ?? options.pluginId,
+      marketplacePath: options.marketplacePath,
+      remoteMarketplaceName: options.remoteMarketplaceName
     }), options);
   }
 
@@ -295,20 +299,21 @@ class CodexAppServerClient {
 
   addMarketplace(options = {}) {
     return this.sendRequest('marketplace/add', compactObject({
-      marketplaceId: options.marketplaceId,
-      url: options.url
+      source: options.source ?? options.url,
+      refName: options.refName,
+      sparsePaths: options.sparsePaths
     }), options);
   }
 
   removeMarketplace(options = {}) {
     return this.sendRequest('marketplace/remove', compactObject({
-      marketplaceId: options.marketplaceId
+      marketplaceName: options.marketplaceName ?? options.marketplaceId
     }), options);
   }
 
   upgradeMarketplace(options = {}) {
     return this.sendRequest('marketplace/upgrade', compactObject({
-      marketplaceId: options.marketplaceId
+      marketplaceName: options.marketplaceName ?? options.marketplaceId
     }), options);
   }
 
@@ -405,32 +410,27 @@ class CodexAppServerClient {
   fuzzyFileSearch(options = {}) {
     return this.sendRequest('fuzzyFileSearch', compactObject({
       query: options.query,
-      workspacePath: options.workspacePath,
-      limit: options.limit
+      roots: normalizeRoots(options)
     }), options);
   }
 
   startFuzzyFileSearchSession(options = {}) {
     return this.sendRequest('fuzzyFileSearch/sessionStart', compactObject({
-      query: options.query,
-      workspacePath: options.workspacePath,
-      limit: options.limit
+      sessionId: options.sessionId,
+      roots: normalizeRoots(options)
     }), options);
   }
 
   updateFuzzyFileSearchSession(options = {}) {
     return this.sendRequest('fuzzyFileSearch/sessionUpdate', compactObject({
       sessionId: options.sessionId,
-      query: options.query,
-      workspacePath: options.workspacePath,
-      limit: options.limit
+      query: options.query
     }), options);
   }
 
   stopFuzzyFileSearchSession(options = {}) {
     return this.sendRequest('fuzzyFileSearch/sessionStop', compactObject({
-      sessionId: options.sessionId,
-      workspacePath: options.workspacePath
+      sessionId: options.sessionId
     }), options);
   }
 
@@ -594,6 +594,21 @@ function compactObject(value) {
 function encodeFileContent(value) {
   if (typeof value !== 'string') return undefined;
   return Buffer.from(value, 'utf8').toString('base64');
+}
+
+function normalizeRoots(options = {}) {
+  if (Array.isArray(options.roots)) return options.roots;
+  if (typeof options.workspacePath === 'string') return [options.workspacePath];
+  return undefined;
+}
+
+function configEditsFromValues(values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return undefined;
+  return Object.entries(values).map(([keyPath, value]) => ({
+    keyPath,
+    mergeStrategy: 'replace',
+    value
+  }));
 }
 
 function compactDefinedObject(value) {
