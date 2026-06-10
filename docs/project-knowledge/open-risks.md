@@ -1015,6 +1015,24 @@
   client object so cache reuse does not change observability behavior.
 - Last verified: 2026-06-10
 
+## Risk: Codex App-Server Cached Discovery Processes Need Service Shutdown
+
+- Level: medium
+- Impact: the route service owns cached discovery clients and their app-server
+  process handles. If daemon shutdown only closes the HTTP server and shared
+  stores, cached discovery app-server processes can survive past daemon
+  shutdown.
+- Evidence: `CodexAppServerService.shutdown()` now closes cached discovery
+  entries, waits for in-flight discovery creation, closes remaining tracked
+  handles, and rejects later service use with
+  `CODEX_APP_SERVER_SERVICE_CLOSED`. `shutdownAppResources()` calls that
+  service shutdown before closing stores. `scripts/run-tests.js` covers both
+  the service-level cached-client cleanup and the daemon shutdown integration.
+- Mitigation: keep app-server process ownership inside
+  `CodexAppServerService`; daemon shutdown should call the service-level
+  cleanup rather than trying to reach into lifecycle internals.
+- Last verified: 2026-06-10
+
 ## Risk: Codex App-Server Timeout Policy Must Be Applied at the Client Boundary
 
 - Level: high

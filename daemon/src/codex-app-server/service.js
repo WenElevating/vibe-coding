@@ -49,6 +49,9 @@ class CodexAppServerService {
     this.discoveryCreating = new Map();
     this.activeConversationCount = 0;
     this.activeMutationCounts = new Map();
+    this.activeHandles = new Set();
+    this.closed = false;
+    this.shutdownPromise = null;
   }
 
   async withDiscoveryClient(options, callback) {
@@ -175,6 +178,7 @@ class CodexAppServerService {
   }
 
   async createScopedClient(scope = {}) {
+    if (this.closed) throw createServiceClosedError();
     const pool = scope.pool || 'conversation';
     if (pool === 'conversation' && this.activeConversationCount > this.poolLimits.conversation) {
       throw new CodexAppServerBusyError('Codex app-server conversation pool is busy', {
@@ -195,6 +199,7 @@ class CodexAppServerService {
       throw error;
     }
     const handle = this.lifecycle.spawn(scope);
+    this.activeHandles.add(handle);
     this.metrics.processSpawnTotal[pool] = (this.metrics.processSpawnTotal[pool] || 0) + 1;
     const client = new CodexAppServerClient({
       transport: handle.transport,
@@ -203,10 +208,12 @@ class CodexAppServerService {
     });
     try {
       await client.initialize();
-    } catch (error) {
-      if (handle && typeof handle.shutdown === 'function') {
-        await handle.shutdown();
+      if (this.closed) {
+        await this.shutdownHandle(handle);
+        throw createServiceClosedError();
       }
+    } catch (error) {
+      await this.shutdownHandle(handle).catch(() => {});
       throw error;
     }
     let shutdownCalled = false;
@@ -218,11 +225,42 @@ class CodexAppServerService {
       shutdown: async () => {
         if (shutdownCalled) return;
         shutdownCalled = true;
-        if (handle && typeof handle.shutdown === 'function') {
-          await handle.shutdown();
-        }
+        await this.shutdownHandle(handle);
       }
     };
+  }
+
+  async shutdownHandle(handle) {
+    if (!handle) return;
+    try {
+      if (typeof handle.shutdown === 'function') {
+        await handle.shutdown();
+      }
+    } finally {
+      this.activeHandles.delete(handle);
+    }
+  }
+
+  async shutdown() {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.closed = true;
+    this.shutdownPromise = (async () => {
+      const cachedEntries = Array.from(this.discovery.values());
+      const pendingEntries = Array.from(this.discoveryCreating.values());
+      this.discovery.clear();
+      this.discoveryCreating.clear();
+
+      await Promise.allSettled(cachedEntries.map((entry) => entry.shutdown()));
+
+      const settledPending = await Promise.allSettled(pendingEntries);
+      const createdEntries = settledPending
+        .filter((result) => result.status === 'fulfilled' && result.value && typeof result.value.shutdown === 'function')
+        .map((result) => result.value);
+      await Promise.allSettled(createdEntries.map((entry) => entry.shutdown()));
+
+      await Promise.allSettled(Array.from(this.activeHandles).map((handle) => this.shutdownHandle(handle)));
+    })();
+    return this.shutdownPromise;
   }
 
   snapshotMetrics() {
@@ -259,6 +297,13 @@ function workspaceDiscoveryKey(workspace = {}) {
     workspace.workspacePath ||
     workspace.path ||
     'default';
+}
+
+function createServiceClosedError() {
+  const error = new Error('Codex app-server service is closed');
+  error.code = 'CODEX_APP_SERVER_SERVICE_CLOSED';
+  error.status = 503;
+  return error;
 }
 
 function decrementMapCount(map, key) {

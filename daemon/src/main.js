@@ -484,6 +484,9 @@ async function shutdownAppResources(app, { sleepInhibitor = null } = {}) {
   if (app?.opencodeServerLifecycle && typeof app.opencodeServerLifecycle.shutdown === 'function') {
     await runCleanup('opencodeServerLifecycle.shutdown', () => app.opencodeServerLifecycle.shutdown());
   }
+  if (app?.codexAppServerService && typeof app.codexAppServerService.shutdown === 'function') {
+    await runCleanup('codexAppServerService.shutdown', () => app.codexAppServerService.shutdown());
+  }
   if (app?.perfStore && typeof app.perfStore.close === 'function') {
     await runCleanup('perfStore.close', () => app.perfStore.close());
   }

@@ -4818,6 +4818,27 @@ test('shutdownAppResources shuts down managed OpenCode lifecycle', async () => {
   assert.equal(sleepStops, 1);
 });
 
+test('shutdownAppResources shuts down managed Codex app-server service', async () => {
+  assert.equal(typeof shutdownAppResources, 'function');
+  let serviceShutdowns = 0;
+  const app = createApp({
+    port: 0,
+    codexAppServerProbe: false,
+    codexAppServerModelLister: false,
+    codexAppServerService: {
+      async shutdown() {
+        serviceShutdowns += 1;
+      }
+    },
+    appDbPath: tempConversationDbPath('app-server-shutdown-app-'),
+    perfDbPath: tempConversationDbPath('app-server-shutdown-perf-')
+  });
+
+  await shutdownAppResources(app);
+
+  assert.equal(serviceShutdowns, 1);
+});
+
 test('OpenCode server lifecycle external mode health-checks URL without spawning', async () => {
   const { OpenCodeServerLifecycle } = require('../daemon/src/opencode-server-lifecycle');
   const healthCalls = [];
@@ -7402,6 +7423,38 @@ test('Codex app-server service evicts discovery client on transport close', asyn
   await service.withDiscoveryClient((client) => client.listModels());
 
   assert.equal(spawned.length, 2);
+});
+
+test('Codex app-server service shutdown evicts cached discovery clients', async () => {
+  const { CodexAppServerService } = require('../daemon/src/codex-app-server/service');
+  const spawned = [];
+  const service = new CodexAppServerService({
+    ttlMs: 30000,
+    lifecycle: {
+      spawn() {
+        const transport = new EventEmitter();
+        transport.sendRequest = async (method) => method === 'initialize' ? {} : { data: [] };
+        transport.sendNotification = () => {};
+        const handle = {
+          transport,
+          shutdownCalled: false,
+          shutdown: async () => { handle.shutdownCalled = true; }
+        };
+        spawned.push(handle);
+        return handle;
+      }
+    }
+  });
+
+  await service.withDiscoveryClient((client) => client.listModels());
+  await service.shutdown();
+
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].shutdownCalled, true);
+  await assert.rejects(
+    () => service.withDiscoveryClient((client) => client.listModels()),
+    (error) => error.code === 'CODEX_APP_SERVER_SERVICE_CLOSED'
+  );
 });
 
 test('Codex app-server service does not reuse mutation clients', async () => {
