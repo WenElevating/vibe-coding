@@ -7122,7 +7122,7 @@ test('Codex app-server client sends typed account and auth requests', async () =
   await client.startAccountLogin({ type: 'chatgptAuthTokens', accessToken: 'access-secret', chatgptAccountId: 'acct_1', chatgptPlanType: null, ignored: 'nope' });
   await client.cancelAccountLogin({ loginId: 'login_1', ignored: 'nope' });
   await client.logoutAccount({ ignored: 'nope' });
-  await client.sendAddCreditsNudgeEmail({ ignored: 'nope' });
+  await client.sendAddCreditsNudgeEmail({ creditType: 'credits', ignored: 'nope' });
   await client.startMcpServerOauthLogin({ name: 'server_1', scopes: ['repo', 'user'], timeoutSecs: 30, ignored: 'nope' });
 
   assert.deepEqual(calls, [
@@ -7131,7 +7131,7 @@ test('Codex app-server client sends typed account and auth requests', async () =
     { method: 'account/login/start', params: { type: 'chatgptAuthTokens', accessToken: 'access-secret', chatgptAccountId: 'acct_1', chatgptPlanType: null } },
     { method: 'account/login/cancel', params: { loginId: 'login_1' } },
     { method: 'account/logout', params: {} },
-    { method: 'account/sendAddCreditsNudgeEmail', params: {} },
+    { method: 'account/sendAddCreditsNudgeEmail', params: { creditType: 'credits' } },
     { method: 'mcpServer/oauth/login', params: { name: 'server_1', scopes: ['repo', 'user'], timeoutSecs: 30 } }
   ]);
 });
@@ -9289,9 +9289,9 @@ test('Codex app-server account mutation routes use mutation client and audit dec
           calls.push({ method: 'logoutAccount' });
           return { loggedOut: true };
         },
-        async sendAddCreditsNudgeEmail() {
-          calls.push({ method: 'sendAddCreditsNudgeEmail' });
-          return { sent: true };
+        async sendAddCreditsNudgeEmail(options) {
+          calls.push({ method: 'sendAddCreditsNudgeEmail', options });
+          return { sent: true, creditType: options.creditType };
         },
         async startMcpServerOauthLogin(options) {
           calls.push({ method: 'startMcpServerOauthLogin', options });
@@ -9307,7 +9307,7 @@ test('Codex app-server account mutation routes use mutation client and audit dec
     const login = await app.post('/api/codex-app-server/account/login/start', { type: 'apiKey', apiKey: 'sk-test-secret' });
     const cancel = await app.post('/api/codex-app-server/account/login/cancel', { loginId: 'login_1' });
     const logout = await app.post('/api/codex-app-server/account/logout');
-    const nudge = await app.post('/api/codex-app-server/account/add-credits-email');
+    const nudge = await app.post('/api/codex-app-server/account/add-credits-email', { creditType: 'credits' });
     const oauth = await app.post('/api/codex-app-server/mcp/servers/server%2Fone/oauth/login', {
       scopes: ['repo', 'user'],
       timeoutSecs: 30
@@ -9331,6 +9331,9 @@ test('Codex app-server account mutation routes use mutation client and audit dec
       name: 'server/one',
       scopes: ['repo', 'user'],
       timeoutSecs: 30
+    });
+    assert.deepEqual(calls.filter((call) => call.method === 'sendAddCreditsNudgeEmail')[0].options, {
+      creditType: 'credits'
     });
     const records = app.auditLog.list().filter((record) => record.type === 'codex_app_server.account_mutation');
     assert.deepEqual(records.map((record) => [record.method, record.risk, record.decision, record.result, record.deviceId]), [
@@ -9368,6 +9371,9 @@ test('Codex app-server account mutation routes reject missing required fields be
       ['/api/codex-app-server/account/login/start', { type: 'unknown' }],
       ['/api/codex-app-server/account/login/cancel', {}],
       ['/api/codex-app-server/account/login/cancel', { loginId: ' ' }],
+      ['/api/codex-app-server/account/add-credits-email', {}],
+      ['/api/codex-app-server/account/add-credits-email', { creditType: ' ' }],
+      ['/api/codex-app-server/account/add-credits-email', { creditType: 'trial' }],
       ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { scopes: 'repo' }],
       ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { scopes: ['repo', 1] }],
       ['/api/codex-app-server/mcp/servers/server_1/oauth/login', { timeoutSecs: '30' }],

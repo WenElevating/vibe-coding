@@ -923,3 +923,20 @@
   `threadId` behind thread workspace ownership verification unless the upstream
   app-server adds a schema-level workspace-scoped read primitive.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Add-Credits Nudge Requires Credit Type
+
+- Level: medium
+- Impact: `account/sendAddCreditsNudgeEmail` looks like a no-argument account
+  action at the mobile route level, but the upstream app-server schema requires
+  `creditType`. Sending `{}` makes the provider reject an otherwise authorized
+  account mutation.
+- Evidence: `daemon/test/fixtures/codex-app-server/schema/v2/SendAddCreditsNudgeEmailParams.json`
+  requires `creditType` with enum values `credits` or `usage_limit`.
+  `daemon/src/codex-app-server/client.js` now forwards `creditType`, and
+  `daemon/src/codex-app-server/routes.js` validates the enum before dispatch.
+  `scripts/run-tests.js` covers typed client payloads, successful route
+  forwarding, and missing/invalid body rejection before service access.
+- Mitigation: keep account mutation routes schema-first. Do not treat
+  add-credits nudge as a bodyless operation unless the generated schema changes.
+- Last verified: 2026-06-10

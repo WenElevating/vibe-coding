@@ -388,7 +388,9 @@ class CodexAppServerClient {
   }
 
   sendAddCreditsNudgeEmail(options = {}) {
-    return this.sendRequest('account/sendAddCreditsNudgeEmail', {}, options);
+    return this.sendRequest('account/sendAddCreditsNudgeEmail', compactObject({
+      creditType: options.creditType
+    }), options);
   }
 
   startMcpServerOauthLogin(options = {}) {

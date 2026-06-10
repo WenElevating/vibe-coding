@@ -156,10 +156,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'POST' && url.pathname === '/api/codex-app-server/account/add-credits-email') {
+    const body = await readJson();
+    const creditType = parseAddCreditsNudgeCreditType(body?.creditType);
     return mutationRoute(context, json, {
       method: 'account/sendAddCreditsNudgeEmail',
       risk: 'account',
-      action: (client) => client.sendAddCreditsNudgeEmail()
+      action: (client) => client.sendAddCreditsNudgeEmail({ creditType })
     });
   }
 
@@ -1312,6 +1314,12 @@ function normalizeMcpOauthLoginBody(serverId, body) {
     request.timeoutSecs = body.timeoutSecs;
   }
   return request;
+}
+
+function parseAddCreditsNudgeCreditType(value) {
+  const creditType = parseRequiredBodyString(value, 'creditType');
+  if (creditType === 'credits' || creditType === 'usage_limit') return creditType;
+  throw badRequest('creditType must be credits or usage_limit');
 }
 
 function parseLimit(value, fallback) {
