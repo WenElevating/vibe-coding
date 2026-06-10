@@ -8,6 +8,7 @@ const { resolveCliInvocation } = require('./cli-resolver');
 const { discoverConfiguredModels } = require('./model-discovery');
 
 const CLAUDE_PERMISSION_MODES = ['default', 'auto'];
+const DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES = 1024 * 1024;
 
 class ClaudeAdapter {
   constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile = (filePath) => fs.readFileSync(filePath, 'utf8') } = {}) {
@@ -138,9 +139,11 @@ class ClaudeAdapter {
       handleClaudeEvent(event, child, emitEvent);
     });
     child.stdout.on('data', parseStdout);
+    child.stdout.on('end', () => parseStdout.flush());
     child.stderr.on('data', (chunk) => emitEvent({ type: eventTypes.RAW_OUTPUT, text: chunk.toString() }));
     child.on('error', (error) => emitEvent({ type: eventTypes.RUN_FAILED, error: error.message }));
     child.on('exit', (code, signal) => {
+      parseStdout.flush();
       if (signal) emitEvent({ type: eventTypes.RUN_CANCELLED, signal });
       else if (code === 0) emitEvent({ type: eventTypes.RUN_COMPLETED, exitCode: code });
       else emitEvent({ type: eventTypes.RUN_FAILED, exitCode: code });
@@ -443,12 +446,32 @@ function sdkProcessEnvForWorkspace(sourceEnv, workspacePath) {
 
 function createJsonLineParser(onEvent) {
   let buffer = '';
-  return (chunk) => {
+  const emitLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (Buffer.byteLength(trimmed, 'utf8') > DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES) {
+      onEvent({ type: eventTypes.RAW_OUTPUT, text: 'Claude JSONL event exceeded maxJsonLineBytes' });
+      return;
+    }
+    parseClaudeLine(line, onEvent);
+  };
+  const parser = (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
-    for (const line of lines) parseClaudeLine(line, onEvent);
+    for (const line of lines) emitLine(line);
+    if (Buffer.byteLength(buffer.trim(), 'utf8') > DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES) {
+      buffer = '';
+      onEvent({ type: eventTypes.RAW_OUTPUT, text: 'Claude JSONL event exceeded maxJsonLineBytes' });
+    }
   };
+  parser.flush = () => {
+    if (!buffer) return;
+    const line = buffer;
+    buffer = '';
+    emitLine(line);
+  };
+  return parser;
 }
 
 function parseClaudeLine(line, onEvent) {

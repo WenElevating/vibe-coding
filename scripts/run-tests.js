@@ -16549,6 +16549,70 @@ test('Claude adapter treats result as terminal and suppresses late noise', async
   assert.equal(events.at(-1).type, eventTypes.RUN_COMPLETED);
 });
 
+test('Claude adapter flushes final JSONL line without trailing newline', async () => {
+  const events = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    write(data) {
+      if (data.includes('"initialize"')) {
+        const req = JSON.parse(data.trim());
+        setImmediate(() => {
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+            type: 'control_response',
+            response: { request_id: req.request_id, subtype: 'success', response: {} }
+          })}\n`));
+        });
+        return;
+      }
+      if (!data.includes('"final line smoke"')) return;
+      setImmediate(() => {
+        child.stdout.emit('data', Buffer.from(JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          result: 'final output',
+          session_id: 'claude-session-final-line'
+        })));
+        child.emit('exit', 0, null);
+      });
+    },
+    end() { this.destroyed = true; }
+  };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
+
+  adapter.startRun({ prompt: 'final line smoke', workspacePath: '.', permissionMode: 'auto', onEvent: (event) => events.push(event) });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(events.some((event) => event.type === eventTypes.ASSISTANT_DELTA && event.text === 'final output'), true);
+  assert.equal(events.some((event) => event.type === eventTypes.RUN_COMPLETED), true);
+});
+
+test('Claude adapter bounds unterminated JSONL buffer', async () => {
+  const events = [];
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    destroyed: false,
+    write() {},
+    end() { this.destroyed = true; }
+  };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const adapter = new ClaudeAdapter({ spawnSyncFn: fakeSpawnSync, spawnFn: () => child });
+
+  adapter.startRun({ prompt: 'oversized line smoke', workspacePath: '.', permissionMode: 'auto', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', 'x'.repeat((1024 * 1024) + 1));
+
+  assert.equal(events.some((event) =>
+    event.type === eventTypes.RAW_OUTPUT &&
+    event.text === 'Claude JSONL event exceeded maxJsonLineBytes'
+  ), true);
+});
+
 test('Claude adapter filters escaped protocol payloads from assistant text', () => {
   const event = mapClaudeEvent({
     type: 'assistant',
@@ -16889,6 +16953,57 @@ test('Claude conversation adapter emits completion when long-lived process exits
 
   assert.equal(events.some((event) => event.type === 'assistant.partial' && event.text === 'partial only'), true);
   assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
+});
+
+test('Claude conversation adapter flushes final JSONL line without trailing newline', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(_line, callback) { if (typeof callback === 'function') callback(); } };
+  child.kill = () => child.emit('exit', null, 'SIGTERM');
+  const events = [];
+  const adapter = new ClaudeConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: () => child
+  });
+
+  await adapter.startConversation({ conversationId: 'conv_final_line', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: 'final conversation output',
+    session_id: 'claude-conv-final-line'
+  }));
+  child.emit('exit', 0, null);
+
+  assert.equal(events.some((event) => event.type === 'assistant.message' && event.text === 'final conversation output'), true);
+  assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
+});
+
+test('Claude conversation adapter bounds unterminated JSONL buffer', async () => {
+  const { ClaudeConversationAdapter } = require('../daemon/src/claude-conversation-adapter');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { destroyed: false, write(_line, callback) { if (typeof callback === 'function') callback(); } };
+  const events = [];
+  const adapter = new ClaudeConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeSpawnSync,
+    spawnFn: () => child,
+    maxJsonLineBytes: 16
+  });
+
+  await adapter.startConversation({ conversationId: 'conv_claude_oversized_line', workspacePath: '.', onEvent: (event) => events.push(event) });
+  child.stdout.emit('data', 'x'.repeat(17));
+
+  assert.equal(events.some((event) =>
+    event.type === 'protocol.warning' &&
+    event.text === 'Claude JSONL event exceeded maxJsonLineBytes'
+  ), true);
 });
 
 test('Claude conversation adapter emits file change notice after successful Edit tool', async () => {

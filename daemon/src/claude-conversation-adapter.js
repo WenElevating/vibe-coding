@@ -12,15 +12,17 @@ const { daemonSelfProtectionForTool } = require('./daemon-self-protection');
 const packageJson = require('../../package.json');
 
 const CLAUDE_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_FILE_CHANGE_DIFF_BYTES = 32 * 1024;
 
 class ClaudeConversationAdapter {
-  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile } = {}) {
+  constructor({ command = 'claude', spawnFn = spawn, spawnSyncFn = spawnSync, cliResolverOptions = {}, readTextFile, maxJsonLineBytes = DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES } = {}) {
     this.name = 'claude';
     this.command = command;
     this.spawnFn = spawnFn;
     this.spawnSyncFn = spawnSyncFn;
     this.readTextFile = readTextFile;
+    this.maxJsonLineBytes = normalizeMaxJsonLineBytes(maxJsonLineBytes);
     this.invocation = resolveCliInvocation(command, { spawnSyncFn, ...cliResolverOptions });
     this.capability = null;
     this.modelCapability = defaultModelCapability();
@@ -148,13 +150,19 @@ class ClaudeConversationAdapter {
       controlCounter: 0,
       pendingControlResponses: new Map()
     };
-    child.stdout.on('data', createJsonLineParser((raw) => handleRawClaudeEvent(raw, state)));
+    const parseStdout = createJsonLineParser({
+      maxJsonLineBytes: this.maxJsonLineBytes,
+      onJson: (raw) => handleRawClaudeEvent(raw, state)
+    });
+    child.stdout.on('data', parseStdout);
+    child.stdout.on('end', () => parseStdout.flush());
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString().trim();
       if (text) onEvent({ type: conversationEventTypes.PROTOCOL_WARNING, text, visible: false });
     });
     child.on('error', (error) => onEvent({ type: conversationEventTypes.RUN_ERROR, error: error.message }));
     child.on('exit', (code, signal) => {
+      parseStdout.flush();
       if (signal) onEvent({ type: conversationEventTypes.CONVERSATION_CANCELLED, signal });
       else if (code === 0) onEvent({ type: conversationEventTypes.CONVERSATION_COMPLETED });
       else if (code !== 0) onEvent({ type: conversationEventTypes.RUN_ERROR, exitCode: code });
@@ -1369,18 +1377,34 @@ function handleControlCancelRequest(raw, state) {
   });
 }
 
-function createJsonLineParser(onJson) {
+function createJsonLineParser({ maxJsonLineBytes, onJson }) {
   let buffer = '';
-  return (chunk) => {
+  const emitLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (Buffer.byteLength(trimmed, 'utf8') > maxJsonLineBytes) {
+      onJson({ type: 'system', subtype: 'jsonl_error', text: 'Claude JSONL event exceeded maxJsonLineBytes' });
+      return;
+    }
+    try { onJson(JSON.parse(trimmed)); } catch (_) {}
+  };
+  const parser = (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try { onJson(JSON.parse(trimmed)); } catch (_) {}
+    for (const line of lines) emitLine(line);
+    if (Buffer.byteLength(buffer.trim(), 'utf8') > maxJsonLineBytes) {
+      buffer = '';
+      onJson({ type: 'system', subtype: 'jsonl_error', text: 'Claude JSONL event exceeded maxJsonLineBytes' });
     }
   };
+  parser.flush = () => {
+    if (!buffer) return;
+    const line = buffer;
+    buffer = '';
+    emitLine(line);
+  };
+  return parser;
 }
 
 function buildClaudeUserContent({ text, attachments = [] } = {}) {
@@ -1766,6 +1790,12 @@ function truncateText(text, maxBytes) {
 
 function stripAnsi(value) {
   return String(value || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+function normalizeMaxJsonLineBytes(value) {
+  const numeric = Number(value);
+  if (!Number.isSafeInteger(numeric) || numeric <= 0) return DEFAULT_MAX_CLAUDE_JSON_LINE_BYTES;
+  return numeric;
 }
 
 module.exports = { ClaudeConversationAdapter, ClaudeConversationHandle, buildClaudeUserContent };

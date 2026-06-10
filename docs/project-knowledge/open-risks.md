@@ -1245,11 +1245,12 @@
   newline-delimited chunks, it can miss the final session/completion event; if
   the max-line check runs only after newline, an unterminated line can grow the
   daemon buffer without bound.
-- Evidence: `CodexConversationAdapter` now flushes the residual stdout buffer on
-  stdout end and child exit, and applies `maxJsonLineBytes` to the residual
-  buffer while data is still arriving. `scripts/run-tests.js` covers both a
-  final no-newline `thread.started` event and an oversized unterminated line.
+- Evidence: `CodexConversationAdapter` and the Claude process adapters now
+  flush the residual stdout buffer on stdout end and child exit, and apply a
+  max-line cap to the residual buffer while data is still arriving.
+  `scripts/run-tests.js` covers final no-newline provider events for Codex and
+  Claude, plus oversized unterminated Codex and Claude lines.
 - Mitigation: process adapters should enforce byte caps on buffered partial
   lines, not only on completed lines, and should flush residual structured
   output before deriving terminal state from child exit.
-- Last verified: 2026-06-10
+- Last verified: 2026-06-11
