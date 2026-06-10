@@ -56,8 +56,9 @@ class AuthManager {
     if (!this.pairing || this.pairing.used) throw authError('pairing code is not active');
     if (this.now() > this.pairing.expiresAt) throw authError('pairing code expired');
     if (code !== this.pairing.code) throw authError('invalid pairing code');
+    const paired = this.registerDevice({ requestedDeviceId, label });
     this.pairing.used = true;
-    return this.registerDevice({ requestedDeviceId, label });
+    return paired;
   }
 
   registerDevice({ requestedDeviceId, label }) {

@@ -1122,3 +1122,20 @@
   the same matrix-derived regression whenever app-server methods are added or
   reclassified.
 - Last verified: 2026-06-10
+
+## Risk: Pairing Codes Should Survive Device Registration Failures
+
+- Level: medium
+- Impact: pairing is a user-visible recovery path. If `AuthManager.pair()`
+  marks the current code as used before device persistence and token writes
+  complete, a transient store failure can burn the valid pairing code and force
+  the user to request a new code even though no device session was created.
+- Evidence: `AuthManager.pair()` now marks the pairing code used only after
+  `registerDevice()` succeeds. `scripts/run-tests.js` covers a simulated device
+  store failure, then retries the same code successfully once registration is
+  available again.
+- Mitigation: keep one-time auth credentials consumed only after the durable
+  side effect they authorize has completed. For future auth flows, add
+  retryability tests around persistence and token write failures before moving
+  consumed/used flags earlier in the flow.
+- Last verified: 2026-06-10

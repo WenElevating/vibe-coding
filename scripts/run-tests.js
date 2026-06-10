@@ -11034,6 +11034,24 @@ test('expired pairing code fails', () => {
   assert.throws(() => auth.pair(pairing.code), /expired/);
 });
 
+test('pairing code remains retryable when device registration fails', () => {
+  const auth = new AuthManager({
+    now: () => 1000,
+    store: {
+      getDeviceByHash() { return null; },
+      upsertDevice() { throw new Error('device store unavailable'); }
+    }
+  });
+  const pairing = auth.createPairingCode();
+
+  assert.throws(() => auth.pair(pairing.code, 'phone', 'device-retry-1'), /device store unavailable/);
+
+  auth.store = null;
+  const paired = auth.pair(pairing.code, 'phone', 'device-retry-1');
+
+  assert.equal(paired.deviceId, 'device-retry-1');
+});
+
 test('V1 rejects arbitrary shell and PTY payloads', () => {
   assert.throws(() => assertNoV1TerminalRequest({ command: 'dir' }), /V1\.2 rejects/);
   assert.throws(() => assertNoV1TerminalRequest({ cwd: 'C:\\Users' }), /V1\.2 rejects/);
