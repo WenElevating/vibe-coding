@@ -7,6 +7,7 @@ const {
   buildCodexAppServerTurnStartRequest
 } = require('../codex-app-server-bridge');
 const { buildCodexAppServerApprovalResponse } = require('../codex-app-server-approval');
+const { classifyCodexAppServerTimeout } = require('./timeouts');
 
 const DEFAULT_CLIENT_INFO = Object.freeze({
   name: 'vibe-coding-daemon',
@@ -601,7 +602,7 @@ class CodexAppServerClient {
   sendRequest(method, params, options = {}) {
     if (this.invalidated) return Promise.reject(this.invalidatedError());
     return this.transport.sendRequest(method, params, {
-      timeoutMs: options.timeoutMs || this.requestTimeoutMs
+      timeoutMs: resolveRequestTimeoutMs(method, options, this.requestTimeoutMs)
     });
   }
 
@@ -609,6 +610,23 @@ class CodexAppServerClient {
     if (this.closeError) return new Error(`Codex app-server client invalidated: ${this.closeError.message}`);
     return new Error('Codex app-server client invalidated');
   }
+}
+
+function resolveRequestTimeoutMs(method, options = {}, fallbackTimeoutMs) {
+  if (Object.prototype.hasOwnProperty.call(options || {}, 'timeoutMs')) {
+    return normalizeOptionalTimeoutMs(options.timeoutMs, fallbackTimeoutMs);
+  }
+  const timeoutClass = classifyCodexAppServerTimeout(method);
+  if (timeoutClass.kind === 'long-lived-stream') return null;
+  if (timeoutClass.kind === 'inbound-server-request') return timeoutClass.timeoutMs;
+  return fallbackTimeoutMs;
+}
+
+function normalizeOptionalTimeoutMs(value, fallbackTimeoutMs) {
+  if (value === null) return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 1) return fallbackTimeoutMs;
+  return numeric;
 }
 
 function compactObject(value) {

@@ -1,6 +1,10 @@
 'use strict';
 
 const LONG_LIVED_STREAM_METHODS = new Set([
+  'command/exec',
+  'process/spawn',
+  'thread/realtime/appendAudio',
+  'thread/realtime/appendText',
   'thread/realtime/start',
   'thread/start',
   'thread/resume',

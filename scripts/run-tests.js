@@ -6643,6 +6643,24 @@ test('Codex app-server JSONL transport resolves responses and emits notification
   stdout.destroy();
 });
 
+test('Codex app-server JSONL transport accepts null request timeout for long-lived methods', async () => {
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerJsonlTransport } = require('../daemon/src/codex-app-server-transport');
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const written = [];
+  stdin.on('data', (chunk) => written.push(chunk.toString('utf8')));
+  const transport = new CodexAppServerJsonlTransport({ stdin, stdout, requestTimeoutMs: 1 });
+  const pending = transport.sendRequest('thread/start', {}, { timeoutMs: null });
+  const request = JSON.parse(written.join('').trim());
+  assert.equal(transport.pending.get(request.id).timer, null);
+  stdout.write(`${JSON.stringify({ id: request.id, result: { thread: { id: 'thread_no_timeout' } } })}\n`);
+  assert.deepEqual(await pending, { thread: { id: 'thread_no_timeout' } });
+  transport.close();
+  stdin.destroy();
+  stdout.destroy();
+});
+
 test('run queue renumbers workspace positions after queued cancellation', () => {
   const queue = new RunQueue();
   const active = { id: 'run_active', workspaceId: 'workspace_1' };
@@ -6970,8 +6988,8 @@ test('Codex app-server client sends typed conversation requests', async () => {
   const { CodexAppServerClient } = require('../daemon/src/codex-app-server/client');
   const calls = [];
   const transport = {
-    sendRequest(method, params) {
-      calls.push({ method, params });
+    sendRequest(method, params, options) {
+      calls.push({ method, params, options });
       if (method === 'thread/start') return Promise.resolve({ thread: { id: 'thread_client' } });
       if (method === 'turn/start') return Promise.resolve({ turn: { id: 'turn_client' } });
       if (method === 'turn/interrupt') return Promise.resolve({});
@@ -6984,6 +7002,7 @@ test('Codex app-server client sends typed conversation requests', async () => {
   assert.equal((await client.startTurn({ threadId: 'thread_client', workspacePath: process.cwd(), message: 'hello' })).turn.id, 'turn_client');
   await client.interruptTurn({ threadId: 'thread_client', turnId: 'turn_client' });
   assert.deepEqual(calls.map((call) => call.method), ['thread/start', 'turn/start', 'turn/interrupt']);
+  assert.deepEqual(calls.map((call) => call.options.timeoutMs), [null, null, 30000]);
 });
 
 test('Codex app-server client sends typed thread history requests', async () => {
@@ -7627,6 +7646,10 @@ test('Codex app-server method timeout classes distinguish streams and server req
   const { classifyCodexAppServerTimeout } = require('../daemon/src/codex-app-server/timeouts');
   assert.equal(classifyCodexAppServerTimeout('model/list').kind, 'instant-rpc');
   assert.equal(classifyCodexAppServerTimeout('turn/start').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('thread/start').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('thread/resume').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('command/exec').kind, 'long-lived-stream');
+  assert.equal(classifyCodexAppServerTimeout('process/spawn').kind, 'long-lived-stream');
   assert.equal(classifyCodexAppServerTimeout('item/commandExecution/requestApproval').kind, 'inbound-server-request');
 });
 

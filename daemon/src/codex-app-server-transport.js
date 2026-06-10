@@ -36,15 +36,18 @@ class CodexAppServerJsonlTransport extends EventEmitter {
     const message = { id, method };
     if (params !== undefined) message.params = params;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${options.timeoutMs || this.requestTimeoutMs}ms`));
-      }, options.timeoutMs || this.requestTimeoutMs);
+      const timeoutMs = normalizeRequestTimeoutMs(options.timeoutMs, this.requestTimeoutMs);
+      const timer = timeoutMs === null
+        ? null
+        : setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
       this.pending.set(id, { method, resolve, reject, timer });
       try {
         this._write(message);
       } catch (error) {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         this.pending.delete(id);
         reject(error);
       }
@@ -116,7 +119,7 @@ class CodexAppServerJsonlTransport extends EventEmitter {
       return;
     }
     this.pending.delete(message.id);
-    clearTimeout(pending.timer);
+    if (pending.timer) clearTimeout(pending.timer);
     if (message.error) {
       const error = new Error(message.error.message || `${pending.method} failed`);
       error.code = message.error.code;
@@ -131,12 +134,20 @@ class CodexAppServerJsonlTransport extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
     this.emit('closed', error);
   }
+}
+
+function normalizeRequestTimeoutMs(value, fallback) {
+  if (value === null) return null;
+  const candidate = value === undefined ? fallback : value;
+  const numeric = Number(candidate);
+  if (!Number.isFinite(numeric) || numeric < 1) return Math.max(1, Number(fallback) || 30000);
+  return numeric;
 }
 
 module.exports = {

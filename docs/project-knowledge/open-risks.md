@@ -956,3 +956,24 @@
   client instances. If instrumentation state is needed, store it outside the
   client object so cache reuse does not change observability behavior.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Timeout Policy Must Be Applied at the Client Boundary
+
+- Level: high
+- Impact: `timeouts.js` can correctly classify long-lived methods, but the
+  daemon still times out long-running app-server turns if `CodexAppServerClient`
+  does not pass the classified timeout to the JSONL transport. In that case
+  `thread/start`, `thread/resume`, `turn/start`, `command/exec`, or
+  `process/spawn` can inherit the normal instant-RPC timeout and fail during
+  valid long-running work.
+- Evidence: `daemon/src/codex-app-server/client.js` now applies
+  `classifyCodexAppServerTimeout()` when callers do not provide an explicit
+  timeout. Long-lived methods pass `timeoutMs: null`, and
+  `daemon/src/codex-app-server-transport.js` treats null as no per-request
+  timer. `scripts/run-tests.js` covers null transport timers, client timeout
+  forwarding for `thread/start` and `turn/start`, and long-lived method
+  classification for command/process methods.
+- Mitigation: keep timeout policy wired at the client/transport boundary.
+  Adding methods to `timeouts.js` is not sufficient unless client requests
+  actually carry the effective timeout into the transport.
+- Last verified: 2026-06-10
