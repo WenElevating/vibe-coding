@@ -2548,6 +2548,40 @@ void main() {
     expect(find.text('Enter a daemon address.'), findsNothing);
   });
 
+  testWidgets('connection failure summary uses active locale',
+      (WidgetTester tester) async {
+    final controller = DaemonConnectionController(
+      store: DaemonConnectionConfigStore(),
+      tokenStore: MemoryTokenStore(),
+      snapshotLoader: (_) async => throw StateError('not used'),
+      healthProbe: (_) async {
+        throw const DaemonClientException(502, <String, Object?>{
+          'error': 'invalid_response',
+          'message': 'daemon returned an empty response body',
+        });
+      },
+    );
+    addTearDown(controller.dispose);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await controller.load();
+
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      theme: theme.buildAppTheme(),
+      home: MobileConnectionPage(controller: controller),
+    ));
+
+    await tester.tap(find.text('连接').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('连接失败'), findsOneWidget);
+    expect(find.text('代理或网关可能拦截了 daemon 请求。'), findsOneWidget);
+    expect(find.textContaining('proxy or gateway'), findsNothing);
+  });
+
   testWidgets('connection page keeps address and proxy editable after failure',
       (WidgetTester tester) async {
     final controller = DaemonConnectionController(

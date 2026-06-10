@@ -35,7 +35,18 @@ String connectionErrorLabel(
 ) {
   final inputError = controller.inputError;
   if (inputError == null) {
-    return controller.errorSummary!;
+    return switch (controller.errorCode) {
+      DaemonConnectionFailureCode.timeout => l10n.connectionErrorDaemonTimeout,
+      DaemonConnectionFailureCode.proxyGatewayInterception =>
+        l10n.connectionErrorProxyGateway,
+      DaemonConnectionFailureCode.invalidDaemonResponse =>
+        l10n.connectionErrorInvalidDaemonResponse,
+      DaemonConnectionFailureCode.noDaemonListening =>
+        l10n.connectionErrorNoDaemonListening,
+      DaemonConnectionFailureCode.unableToConnect =>
+        l10n.connectionErrorUnableToConnect,
+      null => controller.errorSummary!,
+    };
   }
   return switch (controller.inputErrorCode) {
     DaemonConnectionConfigErrorCode.emptyDaemonAddress =>

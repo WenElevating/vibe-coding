@@ -11,6 +11,7 @@ import 'package:lan_ai_cli_control/src/workflows/connection/daemon_connection_wo
 
 export 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon_connection_view_model.dart'
     show
+        DaemonConnectionFailureCode,
         DaemonConnectionStatus,
         DiagnosticRecorder,
         daemonConnectionErrorSummary,

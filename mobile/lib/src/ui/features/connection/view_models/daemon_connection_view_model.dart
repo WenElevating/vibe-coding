@@ -22,6 +22,14 @@ enum DaemonConnectionStatus {
   failed,
 }
 
+enum DaemonConnectionFailureCode {
+  timeout,
+  proxyGatewayInterception,
+  invalidDaemonResponse,
+  noDaemonListening,
+  unableToConnect,
+}
+
 typedef DiagnosticRecorder = void Function(
   String event,
   Map<String, Object?> metadata,
@@ -54,6 +62,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   String _manualProxyInput = DaemonConnectionConfig.fallback.manualProxyInput;
   String? _inputError;
   DaemonConnectionConfigErrorCode? _inputErrorCode;
+  DaemonConnectionFailureCode? _errorCode;
   String? _errorSummary;
   String? _errorDetail;
   DaemonInitialData? _initialData;
@@ -71,6 +80,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   String get manualProxyInput => _manualProxyInput;
   String? get inputError => _inputError;
   DaemonConnectionConfigErrorCode? get inputErrorCode => _inputErrorCode;
+  DaemonConnectionFailureCode? get errorCode => _errorCode;
   String? get errorSummary => _errorSummary;
   String? get errorDetail => _errorDetail;
   DaemonInitialData? get initialData => _initialData;
@@ -83,16 +93,6 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       _status == DaemonConnectionStatus.validating ||
       _status == DaemonConnectionStatus.checkingHealth ||
       _status == DaemonConnectionStatus.loadingSnapshot;
-
-  String get statusLabel => switch (_status) {
-        DaemonConnectionStatus.loadingConfig => 'Loading connection settings',
-        DaemonConnectionStatus.idle => 'Not connected',
-        DaemonConnectionStatus.validating => 'Resolving connection address',
-        DaemonConnectionStatus.checkingHealth => 'Checking daemon health',
-        DaemonConnectionStatus.loadingSnapshot => 'Syncing workspace state',
-        DaemonConnectionStatus.connected => 'Connected',
-        DaemonConnectionStatus.failed => 'Connection failed',
-      };
 
   Future<void> load() async {
     if (_disposed) {
@@ -164,6 +164,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
     _status = DaemonConnectionStatus.validating;
     _inputError = null;
     _inputErrorCode = null;
+    _errorCode = null;
     _errorSummary = null;
     _errorDetail = null;
     notifyListeners();
@@ -202,9 +203,9 @@ class DaemonConnectionViewModel extends ChangeNotifier {
             if (!hadConnectedSession) {
               _clearConnectedSession();
             }
-            _errorSummary = 'The daemon did not respond in time.';
-            _errorDetail =
-                'Connection attempt exceeded ${_connectionTimeout.inSeconds}s.';
+            _errorCode = DaemonConnectionFailureCode.timeout;
+            _errorSummary = daemonConnectionErrorSummaryForCode(_errorCode!);
+            _errorDetail = null;
             _status = DaemonConnectionStatus.failed;
             notifyListeners();
           }
@@ -247,7 +248,8 @@ class DaemonConnectionViewModel extends ChangeNotifier {
       if (!hadConnectedSession) {
         _clearConnectedSession();
       }
-      _errorSummary = daemonConnectionErrorSummary(error);
+      _errorCode = daemonConnectionFailureCode(error);
+      _errorSummary = daemonConnectionErrorSummaryForCode(_errorCode!);
       _errorDetail = ExceptionRedactor.redactText(error.toString());
       _status = DaemonConnectionStatus.failed;
       notifyListeners();
@@ -257,6 +259,7 @@ class DaemonConnectionViewModel extends ChangeNotifier {
   void _clearTransientErrors() {
     _inputError = null;
     _inputErrorCode = null;
+    _errorCode = null;
     _errorSummary = null;
     _errorDetail = null;
   }
@@ -360,25 +363,45 @@ class DaemonConnectionViewModel extends ChangeNotifier {
 }
 
 String daemonConnectionErrorSummary(Object error) {
+  return daemonConnectionErrorSummaryForCode(
+      daemonConnectionFailureCode(error));
+}
+
+DaemonConnectionFailureCode daemonConnectionFailureCode(Object error) {
   if (error is TimeoutException) {
-    return 'The daemon did not respond in time.';
+    return DaemonConnectionFailureCode.timeout;
   }
   if (error is DaemonClientException) {
     final message = '${error.body['message'] ?? ''}';
     if (error.statusCode == 502 && message.contains('empty response')) {
-      return 'A proxy or gateway may have intercepted the daemon request.';
+      return DaemonConnectionFailureCode.proxyGatewayInterception;
     }
     if (message.contains('empty response') ||
         message.contains('invalid JSON')) {
-      return 'The daemon returned an invalid response.';
+      return DaemonConnectionFailureCode.invalidDaemonResponse;
     }
   }
   final text = error.toString();
   if (text.contains('Connection refused') || text.contains('ECONNREFUSED')) {
-    return 'No daemon is listening at this address.';
+    return DaemonConnectionFailureCode.noDaemonListening;
   }
   if (text.toLowerCase().contains('timed out')) {
-    return 'The daemon did not respond in time.';
+    return DaemonConnectionFailureCode.timeout;
   }
-  return 'Unable to connect to the daemon.';
+  return DaemonConnectionFailureCode.unableToConnect;
+}
+
+String daemonConnectionErrorSummaryForCode(DaemonConnectionFailureCode code) {
+  return switch (code) {
+    DaemonConnectionFailureCode.timeout =>
+      'The daemon did not respond in time.',
+    DaemonConnectionFailureCode.proxyGatewayInterception =>
+      'A proxy or gateway may have intercepted the daemon request.',
+    DaemonConnectionFailureCode.invalidDaemonResponse =>
+      'The daemon returned an invalid response.',
+    DaemonConnectionFailureCode.noDaemonListening =>
+      'No daemon is listening at this address.',
+    DaemonConnectionFailureCode.unableToConnect =>
+      'Unable to connect to the daemon.',
+  };
 }

@@ -61,6 +61,10 @@ void main() {
     expect(controller.status, DaemonConnectionStatus.failed);
     expect(controller.addressInput, '127.0.0.1:4317');
     expect(controller.proxyMode, DaemonProxyMode.system);
+    expect(
+      controller.errorCode,
+      DaemonConnectionFailureCode.proxyGatewayInterception,
+    );
     expect(controller.errorSummary, contains('proxy or gateway'));
   });
 
@@ -199,7 +203,9 @@ void main() {
 
     expect(controller.status, DaemonConnectionStatus.failed);
     expect(controller.isBusy, isFalse);
+    expect(controller.errorCode, DaemonConnectionFailureCode.timeout);
     expect(controller.errorSummary, 'The daemon did not respond in time.');
+    expect(controller.errorDetail, isNull);
 
     healthCompleter.complete();
     await connection;

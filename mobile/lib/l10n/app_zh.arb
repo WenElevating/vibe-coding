@@ -128,6 +128,11 @@
   "connectionErrorEnterProxyAddress": "请输入代理地址。",
   "connectionErrorEnterValidProxy": "请输入有效的代理主机和端口。",
   "connectionErrorManualProxyHttp": "手动代理必须使用 http。",
+  "connectionErrorDaemonTimeout": "daemon 未及时响应。",
+  "connectionErrorProxyGateway": "代理或网关可能拦截了 daemon 请求。",
+  "connectionErrorInvalidDaemonResponse": "daemon 返回了无效响应。",
+  "connectionErrorNoDaemonListening": "此地址没有 daemon 在监听。",
+  "connectionErrorUnableToConnect": "无法连接到 daemon。",
   "@settingsDiagnosticsCount": {
     "placeholders": {
       "count": {
