@@ -33,15 +33,17 @@ function parseStatusLine(line) {
 }
 
 function parseNumstat(output) {
-  return output.split(/\r?\n/).filter((line) => /^\d+|-/.test(line)).map((line) => {
-    const [additions, deletions, ...rest] = line.split(/\s+/);
+  return output.split(/\r?\n/).map((line) => {
+    const match = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+    if (!match) return null;
+    const [, additions, deletions, filePath] = match;
     return {
-      filePath: rest.join(' '),
+      filePath,
       additions: additions === '-' ? 0 : Number(additions),
       deletions: deletions === '-' ? 0 : Number(deletions),
       binary: additions === '-' || deletions === '-'
     };
-  });
+  }).filter(Boolean);
 }
 
 function gitError(code, message) {

@@ -1189,3 +1189,34 @@
   or `RunQueue.complete()` should emit an explicit queue update event for the
   affected run flow after the queue mutation is visible.
 - Last verified: 2026-06-10
+
+## Risk: Git Numstat Parsing Must Ignore Stat Summaries
+
+- Level: medium
+- Impact: `git diff --stat --numstat` returns machine-readable numstat rows and
+  human-oriented stat summary rows in the same stdout. If `GitService` accepts
+  any line containing `-`, stat rows such as `README.md | 3 ++-` become fake
+  summary entries with `NaN` counts and polluted file paths in the API response.
+- Evidence: `parseNumstat()` now accepts only tab-delimited numstat rows with
+  addition, deletion, and path fields. `scripts/run-tests.js` covers combined
+  numstat/stat output and filenames containing spaces.
+- Mitigation: keep Git machine output parsers tied to the exact delimiter and
+  field contract of the selected Git mode. Do not parse mixed porcelain output
+  with broad whitespace or substring heuristics.
+- Last verified: 2026-06-10
+
+## Risk: Long-Lived Helper Children Need Async Failure Cleanup
+
+- Level: medium
+- Impact: child processes created by `spawn()` can fail after construction via
+  an `error`, `exit`, or `close` event. Without listeners, the Windows sleep
+  inhibitor could crash the daemon on an unhandled child `error` or keep a stale
+  child reference that prevents restart after the helper exits.
+- Evidence: `createWindowsSleepInhibitor()` now registers child `error`,
+  `exit`, and `close` handlers that clear only the matching active child.
+  `scripts/run-tests.js` verifies an async child error is handled, logged, and
+  followed by a successful restart; it also verifies exit-driven restart.
+- Mitigation: any daemon-managed long-lived helper process should attach
+  lifecycle listeners immediately after spawn and clear state by child identity
+  so late events from old children cannot disturb a newer helper.
+- Last verified: 2026-06-10

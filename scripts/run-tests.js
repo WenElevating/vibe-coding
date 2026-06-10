@@ -12408,6 +12408,36 @@ test('Windows sleep inhibitor stays inactive when unsupported or disabled', () =
   assert.equal(spawnCount, 0);
 });
 
+test('Windows sleep inhibitor clears stale child state after async child failure', () => {
+  const { createWindowsSleepInhibitor } = require('../daemon/src/windows-sleep-inhibitor');
+  const children = [];
+  const warnings = [];
+  const inhibitor = createWindowsSleepInhibitor({
+    platform: 'win32',
+    pid: 1234,
+    env: {},
+    spawnFn() {
+      const child = new EventEmitter();
+      child.killed = false;
+      child.kill = () => { child.killed = true; };
+      child.unref = () => {};
+      children.push(child);
+      return child;
+    },
+    logger: { warn(message) { warnings.push(message); } }
+  });
+
+  assert.equal(inhibitor.start().reason, 'started');
+  assert.doesNotThrow(() => children[0].emit('error', new Error('power request failed')));
+  assert.equal(warnings.length, 1);
+  assert.equal(inhibitor.start().reason, 'started');
+  assert.equal(children.length, 2);
+
+  children[1].emit('exit');
+  assert.equal(inhibitor.start().reason, 'started');
+  assert.equal(children.length, 3);
+});
+
 test('daemon self-protection detects commands targeting daemon pid or port', () => {
   const { daemonSelfProtectionForCommand } = require('../daemon/src/daemon-self-protection');
 
@@ -25343,6 +25373,22 @@ test('V1.2 git service parses status and diff output', () => {
   const diff = service.diff(workspace).summaries;
   assert.equal(diff[0].additions, 2);
   assert.equal(diff[1].binary, true);
+});
+
+test('git service ignores stat summary lines when parsing numstat output', () => {
+  const { parseNumstat } = require('../daemon/src/git-service');
+  const summaries = parseNumstat([
+    '2\t1\tREADME.md',
+    '5\t3\tpath with spaces/file name.txt',
+    ' README.md                         | 3 ++-',
+    ' path with spaces/file name.txt    | 8 +++++---',
+    ' 2 files changed, 7 insertions(+), 4 deletions(-)'
+  ].join('\n'));
+
+  assert.deepEqual(summaries, [
+    { filePath: 'README.md', additions: 2, deletions: 1, binary: false },
+    { filePath: 'path with spaces/file name.txt', additions: 5, deletions: 3, binary: false }
+  ]);
 });
 
 test('workspace inspector rejects symlinked files outside workspace', () => {

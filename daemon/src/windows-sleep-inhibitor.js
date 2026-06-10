@@ -11,6 +11,14 @@ function createWindowsSleepInhibitor({
 } = {}) {
   let child = null;
 
+  function clearChild(current, error = null) {
+    if (child !== current) return;
+    child = null;
+    if (error && typeof logger?.warn === 'function') {
+      logger.warn(`Windows sleep inhibitor process failed: ${error.message}`);
+    }
+  }
+
   return {
     start() {
       if (env.DAEMON_PREVENT_SLEEP === '0') {
@@ -36,6 +44,12 @@ function createWindowsSleepInhibitor({
           windowsHide: true,
           stdio: 'ignore'
         });
+        if (typeof child?.once === 'function') {
+          const current = child;
+          child.once('error', (error) => clearChild(current, error));
+          child.once('exit', () => clearChild(current));
+          child.once('close', () => clearChild(current));
+        }
         if (typeof child?.unref === 'function') child.unref();
         return { active: true, reason: 'started' };
       } catch (error) {
