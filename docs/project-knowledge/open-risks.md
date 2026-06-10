@@ -692,3 +692,22 @@
   `encoding` or raw `content` back to the `fs/writeFile` JSON-RPC payload unless
   the generated schema changes and the fixture drift gate is updated.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server File Watches Need Daemon-Owned Watch IDs
+
+- Level: medium
+- Impact: the mobile-facing `fs/watch` route only needs a workspace path, but
+  the upstream app-server `FsWatchParams` schema requires a connection-scoped
+  `watchId`. If the daemon forwards only `path`, provider watch setup can fail
+  even though route authorization and workspace path resolution passed.
+- Evidence: `daemon/src/codex-app-server/routes.js` generates `watch_<uuid>`
+  before calling `watchFileSystem`, and
+  `daemon/src/codex-app-server/client.js` forwards `watchId` in the `fs/watch`
+  JSON-RPC payload. `scripts/run-tests.js` covers the workspace-scoped watch
+  route passing a non-empty watch id to the typed service method and using that
+  id for unwatch.
+- Mitigation: keep provider-required IDs generated at the daemon boundary when
+  the mobile API intentionally hides them. Any future watch route changes must
+  preserve the invariant that `fs/watch` and `fs/unwatch` use the same
+  provider watch id.
+- Last verified: 2026-06-10

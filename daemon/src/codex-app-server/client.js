@@ -195,7 +195,8 @@ class CodexAppServerClient {
 
   watchFileSystem(options = {}) {
     return this.sendRequest('fs/watch', compactObject({
-      path: options.path
+      path: options.path,
+      watchId: options.watchId
     }), options);
   }
 

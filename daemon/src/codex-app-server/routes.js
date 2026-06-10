@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { recordCodexAppServerAudit } = require('./audit');
@@ -347,8 +348,10 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsWatch[1]), context.device);
     const body = await readJson();
     const watchPath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
+    const watchId = `watch_${crypto.randomUUID()}`;
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.watchFileSystem({
-      path: watchPath
+      path: watchPath,
+      watchId
     }));
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;

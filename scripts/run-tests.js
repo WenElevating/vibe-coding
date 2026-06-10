@@ -9746,7 +9746,7 @@ test('Codex app-server fs diagnostic watch routes are workspace scoped', async (
       return callback({
         async watchFileSystem(options) {
           calls.push({ method: 'watchFileSystem', options });
-          return { watchId: 'watch_1', path: options.path };
+          return { watchId: options.watchId, path: options.path };
         },
         async unwatchFileSystem(options) {
           calls.push({ method: 'unwatchFileSystem', options });
@@ -9760,17 +9760,21 @@ test('Codex app-server fs diagnostic watch routes are workspace scoped', async (
 
   try {
     const watch = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/watch`, { path: 'src' });
-    const unwatch = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/unwatch`, { watchId: 'watch_1' });
+    const watchCall = calls.find((call) => call.method === 'watchFileSystem');
+    assert.ok(watchCall);
+    assert.equal(typeof watchCall.options.watchId, 'string');
+    assert.notEqual(watchCall.options.watchId, '');
+    const unwatch = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/fs/unwatch`, { watchId: watchCall.options.watchId });
 
     assert.equal(watch.status, 200);
-    assert.deepEqual(watch.body, { watchId: 'watch_1', path: watchedPath });
+    assert.deepEqual(watch.body, { watchId: watchCall.options.watchId, path: watchedPath });
     assert.equal(unwatch.status, 200);
-    assert.deepEqual(unwatch.body, { unwatched: 'watch_1' });
+    assert.deepEqual(unwatch.body, { unwatched: watchCall.options.watchId });
     assert.deepEqual(calls, [
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'watchFileSystem', options: { path: watchedPath } },
+      { method: 'watchFileSystem', options: { path: watchedPath, watchId: watchCall.options.watchId } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'unwatchFileSystem', options: { watchId: 'watch_1' } }
+      { method: 'unwatchFileSystem', options: { watchId: watchCall.options.watchId } }
     ]);
   } finally {
     await app.close();
