@@ -1051,6 +1051,24 @@
   into conversation summaries.
 - Last verified: 2026-06-10
 
+## Risk: Adapter Static Capability Failures Must Not Break Listing
+
+- Level: medium
+- Impact: `/api/adapters` is a multi-adapter capability listing. Detection and
+  model-capability failures were already isolated, but a thrown
+  `getCapabilities()` call could still reject the entire listing and surface
+  local diagnostic text from one adapter.
+- Evidence: `AdapterRegistry` now loads static capabilities through an
+  exception-safe helper and falls back to `{}` before merging dynamic status
+  capabilities. `scripts/run-tests.js` covers a path-bearing static capability
+  failure and verifies the healthy adapter is still listed without retaining the
+  path.
+- Mitigation: keep adapter capability aggregation best-effort per adapter.
+  Static capability hooks should never be allowed to reject the whole adapter
+  list; dynamic `detectCapabilities()` remains the place to expose sanitized
+  adapter availability errors.
+- Last verified: 2026-06-10
+
 ## Risk: Codex App-Server Timeout Policy Must Be Applied at the Client Boundary
 
 - Level: high

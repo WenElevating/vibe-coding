@@ -26145,6 +26145,44 @@ test('adapter capability listing preserves dynamic status capabilities with stat
   });
 });
 
+test('adapter capability listing isolates static capability failures', async () => {
+  const secretPath = path.join(os.tmpdir(), 'adapter-capability-secret', 'capabilities.txt');
+  const registry = new AdapterRegistry([
+    {
+      name: 'broken-static',
+      async detectCapabilities() {
+        return { adapter: 'broken-static', available: true, status: 'available' };
+      },
+      getCapabilities() {
+        throw new Error(`static capabilities failed at ${secretPath}`);
+      }
+    },
+    {
+      name: 'healthy',
+      async detectCapabilities() {
+        return { adapter: 'healthy', available: true, status: 'available' };
+      },
+      getCapabilities() {
+        return { resume: true };
+      }
+    }
+  ]);
+
+  const listed = await registry.listCapabilities();
+  const publicJson = JSON.stringify(listed);
+
+  assert.equal(listed.length, 2);
+  assert.equal(listed[0].adapter, 'broken-static');
+  assert.deepEqual(listed[0].capabilities.attachments, {
+    image: 'unsupported',
+    pdf: 'unsupported',
+    textDocument: 'text_extract'
+  });
+  assert.equal(listed[1].capabilities.resume, true);
+  assert.equal(publicJson.includes(secretPath), false);
+  assert.equal(publicJson.includes('adapter-capability-secret'), false);
+});
+
 test('adapter capability listing sorts multiple models by id before hashing', async () => {
   const registry = new AdapterRegistry([
     {
