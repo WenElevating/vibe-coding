@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app/app_dependencies.dart';
@@ -26,7 +28,7 @@ class _MobileUiState extends State<MobileUi> {
     _ownsConnectionController = widget.connectionController == null;
     _connectionController = widget.connectionController ??
         _dependencies.features.createDaemonConnectionViewModel();
-    _connectionController.load();
+    unawaited(_connectionController.load());
   }
 
   @override

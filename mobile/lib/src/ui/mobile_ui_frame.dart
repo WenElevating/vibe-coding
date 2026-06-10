@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'core/theme/theme.dart' as theme;
-import 'core/widgets/widgets.dart';
-
 class MobileUiFrame extends StatelessWidget {
   const MobileUiFrame({super.key, required this.child});
 
@@ -18,27 +15,7 @@ class MobileUiFrame extends StatelessWidget {
           colors: [Color(0xFF101113), Color(0xFF08090B)],
         ),
       ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -160,
-            right: -130,
-            child: Glow(
-              size: 260,
-              color: theme.green.withValues(alpha: .10),
-            ),
-          ),
-          Positioned(
-            bottom: -170,
-            left: -150,
-            child: Glow(
-              size: 260,
-              color: theme.purple.withValues(alpha: .08),
-            ),
-          ),
-          SafeArea(bottom: false, child: child),
-        ],
-      ),
+      child: SafeArea(bottom: false, child: child),
     );
   }
 }
