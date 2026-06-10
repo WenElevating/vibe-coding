@@ -6,6 +6,7 @@ const HIGH_RISK_METHODS = new Set([
   'command/exec/terminate',
   'command/exec/write',
   'config/batchWrite',
+  'config/mcpServer/reload',
   'config/value/write',
   'environment/add',
   'fs/copy',
@@ -60,11 +61,13 @@ function riskForCodexAppServerMethod(method) {
     if (value.startsWith('fs/')) return 'write';
     if (value.startsWith('command/') || value.startsWith('process/')) return 'process';
     if (value.startsWith('remoteControl/')) return 'network';
+    if (value === 'thread/realtime/start') return 'network';
     if (value.startsWith('config/') || value.startsWith('skills/') || value.startsWith('plugin/') || value.startsWith('marketplace/')) return 'write';
     return 'write';
   }
   if (value.startsWith('account/') || value.includes('login') || value.includes('logout')) return 'account';
   if (value.includes('oauth')) return 'account';
+  if (value === 'attestation/generate' || value === 'review/start') return 'permission';
   if (value === 'fs/watch' || value === 'fs/unwatch') return 'permission';
   if (value.startsWith('mcpServer/tool/call') || value === 'item/tool/call') return 'permission';
   return 'read';

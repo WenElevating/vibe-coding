@@ -977,3 +977,20 @@
   Adding methods to `timeouts.js` is not sufficient unless client requests
   actually carry the effective timeout into the transport.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Risk Policy Can Drift from Capability Matrix
+
+- Level: medium
+- Impact: route capabilities expose risk from the capability matrix, while
+  `risk-policy.js` provides method-level risk inference for other app-server
+  decisions. If the two sources drift, diagnostics and future approval gates can
+  classify the same method differently from the advertised route contract.
+- Evidence: `risk-policy.js` now matches route-test matrix risk for
+  `review/start`, `attestation/generate`, `config/mcpServer/reload`, and
+  `thread/realtime/start`. `scripts/run-tests.js` verifies every advertised
+  route-test method has the same risk in route capabilities, matrix rows, and
+  `riskForCodexAppServerMethod()`.
+- Mitigation: keep route capability risk and risk-policy inference covered by
+  the same matrix-derived regression whenever app-server methods are added or
+  reclassified.
+- Last verified: 2026-06-10

@@ -10449,6 +10449,7 @@ test('Codex app-server dispatcher ignores same-prefix non namespace paths', asyn
 test('Codex app-server capability route metadata is derived from matrix rows', () => {
   const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
   const { buildCodexAppServerRouteCapabilities } = require('../daemon/src/codex-app-server/capability-routes');
+  const { riskForCodexAppServerMethod } = require('../daemon/src/codex-app-server/risk-policy');
   const selectedRows = CODEX_APP_SERVER_CAPABILITY_MATRIX.filter((row) => (
     row.daemonOwner === 'server route' &&
     row.direction === 'request' &&
@@ -10462,6 +10463,7 @@ test('Codex app-server capability route metadata is derived from matrix rows', (
     assert.equal(route.localStatus, row.localStatus);
     assert.equal(route.mobileStatus, row.mobileStatus);
     assert.equal(route.risk, row.risk);
+    assert.equal(riskForCodexAppServerMethod(route.method), row.risk);
     assert.equal(route.source, 'capability-matrix');
   }
 
