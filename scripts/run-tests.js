@@ -26529,6 +26529,7 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
       path: '/api/notifications/ws?access_token=query-secret-token',
       conversationId: 'conv_1',
       metadata: {
+        api_key: 'diagnostic-secret-key',
         operation: 'watchConversationEvents',
         details: { header: 'Authorization: Bearer nested-secret-token' }
       }
@@ -26544,6 +26545,8 @@ test('exceptions are persisted with trace ids and exported in diagnostics', asyn
     assert.equal(exportedText.includes('sk-mobile-secret-value'), false);
     assert.equal(exportedText.includes('query-secret-token'), false);
     assert.equal(exportedText.includes('nested-secret-token'), false);
+    assert.equal(exportedText.includes('diagnostic-secret-key'), false);
+    assert.equal(bundle.recent_errors[0].metadata.api_key, '[REDACTED]');
     assert.equal(bundle.recent_errors[0].metadata.operation, 'watchConversationEvents');
 
     const failed = await request(port, 'GET', '/api/not-found-for-trace', null, token);

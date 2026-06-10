@@ -891,9 +891,12 @@ flutter test --no-pub test\cached_connected_repositories_test.dart -r expanded -
 
 - Symptom: exported diagnostics redact sensitive object keys, but exception
   strings such as `message`, `stack`, `path`, or nested metadata can still
-  contain bearer tokens, `sk-*` secrets, or sensitive URL query parameters.
+  contain bearer tokens, `sk-*` secrets, sensitive URL query parameters, or
+  secret values under snake/kebab-case keys such as `api_key`.
 - Action: diagnostic export redaction must scrub both object keys and string
-  values before packaging recent errors or exception metadata.
+  values before packaging recent errors or exception metadata. Normalize key
+  names before sensitive-key matching so `apiKey`, `api_key`, and `api-key`
+  share the same redaction boundary.
 - Related file:
   [diagnostic-bundle.js](../../daemon/src/diagnostic-bundle.js)
 - Verification:

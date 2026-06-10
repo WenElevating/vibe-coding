@@ -59,10 +59,20 @@ function redact(value) {
   if (!value || typeof value !== 'object') return value;
   const output = {};
   for (const [key, item] of Object.entries(value)) {
-    if (/token|secret|password|apiKey|authorization|env/i.test(key)) output[key] = '[REDACTED]';
+    if (isSensitiveKey(key)) output[key] = '[REDACTED]';
     else output[key] = redact(item);
   }
   return output;
+}
+
+function isSensitiveKey(key) {
+  const normalized = String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return normalized.includes('token') ||
+    normalized.includes('secret') ||
+    normalized.includes('password') ||
+    normalized.includes('apikey') ||
+    normalized.includes('authorization') ||
+    normalized.includes('env');
 }
 
 function redactString(value) {
