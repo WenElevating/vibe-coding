@@ -240,6 +240,7 @@ class NotificationHub {
         message: 'WebSocket client is not keeping up with notification traffic.'
       }, { bypassBackpressure: true });
       this.closeWebSocket(connection, 1013, 'BACKPRESSURE');
+      this.closeConnection(connection);
       return false;
     }
     connection.pendingFrameCount = (connection.pendingFrameCount || 0) + 1;

@@ -12626,6 +12626,61 @@ test('notification websocket closes slow clients on backpressure', async () => {
   assert.deepEqual(closed, { code: 1013, reason: 'BACKPRESSURE' });
 });
 
+test('notification hub removes subscriptions immediately after backpressure close', () => {
+  const sentFrames = [];
+  let closed = null;
+  const ws = {
+    readyState: WebSocket.OPEN,
+    bufferedAmount: 2,
+    send(data, callback) {
+      sentFrames.push(JSON.parse(String(data)));
+      if (callback) callback();
+    },
+    close(code, reason) {
+      closed = { code, reason };
+    }
+  };
+  const hub = new NotificationHub({
+    auth: null,
+    conversations: {
+      requireConversation: () => ({ id: 'conv_1' }),
+      listEvents: () => []
+    },
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: '1.3.0' },
+    maxBufferedBytes: 1,
+    maxQueuedFrames: 500
+  });
+  const connection = createNotificationHubTestConnection();
+  connection.ws = ws;
+  hub.connections.set(connection.id, connection);
+  hub.addSubscription(connection, {
+    key: subscriptionKey('conversation.events', { conversationId: 'conv_1' }),
+    generation: 1,
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    conversationId: 'conv_1',
+    replaying: false,
+    queuedLiveEvents: []
+  });
+
+  hub.publishConversationEvent({
+    seq: 1,
+    conversationId: 'conv_1',
+    type: 'assistant.message',
+    createdAt: '2026-05-23T00:00:00.000Z',
+    text: 'live'
+  });
+
+  assert.equal(sentFrames[0].type, 'error');
+  assert.equal(sentFrames[0].code, 'BACKPRESSURE');
+  assert.deepEqual(closed, { code: 1013, reason: 'BACKPRESSURE' });
+  assert.equal(connection.closed, true);
+  assert.equal(connection.subscriptions.size, 0);
+  assert.equal(hub.connections.has(connection.id), false);
+  assert.equal(hub.conversationSubscriptions.has('conv_1'), false);
+});
+
 test('notification websocket closes clients at queued frame limit without buffered bytes', async () => {
   const sentFrames = [];
   let closed = null;
