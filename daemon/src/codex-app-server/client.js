@@ -69,7 +69,7 @@ class CodexAppServerClient {
 
   listThreads(options = {}) {
     return this.sendRequest('thread/list', compactObject({
-      workspacePath: options.workspacePath,
+      cwd: options.cwd ?? options.workspacePath,
       limit: options.limit,
       cursor: options.cursor,
       archived: options.archived
@@ -408,8 +408,7 @@ class CodexAppServerClient {
 
   searchThreads(options = {}) {
     return this.sendRequest('thread/search', compactObject({
-      query: options.query,
-      workspacePath: options.workspacePath,
+      searchTerm: options.searchTerm ?? options.query,
       limit: options.limit,
       cursor: options.cursor
     }), options);
@@ -486,8 +485,7 @@ class CodexAppServerClient {
   forkThread(options = {}) {
     return this.sendRequest('thread/fork', compactObject({
       threadId: options.threadId,
-      workspacePath: options.workspacePath,
-      fromTurnId: options.fromTurnId
+      cwd: options.cwd ?? options.workspacePath
     }), options);
   }
 
@@ -506,15 +504,17 @@ class CodexAppServerClient {
   rollbackThread(options = {}) {
     return this.sendRequest('thread/rollback', compactObject({
       threadId: options.threadId,
-      turnId: options.turnId,
-      itemId: options.itemId
+      numTurns: options.numTurns
     }), options);
   }
 
   updateThreadMetadata(options = {}) {
-    return this.sendRequest('thread/metadata/update', compactObject({
+    const metadata = options.metadata && typeof options.metadata === 'object' && !Array.isArray(options.metadata)
+      ? options.metadata
+      : {};
+    return this.sendRequest('thread/metadata/update', compactDefinedObject({
       threadId: options.threadId,
-      metadata: options.metadata
+      gitInfo: options.gitInfo ?? metadata.gitInfo
     }), options);
   }
 
@@ -526,23 +526,41 @@ class CodexAppServerClient {
   }
 
   updateThreadSettings(options = {}) {
-    return this.sendRequest('thread/settings/update', compactObject({
+    const settings = options.settings && typeof options.settings === 'object' && !Array.isArray(options.settings)
+      ? options.settings
+      : options;
+    return this.sendRequest('thread/settings/update', compactDefinedObject({
       threadId: options.threadId,
-      settings: options.settings
+      approvalPolicy: settings.approvalPolicy,
+      approvalsReviewer: settings.approvalsReviewer,
+      collaborationMode: settings.collaborationMode,
+      cwd: settings.cwd,
+      effort: settings.effort,
+      model: settings.model,
+      permissions: settings.permissions,
+      personality: settings.personality,
+      sandboxPolicy: settings.sandboxPolicy,
+      serviceTier: settings.serviceTier,
+      summary: settings.summary
     }), options);
   }
 
   setThreadMemoryMode(options = {}) {
     return this.sendRequest('thread/memoryMode/set', compactObject({
       threadId: options.threadId,
-      memoryMode: options.memoryMode
+      mode: options.mode ?? options.memoryMode
     }), options);
   }
 
   setThreadGoal(options = {}) {
-    return this.sendRequest('thread/goal/set', compactObject({
+    const goal = options.goal && typeof options.goal === 'object' && !Array.isArray(options.goal)
+      ? options.goal
+      : {};
+    return this.sendRequest('thread/goal/set', compactDefinedObject({
       threadId: options.threadId,
-      goal: options.goal
+      objective: options.objective ?? goal.objective,
+      status: options.status ?? goal.status,
+      tokenBudget: options.tokenBudget ?? goal.tokenBudget
     }), options);
   }
 

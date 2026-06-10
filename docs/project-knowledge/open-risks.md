@@ -821,3 +821,27 @@
   upstream app-server RPC payloads unless the schema fixtures and route tests
   change together.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Thread Routes Need Schema Thread Fields
+
+- Level: medium
+- Impact: mobile-facing thread history and mutation routes use compatibility
+  names such as `workspacePath`, `query`, nested `settings`, `memoryMode`,
+  nested `goal`, and legacy rollback `turnId`/`itemId`. The upstream
+  app-server schemas expect `cwd`, `searchTerm`, flattened settings fields,
+  `mode`, flattened goal fields, and rollback `numTurns`. Forwarding the route
+  shapes directly can make thread list/search/mutation calls fail against the
+  provider or ignore intended clear-to-null updates.
+- Evidence: `daemon/src/codex-app-server/client.js` maps thread list/search,
+  fork, rollback, metadata, settings, memory mode, and goal writes to schema
+  fields. `daemon/src/codex-app-server/routes.js` translates route
+  compatibility bodies, validates rollback `numTurns`, restricts metadata to
+  schema `gitInfo`, validates memory mode values, and preserves explicit nulls
+  for clearable thread metadata/settings/goal fields. `scripts/run-tests.js`
+  covers typed client payloads, workspace-scoped route translation, and
+  malformed legacy bodies.
+- Mitigation: keep mobile compatibility aliases at the daemon route boundary.
+  Do not forward `workspacePath`, `query`, nested `settings`, `memoryMode`,
+  nested `goal`, or rollback `turnId`/`itemId` into upstream thread RPC
+  payloads unless the generated schemas and route tests change together.
+- Last verified: 2026-06-10

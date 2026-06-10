@@ -482,7 +482,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
     const archived = parseBoolean(url.searchParams.get('archived'));
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.listThreads(compactObject({
-      workspacePath: workspaceRoot(workspace),
+      cwd: workspaceRoot(workspace),
       limit,
       cursor,
       archived
@@ -494,12 +494,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   const workspaceSearch = url.pathname.match(/^\/api\/codex-app-server\/workspaces\/([^/]+)\/threads\/search$/);
   if (method === 'GET' && workspaceSearch) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceSearch[1]), context.device);
-    const query = parseOptionalString(url.searchParams.get('query'));
+    const query = parseRequiredQueryString(url.searchParams.get('query'), 'query');
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.searchThreads(compactObject({
-      query,
-      workspacePath: workspaceRoot(workspace),
+      searchTerm: query,
       limit,
       cursor
     })));
@@ -680,7 +679,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadFork[1]), context.device);
     const threadId = decodePathParam(workspaceThreadFork[2]);
     const body = await readJson();
-    const fromTurnId = parseOptionalBodyString(body?.fromTurnId, 'fromTurnId');
+    parseOptionalBodyString(body?.fromTurnId, 'fromTurnId');
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -689,8 +688,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.forkThread(compactObject({
         threadId,
-        workspacePath: workspaceRoot(workspace),
-        fromTurnId
+        cwd: workspaceRoot(workspace)
       }))
     });
   }
@@ -728,8 +726,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadRollback[1]), context.device);
     const threadId = decodePathParam(workspaceThreadRollback[2]);
     const body = await readJson();
-    const turnId = parseOptionalBodyString(body?.turnId, 'turnId');
-    const itemId = parseOptionalBodyString(body?.itemId, 'itemId');
+    const numTurns = parseRequiredPositiveInteger(body?.numTurns, 'numTurns');
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -738,8 +735,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       preflight: preflightThreadWorkspaceOwnership,
       action: (client) => client.rollbackThread(compactObject({
         threadId,
-        turnId,
-        itemId
+        numTurns
       }))
     });
   }
@@ -749,7 +745,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadMetadata[1]), context.device);
     const threadId = decodePathParam(workspaceThreadMetadata[2]);
     const body = await readJson();
-    const metadata = parseRequiredObject(body?.metadata, 'metadata');
+    const gitInfo = parseThreadGitInfoUpdate(body);
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -757,7 +753,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       event: 'thread_metadata_update',
       action: (client) => client.updateThreadMetadata({
         threadId,
-        metadata
+        gitInfo
       })
     });
   }
@@ -786,6 +782,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const threadId = decodePathParam(workspaceThreadSettings[2]);
     const body = await readJson();
     const settings = parseRequiredObject(body?.settings, 'settings');
+    const request = normalizeThreadSettings(settings, workspace);
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -793,7 +790,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       event: 'thread_settings_update',
       action: (client) => client.updateThreadSettings({
         threadId,
-        settings
+        ...request
       })
     });
   }
@@ -803,7 +800,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadMemoryMode[1]), context.device);
     const threadId = decodePathParam(workspaceThreadMemoryMode[2]);
     const body = await readJson();
-    const memoryMode = parseRequiredBodyString(body?.memoryMode, 'memoryMode');
+    const mode = parseThreadMemoryMode(body?.mode ?? body?.memoryMode);
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -811,7 +808,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       event: 'thread_memory_mode_set',
       action: (client) => client.setThreadMemoryMode({
         threadId,
-        memoryMode
+        mode
       })
     });
   }
@@ -821,7 +818,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadGoalPut[1]), context.device);
     const threadId = decodePathParam(workspaceThreadGoalPut[2]);
     const body = await readJson();
-    const goal = parseRequiredGoal(body);
+    const goal = parseThreadGoalSet(body);
     return threadMutationRoute(context, json, {
       workspace,
       threadId,
@@ -829,7 +826,7 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
       event: 'thread_goal_set',
       action: (client) => client.setThreadGoal({
         threadId,
-        goal
+        ...goal
       })
     });
   }
@@ -1387,6 +1384,12 @@ function parseOptionalPositiveInteger(value, name) {
   return value;
 }
 
+function parseRequiredPositiveInteger(value, name) {
+  const parsed = parseOptionalPositiveInteger(value, name);
+  if (parsed === undefined) throw badRequest(`${name} is required`);
+  return parsed;
+}
+
 function parseOptionalPositiveIntegerParam(value, name) {
   if (value === undefined || value === null || value === '') return undefined;
   const parsed = Number(value);
@@ -1463,14 +1466,115 @@ function parseRequiredObject(value, name) {
   return value;
 }
 
-function parseRequiredGoal(body) {
-  if (body && Object.prototype.hasOwnProperty.call(body, 'goal')) {
-    const goal = body.goal;
-    if (goal === null) return null;
-    if (typeof goal === 'string') return parseRequiredBodyString(goal, 'goal');
-    if (goal && typeof goal === 'object' && !Array.isArray(goal)) return goal;
+function parseThreadGitInfoUpdate(body) {
+  const source = Object.prototype.hasOwnProperty.call(body || {}, 'gitInfo')
+    ? body.gitInfo
+    : body?.metadata?.gitInfo;
+  if (source === undefined) throw badRequest('gitInfo is required');
+  if (source === null) return null;
+  const gitInfo = parseRequiredObject(source, 'gitInfo');
+  assertAllowedKeys(gitInfo, ['branch', 'originUrl', 'sha'], 'gitInfo');
+  return compactDefinedObject({
+    branch: parseOptionalNullableBodyString(gitInfo.branch, 'gitInfo.branch'),
+    originUrl: parseOptionalNullableBodyString(gitInfo.originUrl, 'gitInfo.originUrl'),
+    sha: parseOptionalNullableBodyString(gitInfo.sha, 'gitInfo.sha')
+  });
+}
+
+function normalizeThreadSettings(settings, workspace) {
+  assertAllowedKeys(settings, [
+    'approvalPolicy',
+    'approvalsReviewer',
+    'collaborationMode',
+    'cwd',
+    'effort',
+    'model',
+    'permissions',
+    'personality',
+    'sandboxPolicy',
+    'serviceTier',
+    'summary'
+  ], 'settings');
+  const request = compactDefinedObject({
+    approvalPolicy: settings.approvalPolicy,
+    approvalsReviewer: settings.approvalsReviewer,
+    collaborationMode: settings.collaborationMode,
+    effort: settings.effort,
+    model: settings.model,
+    permissions: settings.permissions,
+    personality: settings.personality,
+    sandboxPolicy: settings.sandboxPolicy,
+    serviceTier: settings.serviceTier,
+    summary: settings.summary
+  });
+  if (Object.prototype.hasOwnProperty.call(settings, 'cwd')) {
+    request.cwd = settings.cwd === null ? null : resolveWorkspaceOptionalCwd(workspace, settings.cwd);
   }
-  throw badRequest('goal is required');
+  return request;
+}
+
+function parseThreadMemoryMode(value) {
+  const mode = parseRequiredBodyString(value, 'mode');
+  if (mode !== 'enabled' && mode !== 'disabled') throw badRequest('mode must be enabled or disabled');
+  return mode;
+}
+
+function parseThreadGoalSet(body) {
+  let source;
+  if (body && Object.prototype.hasOwnProperty.call(body, 'goal')) {
+    if (typeof body.goal === 'string') {
+      source = { objective: parseRequiredBodyString(body.goal, 'goal') };
+    } else if (body.goal && typeof body.goal === 'object' && !Array.isArray(body.goal)) {
+      source = body.goal;
+    } else {
+      throw badRequest('goal is required');
+    }
+  } else if (
+    Object.prototype.hasOwnProperty.call(body || {}, 'objective') ||
+    Object.prototype.hasOwnProperty.call(body || {}, 'status') ||
+    Object.prototype.hasOwnProperty.call(body || {}, 'tokenBudget')
+  ) {
+    source = body;
+  } else {
+    throw badRequest('goal is required');
+  }
+  assertAllowedKeys(source, ['objective', 'status', 'tokenBudget'], 'goal');
+  const result = compactDefinedObject({
+    objective: parseOptionalNullableBodyString(source.objective, 'goal.objective'),
+    status: parseThreadGoalStatus(source.status),
+    tokenBudget: parseThreadGoalTokenBudget(source.tokenBudget)
+  });
+  return result;
+}
+
+function parseOptionalNullableBodyString(value, name) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return parseRequiredBodyString(value, name);
+}
+
+function parseThreadGoalStatus(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const status = parseRequiredBodyString(value, 'goal.status');
+  if (!['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete'].includes(status)) {
+    throw badRequest('goal.status is invalid');
+  }
+  return status;
+}
+
+function parseThreadGoalTokenBudget(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 0) throw badRequest('goal.tokenBudget must be a nonnegative integer');
+  return value;
+}
+
+function assertAllowedKeys(value, allowed, name) {
+  const allowedSet = new Set(allowed);
+  for (const key of Object.keys(value || {})) {
+    if (!allowedSet.has(key)) throw badRequest(`${name}.${key} is not supported`);
+  }
 }
 
 function decodePathParam(value) {
@@ -1703,6 +1807,14 @@ function compactObject(value) {
   const result = {};
   for (const [key, current] of Object.entries(value || {})) {
     if (current !== undefined && current !== null) result[key] = current;
+  }
+  return result;
+}
+
+function compactDefinedObject(value) {
+  const result = {};
+  for (const [key, current] of Object.entries(value || {})) {
+    if (current !== undefined) result[key] = current;
   }
   return result;
 }

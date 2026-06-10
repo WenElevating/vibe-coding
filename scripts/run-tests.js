@@ -7008,10 +7008,10 @@ test('Codex app-server client sends typed thread history requests', async () => 
   await client.getThreadGoal({ threadId: 'thread_client' });
 
   assert.deepEqual(calls, [
-    { method: 'thread/list', params: { workspacePath: process.cwd(), limit: 20, archived: false } },
+    { method: 'thread/list', params: { cwd: process.cwd(), limit: 20, archived: false } },
     { method: 'thread/loaded/list', params: {} },
     { method: 'thread/read', params: { threadId: 'thread_client' } },
-    { method: 'thread/search', params: { query: 'needle', workspacePath: process.cwd(), cursor: 'next' } },
+    { method: 'thread/search', params: { searchTerm: 'needle', cursor: 'next' } },
     { method: 'thread/turns/list', params: { threadId: 'thread_client', limit: 10 } },
     { method: 'thread/turns/items/list', params: { threadId: 'thread_client', turnId: 'turn_client' } },
     { method: 'thread/goal/get', params: { threadId: 'thread_client' } }
@@ -7033,24 +7033,24 @@ test('Codex app-server client sends typed thread mutation requests', async () =>
   await client.forkThread({ threadId: 'thread_client', workspacePath: process.cwd(), fromTurnId: 'turn_1', ignored: 'nope' });
   await client.archiveThread({ threadId: 'thread_client', ignored: 'nope' });
   await client.unarchiveThread({ threadId: 'thread_client' });
-  await client.rollbackThread({ threadId: 'thread_client', turnId: 'turn_1', itemId: null });
-  await client.updateThreadMetadata({ threadId: 'thread_client', metadata: { pinned: true } });
+  await client.rollbackThread({ threadId: 'thread_client', numTurns: 1, turnId: 'ignored', itemId: null });
+  await client.updateThreadMetadata({ threadId: 'thread_client', metadata: { gitInfo: { branch: 'main' } } });
   await client.setThreadName({ threadId: 'thread_client', name: 'Renamed' });
   await client.updateThreadSettings({ threadId: 'thread_client', settings: { model: 'gpt-5' } });
-  await client.setThreadMemoryMode({ threadId: 'thread_client', memoryMode: 'auto' });
+  await client.setThreadMemoryMode({ threadId: 'thread_client', memoryMode: 'enabled' });
   await client.setThreadGoal({ threadId: 'thread_client', goal: { objective: 'Ship it' } });
   await client.clearThreadGoal({ threadId: 'thread_client' });
 
   assert.deepEqual(calls, [
-    { method: 'thread/fork', params: { threadId: 'thread_client', workspacePath: process.cwd(), fromTurnId: 'turn_1' } },
+    { method: 'thread/fork', params: { threadId: 'thread_client', cwd: process.cwd() } },
     { method: 'thread/archive', params: { threadId: 'thread_client' } },
     { method: 'thread/unarchive', params: { threadId: 'thread_client' } },
-    { method: 'thread/rollback', params: { threadId: 'thread_client', turnId: 'turn_1' } },
-    { method: 'thread/metadata/update', params: { threadId: 'thread_client', metadata: { pinned: true } } },
+    { method: 'thread/rollback', params: { threadId: 'thread_client', numTurns: 1 } },
+    { method: 'thread/metadata/update', params: { threadId: 'thread_client', gitInfo: { branch: 'main' } } },
     { method: 'thread/name/set', params: { threadId: 'thread_client', name: 'Renamed' } },
-    { method: 'thread/settings/update', params: { threadId: 'thread_client', settings: { model: 'gpt-5' } } },
-    { method: 'thread/memoryMode/set', params: { threadId: 'thread_client', memoryMode: 'auto' } },
-    { method: 'thread/goal/set', params: { threadId: 'thread_client', goal: { objective: 'Ship it' } } },
+    { method: 'thread/settings/update', params: { threadId: 'thread_client', model: 'gpt-5' } },
+    { method: 'thread/memoryMode/set', params: { threadId: 'thread_client', mode: 'enabled' } },
+    { method: 'thread/goal/set', params: { threadId: 'thread_client', objective: 'Ship it' } },
     { method: 'thread/goal/clear', params: { threadId: 'thread_client' } }
   ]);
 });
@@ -8501,7 +8501,7 @@ test('Codex app-server workspace threads route authorizes workspace and normaliz
           calls.push({ method: 'listThreads', options });
           return {
             data: [
-              { id: 'thread_1', title: 'Thread One', workspacePath: options.workspacePath, archived: false, extra: 'kept' }
+              { id: 'thread_1', title: 'Thread One', workspacePath: options.cwd, archived: false, extra: 'kept' }
             ],
             nextCursor: 'cursor_2',
             ignoredByNormalizer: false
@@ -8523,7 +8523,7 @@ test('Codex app-server workspace threads route authorizes workspace and normaliz
     assert.deepEqual(calls[0].workspace, app.workspace);
     assert.deepEqual(calls[1], {
       method: 'listThreads',
-      options: { workspacePath: app.workspace.path, limit: 20, cursor: 'abc', archived: false }
+      options: { cwd: app.workspace.path, limit: 20, cursor: 'abc', archived: false }
     });
   } finally {
     await app.close();
@@ -8600,7 +8600,7 @@ test('Codex app-server thread history routes require workspace scope and normali
         },
         async searchThreads(options) {
           calls.push({ method: 'searchThreads', workspace, options });
-          return { threads: [{ id: 'search_1', title: 'Found', workspacePath: options.workspacePath }], nextCursor: 'search_next' };
+          return { threads: [{ id: 'search_1', title: 'Found', workspacePath: app.workspace.path }], nextCursor: 'search_next' };
         }
       });
     }
@@ -8632,7 +8632,7 @@ test('Codex app-server thread history routes require workspace scope and normali
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'readThread', options: { threadId: 'thread_1' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'searchThreads', workspace: app.workspace, options: { query: 'needle', workspacePath: app.workspace.path, limit: 5, cursor: 'next' } },
+      { method: 'searchThreads', workspace: app.workspace, options: { searchTerm: 'needle', limit: 5, cursor: 'next' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'listThreadTurns', options: { threadId: 'thread_1', limit: 3, cursor: 'turn_cursor' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
@@ -9366,7 +9366,7 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
         },
         async forkThread(options) {
           calls.push({ method: 'forkThread', options });
-          return { thread: { id: 'thread_forked', workspacePath: options.workspacePath } };
+          return { thread: { id: 'thread_forked', workspacePath: options.cwd } };
         },
         async archiveThread(options) {
           calls.push({ method: 'archiveThread', options });
@@ -9382,7 +9382,7 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
         },
         async updateThreadMetadata(options) {
           calls.push({ method: 'updateThreadMetadata', options });
-          return { metadata: options.metadata };
+          return { gitInfo: options.gitInfo };
         },
         async setThreadName(options) {
           calls.push({ method: 'setThreadName', options });
@@ -9390,15 +9390,15 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
         },
         async updateThreadSettings(options) {
           calls.push({ method: 'updateThreadSettings', options });
-          return { settings: options.settings };
+          return { settings: { model: options.model } };
         },
         async setThreadMemoryMode(options) {
           calls.push({ method: 'setThreadMemoryMode', options });
-          return { memoryMode: options.memoryMode };
+          return { memoryMode: options.mode };
         },
         async setThreadGoal(options) {
           calls.push({ method: 'setThreadGoal', options });
-          return { goal: options.goal };
+          return { goal: { objective: options.objective } };
         },
         async clearThreadGoal(options) {
           calls.push({ method: 'clearThreadGoal', options });
@@ -9414,11 +9414,11 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
     const fork = await app.post(`${base}/fork`, { fromTurnId: 'turn_1', workspacePath: 'D:\\Untrusted' });
     const archive = await app.post(`${base}/archive`);
     const unarchive = await app.post(`${base}/unarchive`);
-    const rollback = await app.post(`${base}/rollback`, { turnId: 'turn_1', itemId: 'item_1' });
-    const metadata = await app.patch(`${base}/metadata`, { metadata: { pinned: true } });
+    const rollback = await app.post(`${base}/rollback`, { numTurns: 1, turnId: 'ignored', itemId: 'ignored' });
+    const metadata = await app.patch(`${base}/metadata`, { metadata: { gitInfo: { branch: 'main' } } });
     const name = await app.patch(`${base}/name`, { name: 'Renamed' });
     const settings = await app.patch(`${base}/settings`, { settings: { model: 'gpt-5' } });
-    const memoryMode = await app.patch(`${base}/memory-mode`, { memoryMode: 'auto' });
+    const memoryMode = await app.patch(`${base}/memory-mode`, { memoryMode: 'enabled' });
     const goal = await app.put(`${base}/goal`, { goal: { objective: 'Ship it' } });
     const clearGoal = await app.delete(`${base}/goal`);
 
@@ -9437,9 +9437,12 @@ test('Codex app-server thread mutation routes use authorized workspace root and 
       { method: 'thread/goal/set', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' },
       { method: 'thread/goal/clear', risk: 'write', workspaceId: app.workspace.id, workspacePath: app.workspace.path, threadId: 'thread_1' }
     ]);
-    assert.equal(calls.find((call) => call.method === 'forkThread').options.workspacePath, app.workspace.path);
-    assert.deepEqual(calls.find((call) => call.method === 'rollbackThread').options, { threadId: 'thread_1', turnId: 'turn_1', itemId: 'item_1' });
-    assert.deepEqual(calls.find((call) => call.method === 'setThreadGoal').options, { threadId: 'thread_1', goal: { objective: 'Ship it' } });
+    assert.equal(calls.find((call) => call.method === 'forkThread').options.cwd, app.workspace.path);
+    assert.deepEqual(calls.find((call) => call.method === 'rollbackThread').options, { threadId: 'thread_1', numTurns: 1 });
+    assert.deepEqual(calls.find((call) => call.method === 'updateThreadMetadata').options, { threadId: 'thread_1', gitInfo: { branch: 'main' } });
+    assert.deepEqual(calls.find((call) => call.method === 'updateThreadSettings').options, { threadId: 'thread_1', model: 'gpt-5' });
+    assert.deepEqual(calls.find((call) => call.method === 'setThreadMemoryMode').options, { threadId: 'thread_1', mode: 'enabled' });
+    assert.deepEqual(calls.find((call) => call.method === 'setThreadGoal').options, { threadId: 'thread_1', objective: 'Ship it' });
     assert.deepEqual(
       calls.filter((call) => call.method !== 'withMutationClient').map((call) => call.method),
       [
@@ -9489,11 +9492,11 @@ test('Codex app-server gated thread mutation routes reject metadata outside auth
     { method: 'thread/fork', auditType: 'codex_app_server.thread_fork', mutation: 'forkThread', httpMethod: 'POST', route: 'fork', body: { fromTurnId: 'turn_1' } },
     { method: 'thread/archive', auditType: 'codex_app_server.thread_archive', mutation: 'archiveThread', httpMethod: 'POST', route: 'archive', body: undefined },
     { method: 'thread/unarchive', auditType: 'codex_app_server.thread_unarchive', mutation: 'unarchiveThread', httpMethod: 'POST', route: 'unarchive', body: undefined },
-    { method: 'thread/rollback', auditType: 'codex_app_server.thread_rollback', mutation: 'rollbackThread', httpMethod: 'POST', route: 'rollback', body: { turnId: 'turn_1' } },
-    { method: 'thread/metadata/update', auditType: 'codex_app_server.thread_metadata_update', mutation: 'updateThreadMetadata', httpMethod: 'PATCH', route: 'metadata', body: { metadata: { pinned: true } } },
+    { method: 'thread/rollback', auditType: 'codex_app_server.thread_rollback', mutation: 'rollbackThread', httpMethod: 'POST', route: 'rollback', body: { numTurns: 1 } },
+    { method: 'thread/metadata/update', auditType: 'codex_app_server.thread_metadata_update', mutation: 'updateThreadMetadata', httpMethod: 'PATCH', route: 'metadata', body: { metadata: { gitInfo: { branch: 'main' } } } },
     { method: 'thread/name/set', auditType: 'codex_app_server.thread_name_set', mutation: 'setThreadName', httpMethod: 'PATCH', route: 'name', body: { name: 'Renamed' } },
     { method: 'thread/settings/update', auditType: 'codex_app_server.thread_settings_update', mutation: 'updateThreadSettings', httpMethod: 'PATCH', route: 'settings', body: { settings: { model: 'gpt-5' } } },
-    { method: 'thread/memoryMode/set', auditType: 'codex_app_server.thread_memory_mode_set', mutation: 'setThreadMemoryMode', httpMethod: 'PATCH', route: 'memory-mode', body: { memoryMode: 'auto' } },
+    { method: 'thread/memoryMode/set', auditType: 'codex_app_server.thread_memory_mode_set', mutation: 'setThreadMemoryMode', httpMethod: 'PATCH', route: 'memory-mode', body: { memoryMode: 'enabled' } },
     { method: 'thread/goal/set', auditType: 'codex_app_server.thread_goal_set', mutation: 'setThreadGoal', httpMethod: 'PUT', route: 'goal', body: { goal: { objective: 'Ship it' } } },
     { method: 'thread/goal/clear', auditType: 'codex_app_server.thread_goal_clear', mutation: 'clearThreadGoal', httpMethod: 'DELETE', route: 'goal', body: undefined }
   ];
@@ -9625,17 +9628,26 @@ test('Codex app-server thread mutation routes reject malformed bodies before ser
     for (const [method, route, body] of [
       ['PATCH', `${base}/metadata`, {}],
       ['PATCH', `${base}/metadata`, { metadata: [] }],
+      ['PATCH', `${base}/metadata`, { metadata: { pinned: true } }],
       ['PATCH', `${base}/name`, {}],
       ['PATCH', `${base}/name`, { name: ' ' }],
       ['PATCH', `${base}/settings`, {}],
       ['PATCH', `${base}/settings`, { settings: [] }],
       ['PATCH', `${base}/memory-mode`, {}],
       ['PATCH', `${base}/memory-mode`, { memoryMode: ' ' }],
+      ['PATCH', `${base}/memory-mode`, { memoryMode: 'auto' }],
+      ['POST', `${base}/rollback`, {}],
+      ['POST', `${base}/rollback`, { numTurns: 0 }],
+      ['POST', `${base}/rollback`, { numTurns: '1' }],
       ['PUT', `${base}/goal`, {}],
       ['PUT', `${base}/goal`, { goal: [] }],
       ['PUT', `${base}/goal`, { goal: ' ' }]
     ]) {
-      const response = await (method === 'PATCH' ? app.patch(route, body) : app.put(route, body));
+      const response = method === 'PATCH'
+        ? await app.patch(route, body)
+        : method === 'POST'
+          ? await app.post(route, body)
+          : await app.put(route, body);
       assert.equal(response.status, 400, route);
       assert.equal(response.body.error.code, 'BAD_REQUEST', route);
     }
