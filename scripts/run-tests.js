@@ -8589,7 +8589,7 @@ test('Codex app-server thread history routes require workspace scope and normali
       return callback({
         async readThread(options) {
           calls.push({ method: 'readThread', options });
-          return { thread: { id: options.threadId, title: 'Read', metadata: { source: 'test' } } };
+          return { thread: { id: options.threadId, title: 'Read', workspacePath: app.workspace.path, metadata: { source: 'test' } } };
         },
         async listThreadTurns(options) {
           calls.push({ method: 'listThreadTurns', options });
@@ -8623,7 +8623,7 @@ test('Codex app-server thread history routes require workspace scope and normali
     assert.equal(loaded.status, 200);
     assert.deepEqual(loaded.body.threads, [{ id: 'loaded_1', title: 'Loaded' }]);
     assert.equal(read.status, 200);
-    assert.deepEqual(read.body.thread, { id: 'thread_1', title: 'Read', metadata: { source: 'test' } });
+    assert.deepEqual(read.body.thread, { id: 'thread_1', title: 'Read', workspacePath: app.workspace.path, metadata: { source: 'test' } });
     assert.equal(search.status, 200);
     assert.deepEqual(search.body.threads, [{ id: 'search_1', title: 'Found', workspacePath: app.workspace.path }]);
     assert.equal(turns.status, 200);
@@ -8639,10 +8639,13 @@ test('Codex app-server thread history routes require workspace scope and normali
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'searchThreads', workspace: app.workspace, options: { searchTerm: 'needle', limit: 5, cursor: 'next' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'readThread', options: { threadId: 'thread_1' } },
       { method: 'listThreadTurns', options: { threadId: 'thread_1', limit: 3, cursor: 'turn_cursor' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'readThread', options: { threadId: 'thread_1' } },
       { method: 'listThreadTurnItems', options: { threadId: 'thread_1', turnId: 'turn_1', limit: 2 } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
+      { method: 'readThread', options: { threadId: 'thread_1' } },
       { method: 'getThreadGoal', options: { threadId: 'thread_1' } }
     ]);
   } finally {
@@ -8708,6 +8711,57 @@ test('Codex app-server workspace thread read rejects unauthorized workspace befo
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();
+  }
+});
+
+test('Codex app-server thread detail read routes reject threads outside authorized workspace', async () => {
+  const routes = [
+    { route: 'thread read', path: (base) => `${base}/threads/thread_1`, blockedMethod: null },
+    { route: 'thread turns', path: (base) => `${base}/threads/thread_1/turns`, blockedMethod: 'listThreadTurns' },
+    { route: 'thread turn items', path: (base) => `${base}/threads/thread_1/turns/turn_1/items`, blockedMethod: 'listThreadTurnItems' },
+    { route: 'thread goal', path: (base) => `${base}/threads/thread_1/goal`, blockedMethod: 'getThreadGoal' }
+  ];
+
+  for (const route of routes) {
+    const calls = [];
+    const service = {
+      async withWorkspaceClient(workspace, callback) {
+        calls.push({ method: 'withWorkspaceClient', workspace });
+        return callback({
+          async readThread(options) {
+            calls.push({ method: 'readThread', options });
+            return { thread: { id: options.threadId, workspacePath: path.join(os.tmpdir(), 'other-workspace') } };
+          },
+          async listThreadTurns(options) {
+            calls.push({ method: 'listThreadTurns', options });
+            return { turns: [] };
+          },
+          async listThreadTurnItems(options) {
+            calls.push({ method: 'listThreadTurnItems', options });
+            return { items: [] };
+          },
+          async getThreadGoal(options) {
+            calls.push({ method: 'getThreadGoal', options });
+            return { goal: { threadId: options.threadId } };
+          }
+        });
+      }
+    };
+    const app = await createCodexAppServerRouteTestApp({ service });
+
+    try {
+      const base = `/api/codex-app-server/workspaces/${app.workspace.id}`;
+      const response = await app.get(route.path(base));
+
+      assert.equal(response.status, 403, route.route);
+      assert.equal(response.body.error.code, 'FORBIDDEN', route.route);
+      assert.deepEqual(calls.map((call) => call.method), ['withWorkspaceClient', 'readThread'], route.route);
+      if (route.blockedMethod) {
+        assert.equal(calls.some((call) => call.method === route.blockedMethod), false, route.route);
+      }
+    } finally {
+      await app.close();
+    }
   }
 });
 

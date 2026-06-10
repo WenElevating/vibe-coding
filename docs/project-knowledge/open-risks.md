@@ -903,3 +903,23 @@
   methods should remain present there when they are exposed through route
   capabilities.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Thread Detail Reads Need Ownership Preflight
+
+- Level: high
+- Impact: workspace-scoped thread detail read routes accept a workspace id in
+  the URL but act on provider `threadId` values. If detail reads do not verify
+  the provider thread's `workspacePath`, a caller authorized for one workspace
+  could read turns, items, goals, or thread metadata from another workspace by
+  supplying a known thread id.
+- Evidence: `daemon/src/codex-app-server/routes.js` now checks thread
+  workspace ownership for thread detail, turns, turn items, and goal reads
+  before returning data or dispatching downstream list/get calls. The ownership
+  check reuses the same provider `thread/read` workspacePath comparison used by
+  thread mutations and `review/start`. `scripts/run-tests.js` covers the
+  forbidden outside-workspace path and verifies turns/items/goal are not read
+  after the failed preflight.
+- Mitigation: keep all workspace-scoped routes that accept a provider
+  `threadId` behind thread workspace ownership verification unless the upstream
+  app-server adds a schema-level workspace-scoped read primitive.
+- Last verified: 2026-06-10

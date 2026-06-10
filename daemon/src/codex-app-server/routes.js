@@ -644,11 +644,14 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const threadId = decodePathParam(workspaceThreadTurns[2]);
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
-    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.listThreadTurns(compactObject({
-      threadId,
-      limit,
-      cursor
-    })));
+    const response = await requireService(context).withWorkspaceClient(workspace, async (client) => {
+      await preflightThreadWorkspaceOwnership({ client, workspace, threadId });
+      return client.listThreadTurns(compactObject({
+        threadId,
+        limit,
+        cursor
+      }));
+    });
     json(200, normalizeTurnListResponse(response));
     return true;
   }
@@ -660,12 +663,15 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const turnId = decodePathParam(workspaceTurnItems[3]);
     const limit = parseLimit(url.searchParams.get('limit'), 50);
     const cursor = parseOptionalString(url.searchParams.get('cursor'));
-    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.listThreadTurnItems(compactObject({
-      threadId,
-      turnId,
-      limit,
-      cursor
-    })));
+    const response = await requireService(context).withWorkspaceClient(workspace, async (client) => {
+      await preflightThreadWorkspaceOwnership({ client, workspace, threadId });
+      return client.listThreadTurnItems(compactObject({
+        threadId,
+        turnId,
+        limit,
+        cursor
+      }));
+    });
     json(200, normalizeItemListResponse(response));
     return true;
   }
@@ -674,9 +680,12 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'GET' && workspaceThreadGoal) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadGoal[1]), context.device);
     const threadId = decodePathParam(workspaceThreadGoal[2]);
-    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.getThreadGoal({
-      threadId
-    }));
+    const response = await requireService(context).withWorkspaceClient(workspace, async (client) => {
+      await preflightThreadWorkspaceOwnership({ client, workspace, threadId });
+      return client.getThreadGoal({
+        threadId
+      });
+    });
     json(200, normalizeGoalResponse(response));
     return true;
   }
@@ -855,9 +864,11 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'GET' && workspaceThreadRead) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceThreadRead[1]), context.device);
     const threadId = decodePathParam(workspaceThreadRead[2]);
-    const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.readThread({
-      threadId
-    }));
+    const response = await requireService(context).withWorkspaceClient(workspace, async (client) => {
+      const threadResponse = await client.readThread({ threadId });
+      assertThreadWorkspaceOwnershipResponse(threadResponse, workspace);
+      return threadResponse;
+    });
     json(200, normalizeThreadResponse(response));
     return true;
   }
@@ -1245,6 +1256,11 @@ async function threadMutationRoute(context, json, { workspace, threadId, method,
 
 async function preflightThreadWorkspaceOwnership({ client, workspace, threadId }) {
   const response = await client.readThread({ threadId });
+  assertThreadWorkspaceOwnershipResponse(response, workspace);
+  return response;
+}
+
+function assertThreadWorkspaceOwnershipResponse(response, workspace) {
   const workspacePath = response?.thread?.workspacePath || response?.workspacePath;
   if (!workspacePath || !pathsReferToSameLocation(workspacePath, workspaceRoot(workspace))) {
     throw Object.assign(forbidden('thread does not belong to authorized workspace'), {
