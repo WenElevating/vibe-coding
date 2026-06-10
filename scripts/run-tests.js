@@ -6781,13 +6781,12 @@ test('Codex app-server full parity has no unsupported unknown-risk rows', () => 
   assert.deepEqual(unfinished.map((row) => `${row.localStatus}:${row.risk}:${row.method}`), []);
 });
 
-test('Codex app-server supported route methods have route coverage', () => {
+test('Codex app-server advertised route methods have route coverage', () => {
   const { CODEX_APP_SERVER_CAPABILITY_MATRIX } = require('../daemon/src/codex-app-server/capability-matrix');
   const { SUPPORTED_ROUTE_METHODS } = require('../daemon/src/codex-app-server/routes');
   const routeOwned = CODEX_APP_SERVER_CAPABILITY_MATRIX
-    .filter((row) => row.daemonOwner === 'server route' && row.localStatus === 'supported');
+    .filter((row) => row.daemonOwner === 'server route' && row.direction === 'request' && row.testRequirement === 'route test');
   for (const row of routeOwned) {
-    assert.equal(row.direction, 'request', `${row.method} supported server route rows must be request methods`);
     assert.equal(SUPPORTED_ROUTE_METHODS.has(row.method), true, `${row.method} missing route coverage`);
   }
 });

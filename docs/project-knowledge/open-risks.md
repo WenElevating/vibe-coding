@@ -883,3 +883,23 @@
   upstream `review/start` payload unless generated schemas and route tests
   change together.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Route Capabilities Include Diagnostic Routes
+
+- Level: low
+- Impact: `/api/codex-app-server/capabilities` exposes server-route capability
+  rows for both fully supported and diagnostic-only route-test methods. If route
+  coverage checks only track `localStatus: supported`, mobile can see a
+  diagnostic route in capabilities while the route registry misses the method.
+- Evidence: `daemon/src/codex-app-server/capability-routes.js` selects all
+  `daemonOwner: server route`, `direction: request`, `testRequirement: route test`
+  rows, including diagnostic-only `review/start`, `attestation/generate`,
+  filesystem watch routes, and realtime streaming diagnostics.
+  `scripts/run-tests.js` now requires every advertised route-test method to be
+  present in `SUPPORTED_ROUTE_METHODS`, and `daemon/src/codex-app-server/routes.js`
+  includes the diagnostic-only methods in that coverage set.
+- Mitigation: treat `SUPPORTED_ROUTE_METHODS` as the advertised route coverage
+  registry, not only the fully-supported behavior registry. Diagnostic-only
+  methods should remain present there when they are exposed through route
+  capabilities.
+- Last verified: 2026-06-10
