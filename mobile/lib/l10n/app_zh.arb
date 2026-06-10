@@ -358,6 +358,7 @@
   "sessionsWaitingApproval": "等待审批",
   "sessionsPendingBadge": "待处理",
   "sessionsRunning": "运行中",
+  "sessionsLiveBadge": "实时",
   "sessionsFailed": "失败",
   "sessionsDone": "已完成",
   "sessionsSessionNoun": "会话",

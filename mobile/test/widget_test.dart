@@ -7012,6 +7012,47 @@ void main() {
     expect(find.textContaining('other-1'), findsNothing);
   });
 
+  testWidgets('session list localizes running session badge',
+      (WidgetTester tester) async {
+    const workspace = WorkspaceSummary(
+        id: 'workspace_1',
+        name: 'Current Project',
+        path: r'D:\AiProject\vibe-coding');
+    await tester.pumpWidget(MaterialApp(
+      locale: theme.zhHansCnLocale,
+      supportedLocales: const [theme.zhHansCnLocale, Locale('en', 'US')],
+      localizationsDelegates: theme.appLocalizationsDelegates,
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: theme.appFontFallback,
+          useMaterial3: true),
+      home: Scaffold(
+        backgroundColor: theme.bg,
+        body: CodingSessionListPage(
+          items: const <SessionItem>[
+            SessionItem(
+              run: RunSummary(
+                id: 'run_live',
+                tool: 'codex',
+                workspaceId: 'workspace_1',
+                status: 'running',
+              ),
+            ),
+          ],
+          currentWorkspace: workspace,
+          onNewSession: () {},
+          onSelectItem: (_) {},
+          onBackToWorkspaces: () {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('实时'), findsOneWidget);
+    expect(find.text('live'), findsNothing);
+  });
+
   testWidgets('session list prefers stable conversation title over uuid labels',
       (WidgetTester tester) async {
     const workspace = WorkspaceSummary(

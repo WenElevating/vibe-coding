@@ -358,6 +358,7 @@
   "sessionsWaitingApproval": "Waiting approval",
   "sessionsPendingBadge": "pending",
   "sessionsRunning": "Running",
+  "sessionsLiveBadge": "live",
   "sessionsFailed": "Failed",
   "sessionsDone": "Done",
   "sessionsSessionNoun": "session",

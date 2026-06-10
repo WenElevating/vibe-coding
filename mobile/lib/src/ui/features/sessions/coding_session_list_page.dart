@@ -294,7 +294,7 @@ _SessionRunVisualState _sessionRunState(String status, AppLocalizations l10n) {
     return _SessionRunVisualState(
         icon: '?',
         label: l10n.sessionsRunning,
-        badge: 'live',
+        badge: l10n.sessionsLiveBadge,
         color: theme.green);
   }
   if (lower.contains('fail') || lower.contains('error')) {
