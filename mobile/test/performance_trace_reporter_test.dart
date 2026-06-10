@@ -54,8 +54,8 @@ void main() {
       'app.main.started',
       'app.first_frame',
     ]);
-    expect(client.uploads.single.droppedCriticalCountSinceLastSuccessfulFlush,
-        1);
+    expect(
+        client.uploads.single.droppedCriticalCountSinceLastSuccessfulFlush, 1);
     expect(reporter.droppedCriticalSinceSuccess, 0);
     await reporter.dispose();
     await bus.dispose();
@@ -89,7 +89,8 @@ void main() {
       'normal.two',
       'critical.done',
     ]);
-    expect(client.uploads.single.droppedNonCriticalCountSinceLastSuccessfulFlush,
+    expect(
+        client.uploads.single.droppedNonCriticalCountSinceLastSuccessfulFlush,
         1);
     await reporter.dispose();
     await bus.dispose();
@@ -216,6 +217,40 @@ void main() {
     await reporter.flushTickForTesting();
 
     expect(reporter.isPaused, isTrue);
+    await reporter.dispose();
+    await bus.dispose();
+  });
+
+  test('disabled config clears queued marks before a later run is enabled',
+      () async {
+    final bus = MobileAppEventBus();
+    final publisher = PerformanceTracePublisher(
+      eventBus: bus,
+      clock: _FakeClock(wallMs: 1000, monoUs: 10),
+    );
+    final client = _FakeTraceClient();
+    final reporter = _reporter(bus: bus, publisher: publisher, client: client);
+
+    await reporter.start();
+    publisher.mark('old.run.mark');
+    await pumpEventQueue();
+    expect(reporter.queuedCount, 1);
+
+    client.nextConfig = const PerformanceTraceConfig(enabled: false);
+    await reporter.refreshConfig();
+    expect(reporter.isEnabled, isFalse);
+    expect(reporter.queuedCount, 0);
+
+    client.nextConfig = const PerformanceTraceConfig(
+      enabled: true,
+      runId: 'perf_2',
+      maxQueueSize: 2000,
+      maxBatchSize: 200,
+    );
+    await reporter.refreshConfig();
+    await reporter.flushTickForTesting();
+
+    expect(client.uploads, isEmpty);
     await reporter.dispose();
     await bus.dispose();
   });

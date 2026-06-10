@@ -94,10 +94,7 @@ class PerformanceTraceReporter {
       final config = await _client.fetchConfig();
       if (_disposed) return;
       if (!config.enabled || config.runId == null) {
-        _enabled = false;
-        _paused = false;
-        _runId = null;
-        _publisher.setEnabled(false);
+        _disableTracing();
         return;
       }
       _enabled = true;
@@ -203,8 +200,7 @@ class PerformanceTraceReporter {
     try {
       final response = await _uploadBatch(batch);
       if (response.disabled) {
-        _enabled = false;
-        _publisher.setEnabled(false);
+        _disableTracing();
       }
       _markUploadSuccess();
       _retryBatch = null;
@@ -318,6 +314,20 @@ class PerformanceTraceReporter {
         _droppedNonCriticalSinceSuccess++;
       }
     }
+  }
+
+  void _disableTracing() {
+    _enabled = false;
+    _paused = false;
+    _runId = null;
+    _queue.clear();
+    _nonCriticalCount = 0;
+    _retryBatch = null;
+    _retryAlreadyFailed = false;
+    _droppedCriticalSinceSuccess = 0;
+    _droppedNonCriticalSinceSuccess = 0;
+    _consecutiveFailures = 0;
+    _publisher.setEnabled(false);
   }
 
   PerformanceTraceClockSync _clockSyncForUpload() {

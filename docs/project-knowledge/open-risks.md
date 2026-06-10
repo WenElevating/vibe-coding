@@ -1290,3 +1290,21 @@
   not add alternate first-run device id generation paths outside
   `DeviceIdentityStore`.
 - Last verified: 2026-06-11
+
+## Risk: Disabled Performance Tracing Can Leak Queued Marks Into Later Runs
+
+- Level: low
+- Impact: mobile performance marks are run-scoped. If the daemon disables
+  tracing but the mobile reporter only stops publishing without clearing its
+  local queue, stale marks can be uploaded later under a different run id after
+  tracing is re-enabled.
+- Evidence:
+  `mobile/lib/src/services/performance_trace_reporter.dart` clears queued,
+  retry, drop, and failure state when tracing is disabled by config or upload
+  response.
+  `mobile/test/performance_trace_reporter_test.dart` covers disabling tracing
+  with a queued mark and then re-enabling a later run without uploading the old
+  mark.
+- Mitigation: treat disabled tracing as a run-boundary cleanup event, not only
+  as a publisher toggle.
+- Last verified: 2026-06-11
