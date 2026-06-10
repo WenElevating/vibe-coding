@@ -1236,3 +1236,20 @@
   logical provider events as separate layers. Keep parser tests that split
   structured records across arbitrary chunk boundaries.
 - Last verified: 2026-06-10
+
+## Risk: Provider JSONL Buffers Need Size Caps and Final Flush
+
+- Level: medium
+- Impact: a provider can emit a valid final JSONL record without a trailing
+  newline, or emit a long unterminated line. If the parser only processes
+  newline-delimited chunks, it can miss the final session/completion event; if
+  the max-line check runs only after newline, an unterminated line can grow the
+  daemon buffer without bound.
+- Evidence: `CodexConversationAdapter` now flushes the residual stdout buffer on
+  stdout end and child exit, and applies `maxJsonLineBytes` to the residual
+  buffer while data is still arriving. `scripts/run-tests.js` covers both a
+  final no-newline `thread.started` event and an oversized unterminated line.
+- Mitigation: process adapters should enforce byte caps on buffered partial
+  lines, not only on completed lines, and should flush residual structured
+  output before deriving terminal state from child exit.
+- Last verified: 2026-06-10

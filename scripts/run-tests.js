@@ -20960,6 +20960,42 @@ test('Codex conversation ignores invalid stdout noise after turn completion', as
   assert.equal(events.some((event) => event.text === 'Codex emitted invalid JSONL'), false);
 });
 
+test('Codex conversation flushes final JSONL line without trailing newline', async () => {
+  const child = fakeCodexChild();
+  const events = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: () => child
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_final_line', workspacePath: 'D:\\Repo', onEvent: (event) => events.push(event) });
+  await handle.sendUserMessage('final line');
+  child.stdout.emit('data', JSON.stringify({ type: 'thread.started', thread_id: 'thread_final_line' }));
+  child.emit('exit', 0, null);
+
+  assert.equal(events.some((event) => event.sessionId === 'thread_final_line'), true);
+  assert.equal(events.some((event) => event.type === 'conversation.completed'), true);
+});
+
+test('Codex conversation bounds unterminated JSONL buffer', async () => {
+  const child = fakeCodexChild();
+  const events = [];
+  const adapter = new CodexConversationAdapter({
+    cliResolverOptions: { platform: 'linux' },
+    spawnSyncFn: fakeCodexConversationSpawnSync,
+    spawnFn: () => child,
+    maxJsonLineBytes: 16
+  });
+
+  const handle = await adapter.startConversation({ conversationId: 'conv_codex_oversized_line', workspacePath: 'D:\\Repo', onEvent: (event) => events.push(event) });
+  await handle.sendUserMessage('oversized line');
+  child.stdout.emit('data', 'x'.repeat(17));
+
+  const notice = events.find((event) => event.noticeKind === 'codex_error');
+  assert.equal(notice?.text, 'Codex JSONL event exceeded maxJsonLineBytes');
+});
+
 test('Codex conversation persists thread id and preserves it after turn failure', async () => {
   const app = createApp({ port: 0, conversationDbPath: tempConversationDbPath(), conversationAdapters: new Map([['codex', fakeCodexConversationAdapter()]]), codexEnabled: true });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));

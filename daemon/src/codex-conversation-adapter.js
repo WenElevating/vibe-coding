@@ -195,11 +195,15 @@ class CodexConversationHandle {
       onJson: (raw) => this.handleJson(raw)
     });
     child.stdout.on('data', parseStdout);
+    child.stdout.on('end', () => parseStdout.flush());
     child.stderr.on('data', (chunk) => this.handleStderr(chunk));
     child.on('error', (error) => {
       this.onEvent({ type: conversationEventTypes.RUN_ERROR, message: error.message });
     });
-    child.on('exit', (code, signal) => this.handleExit(code, signal));
+    child.on('exit', (code, signal) => {
+      parseStdout.flush();
+      this.handleExit(code, signal);
+    });
     closeChildInput(child);
   }
 
@@ -746,24 +750,36 @@ function normalizeCodexTodoStatus(rawType, item) {
 
 function createJsonLineParser({ maxJsonLineBytes, onJson }) {
   let buffer = '';
-  return (chunk) => {
+  const emitLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (Buffer.byteLength(trimmed, 'utf8') > maxJsonLineBytes) {
+      onJson({ type: 'error', message: 'Codex JSONL event exceeded maxJsonLineBytes' });
+      return;
+    }
+    try {
+      onJson(JSON.parse(trimmed));
+    } catch (_err) {
+      onJson({ type: 'error', message: 'Codex emitted invalid JSONL', rawLine: truncateText(trimmed, 4096).text });
+    }
+  };
+  const parser = (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (Buffer.byteLength(trimmed, 'utf8') > maxJsonLineBytes) {
-        onJson({ type: 'error', message: 'Codex JSONL event exceeded maxJsonLineBytes' });
-        continue;
-      }
-      try {
-        onJson(JSON.parse(trimmed));
-      } catch (_err) {
-        onJson({ type: 'error', message: 'Codex emitted invalid JSONL', rawLine: truncateText(trimmed, 4096).text });
-      }
+    for (const line of lines) emitLine(line);
+    if (Buffer.byteLength(buffer.trim(), 'utf8') > maxJsonLineBytes) {
+      buffer = '';
+      onJson({ type: 'error', message: 'Codex JSONL event exceeded maxJsonLineBytes' });
     }
   };
+  parser.flush = () => {
+    if (!buffer) return;
+    const line = buffer;
+    buffer = '';
+    emitLine(line);
+  };
+  return parser;
 }
 
 function truncateText(text, maxBytes) {
