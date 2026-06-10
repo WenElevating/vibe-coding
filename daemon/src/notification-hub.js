@@ -294,6 +294,7 @@ class NotificationHub {
         });
         if (code === notificationErrorCodes.INTERNAL_ERROR) {
           this.closeWebSocket(connection, 1011, notificationErrorCodes.INTERNAL_ERROR);
+          this.closeConnection(connection);
         }
       });
       return;

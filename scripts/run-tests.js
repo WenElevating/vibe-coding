@@ -12566,6 +12566,11 @@ test('notification hub removes subscription when replay lookup fails', async () 
     version: { daemonVersion: 'test' }
   });
   const connection = createNotificationHubTestConnection();
+  connection.authAgeTimer = setTimeout(() => {}, 10000);
+  if (typeof connection.authAgeTimer.unref === 'function') {
+    connection.authAgeTimer.unref();
+  }
+  hub.connections.set(connection.id, connection);
   let closed = null;
   connection.ws.close = (code, reason) => {
     closed = { code, reason };
@@ -12597,6 +12602,9 @@ test('notification hub removes subscription when replay lookup fails', async () 
     code: 1011,
     reason: notificationErrorCodes.INTERNAL_ERROR
   });
+  assert.equal(connection.closed, true);
+  assert.equal(connection.authAgeTimer, null);
+  assert.equal(hub.connections.has(connection.id), false);
 });
 
 test('notification hub heartbeat terminates missed-pong connections and removes subscriptions', () => {

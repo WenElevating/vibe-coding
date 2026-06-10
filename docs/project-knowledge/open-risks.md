@@ -303,11 +303,11 @@
   indexes stale. The hub can then keep trying to deliver replay or live events
   to a connection that has already been rejected.
 - Evidence: `daemon/src/notification-hub.js` now calls `closeConnection`
-  immediately after initiating backpressure and token-expiry closes, which
-  removes the connection and all conversation subscription indexes
-  synchronously. `scripts/run-tests.js` covers live publish hitting
-  backpressure and token expiry leaving no connection or subscription entries
-  behind.
+  immediately after initiating backpressure, token-expiry, and replay lookup
+  internal-error closes, which removes the connection and all conversation
+  subscription indexes synchronously. `scripts/run-tests.js` covers live
+  publish hitting backpressure, token expiry, and replay lookup failure leaving
+  no connection or subscription entries behind.
 - Mitigation: every explicit server-side WebSocket close should either
   synchronously clean local hub indexes or prove that a later close handler
   cannot allow additional sends first.
