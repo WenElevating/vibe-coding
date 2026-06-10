@@ -190,6 +190,14 @@
   "runsFailedPill": "Failed {count}",
   "runsEmpty": "No runs yet. Start a real AI CLI task from command templates.",
   "runsSearchPlaceholder": "Search runs, workspaces, or tools...",
+  "runsWorkspaceMeta": "Workspace: {workspaceId}",
+  "@runsWorkspaceMeta": {
+    "placeholders": {
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
   "queueTitle": "Run queue",
   "queueCountAction": "{count} items",
   "queueRunningPill": "Running {count}",

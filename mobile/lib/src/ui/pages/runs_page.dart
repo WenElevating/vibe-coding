@@ -38,7 +38,7 @@ class RunsPage extends StatelessWidget {
             RunCard(
                 title: run.id,
                 tool: run.tool,
-                time: 'workspace: ${run.workspaceId}',
+                time: l10n.runsWorkspaceMeta(run.workspaceId),
                 status: run.status,
                 progress: run.status == 'completed' ? 1 : .48,
                 statusColor: runStatusColor(run.status),

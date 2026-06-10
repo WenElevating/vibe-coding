@@ -38,6 +38,27 @@ void main() {
     expect(find.text('Search tasks, descriptions, tools...'), findsNothing);
   });
 
+  testWidgets('runs page workspace meta uses active locale', (tester) async {
+    await tester.pumpWidget(_Harness(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      child: RunsPage(
+        data: _snapshot(runs: const <RunSummary>[
+          RunSummary(
+            id: 'run_1',
+            tool: 'codex',
+            workspaceId: 'workspace_1',
+            status: 'running',
+          ),
+        ]),
+        open: (_) {},
+      ),
+    ));
+
+    expect(find.text('工作区：workspace_1'), findsOneWidget);
+    expect(find.text('workspace: workspace_1'), findsNothing);
+  });
+
   testWidgets('runs page shows populated rows and opens detail',
       (tester) async {
     final opened = <RoutePage>[];
@@ -74,7 +95,7 @@ void main() {
           QueueItem(
             runId: 'run_active',
             workspaceId: 'workspace_1',
-            status: 'running',
+            status: 'Running',
             reason: 'active',
             position: 0,
           ),
@@ -93,8 +114,8 @@ void main() {
     expect(find.text('run_waiting'), findsOneWidget);
     expect(find.text('active'), findsOneWidget);
     expect(find.text('waiting'), findsOneWidget);
-    expect(find.text('Queued'), findsWidgets);
-    expect(find.text('Waiting'), findsNothing);
+    expect(find.text('Running 1'), findsOneWidget);
+    expect(find.text('Queued 1'), findsOneWidget);
   });
 }
 

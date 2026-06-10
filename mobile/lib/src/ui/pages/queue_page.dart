@@ -12,10 +12,12 @@ class QueuePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final active =
-        data.queue.where((item) => item.status == 'running').toList();
-    final waiting =
-        data.queue.where((item) => item.status != 'running').toList();
+    final active = data.queue
+        .where((item) => item.status.toLowerCase() == 'running')
+        .toList();
+    final waiting = data.queue
+        .where((item) => item.status.toLowerCase() != 'running')
+        .toList();
     return PageScroll(
       children: [
         TopBar(
