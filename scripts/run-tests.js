@@ -18106,6 +18106,16 @@ test('notification protocol rejects invalid subscribe frames', () => {
   );
 });
 
+test('notification protocol rejects oversized client frames before parsing', () => {
+  assertNotificationProtocolError(
+    () => parseClientFrame(JSON.stringify({
+      type: 'ping',
+      id: 'x'.repeat(70 * 1024)
+    })),
+    notificationErrorCodes.INVALID_MESSAGE
+  );
+});
+
 test('notification protocol rejects non-integer subscribe cursors without coercion', () => {
   assert.equal(parseClientFrame(JSON.stringify({
     type: 'subscribe',

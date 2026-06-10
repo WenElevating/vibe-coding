@@ -1069,6 +1069,22 @@
   adapter availability errors.
 - Last verified: 2026-06-10
 
+## Risk: Notification WebSocket Client Frames Need a Parse Size Limit
+
+- Level: medium
+- Impact: HTTP JSON requests have an explicit body size cap, but notification
+  WebSocket client frames enter through `parseClientFrame()`. Without a protocol
+  size check, a malformed or hostile LAN client can send a very large JSON frame
+  and force the daemon to allocate and parse it before rejection.
+- Evidence: `notification-protocol.js` now normalizes string, Buffer,
+  ArrayBuffer, and typed-array frames to text, rejects frames larger than 64 KiB
+  before `JSON.parse`, and keeps the stable `INVALID_MESSAGE` error code.
+  `scripts/run-tests.js` covers an oversized otherwise-valid ping frame.
+- Mitigation: keep all notification client frame parsing behind
+  `parseClientFrame()` so new frame types inherit the size limit before JSON
+  parsing.
+- Last verified: 2026-06-10
+
 ## Risk: Codex App-Server Timeout Policy Must Be Applied at the Client Boundary
 
 - Level: high

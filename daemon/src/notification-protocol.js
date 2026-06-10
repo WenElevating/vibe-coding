@@ -3,6 +3,7 @@
 const { canonicalizeForHash } = require('./canonical-json');
 
 const protocolVersion = 1;
+const maxClientFrameBytes = 64 * 1024;
 
 const notificationTopics = Object.freeze({
   CONVERSATION_EVENTS: 'conversation.events'
@@ -20,9 +21,13 @@ const notificationErrorCodes = Object.freeze({
 });
 
 function parseClientFrame(raw) {
+  const text = clientFrameText(raw);
+  if (Buffer.byteLength(text, 'utf8') > maxClientFrameBytes) {
+    throw protocolError(notificationErrorCodes.INVALID_MESSAGE, 'WebSocket frame is too large.');
+  }
   let message;
   try {
-    message = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(String(raw));
+    message = JSON.parse(text);
   } catch {
     throw protocolError(notificationErrorCodes.INVALID_MESSAGE, 'WebSocket frame must be valid JSON.');
   }
@@ -34,6 +39,14 @@ function parseClientFrame(raw) {
   if (message.type === 'ack') return parseAck(message);
   if (message.type === 'ping') return { type: 'ping', id: stringOrNull(message.id) };
   throw protocolError(notificationErrorCodes.INVALID_MESSAGE, `Unsupported WebSocket frame type: ${message.type}`);
+}
+
+function clientFrameText(raw) {
+  if (typeof raw === 'string') return raw;
+  if (Buffer.isBuffer(raw)) return raw.toString('utf8');
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw).toString('utf8');
+  if (ArrayBuffer.isView(raw)) return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
+  return String(raw);
 }
 
 function parseSubscribe(message) {
