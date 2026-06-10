@@ -1573,6 +1573,7 @@ function redactAccountSensitiveText(text) {
   let value = String(text);
   value = value.replace(/[A-Z]:\\[^\s"'`]+/gi, '[REDACTED]');
   value = value.replace(/\/(?:[^\s"'`/]+\/)+[^\s"'`/]+/g, '[REDACTED]');
+  value = value.replace(/\b((?:api[_-]?key|password|secret)\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]');
   value = value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED]');
   value = value.replace(/\b(?:sk|sess|access|refresh|bearer)[-_A-Za-z0-9.]{3,}\b/gi, '[REDACTED]');
   if (/[\\/.](?:codex|config|json)|token|oauth|auth/i.test(value)) return '[REDACTED]';

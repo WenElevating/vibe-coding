@@ -9172,7 +9172,7 @@ test('Codex app-server account mutation routes reject missing required fields be
 });
 
 test('Codex app-server account mutation failures return controlled redacted errors', async () => {
-  const sensitive = 'access token sk-secret for alice@example.test at C:\\Users\\Alice\\.codex\\auth.json during oauth';
+  const sensitive = 'provider rejected api_key=account-api-key-secret password=account-password-secret secret=account-secret-value';
   const service = {
     async withMutationClient(metadata, callback) {
       const error = new Error(sensitive);
@@ -9196,14 +9196,14 @@ test('Codex app-server account mutation failures return controlled redacted erro
     assert.equal(response.status, 502);
     assert.equal(response.body.error.code, 'CODEX_APP_SERVER_ACCOUNT_MUTATION_FAILED');
     assert.equal(response.body.error.message, 'Codex app-server account mutation failed.');
-    for (const secret of ['sk-secret', 'sk-test-secret', 'alice@example.test', 'Alice', '.codex', 'auth.json']) {
+    for (const secret of ['sk-test-secret', 'account-api-key-secret', 'account-password-secret', 'account-secret-value']) {
       assert.equal(responseText.includes(secret), false, secret);
       assert.equal(auditText.includes(secret), false, secret);
     }
     assert.deepEqual(records.map((record) => [record.method, record.risk, record.decision, record.result, record.deviceId]), [
       ['account/login/start', 'account', 'allow', 'error', 'device_account_failure']
     ]);
-    assert.equal(records[0].error, '[REDACTED]');
+    assert.equal(records[0].error, 'provider rejected api_key=[REDACTED] password=[REDACTED] secret=[REDACTED]');
     assert.equal(records[0].downstreamStatus, 409);
     assert.equal(records[0].downstreamCode, 'UPSTREAM_SECRET_FAILURE');
   } finally {

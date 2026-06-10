@@ -634,13 +634,20 @@
 - Impact: `account/read` and `account/rateLimits/read` return provider-owned
   account objects to paired mobile clients. If DTO redaction only covers
   currently observed fields, future app-server schema drift can expose API
-  keys, secrets, or passwords under snake, kebab, or camel-case names.
+  keys, secrets, or passwords under snake, kebab, or camel-case names. Account
+  mutation audit errors can leak the same credentials when provider error
+  strings include key-value diagnostics.
 - Evidence: `daemon/src/codex-app-server/dtos.js` redacts account DTO fields
-  after normalizing key names. `scripts/run-tests.js` covers `api_key`,
-  `secretKey`, `password`, and nested rate-limit `sessionSecret` fields
-  returning `[REDACTED]` and not appearing in serialized account responses.
+  after normalizing key names, and
+  `daemon/src/codex-app-server/routes.js` redacts credential-shaped account
+  mutation error text before audit persistence. `scripts/run-tests.js` covers
+  `api_key`, `secretKey`, `password`, and nested rate-limit `sessionSecret`
+  fields returning `[REDACTED]` and not appearing in serialized account
+  responses, plus mutation audit text redacting `api_key=`, `password=`, and
+  `secret=` values.
 - Mitigation: keep account DTO redaction based on normalized sensitive key
   semantics, not a narrow list of observed provider fields. Any new app-server
   account or rate-limit route must pass through the same redaction boundary
-  before returning JSON.
+  before returning JSON. Any audit copy derived from account provider errors
+  must redact credential key-value diagnostics before persistence.
 - Last verified: 2026-06-10
