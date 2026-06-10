@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../domain/models/codex_app_server_models.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../../../core/widgets/widgets.dart';
@@ -17,72 +18,77 @@ class CodexAppServerDiscoveryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final discovery = this.discovery;
     return PageScroll(
       children: [
         _MetricStrip(
+          l10n: l10n,
           totalMethods: capabilities?.totalMethods ?? 0,
           providers: _count(discovery?.models['providers']),
           mcpServers: _count(discovery?.mcpServers['servers']),
         ),
-        const CodexSectionHeader(label: 'Status'),
+        CodexSectionHeader(label: l10n.codexAppServerStatusSection),
         _StatusSection(
-          modelsStatus:
-              _availableStatus(_count(discovery?.models['providers'])),
-          configStatus:
-              _availableStatus(discovery?.config.isEmpty == false ? 1 : 0),
+          l10n: l10n,
+          modelsStatus: _availableStatus(
+            l10n,
+            _count(discovery?.models['providers']),
+          ),
+          configStatus: _availableStatus(
+              l10n, discovery?.config.isEmpty == false ? 1 : 0),
           capabilitiesStatus: capabilities == null
-              ? 'Unknown'
+              ? l10n.codexAppServerStatusUnknown
               : capabilities!.totalMethods > 0
-                  ? 'Available'
-                  : 'Empty',
+                  ? l10n.codexAppServerStatusAvailable
+                  : l10n.codexAppServerStatusEmpty,
         ),
-        const CodexSectionHeader(
-          label: 'Discovery',
-          trailing: 'Read-only',
+        CodexSectionHeader(
+          label: l10n.codexAppServerDiscoverySection,
+          trailing: l10n.codexAppServerReadOnly,
         ),
         CodexSurface(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               _DiscoveryRow(
-                title: 'Models',
-                detail: 'Configured model providers',
+                title: l10n.codexAppServerModelsTitle,
+                detail: l10n.codexAppServerModelsDetail,
                 icon: Icons.auto_awesome_outlined,
                 count: _count(discovery?.models['providers']),
               ),
               const Divider(height: 1, color: codexLine),
               _DiscoveryRow(
-                title: 'MCP Servers',
-                detail: 'Connected tool servers',
+                title: l10n.codexAppServerMcpServersTitle,
+                detail: l10n.codexAppServerMcpServersDetail,
                 icon: Icons.hub_outlined,
                 count: _count(discovery?.mcpServers['servers']),
               ),
               const Divider(height: 1, color: codexLine),
               _DiscoveryRow(
-                title: 'Skills',
-                detail: 'Codex skill entries',
+                title: l10n.codexAppServerSkillsTitle,
+                detail: l10n.codexAppServerSkillsDetail,
                 icon: Icons.psychology_outlined,
                 count: _count(discovery?.skills['skills']),
               ),
               const Divider(height: 1, color: codexLine),
               _DiscoveryRow(
-                title: 'Plugins',
-                detail: 'Installed plugin surfaces',
+                title: l10n.codexAppServerPluginsTitle,
+                detail: l10n.codexAppServerPluginsDetail,
                 icon: Icons.extension_outlined,
                 count: _count(discovery?.plugins['plugins']),
               ),
               const Divider(height: 1, color: codexLine),
               _DiscoveryRow(
-                title: 'Apps',
-                detail: 'Registered app integrations',
+                title: l10n.codexAppServerAppsTitle,
+                detail: l10n.codexAppServerAppsDetail,
                 icon: Icons.apps_outlined,
                 count: _count(discovery?.apps['apps']),
               ),
               const Divider(height: 1, color: codexLine),
               _DiscoveryRow(
-                title: 'Config',
-                detail: 'Resolved app-server config',
+                title: l10n.codexAppServerConfigTitle,
+                detail: l10n.codexAppServerConfigDetail,
                 icon: Icons.tune_outlined,
                 count: discovery?.config.isEmpty == false ? 1 : 0,
               ),
@@ -96,11 +102,13 @@ class CodexAppServerDiscoveryView extends StatelessWidget {
 
 class _StatusSection extends StatelessWidget {
   const _StatusSection({
+    required this.l10n,
     required this.modelsStatus,
     required this.configStatus,
     required this.capabilitiesStatus,
   });
 
+  final AppLocalizations l10n;
   final String modelsStatus;
   final String configStatus;
   final String capabilitiesStatus;
@@ -111,11 +119,20 @@ class _StatusSection extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: Column(
         children: [
-          _StatusRow(label: 'Model status', value: modelsStatus),
+          _StatusRow(
+            label: l10n.codexAppServerModelStatus,
+            value: modelsStatus,
+          ),
           const Divider(height: 1, color: Color(0x1AFFFFFF)),
-          _StatusRow(label: 'Config status', value: configStatus),
+          _StatusRow(
+            label: l10n.codexAppServerConfigStatus,
+            value: configStatus,
+          ),
           const Divider(height: 1, color: Color(0x1AFFFFFF)),
-          _StatusRow(label: 'Capability status', value: capabilitiesStatus),
+          _StatusRow(
+            label: l10n.codexAppServerCapabilityStatus,
+            value: capabilitiesStatus,
+          ),
         ],
       ),
     );
@@ -156,11 +173,13 @@ class _StatusRow extends StatelessWidget {
 
 class _MetricStrip extends StatelessWidget {
   const _MetricStrip({
+    required this.l10n,
     required this.totalMethods,
     required this.providers,
     required this.mcpServers,
   });
 
+  final AppLocalizations l10n;
   final int totalMethods;
   final int providers;
   final int mcpServers;
@@ -170,11 +189,26 @@ class _MetricStrip extends StatelessWidget {
     return CodexSurface(
       child: Row(
         children: [
-          Expanded(child: _Metric(label: 'Methods', value: '$totalMethods')),
+          Expanded(
+            child: _Metric(
+              label: l10n.codexAppServerMethodsMetric,
+              value: '$totalMethods',
+            ),
+          ),
           const _MetricDivider(),
-          Expanded(child: _Metric(label: 'Providers', value: '$providers')),
+          Expanded(
+            child: _Metric(
+              label: l10n.codexAppServerProvidersMetric,
+              value: '$providers',
+            ),
+          ),
           const _MetricDivider(),
-          Expanded(child: _Metric(label: 'MCP', value: '$mcpServers')),
+          Expanded(
+            child: _Metric(
+              label: l10n.codexAppServerMcpMetric,
+              value: '$mcpServers',
+            ),
+          ),
         ],
       ),
     );
@@ -284,7 +318,7 @@ class _DiscoveryRow extends StatelessWidget {
 
 int _count(Object? value) => value is List ? value.length : 0;
 
-String _availableStatus(int count) {
-  if (count > 0) return 'Available';
-  return 'Missing';
+String _availableStatus(AppLocalizations l10n, int count) {
+  if (count > 0) return l10n.codexAppServerStatusAvailable;
+  return l10n.codexAppServerStatusMissing;
 }

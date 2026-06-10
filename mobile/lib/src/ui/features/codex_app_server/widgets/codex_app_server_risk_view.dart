@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../domain/models/codex_app_server_models.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../../../core/widgets/widgets.dart';
@@ -12,39 +13,41 @@ class CodexAppServerRiskView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final routes = capabilities?.routes ?? const <Map<String, Object?>>[];
-    final highRisk = routes.where(_isHighRiskRoute).length;
-    final readOnly = routes.length - highRisk;
+    final guarded = routes.where(_isGuardedRoute).length;
+    final readOnly = routes.length - guarded;
     return PageScroll(
       children: [
         _RiskSummary(
+          l10n: l10n,
           readOnly: readOnly < 0 ? 0 : readOnly,
-          highRisk: highRisk,
+          guarded: guarded,
         ),
-        const CodexSectionHeader(
-          label: 'Controls',
-          trailing: 'Daemon enforced',
+        CodexSectionHeader(
+          label: l10n.codexAppServerControlsSection,
+          trailing: l10n.codexAppServerDaemonEnforced,
         ),
-        const CodexSurface(
+        CodexSurface(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               _RiskPolicyRow(
                 icon: Icons.verified_user_outlined,
-                title: 'Workspace authorization',
-                detail: 'Routes resolve through authorized daemon scope.',
+                title: l10n.codexAppServerWorkspaceAuthorization,
+                detail: l10n.codexAppServerWorkspaceAuthorizationDetail,
               ),
-              Divider(height: 1, color: codexLine),
+              const Divider(height: 1, color: codexLine),
               _RiskPolicyRow(
                 icon: Icons.fact_check_outlined,
-                title: 'Approval boundary',
-                detail: 'Write, process, network, and permission operations.',
+                title: l10n.codexAppServerApprovalBoundary,
+                detail: l10n.codexAppServerApprovalBoundaryDetail,
               ),
-              Divider(height: 1, color: codexLine),
+              const Divider(height: 1, color: codexLine),
               _RiskPolicyRow(
                 icon: Icons.receipt_long_outlined,
-                title: 'Audit trail',
-                detail: 'Downstream failures stay controlled and traceable.',
+                title: l10n.codexAppServerAuditTrail,
+                detail: l10n.codexAppServerAuditTrailDetail,
               ),
             ],
           ),
@@ -55,10 +58,15 @@ class CodexAppServerRiskView extends StatelessWidget {
 }
 
 class _RiskSummary extends StatelessWidget {
-  const _RiskSummary({required this.readOnly, required this.highRisk});
+  const _RiskSummary({
+    required this.l10n,
+    required this.readOnly,
+    required this.guarded,
+  });
 
+  final AppLocalizations l10n;
   final int readOnly;
-  final int highRisk;
+  final int guarded;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +75,7 @@ class _RiskSummary extends StatelessWidget {
         children: [
           Expanded(
             child: _RiskCounter(
-              label: 'Read / diagnostic',
+              label: l10n.codexAppServerReadDiagnostic,
               value: readOnly,
               color: codexSuccess,
             ),
@@ -75,8 +83,8 @@ class _RiskSummary extends StatelessWidget {
           Container(width: 1, height: 38, color: codexLine),
           Expanded(
             child: _RiskCounter(
-              label: 'Guarded risk',
-              value: highRisk,
+              label: l10n.codexAppServerGuardedRisk,
+              value: guarded,
               color: codexWarning,
             ),
           ),
@@ -190,4 +198,24 @@ bool _isHighRiskRoute(Map<String, Object?> route) {
   final risk = route['risk']?.toString();
   return const {'write', 'process', 'network', 'permission', 'account'}
       .contains(risk);
+}
+
+bool _isGuardedRoute(Map<String, Object?> route) {
+  return _isHighRiskRoute(route) ||
+      _isTruthy(route['approvalRequired']) ||
+      _isTruthy(route['requiresApproval']) ||
+      _isTruthy(route['guarded']);
+}
+
+bool _isTruthy(Object? value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'true' ||
+        normalized == 'yes' ||
+        normalized == 'required' ||
+        normalized == 'approval_required';
+  }
+  return false;
 }

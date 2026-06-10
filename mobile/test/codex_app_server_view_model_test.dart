@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lan_ai_cli_control/src/app/app_localization.dart';
 import 'package:lan_ai_cli_control/src/domain/models/codex_app_server_models.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/codex_app_server_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
 import 'package:lan_ai_cli_control/src/ui/features/codex_app_server/codex_app_server.dart';
+import 'package:lan_ai_cli_control/src/ui/features/codex_app_server/widgets/codex_app_server_risk_view.dart';
 
 void main() {
   test('CodexAppServerViewModel loads capabilities and thread history',
@@ -188,6 +190,8 @@ void main() {
 
     await viewModel.load(workspaceId: 'workspace_1');
     await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
       home: CodexAppServerPage(
         viewModel: viewModel,
         workspace: const WorkspaceSummary(
@@ -211,6 +215,64 @@ void main() {
     expect(find.text('Config status'), findsOneWidget);
     expect(find.text('Capability status'), findsOneWidget);
     expect(find.text('Available'), findsWidgets);
+  });
+
+  testWidgets('Codex app-server page localizes no-workspace state',
+      (tester) async {
+    final viewModel = CodexAppServerViewModel(
+      repository: FakeCodexAppServerRepository(
+        capabilities: const CodexAppServerCapabilities(
+          raw: {},
+          routes: [],
+          totalMethods: 0,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN'),
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      home: CodexAppServerPage(
+        viewModel: viewModel,
+        workspace: null,
+      ),
+    ));
+
+    expect(find.text('未选择工作区'), findsOneWidget);
+    expect(find.text('不可用'), findsOneWidget);
+    expect(find.text('请选择工作区'), findsOneWidget);
+    expect(find.text('No workspace selected'), findsNothing);
+  });
+
+  testWidgets('Codex app-server risk counts guarded route union',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      home: const CodexAppServerRiskView(
+        capabilities: CodexAppServerCapabilities(
+          raw: {},
+          routes: [
+            {'method': 'thread/list', 'risk': 'read'},
+            {'method': 'fs/writeFile', 'risk': 'write'},
+            {'method': 'config/read', 'approvalRequired': true},
+            {
+              'method': 'process/spawn',
+              'risk': 'process',
+              'requiresApproval': true,
+            },
+          ],
+          totalMethods: 4,
+        ),
+      ),
+    ));
+
+    expect(find.text('Read / diagnostic'), findsOneWidget);
+    expect(find.text('Guarded risk'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
   });
 }
 

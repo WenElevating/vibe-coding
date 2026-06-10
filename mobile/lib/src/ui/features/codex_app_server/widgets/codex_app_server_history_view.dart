@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../domain/models/codex_app_server_models.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
@@ -18,33 +19,33 @@ class CodexAppServerHistoryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (workspace == null) {
-      return const CodexEmptyState(
+      return CodexEmptyState(
         icon: Icons.folder_open_rounded,
-        title: 'Select a workspace',
-        detail: 'History is scoped to the active authorized workspace.',
+        title: l10n.codexAppServerSelectWorkspaceTitle,
+        detail: l10n.codexAppServerSelectWorkspaceDetail,
       );
     }
     if (threads.isEmpty) {
-      return const CodexEmptyState(
+      return CodexEmptyState(
         icon: Icons.forum_outlined,
-        title: 'No app-server threads',
-        detail:
-            'Thread history will appear here after app-server sessions run.',
+        title: l10n.codexAppServerNoThreadsTitle,
+        detail: l10n.codexAppServerNoThreadsDetail,
       );
     }
     return PageScroll(
       children: [
-        const CodexSectionHeader(
-          label: 'Recent threads',
-          trailing: 'Workspace scoped',
+        CodexSectionHeader(
+          label: l10n.codexAppServerRecentThreads,
+          trailing: l10n.codexAppServerWorkspaceScoped,
         ),
         CodexSurface(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               for (var index = 0; index < threads.length; index++) ...[
-                _ThreadRow(thread: threads[index]),
+                _ThreadRow(thread: threads[index], l10n: l10n),
                 if (index != threads.length - 1)
                   const Divider(height: 1, color: codexLine),
               ],
@@ -57,9 +58,10 @@ class CodexAppServerHistoryView extends StatelessWidget {
 }
 
 class _ThreadRow extends StatelessWidget {
-  const _ThreadRow({required this.thread});
+  const _ThreadRow({required this.thread, required this.l10n});
 
   final CodexAppServerThreadSummary thread;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +103,9 @@ class _ThreadRow extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         CodexStatusPill(
-          label: thread.archived ? 'Archived' : 'Open',
+          label: thread.archived
+              ? l10n.codexAppServerThreadArchived
+              : l10n.codexAppServerThreadOpen,
           color: thread.archived ? theme.faint : codexSuccess,
         ),
         const Padding(

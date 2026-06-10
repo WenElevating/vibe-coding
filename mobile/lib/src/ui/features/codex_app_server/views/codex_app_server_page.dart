@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/widgets/widgets.dart';
 import '../view_models/codex_app_server_view_model.dart';
@@ -23,6 +24,7 @@ class CodexAppServerPage extends StatelessWidget {
     return ListenableBuilder(
       listenable: viewModel,
       builder: (context, _) {
+        final l10n = AppLocalizations.of(context);
         final state = viewModel.state;
         final workspace = this.workspace;
         return DefaultTabController(
@@ -30,20 +32,23 @@ class CodexAppServerPage extends StatelessWidget {
           child: Column(
             children: [
               TopBar(
-                title: 'Codex app-server',
-                subtitle: workspace?.name ?? 'No workspace selected',
-                statusLabel: state.loading ? 'syncing' : 'ready',
+                title: l10n.codexAppServerTitle,
+                subtitle: workspace?.name ?? l10n.codexAppServerNoWorkspace,
+                statusLabel: _codexStatusLabel(l10n, state, workspace),
               ),
               const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: _CodexAppServerTabs(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _CodexAppServerTabs(l10n: l10n),
               ),
               if (state.loading) const LinearProgressIndicator(minHeight: 2),
               if (state.error != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                  child: _CodexAppServerError(message: state.error!),
+                  child: _CodexAppServerError(
+                    title: l10n.codexAppServerErrorTitle,
+                    message: state.error!,
+                  ),
                 ),
               Expanded(
                 child: TabBarView(
@@ -70,8 +75,31 @@ class CodexAppServerPage extends StatelessWidget {
   }
 }
 
+String _codexStatusLabel(
+  AppLocalizations l10n,
+  CodexAppServerState state,
+  WorkspaceSummary? workspace,
+) {
+  if (state.loading) return l10n.codexAppServerStatusSyncing;
+  if (workspace == null) return l10n.codexAppServerStatusUnavailable;
+  final error = state.error?.toLowerCase();
+  if (error != null) {
+    if (error.contains('busy') ||
+        error.contains('pool') ||
+        error.contains('process limit') ||
+        error.contains('maximum codex app-server process limit')) {
+      return l10n.codexAppServerStatusBusy;
+    }
+    return l10n.codexAppServerStatusUnavailable;
+  }
+  if (state.capabilities != null) return l10n.codexAppServerStatusReady;
+  return l10n.codexAppServerStatusUnavailable;
+}
+
 class _CodexAppServerTabs extends StatelessWidget {
-  const _CodexAppServerTabs();
+  const _CodexAppServerTabs({required this.l10n});
+
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -82,21 +110,21 @@ class _CodexAppServerTabs extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: codexLine),
       ),
-      child: const TabBar(
+      child: TabBar(
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
         labelPadding: EdgeInsets.zero,
-        labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
         unselectedLabelStyle:
-            TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-        indicator: BoxDecoration(
+            const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        indicator: const BoxDecoration(
           color: codexPanelHi,
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
         tabs: [
-          Tab(text: 'History'),
-          Tab(text: 'Discovery'),
-          Tab(text: 'Risk'),
+          Tab(text: l10n.codexAppServerHistoryTab),
+          Tab(text: l10n.codexAppServerDiscoveryTab),
+          Tab(text: l10n.codexAppServerRiskTab),
         ],
       ),
     );
@@ -104,8 +132,9 @@ class _CodexAppServerTabs extends StatelessWidget {
 }
 
 class _CodexAppServerError extends StatelessWidget {
-  const _CodexAppServerError({required this.message});
+  const _CodexAppServerError({required this.title, required this.message});
 
+  final String title;
   final String message;
 
   @override
@@ -118,11 +147,21 @@ class _CodexAppServerError extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFF7F2B2B)),
       ),
-      child: Text(
-        message,
-        maxLines: 3,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
       ),
     );
   }
