@@ -108,6 +108,7 @@ class RunManager {
       this.runQueue.cancel(runId);
       run.status = 'cancelled';
       this.eventStore.append(runId, eventTypes.RUN_CANCELLED, { reason: 'queued_run_cancelled' });
+      this.eventStore.append(runId, eventTypes.QUEUE_UPDATED, { queue: this.runQueue.list() });
       return publicRun(run);
     }
     if (run.status !== 'running') return publicRun(run);

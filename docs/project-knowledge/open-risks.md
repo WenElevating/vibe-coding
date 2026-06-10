@@ -1173,3 +1173,19 @@
   reading implementation-specific fields. Add a store-backed health assertion
   when exposing future counts.
 - Last verified: 2026-06-10
+
+## Risk: Queue Mutations Need Matching Queue Update Events
+
+- Level: medium
+- Impact: mobile queue state is event-driven around run lifecycle changes. A
+  queued run cancellation changes queue contents and positions, but without a
+  matching `queue.updated` event clients can keep rendering stale queued items
+  until a manual refresh or another queue mutation occurs.
+- Evidence: `RunManager.cancelRun()` now appends `QUEUE_UPDATED` after queued
+  run cancellation. `scripts/run-tests.js` verifies the cancelled run emits a
+  fresh queue update after the cancellation sequence and that the remaining
+  queued item is renumbered to position 1.
+- Mitigation: any code path that calls `RunQueue.submit()`, `RunQueue.cancel()`,
+  or `RunQueue.complete()` should emit an explicit queue update event for the
+  affected run flow after the queue mutation is visible.
+- Last verified: 2026-06-10

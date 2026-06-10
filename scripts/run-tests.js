@@ -25099,6 +25099,42 @@ test('V1.2 queue serializes workspace runs and synthetic adapter completes witho
   }
 });
 
+test('queued run cancellation emits queue update event', async () => {
+  const app = createApp({ port: 0, devAdapters: true, conversationDbPath: tempConversationDbPath() });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const port = app.server.address().port;
+  try {
+    const pairing = await request(port, 'POST', '/api/pairing-code', {});
+    const paired = await request(port, 'POST', '/api/pair', { code: pairing.body.code, label: 'test' });
+    const token = paired.body.token;
+    await request(port, 'POST', '/api/workspaces', {
+      workspacePath: process.cwd(),
+      name: 'Default'
+    }, token);
+    const workspaceId = (await request(port, 'GET', '/api/workspaces', null, token)).body.workspaces[0].id;
+    await request(port, 'POST', '/api/runs', { tool: 'synthetic-slow', workspaceId, prompt: 'first' }, token);
+    const second = await request(port, 'POST', '/api/runs', { tool: 'synthetic-slow', workspaceId, prompt: 'second' }, token);
+    const third = await request(port, 'POST', '/api/runs', { tool: 'synthetic-jsonl', workspaceId, prompt: 'third' }, token);
+
+    assert.equal(second.body.status, 'queued');
+    assert.equal(third.body.status, 'queued');
+    const beforeCancelEvents = await request(port, 'GET', `/api/runs/${second.body.id}/events?afterSeq=0`, null, token);
+    const beforeCancelSeq = Math.max(...beforeCancelEvents.body.events.map((event) => event.seq));
+    const cancelled = await request(port, 'POST', `/api/runs/${second.body.id}/cancel`, {}, token);
+    const queue = await request(port, 'GET', '/api/queue', null, token);
+    const events = await request(port, 'GET', `/api/runs/${second.body.id}/events?afterSeq=${beforeCancelSeq}`, null, token);
+
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.status, 'cancelled');
+    assert.deepEqual(queue.body.queue.map((item) => ({ runId: item.runId, position: item.position })), [
+      { runId: third.body.id, position: 1 }
+    ]);
+    assert.equal(events.body.events.some((event) => event.type === eventTypes.QUEUE_UPDATED), true);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
+
 test('V1.2 command templates invoke adapter runs and reject raw command fields', async () => {
   const app = createApp({ port: 0, devAdapters: true, conversationDbPath: tempConversationDbPath() });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
