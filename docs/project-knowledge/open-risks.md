@@ -1033,6 +1033,24 @@
   cleanup rather than trying to reach into lifecycle internals.
 - Last verified: 2026-06-10
 
+## Risk: Codex App-Server Selection Probe Failures Must Stay Redacted
+
+- Level: medium
+- Impact: conversation creation resolves the requested/effective adapter before
+  provider side effects. If the app-server conversation adapter probe throws
+  there and the raw exception escapes, HTTP error responses can expose local
+  paths or provider diagnostics instead of falling back safely to Codex.
+- Evidence: `ConversationManager.resolveAdapterSelection()` now treats thrown
+  app-server `detectCapabilities()` results as a non-selectable
+  `adapter_probe_failed` state. When Codex fallback is available, conversation
+  creation continues with `effectiveAdapter: codex` and a stable fallback
+  reason. `scripts/run-tests.js` covers path-bearing probe failures and
+  verifies the public conversation JSON does not retain the path text.
+- Mitigation: keep app-server adapter-selection probes exception-safe and use
+  stable reason codes in fallback notices. Do not copy raw probe error messages
+  into conversation summaries.
+- Last verified: 2026-06-10
+
 ## Risk: Codex App-Server Timeout Policy Must Be Applied at the Client Boundary
 
 - Level: high

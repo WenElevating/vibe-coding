@@ -1296,7 +1296,12 @@ function capabilitiesForAdapter(adapter) {
 function codexAppServerSelectionStatus(adapter) {
   if (!adapter) return { selectable: false, unavailableReason: 'adapter_not_configured' };
   if (typeof adapter.detectCapabilities === 'function') {
-    const status = adapter.detectCapabilities() || {};
+    let status;
+    try {
+      status = adapter.detectCapabilities() || {};
+    } catch (_) {
+      return { selectable: false, unavailableReason: 'adapter_probe_failed' };
+    }
     return {
       selectable: status.selectable === true || status.available === true,
       unavailableReason: status.unavailableReason || (status.status === 'unavailable' ? 'unavailable' : null)

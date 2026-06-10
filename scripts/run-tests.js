@@ -14585,6 +14585,47 @@ test('codex-app-server falls back to codex before provider side effects when una
   assert.equal(appServer.detectCapabilities().diagnostics.metrics.fallback_before_first_request_count, 1);
 });
 
+test('codex-app-server selection fallback redacts probe failures', () => {
+  const secretPath = path.join(os.tmpdir(), 'app-server-secret-probe', 'provider.txt');
+  let fallbackCount = 0;
+  const appServer = {
+    getCapabilities() {
+      return { longLivedProcess: true, waitingApproval: true };
+    },
+    detectCapabilities() {
+      throw new Error(`probe failed at ${secretPath}`);
+    },
+    recordFallbackBeforeFirstRequest() {
+      fallbackCount += 1;
+    }
+  };
+  const codex = {
+    capabilities: { resume: true, waitingApproval: true },
+    async startConversation() {
+      return {
+        async sendUserMessage() {},
+        async dispose() {}
+      };
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({
+    adapters: new Map([
+      ['codex', codex],
+      ['codex-app-server', appServer]
+    ])
+  });
+
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'codex-app-server' }, device);
+  const publicJson = JSON.stringify(conversation);
+
+  assert.equal(conversation.adapter, 'codex-app-server');
+  assert.equal(conversation.effectiveAdapter, 'codex');
+  assert.equal(conversation.fallbackNotice.reason, 'adapter_probe_failed');
+  assert.equal(fallbackCount, 1);
+  assert.equal(publicJson.includes(secretPath), false);
+  assert.equal(publicJson.includes('app-server-secret-probe'), false);
+});
+
 test('codex-app-server falls back to codex when initialize fails before side effects', async () => {
   const appServerError = new Error('initialize failed');
   appServerError.codexAppServerFallbackAllowed = true;
