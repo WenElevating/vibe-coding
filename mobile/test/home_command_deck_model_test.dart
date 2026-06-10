@@ -166,6 +166,33 @@ void main() {
     expect(data.signals.queue, 0);
     expect(data.signals.recentFiles, isNull);
   });
+
+  test('workspace labels fall back to path segment before id', () {
+    const unnamedCurrent = WorkspaceSummary(
+        id: 'workspace_current', name: '', path: r'D:\AiProject\vibe-coding');
+    const unnamedOther =
+        WorkspaceSummary(id: 'workspace_other', name: '', path: '');
+    final data = buildHomeCommandDeckData(
+      currentWorkspace: unnamedCurrent,
+      workspaces: const <WorkspaceSummary>[unnamedCurrent, unnamedOther],
+      runs: const <RunSummary>[
+        RunSummary(
+            id: 'run_other',
+            tool: 'codex',
+            workspaceId: 'workspace_other',
+            status: 'failed'),
+      ],
+      conversations: const <ConversationSummary>[],
+      queue: const <QueueItem>[],
+      changedFiles: null,
+      diagnostics: null,
+      recentFiles: null,
+    );
+
+    expect(data.now.workspaceName, 'vibe-coding');
+    expect(data.now.title, 'vibe-coding');
+    expect(data.interrupts.single.workspaceName, 'workspace_other');
+  });
 }
 
 ConversationSummary conversation({

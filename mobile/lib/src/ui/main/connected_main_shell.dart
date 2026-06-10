@@ -96,7 +96,7 @@ class ConnectedMainShell extends StatelessWidget {
                       onBack: viewModel.closeOverlay,
                     ),
               if (creatingWorkspace || loadingWorkspace)
-                const MainLoadingOverlay(label: 'Loading workspace...'),
+                MainLoadingOverlay(label: l10n.workspaceLoadingAction),
               if (workspaceActionError != null)
                 MainErrorBanner(error: workspaceActionError!),
             ],

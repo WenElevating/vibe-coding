@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../app/app_dependencies.dart';
 import '../../app/connected_session_scope.dart';
 import '../../domain/models/daemon_connection_config.dart';
@@ -559,8 +560,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       case CreateWorkspaceNotConfirmed(:final workspaceId):
         setState(() {
           _creatingWorkspace = false;
-          _workspaceActionError = StateError(
-              'Workspace $workspaceId was created but not listed yet.');
+          _workspaceActionError = AppLocalizations.of(context)
+              .workspaceCreatedNotListedError(workspaceId);
         });
       case CreateWorkspaceFailure(:final error):
         setState(() {
@@ -571,7 +572,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         setState(() {
           _creatingWorkspace = false;
           _workspaceActionError =
-              TimeoutException('Workspace creation timed out.');
+              AppLocalizations.of(context).workspaceCreationTimedOutError;
         });
     }
   }
@@ -633,18 +634,16 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     }
   }
 
-  StateError _workspaceOpenConfirmationError({
+  String _workspaceOpenConfirmationError({
     required WorkspaceSummary requested,
     required WorkspaceSummary? opened,
   }) {
+    final l10n = AppLocalizations.of(context);
     final openedId = opened?.id;
     if (openedId == null) {
-      return StateError(
-          'Workspace ${requested.name} was not confirmed by the daemon.');
+      return l10n.workspaceOpenNotConfirmedError(requested.name);
     }
-    return StateError(
-      'Workspace ${requested.name} was not opened; daemon selected $openedId.',
-    );
+    return l10n.workspaceOpenSelectedDifferentError(requested.name, openedId);
   }
 
   Widget _buildCodingTab() {

@@ -8743,6 +8743,20 @@ diff --git a/lib/main.dart b/lib/main.dart
         en.workbenchAttachmentRemoveTooltip('image.png'), 'Remove image.png');
   });
 
+  test('workspace action status strings use active locale', () {
+    final zh = lookupAppLocalizations(theme.zhHansCnLocale);
+    final en = lookupAppLocalizations(const Locale('en', 'US'));
+
+    expect(zh.workspaceLoadingAction, '正在加载工作区...');
+    expect(zh.workspaceCreatedNotListedError('workspace_1'),
+        '工作区 workspace_1 已创建，但尚未出现在列表中。');
+    expect(zh.workspaceOpenSelectedDifferentError('Agent', 'workspace_2'),
+        '工作区 Agent 未打开；daemon 选择了 workspace_2。');
+    expect(en.workspaceLoadingAction, 'Loading workspace...');
+    expect(en.workspaceOpenNotConfirmedError('Agent'),
+        'Workspace Agent was not confirmed by the daemon.');
+  });
+
   test('duplicate approvals collapse and approval response becomes command',
       () {
     final events = <Map<String, Object?>>[

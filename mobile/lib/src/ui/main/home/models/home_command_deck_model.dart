@@ -87,9 +87,11 @@ HomeCommandDeckData buildHomeCommandDeckData({
   required int? recentFiles,
 }) {
   final workspaceNames = <String, String>{
-    for (final workspace in workspaces) workspace.id: workspace.name,
+    for (final workspace in workspaces)
+      workspace.id: _workspaceLabel(workspace),
   };
   final currentWorkspaceId = currentWorkspace.id;
+  final currentWorkspaceName = _workspaceLabel(currentWorkspace);
   final allSignals = <HomeSignalItem>[
     ...conversations
         .map((conversation) => _conversationSignal(
@@ -118,8 +120,8 @@ HomeCommandDeckData buildHomeCommandDeckData({
           id: 'idle:$currentWorkspaceId',
           kind: HomeSignalKind.idle,
           workspaceId: currentWorkspaceId,
-          workspaceName: currentWorkspace.name,
-          title: currentWorkspace.name,
+          workspaceName: currentWorkspaceName,
+          title: currentWorkspaceName,
           detail: 'idle',
         );
   final overflow = actionableCurrentSignals
@@ -280,6 +282,15 @@ HomeSignalItem? _queueSignal(QueueItem item, String workspaceName) {
 
 String _workspaceName(Map<String, String> names, String workspaceId) =>
     names[workspaceId] ?? workspaceId;
+
+String _workspaceLabel(WorkspaceSummary workspace) {
+  final name = workspace.name.trim();
+  if (name.isNotEmpty) return name;
+  final normalized = workspace.path.replaceAll('\\', '/');
+  final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
+  if (parts.isNotEmpty) return parts.last;
+  return workspace.id;
+}
 
 int _compareSignals(HomeSignalItem left, HomeSignalItem right) {
   final priority = _priority(left.kind).compareTo(_priority(right.kind));

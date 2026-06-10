@@ -393,7 +393,36 @@
   "workspaceNameHint": "名称（可选）",
   "workspaceCreatingAction": "创建中",
   "workspaceCreateAction": "创建",
+  "workspaceLoadingAction": "正在加载工作区...",
   "workspacePathRequiredError": "请先选择或输入文件夹路径。",
+  "workspaceCreatedNotListedError": "工作区 {workspaceId} 已创建，但尚未出现在列表中。",
+  "@workspaceCreatedNotListedError": {
+    "placeholders": {
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceCreationTimedOutError": "工作区创建超时。",
+  "workspaceOpenNotConfirmedError": "daemon 未确认工作区 {workspaceName}。",
+  "@workspaceOpenNotConfirmedError": {
+    "placeholders": {
+      "workspaceName": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceOpenSelectedDifferentError": "工作区 {workspaceName} 未打开；daemon 选择了 {workspaceId}。",
+  "@workspaceOpenSelectedDifferentError": {
+    "placeholders": {
+      "workspaceName": {
+        "type": "String"
+      },
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
   "workspaceExistingSection": "已有工作区",
   "workspaceSafeDirectoryMeta": "安全执行目录",
   "workspaceAddTitle": "添加工作区",

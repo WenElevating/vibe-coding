@@ -393,7 +393,36 @@
   "workspaceNameHint": "Name (optional)",
   "workspaceCreatingAction": "Creating",
   "workspaceCreateAction": "Create",
+  "workspaceLoadingAction": "Loading workspace...",
   "workspacePathRequiredError": "Choose or enter a folder path first.",
+  "workspaceCreatedNotListedError": "Workspace {workspaceId} was created but is not listed yet.",
+  "@workspaceCreatedNotListedError": {
+    "placeholders": {
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceCreationTimedOutError": "Workspace creation timed out.",
+  "workspaceOpenNotConfirmedError": "Workspace {workspaceName} was not confirmed by the daemon.",
+  "@workspaceOpenNotConfirmedError": {
+    "placeholders": {
+      "workspaceName": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceOpenSelectedDifferentError": "Workspace {workspaceName} was not opened; daemon selected {workspaceId}.",
+  "@workspaceOpenSelectedDifferentError": {
+    "placeholders": {
+      "workspaceName": {
+        "type": "String"
+      },
+      "workspaceId": {
+        "type": "String"
+      }
+    }
+  },
   "workspaceExistingSection": "Existing workspaces",
   "workspaceSafeDirectoryMeta": "Safe execution directory",
   "workspaceAddTitle": "Add workspace",
