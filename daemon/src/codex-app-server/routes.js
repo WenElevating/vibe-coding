@@ -338,10 +338,9 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'GET' && workspaceFsReadFile) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsReadFile[1]), context.device);
     const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredQueryString(url.searchParams.get('path'), 'path'));
-    const encoding = parseOptionalString(url.searchParams.get('encoding'));
+    parseOptionalString(url.searchParams.get('encoding'));
     const response = await requireService(context).withWorkspaceClient(workspace, (client) => client.readFile(compactObject({
-      path: filePath,
-      encoding
+      path: filePath
     })));
     json(200, normalizeDiscoveryResponse(response, {}));
     return true;

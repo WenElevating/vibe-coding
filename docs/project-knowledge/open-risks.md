@@ -845,3 +845,19 @@
   nested `goal`, or rollback `turnId`/`itemId` into upstream thread RPC
   payloads unless the generated schemas and route tests change together.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server File Read Routes Must Not Forward Encoding
+
+- Level: low
+- Impact: the mobile-facing file read route can accept an `encoding` query for
+  compatibility, but the upstream app-server `fs/readFile` schema only accepts
+  `path`. Forwarding `encoding` can make otherwise valid workspace-scoped file
+  reads fail provider validation.
+- Evidence: `daemon/src/codex-app-server/client.js` sends `fs/readFile` with
+  only `path`, and `daemon/src/codex-app-server/routes.js` validates but does
+  not forward the compatibility `encoding` query. `scripts/run-tests.js`
+  covers both the typed client payload and workspace file read route options.
+- Mitigation: keep `encoding` as daemon/mobile compatibility metadata only.
+  Do not add it back to the upstream `fs/readFile` payload unless generated
+  schema fixtures and route tests change together.
+- Last verified: 2026-06-10

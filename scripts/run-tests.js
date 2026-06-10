@@ -7170,7 +7170,7 @@ test('Codex app-server client sends typed filesystem requests', async () => {
   assert.deepEqual(calls, [
     { method: 'fs/getMetadata', params: { path: 'D:\\Repo\\README.md' } },
     { method: 'fs/readDirectory', params: { path: 'D:\\Repo\\src' } },
-    { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md', encoding: 'utf8' } },
+    { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md' } },
     { method: 'fs/writeFile', params: { path: 'D:\\Repo\\README.md', dataBase64: Buffer.from(fileContent, 'utf8').toString('base64') } },
     { method: 'fs/watch', params: { path: 'D:\\Repo\\src', watchId: 'watch_1' } },
     { method: 'fs/unwatch', params: { watchId: 'watch_1' } },
@@ -9832,7 +9832,7 @@ test('Codex app-server fs read routes resolve workspace paths and call typed ser
         },
         async readFile(options) {
           calls.push({ method: 'readFile', options });
-          return { file: { path: options.path, text: 'hello', encoding: options.encoding } };
+          return { file: { path: options.path, text: 'hello' } };
         }
       });
     }
@@ -9850,14 +9850,14 @@ test('Codex app-server fs read routes resolve workspace paths and call typed ser
     assert.equal(directory.status, 200);
     assert.deepEqual(directory.body, { entries: [{ name: 'README.md' }], path: resolveInWorkspace('src') });
     assert.equal(file.status, 200);
-    assert.deepEqual(file.body, { file: { path: resolveInWorkspace('src/index.js'), text: 'hello', encoding: 'utf8' } });
+    assert.deepEqual(file.body, { file: { path: resolveInWorkspace('src/index.js'), text: 'hello' } });
     assert.deepEqual(calls, [
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'getFileMetadata', options: { path: resolveInWorkspace('README.md') } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'readDirectory', options: { path: resolveInWorkspace('src') } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'readFile', options: { path: resolveInWorkspace('src/index.js'), encoding: 'utf8' } }
+      { method: 'readFile', options: { path: resolveInWorkspace('src/index.js') } }
     ]);
   } finally {
     await app.close();

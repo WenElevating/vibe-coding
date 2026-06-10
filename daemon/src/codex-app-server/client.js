@@ -191,8 +191,7 @@ class CodexAppServerClient {
 
   readFile(options = {}) {
     return this.sendRequest('fs/readFile', compactObject({
-      path: options.path,
-      encoding: options.encoding
+      path: options.path
     }), options);
   }
 
