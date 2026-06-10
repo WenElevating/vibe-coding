@@ -28,7 +28,6 @@ class CodingComposer extends StatefulWidget {
       required this.sending,
       required this.voiceState,
       required this.voiceEnabled,
-      required this.voiceError,
       required this.cliLocked,
       required this.modelLocked,
       this.model,
@@ -55,7 +54,6 @@ class CodingComposer extends StatefulWidget {
   final bool sending;
   final VoiceInputState voiceState;
   final bool voiceEnabled;
-  final String? voiceError;
   final bool cliLocked;
   final bool modelLocked;
   final String? model;

@@ -15,6 +15,13 @@ enum VoiceInputState {
   failed
 }
 
+enum VoiceInputErrorKind {
+  unavailable,
+  noRecordingDevice,
+  permissionDenied,
+  generic,
+}
+
 class VoiceInputController extends ChangeNotifier {
   VoiceInputController({
     required SpeechInputService service,
@@ -31,13 +38,14 @@ class VoiceInputController extends ChangeNotifier {
   String _partialText = '';
   String _baseText = '';
   TextSelection _baseSelection = const TextSelection.collapsed(offset: 0);
-  String? _error;
+  VoiceInputErrorKind? _errorKind;
   bool _receivedPartial = false;
   bool _disposed = false;
+  int _sessionGeneration = 0;
 
   VoiceInputState get state => _state;
   String get partialText => _partialText;
-  String? get error => _error;
+  VoiceInputErrorKind? get errorKind => _errorKind;
   bool get isBusy =>
       _state != VoiceInputState.idle && _state != VoiceInputState.failed;
 
@@ -53,7 +61,7 @@ class VoiceInputController extends ChangeNotifier {
     }
     _service.dispose();
     _service = service;
-    _error = null;
+    _errorKind = null;
     if (_state == VoiceInputState.failed) _setState(VoiceInputState.idle);
   }
 
@@ -75,11 +83,13 @@ class VoiceInputController extends ChangeNotifier {
         currentPrompt.length);
     _partialText = '';
     _receivedPartial = false;
-    _error = null;
+    _errorKind = null;
+    _sessionGeneration++;
+    final generation = _sessionGeneration;
     _setState(VoiceInputState.initializing);
     try {
       await _service
-          .start(onPartial: _setPartialText)
+          .start(onPartial: (text) => _setPartialText(text, generation))
           .timeout(_initializeTimeout);
       if (_disposed) return;
       if (_state == VoiceInputState.initializing) {
@@ -87,12 +97,12 @@ class VoiceInputController extends ChangeNotifier {
       }
     } on TimeoutException {
       if (_disposed || _state != VoiceInputState.initializing) return;
-      _error = 'Voice input unavailable';
+      _errorKind = VoiceInputErrorKind.unavailable;
       _setState(VoiceInputState.failed);
       await _cancelServiceBestEffort();
     } catch (error) {
       if (_disposed || _state != VoiceInputState.initializing) return;
-      _error = friendlyVoiceInputError(error);
+      _errorKind = classifyVoiceInputError(error);
       _setState(VoiceInputState.failed);
     }
   }
@@ -127,14 +137,15 @@ class VoiceInputController extends ChangeNotifier {
           : mergeVoiceTextValue(mergeBase, processedFinalText);
       _partialText = '';
       _receivedPartial = false;
+      _sessionGeneration++;
       _baseText = merged.text;
       _baseSelection = merged.selection;
-      _error = null;
+      _errorKind = null;
       _setState(VoiceInputState.idle);
       return merged;
     } catch (error) {
       if (_disposed) return currentPrompt;
-      _error = friendlyVoiceInputError(error);
+      _errorKind = classifyVoiceInputError(error);
       _setState(VoiceInputState.failed);
       return currentPrompt;
     }
@@ -148,6 +159,7 @@ class VoiceInputController extends ChangeNotifier {
     if (_disposed) return;
     _partialText = '';
     _receivedPartial = false;
+    _sessionGeneration++;
     _setState(VoiceInputState.idle);
   }
 
@@ -208,8 +220,13 @@ class VoiceInputController extends ChangeNotifier {
   TextEditingValue _baseValue() =>
       TextEditingValue(text: _baseText, selection: _baseSelection);
 
-  void _setPartialText(String text) {
+  void _setPartialText(String text, int generation) {
     if (_disposed) return;
+    if (generation != _sessionGeneration ||
+        _state != VoiceInputState.initializing &&
+            _state != VoiceInputState.listening) {
+      return;
+    }
     _partialText = text;
     _receivedPartial = true;
     notifyListeners();
@@ -245,7 +262,7 @@ class VoiceInputViewModel extends ChangeNotifier {
   final VoiceInputController _controller;
 
   VoiceInputState get state => _controller.state;
-  String? get error => _controller.error;
+  VoiceInputErrorKind? get errorKind => _controller.errorKind;
   bool get isBusy => _controller.isBusy;
 
   void updateService(SpeechInputService service) {
@@ -348,7 +365,7 @@ int _clampOffset(int value, int max) {
   return value;
 }
 
-String friendlyVoiceInputError(Object error) {
+VoiceInputErrorKind classifyVoiceInputError(Object error) {
   if (error is PlatformException) {
     final details = [
       error.code,
@@ -361,12 +378,12 @@ String friendlyVoiceInputError(Object error) {
         details.contains('未找到') ||
         details.contains('录音设备') ||
         details.contains('麦克风')) {
-      return '未检测到可用麦克风，请连接或启用录音设备后重试。';
+      return VoiceInputErrorKind.noRecordingDevice;
     }
-    return '语音输入暂时不可用，请检查麦克风权限或设备状态后重试。';
+    return VoiceInputErrorKind.generic;
   }
   if (error is StateError && error.message == 'Microphone permission denied') {
-    return '麦克风权限未开启，请允许访问麦克风后重试。';
+    return VoiceInputErrorKind.permissionDenied;
   }
-  return '语音输入暂时不可用，请稍后重试。';
+  return VoiceInputErrorKind.generic;
 }

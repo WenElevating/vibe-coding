@@ -158,7 +158,6 @@ Widget buildRunningComposerPreview() => MaterialApp(
             sending: false,
             voiceState: VoiceInputState.idle,
             voiceEnabled: false,
-            voiceError: null,
             onCliTap: () {},
             onModelTap: () {},
             onVoiceStart: () {},

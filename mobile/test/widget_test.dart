@@ -59,6 +59,7 @@ import 'package:lan_ai_cli_control/src/ui/features/connection/view_models/daemon
 import 'package:lan_ai_cli_control/src/ui/core/theme/theme.dart' as theme;
 import 'package:lan_ai_cli_control/src/ui/core/widgets/widgets.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/attachments/draft_attachment.dart';
+import 'package:lan_ai_cli_control/src/ui/features/workbench/dialogs/voice_input_error_dialog.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/messages/approval_event_card.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -3090,7 +3091,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3125,7 +3125,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3162,7 +3161,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3197,7 +3195,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3234,7 +3231,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.listening,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3270,7 +3266,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.failed,
                 voiceEnabled: true,
-                voiceError: '未检测到可用麦克风，请连接或启用录音设备后重试。',
                 cliLocked: false,
                 modelLocked: false,
                 onCliTap: () {},
@@ -3283,6 +3278,33 @@ void main() {
                 onCancel: () {}))));
 
     expect(find.textContaining('未检测到可用麦克风'), findsNothing);
+  });
+
+  testWidgets('voice input error dialog follows active locale',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: const Scaffold(
+            body: VoiceInputErrorDialog(
+                kind: VoiceInputErrorKind.noRecordingDevice))));
+
+    expect(find.text('语音输入不可用'), findsOneWidget);
+    expect(find.textContaining('未检测到可用麦克风'), findsOneWidget);
+    expect(find.text('知道了'), findsOneWidget);
+
+    await tester.pumpWidget(MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: const Scaffold(
+            body: VoiceInputErrorDialog(
+                kind: VoiceInputErrorKind.noRecordingDevice))));
+
+    expect(find.text('Voice input unavailable'), findsOneWidget);
+    expect(find.textContaining('No microphone was detected'), findsOneWidget);
+    expect(find.text('OK'), findsOneWidget);
   });
 
   testWidgets('coding composer keeps model chip in the input surface',
@@ -3309,7 +3331,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
-                voiceError: null,
                 onCliTap: () {},
                 onModelTap: () => modelTaps++,
                 onVoiceStart: () {},
@@ -3441,7 +3462,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
-                voiceError: null,
                 onCliTap: () {},
                 onModelTap: () {},
                 onVoiceStart: () {},
@@ -3479,7 +3499,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 model: 'gpt-5.3-codex',
@@ -3535,7 +3554,6 @@ void main() {
                 sending: false,
                 voiceState: VoiceInputState.idle,
                 voiceEnabled: true,
-                voiceError: null,
                 cliLocked: false,
                 modelLocked: false,
                 model: 'text-only-model',

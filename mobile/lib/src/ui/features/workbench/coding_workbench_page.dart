@@ -87,7 +87,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   Timer? _initialConversationPendingRevealTimer;
   bool _conversationEventsSuspendedForBackground = false;
   int _conversationEventSubscriptionGeneration = 0;
-  String? _lastVoiceErrorNotice;
+  VoiceInputErrorKind? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
   bool _applyingVoiceText = false;
   String _currentRoute = _routeWorkspaces;
@@ -649,7 +649,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         _applyingVoiceText = false;
       }
     }
-    final voiceError = _voiceInput.error;
+    final voiceError = _voiceInput.errorKind;
     if (_voiceInput.state == VoiceInputState.failed &&
         voiceError != null &&
         voiceError != _lastVoiceErrorNotice) {
@@ -663,13 +663,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     setState(() {});
   }
 
-  Future<void> _showVoiceErrorDialog(String message) async {
+  Future<void> _showVoiceErrorDialog(VoiceInputErrorKind kind) async {
     if (_voiceErrorDialogOpen || !mounted) return;
     _voiceErrorDialogOpen = true;
     try {
       await showDialog<void>(
           context: context,
-          builder: (context) => VoiceInputErrorDialog(message: message));
+          builder: (context) => VoiceInputErrorDialog(kind: kind));
     } catch (_) {
       // Voice error presentation must not introduce a secondary async failure.
     } finally {
@@ -694,7 +694,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       await _voiceInput.startValue(currentPrompt: _prompt.value);
     } catch (error) {
       if (!mounted) return;
-      await _showVoiceErrorDialog(friendlyVoiceInputError(error));
+      await _showVoiceErrorDialog(classifyVoiceInputError(error));
     }
   }
 

@@ -98,6 +98,7 @@ void main() {
 
     expect(service.cancelCalls, 1);
     expect(viewModel.state, VoiceInputState.failed);
+    expect(viewModel.errorKind, VoiceInputErrorKind.unavailable);
   });
 
   test('cancel consumes service cancellation failures', () async {

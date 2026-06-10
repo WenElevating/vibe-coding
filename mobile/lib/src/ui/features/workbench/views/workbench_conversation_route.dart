@@ -119,7 +119,6 @@ class WorkbenchConversationRoute extends StatelessWidget {
               sending: sending,
               voiceState: voiceState,
               voiceEnabled: voiceEnabled,
-              voiceError: null,
               draftAttachments: draftAttachments,
               slashCommands: slashCommands,
               onSlashCommandSelected: onSlashCommandSelected,

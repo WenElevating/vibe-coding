@@ -121,6 +121,21 @@ void main() {
     expect(merged, 'typed contextfinal');
   });
 
+  test('late partial after stop is ignored', () async {
+    final service = _FakeSpeechInputService()..stopText = 'final';
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed');
+    service.onPartial?.call('partial');
+    final merged =
+        await controller.stop(currentPrompt: controller.previewText());
+    service.onPartial?.call('late partial');
+
+    expect(merged, 'typedfinal');
+    expect(controller.partialText, isEmpty);
+    expect(controller.previewText(), 'typedfinal');
+  });
+
   test(
       'stop post-processes final Chinese text without changing partial preview',
       () async {
@@ -169,6 +184,19 @@ void main() {
     expect(controller.restoreBaseText(), 'typed');
   });
 
+  test('late partial after cancel is ignored', () async {
+    final service = _FakeSpeechInputService();
+    final controller = VoiceInputController(service: service);
+
+    await controller.start(currentPrompt: 'typed');
+    service.onPartial?.call('partial');
+    await controller.cancel();
+    service.onPartial?.call('late partial');
+
+    expect(controller.partialText, isEmpty);
+    expect(controller.previewText(), 'typed');
+  });
+
   test('duplicate start while initializing is ignored', () async {
     final service = _FakeSpeechInputService()
       ..startCompleter = Completer<void>();
@@ -211,7 +239,7 @@ void main() {
     await controller.start(currentPrompt: '');
 
     expect(controller.state, VoiceInputState.failed);
-    expect(controller.error, 'Voice input unavailable');
+    expect(controller.errorKind, VoiceInputErrorKind.unavailable);
     expect(service.cancelCalls, 1);
   });
 
@@ -228,7 +256,7 @@ void main() {
     await start;
 
     expect(controller.state, VoiceInputState.idle);
-    expect(controller.error, isNull);
+    expect(controller.errorKind, isNull);
     expect(service.cancelCalls, 1);
   });
 
@@ -240,8 +268,7 @@ void main() {
     await controller.start(currentPrompt: '');
 
     expect(controller.state, VoiceInputState.failed);
-    expect(controller.error, '未检测到可用麦克风，请连接或启用录音设备后重试。');
-    expect(controller.error, isNot(contains('PlatformException')));
+    expect(controller.errorKind, VoiceInputErrorKind.noRecordingDevice);
   });
 
   test('microphone permission denial is reported as a friendly message',
@@ -253,7 +280,7 @@ void main() {
     await controller.start(currentPrompt: '');
 
     expect(controller.state, VoiceInputState.failed);
-    expect(controller.error, '麦克风权限未开启，请允许访问麦克风后重试。');
+    expect(controller.errorKind, VoiceInputErrorKind.permissionDenied);
   });
 
   test('start failure leaves controller retryable', () async {
