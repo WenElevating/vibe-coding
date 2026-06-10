@@ -140,13 +140,13 @@ class ConversationManager {
       turnAttachmentScratches: [],
       attachmentDispatchRedactionContext: null
     };
-    this.conversations.set(conversation.id, conversation);
     this.persistConversation(conversation);
     this.eventStore.append(conversation.id, conversationEventTypes.CONVERSATION_STARTED, {
       workspaceId: conversation.workspaceId,
       adapter: conversation.adapter,
       permissionMode: conversation.permissionMode
     });
+    this.conversations.set(conversation.id, conversation);
     return publicConversation(conversation);
   }
 

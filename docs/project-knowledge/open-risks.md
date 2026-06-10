@@ -382,6 +382,24 @@
   because an auxiliary notification event could not be appended.
 - Last verified: 2026-06-10
 
+## Risk: Failed Conversation Creation Can Leave Ghost Sessions
+
+- Level: medium
+- Impact: creating a conversation registers a product object that mobile can
+  list and later open. If the daemon exposes that object in memory before
+  durable seed state is written, a failed create request can leave an
+  in-memory-only ghost conversation with no reliable `conversation.started`
+  event.
+- Evidence: `daemon/src/conversation-manager.js` persists the conversation and
+  appends `conversation.started` before adding the conversation to the
+  manager's public in-memory index. `scripts/run-tests.js` covers
+  `saveConversation` failure during `createConversation` leaving
+  `listConversations()` empty.
+- Mitigation: keep conversation creation visibility after durable seed writes.
+  Do not add a new create-time side effect after in-memory registration unless
+  it has a matching rollback path.
+- Last verified: 2026-06-10
+
 ## Risk: Non-Current Approval Events Can Corrupt Mobile Waiting State
 
 - Level: medium

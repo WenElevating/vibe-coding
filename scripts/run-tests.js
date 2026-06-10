@@ -13775,6 +13775,23 @@ test('conversation public shape exposes requested and effective adapter fields',
   assert.equal(conversation.providerSession, null);
 });
 
+test('conversation creation persistence failure does not leave in-memory conversation', () => {
+  const persistentStore = {
+    loadConversations: () => [],
+    saveConversation() {
+      throw new Error('persist failed');
+    }
+  };
+  const { manager, device } = createConversationManagerForTest({ persistentStore });
+
+  assert.throws(
+    () => manager.createConversation({ workspaceId: 'default', adapter: 'codex' }, device),
+    /persist failed/
+  );
+
+  assert.deepEqual(manager.listConversations(device), []);
+});
+
 test('conversation manager omits provider cwd from restored summaries and event replay', () => {
   const leakedCwd = path.join(os.tmpdir(), 'provider-session-secret-cwd');
   const saves = [];
