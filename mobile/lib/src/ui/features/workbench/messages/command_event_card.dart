@@ -48,6 +48,7 @@ class SubAgentCallCardState extends State<SubAgentCallCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final message = widget.message;
     final accent = message.isError
         ? theme.red
@@ -108,26 +109,26 @@ class SubAgentCallCardState extends State<SubAgentCallCard> {
             const SizedBox(height: 10),
             if (prompt != null)
               _ToolDetailBlock(
-                  label: 'handoff',
+                  label: l10n.workbenchSubAgentHandoffLabel,
                   text: prompt,
                   onTap: () => _showCommandDetailSheet(
                       context: context,
-                      title: 'Agent handoff',
+                      title: l10n.workbenchSubAgentHandoffTitle,
                       subtitle: _subAgentMeta(message),
                       text: prompt)),
             if (prompt != null && output != null) const SizedBox(height: 7),
             if (output != null)
               _ToolDetailBlock(
-                  label: 'result',
+                  label: l10n.workbenchSubAgentResultLabel,
                   text: output,
                   onTap: () => _showCommandDetailSheet(
                       context: context,
-                      title: 'Agent result',
+                      title: l10n.workbenchSubAgentResultTitle,
                       subtitle: _subAgentMeta(message),
                       text: output)),
             if (prompt == null && output == null)
-              const Text('Waiting for sub-agent output...',
-                  style: TextStyle(
+              Text(l10n.workbenchSubAgentWaitingOutput,
+                  style: const TextStyle(
                       color: theme.muted, fontSize: 12.5, height: 1.45)),
           ],
         ]));
