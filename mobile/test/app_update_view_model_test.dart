@@ -1322,6 +1322,45 @@ void main() {
     expect(diagnostics, isNot(contains('update.install.clear_session_failed')));
   });
 
+  test('dispose ignores later install events without clearing session',
+      () async {
+    final installer = _FakeInstaller();
+    final readyFile = await _readyApk();
+    addTearDown(() => readyFile.parent.delete(recursive: true));
+    final downloader = _FakeDownloader(
+      result: AppUpdateDownloadResult(
+        state: AppUpdateDownloadState.readyToInstall,
+        file: readyFile,
+      ),
+    );
+    final viewModel = AppUpdateViewModel(
+      installedVersionCode: 1,
+      installedVersionName: '1.0.0',
+      workflow: _workflow(
+        repository: _FakeRepository(_manifest()),
+        installer: installer,
+        downloader: downloader,
+      ),
+      daemonBaseUri: Uri.parse('http://127.0.0.1:4317'),
+    );
+    addTearDown(installer.close);
+
+    await viewModel.checkForUpdates();
+    await viewModel.download();
+    await viewModel.install();
+
+    viewModel.dispose();
+    installer.emit(
+      const AndroidInstallEvent(
+        status: AndroidInstallStatus.success,
+        sessionId: 7,
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(downloader.clearedSessionId, isNull);
+  });
+
   test(
     'dispose consumes install event subscription cancellation failures',
     () async {

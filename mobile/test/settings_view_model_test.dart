@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lan_ai_cli_control/src/data/repositories/coding_preferences_repository.dart';
@@ -150,6 +152,25 @@ void main() {
     expect(workspaceRepository.listenerCount, 0);
     expect(preferences.listenerCount, 0);
   });
+
+  test('settings ignores async preference completion after dispose', () async {
+    final preferences = _FakeCodingPreferencesRepository();
+    final writeGate = Completer<void>();
+    preferences.setPermissionModeDelay = writeGate.future;
+    final viewModel = _settingsViewModel(
+      _FakeWorkspaceRepository(workspaces: const <WorkspaceSummary>[]),
+      preferences: preferences,
+    );
+    var notifications = 0;
+    viewModel.addListener(() => notifications += 1);
+
+    final update = viewModel.setPermissionMode('auto');
+    viewModel.dispose();
+    writeGate.complete();
+
+    await expectLater(update, completes);
+    expect(notifications, 0);
+  });
 }
 
 SettingsViewModel _settingsViewModel(
@@ -280,6 +301,7 @@ class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
   bool _expandToolDetails = false;
   int listenerCount = 0;
   Object? setPermissionModeError;
+  Future<void>? setPermissionModeDelay;
 
   @override
   String get permissionMode => _permissionMode;
@@ -314,6 +336,10 @@ class _FakeCodingPreferencesRepository extends CodingPreferencesRepository {
 
   @override
   Future<void> setPermissionMode(String value) async {
+    final delay = setPermissionModeDelay;
+    if (delay != null) {
+      await delay;
+    }
     final error = setPermissionModeError;
     if (error != null) throw error;
     _permissionMode =

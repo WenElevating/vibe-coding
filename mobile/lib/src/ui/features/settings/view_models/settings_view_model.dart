@@ -42,6 +42,7 @@ class SettingsViewModel extends ChangeNotifier {
   GitStatusSummary? _gitStatus;
   int _extensionsCount;
   Object? _codingPreferenceSaveError;
+  bool _disposed = false;
 
   WorkspaceSummary? get selectedWorkspace =>
       _workspaceRepository.selectedWorkspace;
@@ -69,6 +70,7 @@ class SettingsViewModel extends ChangeNotifier {
     GitStatusSummary? gitStatus,
     int? extensionsCount,
   }) {
+    if (_disposed) return;
     _connectionConfig = connectionConfig;
     _health = health;
     _diagnostics = diagnostics;
@@ -80,44 +82,53 @@ class SettingsViewModel extends ChangeNotifier {
   }
 
   Future<void> setPermissionMode(String value) async {
+    if (_disposed) return;
     try {
       final normalized = CodingPreferencesRepository.normalizePermissionMode(
         value,
       );
       await _codingPreferencesRepository.setPermissionMode(normalized);
       await _syncActiveConversationPermissionMode(normalized);
+      if (_disposed) return;
       if (_codingPreferenceSaveError != null) {
         _codingPreferenceSaveError = null;
         notifyListeners();
       }
     } catch (error) {
+      if (_disposed) return;
       _codingPreferenceSaveError = error;
       notifyListeners();
     }
   }
 
   Future<void> setKeepConversationEventsInBackground(bool value) async {
+    if (_disposed) return;
     try {
       await _codingPreferencesRepository
           .setKeepConversationEventsInBackground(value);
+      if (_disposed) return;
       if (_codingPreferenceSaveError != null) {
         _codingPreferenceSaveError = null;
         notifyListeners();
       }
     } catch (error) {
+      if (_disposed) return;
       _codingPreferenceSaveError = error;
       notifyListeners();
     }
   }
 
   Future<void> setExpandToolDetails(bool value) async {
+    if (_disposed) return;
     try {
       await _codingPreferencesRepository.setExpandToolDetails(value);
+      if (_disposed) return;
       if (_codingPreferenceSaveError != null) {
         _codingPreferenceSaveError = null;
         notifyListeners();
       }
     } catch (error) {
+      if (_disposed) return;
       _codingPreferenceSaveError = error;
       notifyListeners();
     }
@@ -136,10 +147,15 @@ class SettingsViewModel extends ChangeNotifier {
     );
   }
 
-  void _onRepositoryChanged() => notifyListeners();
+  void _onRepositoryChanged() {
+    if (_disposed) return;
+    notifyListeners();
+  }
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _workspaceRepository.removeListener(_onRepositoryChanged);
     _codingPreferencesRepository.removeListener(_onRepositoryChanged);
     super.dispose();

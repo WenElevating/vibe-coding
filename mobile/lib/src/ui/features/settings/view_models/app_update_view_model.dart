@@ -143,6 +143,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   Future<void> checkForUpdates({
     AppUpdateCheckTrigger trigger = AppUpdateCheckTrigger.manual,
   }) async {
+    if (_disposed) return;
     if (_checkInFlight) {
       if (trigger.isSilent) {
         _recordSilentCheckSkipped(trigger, reason: 'checkInFlight');
@@ -174,6 +175,7 @@ class AppUpdateViewModel extends ChangeNotifier {
     }
     try {
       final manifest = await workflow.fetchLatest();
+      if (_disposed) return;
       if (!manifest.available || !manifest.isNewerThan(installedVersionCode)) {
         _set(
           state.copyWith(
@@ -192,6 +194,7 @@ class AppUpdateViewModel extends ChangeNotifier {
           !mandatory &&
           _postponedOptionalVersionCodes.contains(manifest.versionCode);
       final downloadedFile = await workflow.readDownloadedUpdate(manifest);
+      if (_disposed) return;
       _set(
         state.copyWith(
           status: downloadedFile == null
@@ -237,6 +240,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void postponeCurrentUpdatePrompt() {
+    if (_disposed) return;
     final manifest = state.manifest;
     final versionCode = manifest?.versionCode;
     if (manifest == null || versionCode == null || state.mandatory) return;
@@ -248,6 +252,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> download({bool installWhenReady = false}) async {
+    if (_disposed) return;
     final manifest = state.manifest;
     if (manifest == null) return;
     _installWhenReadyOnResume = false;
@@ -266,6 +271,7 @@ class AppUpdateViewModel extends ChangeNotifier {
         daemonBaseUri,
         onProgress: _handleDownloadProgress,
       );
+      if (_disposed) return;
       if (_isStoragePreflightFailure(result)) {
         _recordDiagnostic('update.storage.preflight_failed', {
           'versionCode': manifest.versionCode,
@@ -322,6 +328,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> install({bool openPermissionSettings = true}) async {
+    if (_disposed) return;
     if (_installInFlight || _recoveringInstallSession) return;
     if (state.status == AppUpdateStatus.installing ||
         state.status == AppUpdateStatus.awaitingUserConfirmation) {
@@ -342,6 +349,7 @@ class AppUpdateViewModel extends ChangeNotifier {
         manifest: manifest,
         file: file,
       );
+      if (_disposed) return;
       switch (result.state) {
         case AppUpdateInstallStartState.missingFile:
           _set(
@@ -402,6 +410,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> recoverInstallSession() async {
+    if (_disposed) return;
     if (_recoveringInstallSession) return;
     if (!_canRecoverInstallSession()) return;
     _recoveringInstallSession = true;
@@ -498,12 +507,14 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> discard() async {
+    if (_disposed) return;
     _installWhenReadyOnResume = false;
     final manifest = state.manifest;
     final versionCode = manifest?.versionCode;
     if (versionCode != null) {
       await workflow.discard(versionCode);
     }
+    if (_disposed) return;
     _recordDiagnostic('update.discard', {'versionCode': versionCode});
     final nextStatus =
         manifest != null && manifest.isNewerThan(installedVersionCode)
@@ -521,12 +532,14 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   Future<void> openInstallPermissionSettings() {
+    if (_disposed) return Future<void>.value();
     return workflow.openInstallPermissionSettings();
   }
 
   Future<void> handleAppLifecycleStateChanged(
     AppLifecycleState lifecycleState,
   ) async {
+    if (_disposed) return;
     if (lifecycleState != AppLifecycleState.resumed) {
       _appInForeground = false;
       return;
@@ -566,6 +579,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void _handleInstallEvent(AndroidInstallEvent event) {
+    if (_disposed) return;
     if (event.status == AndroidInstallStatus.cancelled) {
       _clearInstallSession(sessionId: event.sessionId);
       _set(
@@ -599,12 +613,14 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void _handleInstallEventError(Object error, StackTrace stackTrace) {
+    if (_disposed) return;
     _recordDiagnostic('update.install.events_failed', {
       'errorSummary': '$error',
     });
   }
 
   bool _canRecoverInstallSession() {
+    if (_disposed) return false;
     return state.status == AppUpdateStatus.idle ||
         state.status == AppUpdateStatus.upToDate ||
         state.status == AppUpdateStatus.available ||
@@ -614,6 +630,7 @@ class AppUpdateViewModel extends ChangeNotifier {
   }
 
   void _clearInstallSession({int? sessionId}) {
+    if (_disposed) return;
     final manifest = state.manifest;
     if (manifest == null) return;
     unawaited(_clearInstallSessionNow(manifest, sessionId: sessionId));
@@ -684,6 +701,7 @@ class AppUpdateViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     unawaited(_cancelInstallSubscriptionBestEffort());
     super.dispose();
