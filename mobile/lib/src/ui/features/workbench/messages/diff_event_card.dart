@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../conversation_reducer.dart';
 import '../workbench_messages.dart';
@@ -11,12 +12,15 @@ class DiffEventCard extends StatelessWidget {
   final WorkbenchMessage message;
 
   @override
-  Widget build(BuildContext context) => AgentEventCard(
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return AgentEventCard(
       icon: Icons.call_split_rounded,
-      title: 'Changed files',
-      meta: 'diff summary',
+      title: l10n.workbenchDiffEventTitle,
+      meta: l10n.workbenchDiffEventMeta,
       trailing: null,
       child: EventCodeLine(text: message.body, ok: true));
+  }
 }
 
 class FileChangeEventCard extends StatelessWidget {
@@ -25,15 +29,16 @@ class FileChangeEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final changes = message.fileChanges;
     final visibleChanges = changes.take(2).toList(growable: false);
     final title = changes.length == 1
-        ? _fileChangeTitle(changes.single)
-        : 'Edited ${changes.length} files';
+        ? _fileChangeTitle(l10n, changes.single)
+        : l10n.workbenchFileChangeMultiTitle(changes.length);
     return AgentEventCard(
         icon: Icons.edit_note_rounded,
         title: title,
-        meta: 'workspace change',
+        meta: l10n.workbenchFileChangeMeta,
         trailing: null,
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,7 +53,9 @@ class FileChangeEventCard extends StatelessWidget {
                         ? <Widget>[
                             Padding(
                                 padding: const EdgeInsets.only(top: 10),
-                                child: Text('+${changes.length - 2} more files',
+                                child: Text(
+                                    l10n.workbenchFileChangeMoreFiles(
+                                        changes.length - 2),
                                     style: const TextStyle(
                                         color: theme.faint,
                                         fontSize: 11,
@@ -58,13 +65,15 @@ class FileChangeEventCard extends StatelessWidget {
                     .toList(growable: false)));
   }
 
-  static String _fileChangeTitle(ConversationFileChange change) {
+  static String _fileChangeTitle(
+      AppLocalizations l10n, ConversationFileChange change) {
     final kind = change.kind.toLowerCase();
-    final verb = switch (kind) {
-      'add' || 'added' => 'Added',
-      'delete' || 'deleted' || 'remove' || 'removed' => 'Deleted',
-      _ => 'Edited',
+    final path = shortPathName(change.path);
+    return switch (kind) {
+      'add' || 'added' => l10n.workbenchFileChangeAddedTitle(path),
+      'delete' || 'deleted' || 'remove' || 'removed' =>
+        l10n.workbenchFileChangeDeletedTitle(path),
+      _ => l10n.workbenchFileChangeEditedTitle(path),
     };
-    return '$verb ${shortPathName(change.path)}';
   }
 }

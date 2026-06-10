@@ -64,7 +64,7 @@ class ApprovalEventCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _ApprovalTitleRow(
               title: l10n.workbenchApprovalCardTitle,
-              meta: _approvalMeta(message.event),
+              meta: _approvalMeta(l10n, message.event),
               dense: false),
           const SizedBox(height: 10),
           Text(message.body,
@@ -94,9 +94,13 @@ class ApprovalEventCard extends StatelessWidget {
         ]));
   }
 
-  static String _approvalMeta(AgentEvent? event) {
-    if (event == null) return 'permission request';
-    return '${event.name ?? 'Tool'} · write access';
+  static String _approvalMeta(AppLocalizations l10n, AgentEvent? event) {
+    if (event == null) return l10n.workbenchApprovalMetaFallback;
+    final toolName = event.name?.trim();
+    return l10n.workbenchApprovalMetaWriteAccess(
+        toolName == null || toolName.isEmpty
+            ? l10n.workbenchApprovalToolFallback
+            : toolName);
   }
 }
 
@@ -191,7 +195,7 @@ class _ApprovalComposerPromptState extends State<ApprovalComposerPrompt> {
                               letterSpacing: 0))),
                   const SizedBox(height: 11),
                   _ApprovalCommandPreview(
-                      text: _approvalPreviewText(widget.message)),
+                      text: _approvalPreviewText(l10n, widget.message)),
                   const SizedBox(height: 10),
                   if (!hasApprovalId)
                     _ApprovalMissingId(l10n.workbenchApprovalMissingId)
@@ -372,7 +376,7 @@ class _ApprovalSubmitButton extends StatelessWidget {
                   letterSpacing: 0))));
 }
 
-String _approvalPreviewText(WorkbenchMessage message) {
+String _approvalPreviewText(AppLocalizations l10n, WorkbenchMessage message) {
   final input = message.event?.raw['input'];
   if (input is Map) {
     for (final key in const <String>[
@@ -391,7 +395,7 @@ String _approvalPreviewText(WorkbenchMessage message) {
   }
   final body = message.body.trim();
   if (body.isNotEmpty) return _prefixToolName(message.event, body);
-  return ApprovalEventCard._approvalMeta(message.event);
+  return ApprovalEventCard._approvalMeta(l10n, message.event);
 }
 
 String _prefixToolName(AgentEvent? event, String text) {

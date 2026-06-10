@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../core/theme/theme.dart' as theme;
 import '../conversation_reducer.dart';
 import 'event_card_frame.dart';
@@ -10,6 +11,7 @@ class PatchTranscriptFile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final parsed = _ParsedPatch.fromDiff(change.diff);
     return Container(
         decoration: BoxDecoration(
@@ -39,7 +41,7 @@ class PatchTranscriptFile extends StatelessWidget {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      Text(_fileChangeKindLabel(change.kind),
+                      Text(_fileChangeKindLabel(l10n, change.kind),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -94,6 +96,7 @@ class _PatchTranscriptPanelState extends State<_PatchTranscriptPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final lines = _expanded
         ? widget.parsed.lines
         : widget.parsed.lines.take(_collapsedLineCount).toList(growable: false);
@@ -124,8 +127,8 @@ class _PatchTranscriptPanelState extends State<_PatchTranscriptPanel> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     foregroundColor: theme.text),
-                child: const Text('Show full diff',
-                    style: TextStyle(
+                child: Text(l10n.workbenchFileChangeShowFullDiff,
+                    style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0))),
@@ -370,23 +373,23 @@ String shortPathName(String path) {
   return parts.isEmpty ? path : parts.last;
 }
 
-String _fileChangeKindLabel(String kind) {
+String _fileChangeKindLabel(AppLocalizations l10n, String kind) {
   switch (kind.toLowerCase()) {
     case 'add':
     case 'added':
-      return 'Added';
+      return l10n.workbenchFileChangeAddedLabel;
     case 'delete':
     case 'deleted':
     case 'remove':
     case 'removed':
-      return 'Deleted';
+      return l10n.workbenchFileChangeDeletedLabel;
     case 'update':
     case 'updated':
     case 'modify':
     case 'modified':
-      return 'Edited';
+      return l10n.workbenchFileChangeEditedLabel;
     default:
-      return 'Changed';
+      return l10n.workbenchFileChangeChangedLabel;
   }
 }
 

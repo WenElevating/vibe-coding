@@ -522,6 +522,64 @@
   "workbenchPreviewReceivingOutput": "正在接收 CLI 输出...",
   "workbenchPreviewStartedSession": "已启动 claude 会话",
   "workbenchApprovalCardTitle": "需要审批",
+  "workbenchApprovalMetaFallback": "权限请求",
+  "workbenchApprovalMetaWriteAccess": "{tool} · 写入权限",
+  "@workbenchApprovalMetaWriteAccess": {
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchApprovalToolFallback": "工具",
+  "workbenchDiffEventTitle": "文件变更",
+  "workbenchDiffEventMeta": "差异摘要",
+  "workbenchFileChangeMeta": "工作区变更",
+  "workbenchFileChangeAddedTitle": "新增 {path}",
+  "@workbenchFileChangeAddedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeDeletedTitle": "删除 {path}",
+  "@workbenchFileChangeDeletedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeEditedTitle": "修改 {path}",
+  "@workbenchFileChangeEditedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeMultiTitle": "已修改 {count} 个文件",
+  "@workbenchFileChangeMultiTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchFileChangeMoreFiles": "还有 {count} 个文件",
+  "@workbenchFileChangeMoreFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchFileChangeAddedLabel": "新增",
+  "workbenchFileChangeDeletedLabel": "删除",
+  "workbenchFileChangeEditedLabel": "修改",
+  "workbenchFileChangeChangedLabel": "变更",
+  "workbenchFileChangeShowFullDiff": "展开完整 diff",
   "workbenchRunErrorPrefix": "运行错误：",
   "workbenchRunErrorTraceId": "追踪 ID：{traceId}",
   "@workbenchRunErrorTraceId": {

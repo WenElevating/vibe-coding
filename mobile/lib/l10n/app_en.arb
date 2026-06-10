@@ -522,6 +522,64 @@
   "workbenchPreviewReceivingOutput": "Receiving CLI output...",
   "workbenchPreviewStartedSession": "Started claude session",
   "workbenchApprovalCardTitle": "Needs approval",
+  "workbenchApprovalMetaFallback": "permission request",
+  "workbenchApprovalMetaWriteAccess": "{tool} · write access",
+  "@workbenchApprovalMetaWriteAccess": {
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchApprovalToolFallback": "Tool",
+  "workbenchDiffEventTitle": "Changed files",
+  "workbenchDiffEventMeta": "diff summary",
+  "workbenchFileChangeMeta": "workspace change",
+  "workbenchFileChangeAddedTitle": "Added {path}",
+  "@workbenchFileChangeAddedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeDeletedTitle": "Deleted {path}",
+  "@workbenchFileChangeDeletedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeEditedTitle": "Edited {path}",
+  "@workbenchFileChangeEditedTitle": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchFileChangeMultiTitle": "Edited {count} files",
+  "@workbenchFileChangeMultiTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchFileChangeMoreFiles": "+{count} more files",
+  "@workbenchFileChangeMoreFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchFileChangeAddedLabel": "Added",
+  "workbenchFileChangeDeletedLabel": "Deleted",
+  "workbenchFileChangeEditedLabel": "Edited",
+  "workbenchFileChangeChangedLabel": "Changed",
+  "workbenchFileChangeShowFullDiff": "Show full diff",
   "workbenchRunErrorPrefix": "Run error:",
   "workbenchRunErrorTraceId": "Trace ID: {traceId}",
   "@workbenchRunErrorTraceId": {

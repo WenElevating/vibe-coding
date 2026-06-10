@@ -7852,7 +7852,7 @@ void main() {
                     expandThinking: false)))));
     await tester.pumpAndSettle();
 
-    expect(find.text('Edited example_test.dart'), findsOneWidget);
+    expect(find.text('修改 example_test.dart'), findsOneWidget);
     expect(find.text('mobile/test/example_test.dart'), findsOneWidget);
     expect(find.text('@@ -1,3 +1,3 @@'), findsOneWidget);
     expect(find.text('  old expectation'), findsOneWidget);
@@ -7892,7 +7892,7 @@ diff --git a/lib/main.dart b/lib/main.dart
                     expandThinking: false)))));
     await tester.pumpAndSettle();
 
-    expect(find.text('Edited main.dart'), findsOneWidget);
+    expect(find.text('修改 main.dart'), findsOneWidget);
     expect(find.text('+1 -1'), findsOneWidget);
     expect(find.text('@@ -7,3 +7,3 @@ void main() {'), findsOneWidget);
     expect(find.text('7'), findsOneWidget);
@@ -7935,10 +7935,10 @@ diff --git a/lib/main.dart b/lib/main.dart
 
     expect(find.text('line 80'), findsOneWidget);
     expect(find.text('line 81'), findsNothing);
-    expect(find.text('Show full diff'), findsOneWidget);
+    expect(find.text('展开完整 diff'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Show full diff'));
-    await tester.tap(find.text('Show full diff'));
+    await tester.ensureVisible(find.text('展开完整 diff'));
+    await tester.tap(find.text('展开完整 diff'));
     await tester.pumpAndSettle();
 
     expect(find.text('line 85'), findsOneWidget);
@@ -7977,11 +7977,11 @@ diff --git a/lib/main.dart b/lib/main.dart
                     expandThinking: false)))));
     await tester.pumpAndSettle();
 
-    expect(find.text('Edited 3 files'), findsOneWidget);
+    expect(find.text('已修改 3 个文件'), findsOneWidget);
     expect(find.text('lib/one.dart'), findsOneWidget);
     expect(find.text('lib/two.dart'), findsOneWidget);
     expect(find.text('lib/three.dart'), findsNothing);
-    expect(find.text('+1 more files'), findsOneWidget);
+    expect(find.text('还有 1 个文件'), findsOneWidget);
   });
 
   testWidgets('Claude auth warning renders as an error notice',
