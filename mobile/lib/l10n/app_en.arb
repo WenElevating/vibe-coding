@@ -283,6 +283,7 @@
     }
   },
   "commonBack": "Back",
+  "commonOk": "OK",
   "adaptersTitle": "Adapter status",
   "adaptersCount": "{count} items",
   "@adaptersCount": {
@@ -465,6 +466,22 @@
   "workbenchAttachmentUnsupported": "This file is not supported by the selected model.",
   "workbenchAttachmentTooLarge": "This file is too large.",
   "workbenchAttachmentAddInstruction": "Add an instruction for these files.",
+  "workbenchWorkspaceSwitchBlocked": "CLI is running; workspace cannot be switched right now",
+  "workbenchWorkspaceOpenFailed": "Workspace failed to open: {error}",
+  "@workbenchWorkspaceOpenFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchWorkspaceNotOpenedTitle": "Workspace not opened",
+  "workbenchWorkspaceNotOpenedMessage": "The workspace was created, but the daemon did not confirm it as the active workspace.",
+  "workbenchWorkspaceNotReadyTitle": "Workspace not ready",
+  "workbenchWorkspaceNotReadyMessage": "The workspace was created, but the daemon did not include it in the refreshed list yet.",
+  "workbenchWorkspaceCreationTimedOutTitle": "Workspace creation timed out",
+  "workbenchWorkspaceCreationTimedOutMessage": "The daemon did not finish creating the workspace in time.",
+  "workbenchWorkspaceCreationFailedTitle": "Workspace creation failed",
   "workbenchApprovalPageTitle": "Needs your approval",
   "workbenchModifyFileTitle": "Modify file",
   "workbenchDiffTab": "Diff",

@@ -247,9 +247,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _openWorkspaceList() {
     if (_isRunningCli) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('CLI is running; workspace cannot be switched right now'),
+      final l10n = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l10n.workbenchWorkspaceSwitchBlocked),
           duration: Duration(seconds: 2)));
       return;
     }
@@ -272,9 +272,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       await _workbenchViewModel.openWorkspaceSessions(workspace.id);
     } catch (error) {
       if (!mounted) return false;
+      final l10n = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Workspace failed to open: $error'),
+          content: Text(l10n.workbenchWorkspaceOpenFailed('$error')),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1004,6 +1005,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       name: request.name,
     );
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
 
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace):
@@ -1018,9 +1020,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         if (!opened && mounted) {
           _workbenchViewModel.cancelWorkspaceCreation();
           await _showWorkspaceCreationDialog(
-            title: 'Workspace not opened',
-            message:
-                'The workspace was created, but the daemon did not confirm it as the active workspace.',
+            title: l10n.workbenchWorkspaceNotOpenedTitle,
+            message: l10n.workbenchWorkspaceNotOpenedMessage,
           );
         }
       case CreateWorkspaceNotConfirmed():
@@ -1029,9 +1030,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _workbenchViewModel.clearOperationError(notify: false);
         });
         await _showWorkspaceCreationDialog(
-          title: 'Workspace not ready',
-          message:
-              'The workspace was created, but the daemon did not include it in the refreshed list yet.',
+          title: l10n.workbenchWorkspaceNotReadyTitle,
+          message: l10n.workbenchWorkspaceNotReadyMessage,
         );
       case CreateWorkspaceTimeout():
         _workbenchViewModel.cancelWorkspaceCreation();
@@ -1039,8 +1039,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           _workbenchViewModel.clearOperationError(notify: false);
         });
         await _showWorkspaceCreationDialog(
-          title: 'Workspace creation timed out',
-          message: 'The daemon did not finish creating the workspace in time.',
+          title: l10n.workbenchWorkspaceCreationTimedOutTitle,
+          message: l10n.workbenchWorkspaceCreationTimedOutMessage,
         );
       case CreateWorkspaceFailure(:final error):
         _workbenchViewModel.cancelWorkspaceCreation();
@@ -1049,7 +1049,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               notify: false);
         });
         await _showWorkspaceCreationDialog(
-          title: 'Workspace creation failed',
+          title: l10n.workbenchWorkspaceCreationFailedTitle,
           message: error.toString(),
         );
     }
@@ -1068,7 +1068,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               actions: [
                 TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('OK')),
+                    child: Text(AppLocalizations.of(context).commonOk)),
               ],
             ));
   }
@@ -1094,59 +1094,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   List<String> get _recentActionSummaries {
     return const <String>[];
-  }
-
-  // ignore: unused_element
-  String? _eventActionSummary(AgentEvent event) {
-    if (event.type == 'run.started') {
-      return 'Started ${event.raw['tool'] ?? _workbenchViewModel.selectedAdapter ?? 'CLI'} session';
-    }
-    if (event.type == 'approval.required') {
-      return 'Waiting for permission confirmation';
-    }
-    if (event.type == 'tool.started') {
-      final name = event.name ?? _toolNameFromRaw(event) ?? 'Tool';
-      final target = _toolTargetFromRaw(event);
-      return target == null ? 'Call $name' : 'Call $name: $target';
-    }
-    if (event.type == 'tool.output') {
-      final target = _toolTargetFromRaw(event);
-      return target == null ? 'Tool returned output' : 'Processed: $target';
-    }
-    if (event.type == 'diff.summary' && event.diff != null) {
-      return 'Changed ${event.diff!.filePath}  +${event.diff!.additions} -${event.diff!.deletions}';
-    }
-    if (event.type == 'raw.output') {
-      final text = event.text?.trim();
-      if (text == null || text.isEmpty || text.startsWith('{')) return null;
-      return text.length > 64 ? '${text.substring(0, 64)}…' : text;
-    }
-    if (event.type == 'run.completed') return 'Run completed';
-    if (event.type == 'run.failed') return 'Run failed';
-    return null;
-  }
-
-  String? _toolNameFromRaw(AgentEvent event) {
-    final raw = event.raw['raw'];
-    if (raw is Map<String, Object?>) {
-      final name = raw['name'] ?? raw['tool'] ?? raw['command'];
-      if (name is String && name.trim().isNotEmpty) return name;
-    }
-    return null;
-  }
-
-  String? _toolTargetFromRaw(AgentEvent event) {
-    final raw = event.raw['raw'];
-    if (raw is Map<String, Object?>) {
-      final input = raw['input'];
-      if (input is Map<String, Object?>) {
-        final file = input['file_path'] ?? input['path'] ?? input['filename'];
-        if (file is String && file.trim().isNotEmpty) {
-          return file.split('\\').last;
-        }
-      }
-    }
-    return null;
   }
 
   void _scrollToBottom({bool jump = false}) {

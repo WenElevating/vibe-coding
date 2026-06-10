@@ -283,6 +283,7 @@
     }
   },
   "commonBack": "返回",
+  "commonOk": "确定",
   "adaptersTitle": "适配器状态",
   "adaptersCount": "{count} 项",
   "@adaptersCount": {
@@ -465,6 +466,22 @@
   "workbenchAttachmentUnsupported": "所选模型不支持这个文件。",
   "workbenchAttachmentTooLarge": "这个文件太大。",
   "workbenchAttachmentAddInstruction": "为这些文件补充一条说明。",
+  "workbenchWorkspaceSwitchBlocked": "CLI 正在运行，暂时不能切换工作区",
+  "workbenchWorkspaceOpenFailed": "工作区打开失败：{error}",
+  "@workbenchWorkspaceOpenFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchWorkspaceNotOpenedTitle": "工作区未打开",
+  "workbenchWorkspaceNotOpenedMessage": "工作区已创建，但 daemon 没有确认它是当前活动工作区。",
+  "workbenchWorkspaceNotReadyTitle": "工作区尚未就绪",
+  "workbenchWorkspaceNotReadyMessage": "工作区已创建，但 daemon 刷新后的列表里还没有它。",
+  "workbenchWorkspaceCreationTimedOutTitle": "工作区创建超时",
+  "workbenchWorkspaceCreationTimedOutMessage": "daemon 未能在限定时间内完成工作区创建。",
+  "workbenchWorkspaceCreationFailedTitle": "工作区创建失败",
   "workbenchApprovalPageTitle": "需要你审批",
   "workbenchModifyFileTitle": "修改文件",
   "workbenchDiffTab": "差异",
