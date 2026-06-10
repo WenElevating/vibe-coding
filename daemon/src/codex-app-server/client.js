@@ -227,8 +227,7 @@ class CodexAppServerClient {
   writeFile(options = {}) {
     return this.sendRequest('fs/writeFile', compactObject({
       path: options.path,
-      content: options.content,
-      encoding: options.encoding
+      dataBase64: options.dataBase64 ?? encodeFileContent(options.content)
     }), options);
   }
 
@@ -589,6 +588,11 @@ function compactObject(value) {
     if (current !== undefined && current !== null) result[key] = current;
   }
   return result;
+}
+
+function encodeFileContent(value) {
+  if (typeof value !== 'string') return undefined;
+  return Buffer.from(value, 'utf8').toString('base64');
 }
 
 function compactDefinedObject(value) {

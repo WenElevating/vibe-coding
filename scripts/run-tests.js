@@ -7148,10 +7148,15 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     sendNotification() {}
   };
   const client = new CodexAppServerClient({ transport });
+  const fileContent = '  first line\nsecond line\n';
 
   await client.getFileMetadata({ path: 'D:\\Repo\\README.md' });
   await client.readDirectory({ path: 'D:\\Repo\\src' });
   await client.readFile({ path: 'D:\\Repo\\README.md', encoding: 'utf8' });
+  await client.writeFile({
+    path: 'D:\\Repo\\README.md',
+    dataBase64: Buffer.from(fileContent, 'utf8').toString('base64')
+  });
   await client.watchFileSystem({ path: 'D:\\Repo\\src' });
   await client.unwatchFileSystem({ watchId: 'watch_1' });
   await client.fuzzyFileSearch({ query: 'readme', workspacePath: 'D:\\Repo', limit: 10 });
@@ -7166,6 +7171,7 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     { method: 'fs/getMetadata', params: { path: 'D:\\Repo\\README.md' } },
     { method: 'fs/readDirectory', params: { path: 'D:\\Repo\\src' } },
     { method: 'fs/readFile', params: { path: 'D:\\Repo\\README.md', encoding: 'utf8' } },
+    { method: 'fs/writeFile', params: { path: 'D:\\Repo\\README.md', dataBase64: Buffer.from(fileContent, 'utf8').toString('base64') } },
     { method: 'fs/watch', params: { path: 'D:\\Repo\\src' } },
     { method: 'fs/unwatch', params: { watchId: 'watch_1' } },
     { method: 'fuzzyFileSearch', params: { query: 'readme', workspacePath: 'D:\\Repo', limit: 10 } },
@@ -9938,10 +9944,11 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
   });
   const root = `/api/codex-app-server/workspaces/${app.workspace.id}`;
   const resolveInWorkspace = (...segments) => path.resolve(app.workspace.path, ...segments);
+  const fileContent = '  first line\nsecond line\n';
 
   try {
     const cases = [
-      () => app.post(`${root}/fs/write-file`, { path: 'README.md', content: 'safe' }),
+      () => app.post(`${root}/fs/write-file`, { path: 'README.md', content: fileContent }),
       () => app.post(`${root}/fs/copy`, { sourcePath: 'README.md', destinationPath: 'README.copy.md' }),
       () => app.post(`${root}/fs/create-directory`, { path: 'tmp' }),
       () => app.delete(`${root}/fs/remove`, { path: 'tmp/file.txt' }),
@@ -9974,7 +9981,7 @@ test('Codex app-server high-risk routes call typed clients after approval', asyn
 
     assert.deepEqual(calls.filter((call) => call.method === 'writeFile')[0].options, {
       path: resolveInWorkspace('README.md'),
-      content: 'safe'
+      dataBase64: Buffer.from(fileContent, 'utf8').toString('base64')
     });
     assert.deepEqual(calls.filter((call) => call.method === 'spawnProcess')[0].options, {
       command: 'node',

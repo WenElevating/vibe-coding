@@ -672,3 +672,23 @@
   responses; use config-specific credential-key matching so token budgets,
   limits, and usage counters remain visible.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server File Writes Need Exact Payload Translation
+
+- Level: medium
+- Impact: `/api/codex-app-server/workspaces/:id/fs/write-file` accepts a
+  mobile-facing `content` string, while the upstream app-server schema requires
+  `dataBase64`. Reusing generic body-string parsing can trim valid leading or
+  trailing file bytes, and forwarding `content` directly can send a payload the
+  provider does not understand.
+- Evidence: `daemon/src/codex-app-server/routes.js` preserves raw `content`
+  before UTF-8 base64 encoding, and
+  `daemon/src/codex-app-server/client.js` sends `fs/writeFile` with
+  `dataBase64`. `scripts/run-tests.js` covers both the typed client payload and
+  the approved high-risk route preserving leading/trailing whitespace through
+  base64 translation.
+- Mitigation: keep route-facing compatibility fields separate from upstream RPC
+  schema fields. Do not use trimming helpers for file content, and do not add
+  `encoding` or raw `content` back to the `fs/writeFile` JSON-RPC payload unless
+  the generated schema changes and the fixture drift gate is updated.
+- Last verified: 2026-06-10

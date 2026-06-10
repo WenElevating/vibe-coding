@@ -371,13 +371,13 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceFsWriteFile[1]), context.device);
     const body = await readJson();
     const filePath = resolveWorkspaceRelativePath(workspace, parseRequiredBodyString(body?.path, 'path'));
-    const content = parseRequiredBodyString(body?.content, 'content');
-    const encoding = parseOptionalBodyString(body?.encoding, 'encoding');
+    const content = parseRequiredBodyRawString(body?.content, 'content');
+    const dataBase64 = Buffer.from(content, 'utf8').toString('base64');
     return highRiskMutationRoute(context, json, {
       workspace,
       method: 'fs/writeFile',
       risk: 'write',
-      action: (client) => client.writeFile(compactObject({ path: filePath, content, encoding }))
+      action: (client) => client.writeFile({ path: filePath, dataBase64 })
     });
   }
 
@@ -1345,6 +1345,16 @@ function parseRequiredBodyString(value, name) {
     throw badRequest(`${name} is required`);
   }
   return String(value).trim();
+}
+
+function parseRequiredBodyRawString(value, name) {
+  if (value === undefined || value === null) {
+    throw badRequest(`${name} is required`);
+  }
+  if (typeof value !== 'string') {
+    throw badRequest(`${name} must be a string`);
+  }
+  return value;
 }
 
 function parseOptionalBoundedBodyString(value, name, maxLength) {
