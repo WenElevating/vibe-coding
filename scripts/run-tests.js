@@ -13461,6 +13461,88 @@ test('conversation manager controls active Claude conversation dynamically', asy
   assert.equal(manager.getConversation(conversation.id, device).model, 'claude-opus');
 });
 
+test('conversation control permission mode persistence failure restores in-memory mode', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const calls = [];
+  const fakeHandle = {
+    sendUserMessage() {},
+    setPermissionMode(mode) { calls.push(['permission', mode]); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    async startConversation() { return fakeHandle; }
+  };
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore(),
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]])
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude' }, device);
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+  const originalPersist = manager.persistConversation.bind(manager);
+  manager.persistConversation = (item) => {
+    if (item.id === conversation.id && item.permissionMode === 'auto') throw new Error('persist failed');
+    originalPersist(item);
+  };
+
+  await assert.rejects(
+    () => manager.controlConversation(conversation.id, { action: 'set_permission_mode', permissionMode: 'auto' }, device),
+    /persist failed/
+  );
+
+  assert.deepEqual(calls, [['permission', 'auto']]);
+  assert.equal(internal.permissionMode, 'default');
+  assert.equal(internal.requestedPermissionMode, 'default');
+  assert.equal(internal.effectivePermissionMode, 'default');
+  assert.equal(manager.getConversation(conversation.id, device).effectivePermissionMode, 'default');
+});
+
+test('conversation control model persistence failure restores in-memory model', async () => {
+  const { ConversationManager } = require('../daemon/src/conversation-manager');
+  const { ConversationEventStore } = require('../daemon/src/conversation-event-store');
+  const workspaces = new WorkspaceRegistry();
+  workspaces.add({ id: 'default', name: 'Default', workspacePath: process.cwd() });
+  const calls = [];
+  const fakeHandle = {
+    sendUserMessage() {},
+    setModel(model) { calls.push(['model', model]); }
+  };
+  const adapter = {
+    capabilities: { longLivedProcess: true, waitingInput: true, waitingApproval: true },
+    async startConversation() { return fakeHandle; }
+  };
+  const manager = new ConversationManager({
+    workspaces,
+    eventStore: new ConversationEventStore(),
+    auditLog: new AuditLog(),
+    adapters: new Map([['claude', adapter]])
+  });
+  const device = { id: 'device_1', allowedWorkspaceIds: new Set(['default']) };
+  const conversation = manager.createConversation({ workspaceId: 'default', adapter: 'claude', model: 'claude-sonnet' }, device);
+  await manager.sendMessage(conversation.id, { text: 'hello' }, device);
+  const internal = manager.requireConversation(conversation.id, device);
+  const originalPersist = manager.persistConversation.bind(manager);
+  manager.persistConversation = (item) => {
+    if (item.id === conversation.id && item.model === 'claude-opus') throw new Error('persist failed');
+    originalPersist(item);
+  };
+
+  await assert.rejects(
+    () => manager.controlConversation(conversation.id, { action: 'set_model', model: 'claude-opus' }, device),
+    /persist failed/
+  );
+
+  assert.deepEqual(calls, [['model', 'claude-opus']]);
+  assert.equal(internal.model, 'claude-sonnet');
+  assert.equal(manager.getConversation(conversation.id, device).model, 'claude-sonnet');
+});
+
 test('conversation manager seeds restarted Claude conversations with recovered task titles', async () => {
   const startCalls = [];
   const adapter = {

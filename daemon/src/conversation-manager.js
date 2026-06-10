@@ -333,15 +333,37 @@ class ConversationManager {
         break;
       case 'set_permission_mode':
         result = await requireHandleMethod(handle, 'setPermissionMode').call(handle, input.permissionMode);
-        conversation.permissionMode = input.permissionMode;
-        conversation.requestedPermissionMode = input.permissionMode;
-        conversation.effectivePermissionMode = input.permissionMode;
-        this.touch(conversation);
+        {
+          const previousPermissionMode = {
+            permissionMode: conversation.permissionMode,
+            requestedPermissionMode: conversation.requestedPermissionMode,
+            effectivePermissionMode: conversation.effectivePermissionMode
+          };
+          try {
+            conversation.permissionMode = input.permissionMode;
+            conversation.requestedPermissionMode = input.permissionMode;
+            conversation.effectivePermissionMode = input.permissionMode;
+            this.touch(conversation);
+          } catch (error) {
+            conversation.permissionMode = previousPermissionMode.permissionMode;
+            conversation.requestedPermissionMode = previousPermissionMode.requestedPermissionMode;
+            conversation.effectivePermissionMode = previousPermissionMode.effectivePermissionMode;
+            throw error;
+          }
+        }
         break;
       case 'set_model':
         result = await requireHandleMethod(handle, 'setModel').call(handle, input.model);
-        conversation.model = input.model || null;
-        this.touch(conversation);
+        {
+          const previousModel = conversation.model || null;
+          try {
+            conversation.model = input.model || null;
+            this.touch(conversation);
+          } catch (error) {
+            conversation.model = previousModel;
+            throw error;
+          }
+        }
         break;
       case 'get_context_usage':
         result = await requireHandleMethod(handle, 'getContextUsage').call(handle);

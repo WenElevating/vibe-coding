@@ -367,11 +367,15 @@
 - Evidence: `daemon/src/conversation-manager.js` restores the previous
   permission-mode triple when `updatePermissionMode` persistence fails, and
   treats the follow-up `status_changed` notification as best-effort after the
-  state has been committed.
+  state has been committed. The legacy active-Claude `controlConversation`
+  route uses the same rollback boundary for manager-owned permission mode and
+  model updates when persistence fails after the provider handle accepts the
+  control request.
   `scripts/run-tests.js` covers permission-mode persistence failure restoring
   `permissionMode`, `requestedPermissionMode`, and `effectivePermissionMode`,
   plus status event append failure preserving the committed mode while recording
-  an audit entry.
+  an audit entry. It also covers legacy control-route permission-mode and model
+  persistence failures restoring the in-memory public conversation state.
 - Mitigation: for conversation controls that persist manager-owned state,
   snapshot the previous public state before mutation. Roll back on persistence
   failure; once persistence succeeds, do not fail the user request solely
