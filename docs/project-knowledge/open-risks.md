@@ -91,6 +91,24 @@
   clearing active turn and blocking state.
 - Last verified: 2026-06-10
 
+## Risk: Codex App-Server Transport Warnings Must Not Carry Raw Responses
+
+- Level: medium
+- Impact: JSON-RPC responses can arrive after a request has timed out or after
+  the local pending map has been cleared. If the transport forwards the entire
+  orphan provider response through `protocol.warning`, delayed account,
+  filesystem, config, or discovery payloads can leak sensitive provider data to
+  paired mobile clients.
+- Evidence:
+  `daemon/src/codex-app-server-transport.js` emits only safe orphan-response
+  metadata, currently the JSON-RPC id, and omits the raw response body.
+  `scripts/run-tests.js` covers an orphan response containing a token-shaped
+  value and a user-home path staying out of the protocol warning.
+- Mitigation: keep transport protocol warnings diagnostic-only and
+  allowlist-based. Do not attach raw app-server frames to warning events unless
+  the frame has first gone through a provider-specific redaction contract.
+- Last verified: 2026-06-10
+
 ## Risk: OpenCode Prompt Dispatch Can Race Provider Events
 
 - Level: medium

@@ -115,7 +115,10 @@ class CodexAppServerJsonlTransport extends EventEmitter {
   _handleResponse(message) {
     const pending = this.pending.get(message.id);
     if (!pending) {
-      this.emit('protocolWarning', { message: 'response without pending request', response: message });
+      this.emit('protocolWarning', {
+        message: 'response without pending request',
+        responseId: safeJsonRpcId(message.id)
+      });
       return;
     }
     this.pending.delete(message.id);
@@ -148,6 +151,13 @@ function normalizeRequestTimeoutMs(value, fallback) {
   const numeric = Number(candidate);
   if (!Number.isFinite(numeric) || numeric < 1) return Math.max(1, Number(fallback) || 30000);
   return numeric;
+}
+
+function safeJsonRpcId(value) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value === null) return null;
+  return '<invalid>';
 }
 
 module.exports = {

@@ -6716,6 +6716,34 @@ test('Codex app-server JSONL transport emits server requests and writes results'
   stdout.destroy();
 });
 
+test('Codex app-server JSONL transport redacts orphan responses from protocol warnings', () => {
+  const { PassThrough } = require('node:stream');
+  const { CodexAppServerJsonlTransport } = require('../daemon/src/codex-app-server-transport');
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const transport = new CodexAppServerJsonlTransport({ stdin, stdout, requestTimeoutMs: 1000 });
+  const warnings = [];
+  transport.on('protocolWarning', (warning) => warnings.push(warning));
+
+  stdout.write(`${JSON.stringify({
+    id: 'late-secret-response',
+    result: {
+      accessToken: 'sk-should-not-leak',
+      nested: { path: 'C:\\Users\\Alice\\private.txt' }
+    }
+  })}\n`);
+
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].message, 'response without pending request');
+  assert.equal(warnings[0].responseId, 'late-secret-response');
+  assert.equal(Object.prototype.hasOwnProperty.call(warnings[0], 'response'), false);
+  assert.equal(JSON.stringify(warnings).includes('sk-should-not-leak'), false);
+  assert.equal(JSON.stringify(warnings).includes('Alice'), false);
+  transport.close();
+  stdin.destroy();
+  stdout.destroy();
+});
+
 test('Codex app-server method extractor reads schema request surfaces', () => {
   const {
     defaultCodexAppServerSchemaDir,
