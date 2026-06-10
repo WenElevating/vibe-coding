@@ -20871,6 +20871,30 @@ test('Codex mapper truncates large aggregated output with marker', () => {
   assert.equal(event.truncated, true);
 });
 
+test('legacy JSONL process parser buffers lines split across stdout chunks', () => {
+  const { parseJsonOrRawLines } = require('../daemon/src/jsonline-adapter');
+  const { eventTypes } = require('../daemon/src/protocol');
+  const events = [];
+  const state = { buffer: '' };
+
+  parseJsonOrRawLines('{"type":"assistant.delta","text":"hel', (event) => events.push(event), state);
+  assert.deepEqual(events, []);
+  assert.equal(state.buffer, '{"type":"assistant.delta","text":"hel');
+
+  parseJsonOrRawLines('lo","session_id":"thread_1"}\n{"bad"', (event) => events.push(event), state);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, eventTypes.ASSISTANT_DELTA);
+  assert.equal(events[0].text, 'hello');
+  assert.equal(events[0].sessionId, 'thread_1');
+  assert.equal(state.buffer, '{"bad"');
+
+  parseJsonOrRawLines('\n', (event) => events.push(event), state);
+  assert.equal(events.length, 2);
+  assert.equal(events[1].type, eventTypes.RAW_OUTPUT);
+  assert.equal(events[1].text, '{"bad"');
+  assert.equal(state.buffer, '');
+});
+
 test('Codex conversation cancel kills process tree and reports cancellation only', async () => {
   const child = fakeCodexChild();
   const killed = [];

@@ -90,10 +90,13 @@ class JsonLineProcessAdapter {
     this.ensureAvailable();
     const args = this.runArgs(prompt, workspacePath, sessionId, resume, permissionMode);
     const child = this.spawnFn(this.invocation.command, [...this.invocation.argsPrefix, ...args], { cwd: workspacePath, windowsHide: true });
-    child.stdout.on('data', (chunk) => parseJsonOrRawLines(chunk, onEvent));
+    const stdoutState = { buffer: '' };
+    child.stdout.on('data', (chunk) => parseJsonOrRawLines(chunk, onEvent, stdoutState));
+    child.stdout.on('end', () => flushJsonLineBuffer(stdoutState, onEvent));
     child.stderr.on('data', (chunk) => onEvent({ type: eventTypes.RAW_OUTPUT, text: chunk.toString() }));
     child.on('error', (error) => onEvent({ type: eventTypes.ADAPTER_ERROR, ...adapterError(this.name, error) }));
     child.on('exit', (code, signal) => {
+      flushJsonLineBuffer(stdoutState, onEvent);
       if (signal) onEvent({ type: eventTypes.RUN_CANCELLED, signal });
       else if (code === 0) onEvent({ type: eventTypes.RUN_COMPLETED, exitCode: code });
       else onEvent({ type: eventTypes.RUN_FAILED, exitCode: code });
@@ -203,9 +206,13 @@ function createCodexAdapter(options = {}) {
   });
 }
 
-function parseJsonOrRawLines(chunk, onEvent) {
-  const text = chunk.toString();
-  for (const line of text.split(/\r?\n/)) {
+function parseJsonOrRawLines(chunk, onEvent, state = null) {
+  const text = state ? `${state.buffer || ''}${chunk.toString()}` : chunk.toString();
+  const lines = text.split(/\r?\n/);
+  if (state) {
+    state.buffer = text.endsWith('\n') ? '' : lines.pop();
+  }
+  for (const line of lines) {
     if (!line.trim()) continue;
     try {
       onEvent(mapGenericEvent(JSON.parse(line)));
@@ -213,6 +220,13 @@ function parseJsonOrRawLines(chunk, onEvent) {
       onEvent({ type: eventTypes.RAW_OUTPUT, text: line });
     }
   }
+}
+
+function flushJsonLineBuffer(state, onEvent) {
+  if (!state || !state.buffer) return;
+  const buffer = state.buffer;
+  state.buffer = '';
+  parseJsonOrRawLines(`${buffer}\n`, onEvent, state);
 }
 
 function mapGenericEvent(raw) {

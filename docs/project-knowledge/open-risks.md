@@ -1220,3 +1220,19 @@
   lifecycle listeners immediately after spawn and clear state by child identity
   so late events from old children cannot disturb a newer helper.
 - Last verified: 2026-06-10
+
+## Risk: JSONL Process Output Can Split Records Across Chunks
+
+- Level: medium
+- Impact: stdout chunk boundaries are not JSONL record boundaries. If a process
+  adapter parses each `data` chunk independently, a valid provider event split
+  across chunks is emitted as raw output and the daemon can miss session ids,
+  assistant deltas, tool events, or completion signals.
+- Evidence: the legacy JSONL process parser now accepts an optional line buffer
+  state, keeps unterminated stdout fragments between chunks, and flushes the
+  final fragment on stdout end or process exit. `scripts/run-tests.js` covers a
+  valid JSON event split across chunks plus an invalid buffered residual line.
+- Mitigation: all streaming provider adapters should treat bytes, chunks, and
+  logical provider events as separate layers. Keep parser tests that split
+  structured records across arbitrary chunk boundaries.
+- Last verified: 2026-06-10
