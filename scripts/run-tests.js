@@ -27131,6 +27131,16 @@ test('ASR model API reports missing asset as structured traceable error', async 
   }
 });
 
+test('ASR model download registers stream error handlers', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'daemon/src/asr-model-asset.js'), 'utf8');
+  const streamStart = source.indexOf('  async streamDownload(req, res)');
+  const streamBody = source.slice(streamStart, source.indexOf('\n  async _statReadable', streamStart));
+
+  assert.notEqual(streamStart, -1);
+  assert.match(streamBody, /createReadStream/);
+  assert.match(streamBody, /\.on\('error'/);
+});
+
 test('exceptions are persisted with trace ids and exported in diagnostics', async () => {
   const fs = require('node:fs');
   const os = require('node:os');

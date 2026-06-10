@@ -1139,3 +1139,21 @@
   retryability tests around persistence and token write failures before moving
   consumed/used flags earlier in the flow.
 - Last verified: 2026-06-10
+
+## Risk: Local Asset Downloads Need Stream Error Handlers
+
+- Level: medium
+- Impact: metadata checks can pass before a local asset stream starts. If the
+  file is deleted, replaced, or becomes unreadable after `stat`, an unhandled
+  `fs.createReadStream()` error can crash the daemon instead of failing the
+  single download response.
+- Evidence: `AsrModelAsset.streamDownload()` now stores the read stream,
+  attaches an `error` handler, and destroys the HTTP response with the stream
+  error. `scripts/run-tests.js` covers the ASR download function body for the
+  same stream error-handler invariant already enforced on Android APK
+  responses.
+- Mitigation: every daemon route that pipes local files to HTTP responses
+  should attach an explicit stream `error` handler before piping. Keep static
+  guard tests near asset/download route tests when a full race reproduction
+  would risk crashing the test process.
+- Last verified: 2026-06-10

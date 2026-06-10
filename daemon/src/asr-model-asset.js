@@ -62,7 +62,11 @@ class AsrModelAsset {
       'content-length': end - start + 1,
       ...(partial ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
     });
-    fs.createReadStream(this.filePath, { start, end }).pipe(res);
+    const stream = fs.createReadStream(this.filePath, { start, end });
+    stream.on('error', (error) => {
+      res.destroy(error);
+    });
+    stream.pipe(res);
   }
 
   async _statReadable() {
