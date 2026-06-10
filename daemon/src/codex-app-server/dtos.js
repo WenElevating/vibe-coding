@@ -42,6 +42,10 @@ function normalizeDiscoveryResponse(payload, options = {}) {
   return normalizeAnyDiscoveryValue(payload);
 }
 
+function normalizeConfigResponse(payload) {
+  return redactConfigFields(normalizeAnyDiscoveryValue(payload));
+}
+
 function normalizeAccountResponse(payload) {
   if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.account !== undefined) {
     return {
@@ -163,6 +167,20 @@ function redactAccountFields(value) {
   return result;
 }
 
+function redactConfigFields(value) {
+  if (Array.isArray(value)) return value.map(redactConfigFields);
+  if (!value || typeof value !== 'object') return value;
+  const result = {};
+  for (const [key, current] of Object.entries(value)) {
+    if (isSensitiveConfigKey(key)) {
+      result[key] = '[REDACTED]';
+    } else {
+      result[key] = redactConfigFields(current);
+    }
+  }
+  return result;
+}
+
 function isSensitiveAccountKey(key) {
   const normalized = String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
   if (!normalized) return false;
@@ -176,9 +194,20 @@ function isSensitiveAccountKey(key) {
   return false;
 }
 
+function isSensitiveConfigKey(key) {
+  const normalized = String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('apikey')) return true;
+  if (normalized.includes('secret')) return true;
+  if (normalized.includes('password')) return true;
+  if (normalized === 'token' || normalized.endsWith('token')) return true;
+  return false;
+}
+
 module.exports = {
   normalizeAccountRateLimitsResponse,
   normalizeAccountResponse,
+  normalizeConfigResponse,
   normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,

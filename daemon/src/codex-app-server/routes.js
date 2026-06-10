@@ -9,6 +9,7 @@ const { requireHighRiskApproval } = require('./high-risk-approval');
 const {
   normalizeAccountRateLimitsResponse,
   normalizeAccountResponse,
+  normalizeConfigResponse,
   normalizeDiscoveryResponse,
   normalizeGoalResponse,
   normalizeItemListResponse,
@@ -165,7 +166,9 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/config') {
-    return discoveryRoute(context, json, (client) => client.readConfig(), {});
+    const response = await requireService(context).withDiscoveryClient((client) => client.readConfig());
+    json(200, normalizeConfigResponse(response));
+    return true;
   }
 
   if (method === 'GET' && url.pathname === '/api/codex-app-server/config/requirements') {

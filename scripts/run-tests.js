@@ -8905,7 +8905,30 @@ test('Codex app-server routes return controlled bad request for malformed path e
 test('Codex app-server discovery routes use discovery client and normalize responses', async () => {
   const calls = [];
   const routeCases = [
-    { path: '/api/codex-app-server/config', clientMethod: 'readConfig', payload: { config: { model: 'gpt-5' }, extra: 'kept' } },
+    {
+      path: '/api/codex-app-server/config',
+      clientMethod: 'readConfig',
+      payload: {
+        config: {
+          model: 'gpt-5',
+          model_auto_compact_token_limit: 1000,
+          api_key: 'config-api-key-secret',
+          nested: { password: 'config-password-secret' }
+        },
+        layers: [{ config: { secretKey: 'layer-secret-key', token_limit: 2000 } }],
+        extra: 'kept'
+      },
+      expectedBody: {
+        config: {
+          model: 'gpt-5',
+          model_auto_compact_token_limit: 1000,
+          api_key: '[REDACTED]',
+          nested: { password: '[REDACTED]' }
+        },
+        layers: [{ config: { secretKey: '[REDACTED]', token_limit: 2000 } }],
+        extra: 'kept'
+      }
+    },
     { path: '/api/codex-app-server/config/requirements', clientMethod: 'readConfigRequirements', payload: { requirements: [{ id: 'apiKey' }], nextCursor: 'ignored' } },
     { path: '/api/codex-app-server/mcp/servers?cursor=next', clientMethod: 'listMcpServerStatus', options: { cursor: 'next' }, payload: { data: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' }, expectedBody: { servers: [{ id: 'server_1', status: 'running' }], nextCursor: 'mcp_more', source: 'fixture' } },
     { path: '/api/codex-app-server/mcp/resources?serverId=server_1&uri=file%3A%2F%2Fone', clientMethod: 'readMcpServerResource', options: { serverId: 'server_1', uri: 'file://one' }, payload: { resource: { uri: 'file://one', text: 'hello' }, serverId: 'server_1' } },

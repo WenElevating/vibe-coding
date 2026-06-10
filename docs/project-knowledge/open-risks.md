@@ -651,3 +651,24 @@
   before returning JSON. Any audit copy derived from account provider errors
   must redact credential key-value diagnostics before persistence.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Config Reads Can Leak Credential Values
+
+- Level: medium
+- Impact: `/api/codex-app-server/config` returns local app-server config data
+  to paired mobile clients. The upstream schema allows additional properties
+  and raw layer config snapshots, so future provider or user config extensions
+  can include credential-shaped values even when the stable schema does not
+  name those fields.
+- Evidence: `daemon/src/codex-app-server/routes.js` routes config reads through
+  `normalizeConfigResponse()`, and
+  `daemon/src/codex-app-server/dtos.js` redacts config keys such as `api_key`,
+  `password`, and `secretKey` while preserving non-secret token policy/count
+  fields such as `token_limit` and `model_auto_compact_token_limit`.
+  `scripts/run-tests.js` covers config and layer config redaction on the
+  discovery route.
+- Mitigation: keep config read redaction separate from the generic discovery
+  normalizer. Do not apply broad `token` substring redaction to all discovery
+  responses; use config-specific credential-key matching so token budgets,
+  limits, and usage counters remain visible.
+- Last verified: 2026-06-10
