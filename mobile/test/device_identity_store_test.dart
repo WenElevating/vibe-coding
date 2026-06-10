@@ -18,6 +18,20 @@ void main() {
     );
   });
 
+  test('persistent device identity store shares concurrent first read',
+      () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final store = SharedPreferencesDeviceIdentityStore();
+
+    final ids = await Future.wait<String>(List<Future<String>>.generate(
+      20,
+      (_) => store.readOrCreateDeviceId(),
+    ));
+
+    expect(ids.toSet(), hasLength(1));
+    expect(ids.first, await store.readOrCreateDeviceId());
+  });
+
   test('memory device identity store reuses injected device id', () async {
     final store = MemoryDeviceIdentityStore(
         deviceId: '11111111-1111-4111-8111-111111111111');

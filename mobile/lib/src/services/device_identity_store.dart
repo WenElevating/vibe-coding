@@ -8,9 +8,23 @@ abstract class DeviceIdentityStore {
 
 class SharedPreferencesDeviceIdentityStore implements DeviceIdentityStore {
   static const String _deviceIdKey = 'daemon.deviceId';
+  Future<String>? _readOrCreateTask;
 
   @override
-  Future<String> readOrCreateDeviceId() async {
+  Future<String> readOrCreateDeviceId() {
+    final activeTask = _readOrCreateTask;
+    if (activeTask != null) return activeTask;
+    late final Future<String> task;
+    task = _readOrCreateDeviceIdOnce().whenComplete(() {
+      if (identical(_readOrCreateTask, task)) {
+        _readOrCreateTask = null;
+      }
+    });
+    _readOrCreateTask = task;
+    return task;
+  }
+
+  Future<String> _readOrCreateDeviceIdOnce() async {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getString(_deviceIdKey);
     if (existing != null && existing.isNotEmpty) return existing;

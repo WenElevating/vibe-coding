@@ -1273,3 +1273,20 @@
   frame-local. Do not let one malformed event terminate the shared download
   event stream.
 - Last verified: 2026-06-11
+
+## Risk: Device Identity Creation Can Race Initial Pairing
+
+- Level: medium
+- Impact: the mobile device id keys access and refresh token storage. If two
+  initial pairing flows ask the persistent identity store for a device id at
+  the same time and each creates a different UUID, token storage and daemon
+  pairing state can split across identities.
+- Evidence:
+  `mobile/lib/src/services/device_identity_store.dart` shares an in-flight
+  first read/create operation per store instance.
+  `mobile/test/device_identity_store_test.dart` covers concurrent first reads
+  returning one stable id.
+- Mitigation: keep persistent device identity creation single-flight, and do
+  not add alternate first-run device id generation paths outside
+  `DeviceIdentityStore`.
+- Last verified: 2026-06-11
