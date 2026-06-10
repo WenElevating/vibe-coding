@@ -109,6 +109,25 @@
   the frame has first gone through a provider-specific redaction contract.
 - Last verified: 2026-06-10
 
+## Risk: Codex App-Server Process Cleanup Is Platform Best-Effort
+
+- Level: low
+- Impact: app-server child shutdown can depend on Windows `taskkill`, process
+  tree lookup, or platform `child.kill()` behavior. Those APIs can fail or
+  throw while the daemon is already trying to dispose a probe, model-list, or
+  conversation process. Letting those failures escape can interrupt daemon
+  cleanup and leave lifecycle capacity accounting stale.
+- Evidence:
+  `daemon/src/codex-app-server-lifecycle.js` treats process-tree terminator
+  failures and `child.kill()` failures as best-effort false results, while
+  still deleting lifecycle handles when shutdown resolves.
+  `scripts/run-tests.js` covers thrown process-tree termination and thrown
+  child-kill cleanup paths for Codex app-server lifecycle.
+- Mitigation: keep app-server shutdown cleanup exception-safe. Any new
+  platform cleanup mechanism should fall back to the existing shutdown timers
+  instead of replacing cleanup with a throwing path.
+- Last verified: 2026-06-10
+
 ## Risk: OpenCode Prompt Dispatch Can Race Provider Events
 
 - Level: medium

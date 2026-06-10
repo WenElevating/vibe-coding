@@ -10847,6 +10847,59 @@ test('Codex app-server lifecycle can terminate a Windows process tree before dir
   assert.equal(lifecycle.metrics.orphanProcessCleanupCount, 1);
 });
 
+test('Codex app-server lifecycle ignores process tree terminator failures during shutdown', async () => {
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const terminations = [];
+  const signals = [];
+  const child = createFakeAppServerChild({
+    pid: 9877,
+    kill(signal) {
+      signals.push(signal || 'SIGTERM');
+      if (signal === 'SIGKILL') setImmediate(() => child.emit('exit', null, 'SIGKILL'));
+      return true;
+    }
+  });
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    gracefulShutdownMs: 5,
+    spawnAppServer: () => child,
+    processTreeTerminator(pid, options) {
+      terminations.push({ pid, force: options.force, signal: options.signal });
+      throw new Error(`taskkill unavailable for ${pid}`);
+    }
+  });
+  const handle = lifecycle.spawn();
+
+  await handle.shutdown();
+
+  assert.deepEqual(terminations, [
+    { pid: 9877, force: false, signal: 'SIGTERM' },
+    { pid: 9877, force: true, signal: 'SIGKILL' }
+  ]);
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+});
+
+test('Codex app-server lifecycle treats child kill failures as best-effort cleanup', async () => {
+  const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
+  const child = createFakeAppServerChild({
+    pid: 9878,
+    kill() {
+      throw new Error('child kill unavailable');
+    }
+  });
+  const lifecycle = new CodexAppServerLifecycle({
+    maxProcesses: 1,
+    gracefulShutdownMs: 5,
+    spawnAppServer: () => child
+  });
+  const handle = lifecycle.spawn();
+
+  const exit = await handle.shutdown();
+
+  assert.deepEqual(exit, { code: null, signal: 'missing-kill' });
+  assert.equal(lifecycle.handles.size, 0);
+});
+
 test('Codex app-server lifecycle rejects pending requests on child spawn error', async () => {
   const { CodexAppServerLifecycle } = require('../daemon/src/codex-app-server-lifecycle');
   const child = createFakeAppServerChild({ pid: null, kill: () => false });

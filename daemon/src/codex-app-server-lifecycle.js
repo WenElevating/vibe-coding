@@ -142,11 +142,16 @@ class CodexAppServerProcessHandle {
       if (this.processTreePids.length === 0) {
         this.processTreePids = collectWindowsProcessTreePids(this.pid);
       }
-      const result = this.processTreeTerminator(this.pid, {
-        force,
-        signal,
-        processTreePids: this.processTreePids
-      });
+      let result = false;
+      try {
+        result = this.processTreeTerminator(this.pid, {
+          force,
+          signal,
+          processTreePids: this.processTreePids
+        });
+      } catch (_) {
+        result = false;
+      }
       if (result === true) {
         if (force || this.processTreePids.length > 1) {
           this.lifecycle.metrics.orphanProcessCleanupCount += 1;
@@ -155,7 +160,11 @@ class CodexAppServerProcessHandle {
       }
     }
     if (typeof this.child.kill === 'function') {
-      return this.child.kill(signal);
+      try {
+        return this.child.kill(signal);
+      } catch (_) {
+        return false;
+      }
     }
     return false;
   }
