@@ -147,7 +147,9 @@ class HomeAgentConsolePanel extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(workspaceDisplayName(workspace),
+                          Text(
+                              workspaceDisplayName(workspace,
+                                  fallbackName: l10n.workspaceCurrentFallback),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

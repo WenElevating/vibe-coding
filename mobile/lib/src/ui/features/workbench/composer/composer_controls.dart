@@ -56,7 +56,10 @@ class ComposerWorkspaceCloud extends StatelessWidget {
                       const SizedBox(width: 10),
                       ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 168),
-                          child: Text(workspaceDisplayName(workspace),
+                          child: Text(
+                              workspaceDisplayName(workspace,
+                                  fallbackName: AppLocalizations.of(context)
+                                      .workspaceCurrentFallback),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

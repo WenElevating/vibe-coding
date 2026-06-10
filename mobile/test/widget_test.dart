@@ -1896,11 +1896,14 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
     List<DirectoryEntrySummary> roots = const <DirectoryEntrySummary>[],
     Map<String, DirectoryListing> directories =
         const <String, DirectoryListing>{},
+    Object? rootsError,
   })  : _roots = roots,
-        _directories = directories;
+        _directories = directories,
+        _rootsError = rootsError;
 
   final List<DirectoryEntrySummary> _roots;
   final Map<String, DirectoryListing> _directories;
+  final Object? _rootsError;
 
   @override
   Future<CodeDiagnosticsSummary> codeDiagnostics(String workspaceId) async =>
@@ -1946,7 +1949,11 @@ class _WidgetTestWorkspaceRepository implements WorkspaceRepository {
       (throw StateError('No test directory listing for $path'));
 
   @override
-  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async => _roots;
+  Future<List<DirectoryEntrySummary>> listFileSystemRoots() async {
+    final error = _rootsError;
+    if (error != null) throw error;
+    return _roots;
+  }
 
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async =>
@@ -3340,15 +3347,15 @@ void main() {
                 onCliTap: () => cliTaps++,
                 onTap: () => workspaceTaps++))));
 
-    expect(find.text('vibe-coding'), findsOneWidget);
+    expect(find.text('Current Project'), findsOneWidget);
     expect(find.text('codex'), findsOneWidget);
 
     final cliRight = tester.getTopRight(find.text('codex')).dx;
-    final workspaceLeft = tester.getTopLeft(find.text('vibe-coding')).dx;
+    final workspaceLeft = tester.getTopLeft(find.text('Current Project')).dx;
     expect(cliRight, lessThan(workspaceLeft));
 
     await tester.tap(find.text('codex'));
-    await tester.tap(find.text('vibe-coding'));
+    await tester.tap(find.text('Current Project'));
 
     expect(cliTaps, 1);
     expect(workspaceTaps, 1);
@@ -7409,6 +7416,32 @@ void main() {
     expect(find.text('Current Project'), findsOneWidget);
   });
 
+  test('workspace display name uses localized fallback after name and path',
+      () {
+    expect(
+        workspaceDisplayName(
+          const WorkspaceSummary(
+              id: 'workspace_current',
+              name: 'Current Project',
+              path: r'D:\AiProject\vibe-coding'),
+          fallbackName: '当前工作区',
+        ),
+        'Current Project');
+    expect(
+        workspaceDisplayName(
+          const WorkspaceSummary(
+              id: 'workspace_empty', name: '', path: r'D:\AiProject\other'),
+          fallbackName: '当前工作区',
+        ),
+        'other');
+    expect(
+        workspaceDisplayName(
+          const WorkspaceSummary(id: 'workspace_unknown', name: '', path: ''),
+          fallbackName: '当前工作区',
+        ),
+        '当前工作区');
+  });
+
   test('workspace list presentation deduplicates duplicate paths', () {
     final visible = dedupeWorkspacesByPath(const <WorkspaceSummary>[
       WorkspaceSummary(
@@ -7506,6 +7539,30 @@ void main() {
 
     expect(find.text('选择磁盘或根目录后继续进入文件夹'), findsOneWidget);
     expect(find.text('选择当前'), findsNothing);
+  });
+
+  testWidgets('directory browser localizes load errors',
+      (WidgetTester tester) async {
+    final repository = _WidgetTestWorkspaceRepository(
+      rootsError: StateError('drive unavailable'),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+        locale: theme.zhHansCnLocale,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        localeResolutionCallback: (locale, supportedLocales) =>
+            resolveSupportedLocale(locale, supportedLocales),
+        theme: theme.buildAppTheme(),
+        home: Scaffold(
+            backgroundColor: theme.bg,
+            body: DirectoryBrowserSheet.forWorkspaceRepository(
+                repository: repository))));
+    await tester.pumpAndSettle();
+
+    expect(find.text('无法加载文件夹'), findsOneWidget);
+    expect(find.textContaining('drive unavailable'), findsOneWidget);
+    expect(find.text('Could not load folders'), findsNothing);
   });
 
   testWidgets('completed command card collapses details by default',

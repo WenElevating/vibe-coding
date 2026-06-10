@@ -122,7 +122,9 @@ class _HomeWorkspaceRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      workspaceDisplayName(workspace),
+                      workspaceDisplayName(workspace,
+                          fallbackName: AppLocalizations.of(context)
+                              .workspaceCurrentFallback),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

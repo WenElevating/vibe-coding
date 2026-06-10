@@ -71,7 +71,8 @@ class SettingsConnectionCard extends StatelessWidget {
                     label: l10n.settingsWorkspaceLabel,
                     value: workspace == null
                         ? l10n.workspaceListTitle
-                        : workspaceDisplayName(workspace))),
+                        : workspaceDisplayName(workspace,
+                            fallbackName: l10n.workspaceCurrentFallback))),
             const SizedBox(width: 10),
             Expanded(
                 child: SettingsMetric(

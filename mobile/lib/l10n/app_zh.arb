@@ -402,6 +402,7 @@
   "workspaceChooseFolderTitle": "选择文件夹",
   "workspaceSelectCurrentAction": "选择当前",
   "workspaceBrowserPlaceholder": "选择磁盘或根目录后继续进入文件夹",
+  "workspaceDirectoryLoadFailed": "无法加载文件夹",
   "workbenchComposerNoAdapter": "没有可用 CLI adapter",
   "workbenchAdapterUnavailableTitle": "CLI adapter 暂不可用",
   "workbenchAdapterLoadingTitle": "正在后台加载 CLI adapter",

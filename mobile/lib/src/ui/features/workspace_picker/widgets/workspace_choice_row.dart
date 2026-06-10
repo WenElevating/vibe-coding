@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../l10n/app_localizations.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
+import '../workspace_display.dart';
 
 class WorkspaceChoiceRow extends StatelessWidget {
   const WorkspaceChoiceRow({
@@ -52,7 +54,10 @@ class WorkspaceChoiceRow extends StatelessWidget {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Text(workspace.name.isEmpty ? workspace.id : workspace.name,
+                  Text(
+                      workspaceDisplayName(workspace,
+                          fallbackName: AppLocalizations.of(context)
+                              .workspaceCurrentFallback),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

@@ -402,6 +402,7 @@
   "workspaceChooseFolderTitle": "Choose folder",
   "workspaceSelectCurrentAction": "Select current",
   "workspaceBrowserPlaceholder": "Choose a drive or root directory, then continue into a folder",
+  "workspaceDirectoryLoadFailed": "Could not load folders",
   "workbenchComposerNoAdapter": "No available CLI adapter",
   "workbenchAdapterUnavailableTitle": "CLI adapters unavailable",
   "workbenchAdapterLoadingTitle": "Loading CLI adapters in background",

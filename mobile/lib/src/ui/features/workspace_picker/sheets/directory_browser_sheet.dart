@@ -110,9 +110,10 @@ class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
                                           color: theme.active)));
                             }
                             if (snapshot.hasError) {
-                              return Text(snapshot.error.toString(),
-                                  style: const TextStyle(
-                                      color: theme.red, fontSize: 12));
+                              return _DirectoryErrorPanel(
+                                title: l10n.workspaceDirectoryLoadFailed,
+                                detail: snapshot.error.toString(),
+                              );
                             }
                             final data = snapshot.requireData;
                             final entries = data is DirectoryListing
@@ -164,6 +165,41 @@ class _DirectoryBrowserSheetState extends State<DirectoryBrowserSheet> {
                           }))
                 ])));
   }
+}
+
+class _DirectoryErrorPanel extends StatelessWidget {
+  const _DirectoryErrorPanel({required this.title, required this.detail});
+
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: theme.red.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: theme.red.withValues(alpha: .22))),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.error_outline_rounded, color: theme.red, size: 17),
+        const SizedBox(width: 9),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title,
+              style: const TextStyle(
+                  color: theme.red,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text(detail,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFFF9A9A), fontSize: 11.5, height: 1.3)),
+        ])),
+      ]));
 }
 
 class _DirectoryHeaderIcon extends StatelessWidget {

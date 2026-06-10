@@ -62,7 +62,7 @@ class CodingSessionListPage extends StatelessWidget {
                           letterSpacing: 0)),
                   const SizedBox(height: 3),
                   Text(
-                      '${workspaceDisplayName(currentWorkspace)} · ${compactWorkspacePath(currentWorkspace.path)}',
+                      '${workspaceDisplayName(currentWorkspace, fallbackName: l10n.workspaceCurrentFallback)} · ${compactWorkspacePath(currentWorkspace.path)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -84,7 +84,8 @@ class CodingSessionListPage extends StatelessWidget {
             const SizedBox(height: 14),
             _SessionGroupHeader(
                 title: l10n.sessionsCurrentProject,
-                meta: workspaceDisplayName(currentWorkspace)),
+                meta: workspaceDisplayName(currentWorkspace,
+                    fallbackName: l10n.workspaceCurrentFallback)),
             const SizedBox(height: 6),
             if (currentItems.isEmpty)
               _EmptySessionStack(onNewSession: onNewSession)

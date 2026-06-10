@@ -7,12 +7,14 @@ String compactWorkspacePath(String path) {
   return '…/${parts[parts.length - 2]}/${parts.last}';
 }
 
-String workspaceDisplayName(WorkspaceSummary workspace) {
-  if (workspace.name.trim().isNotEmpty &&
-      workspace.name.toLowerCase() != 'current project') {
+String workspaceDisplayName(
+  WorkspaceSummary workspace, {
+  required String fallbackName,
+}) {
+  if (workspace.name.trim().isNotEmpty) {
     return workspace.name;
   }
   final normalized = workspace.path.replaceAll('\\', '/');
   final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
-  return parts.isEmpty ? 'Current workspace' : parts.last;
+  return parts.isEmpty ? fallbackName : parts.last;
 }
