@@ -101,5 +101,5 @@ Map<String, Object?> _mapValue(Object? value) {
 
 List<Map<String, Object?>> _objectListValue(Object? value) {
   if (value is! List) return const <Map<String, Object?>>[];
-  return value.map(_mapValue).toList(growable: false);
+  return value.whereType<Map>().map(_mapValue).toList(growable: false);
 }

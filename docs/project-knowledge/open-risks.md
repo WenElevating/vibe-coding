@@ -1323,3 +1323,19 @@
 - Mitigation: every long-lived audio stream listener should consume stream
   errors and route them through the same lifecycle cleanup used by cancel/stop.
 - Last verified: 2026-06-11
+
+## Risk: Codex App-Server List DTOs Can Contain Non-Object Entries
+
+- Level: low
+- Impact: Codex app-server discovery and thread routes return JSON envelopes
+  that mobile renders as lists. If a malformed non-object list item is coerced
+  into an empty object, the UI can show blank rows or count unsupported route
+  entries that were not real DTOs.
+- Evidence:
+  `mobile/lib/src/data/models/codex_app_server_models.dart` filters list DTOs
+  to Map entries before parsing them.
+  `mobile/test/codex_app_server_models_test.dart` covers a thread list with
+  non-object entries producing only the valid thread.
+- Mitigation: keep app-server list parsing type-filtered and avoid converting
+  arbitrary scalar list items into empty DTO maps.
+- Last verified: 2026-06-11

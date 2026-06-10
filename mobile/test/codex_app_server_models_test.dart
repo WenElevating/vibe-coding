@@ -49,6 +49,22 @@ void main() {
     expect(page.nextCursor, 'next_page');
   });
 
+  test('CodexAppServerThreadPage ignores non-object list entries', () {
+    final page = parseCodexAppServerThreadPage(const {
+      'threads': [
+        'not a thread object',
+        {
+          'id': 'thread_1',
+          'title': 'Fix auth',
+        },
+        null,
+      ],
+    });
+
+    expect(page.threads, hasLength(1));
+    expect(page.threads.single.id, 'thread_1');
+  });
+
   test('CodexAppServerDiscoverySnapshot preserves discovery route payloads',
       () {
     final snapshot = parseCodexAppServerDiscoverySnapshot(const {
