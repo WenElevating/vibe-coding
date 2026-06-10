@@ -140,6 +140,16 @@ class RunManager {
     run.prompt = prompt;
     run.resumeRequested = true;
     const workspace = this.workspaces.getAuthorized(run.workspaceId, device);
+    const queueResult = this.runQueue.submit(run);
+    if (queueResult.state === 'queued') {
+      this.eventStore.append(runId, eventTypes.RUN_QUEUED, {
+        workspaceId: workspace.id,
+        reason: queueResult.item.reason,
+        position: queueResult.item.position
+      });
+      this.eventStore.append(runId, eventTypes.QUEUE_UPDATED, { queue: this.runQueue.list() });
+      return publicRun(run);
+    }
     this.startRunProcess(run, workspace);
     return publicRun(run);
   }

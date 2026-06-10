@@ -16629,6 +16629,41 @@ function createV1RunManagerForTest(adapter) {
   return { manager, eventStore, device, workspace, auditLog, runQueue };
 }
 
+test('V1 follow-up re-enters workspace queue when another run is active', async () => {
+  const startedPrompts = [];
+  const { manager, eventStore, device, workspace, runQueue } = createV1RunManagerForTest({
+    startRun({ prompt }) {
+      startedPrompts.push(prompt);
+      return { kill() {} };
+    }
+  });
+  const first = manager.createRun({ tool: 'claude', workspaceId: workspace.id, prompt: 'first' }, device);
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = manager.createRun({ tool: 'claude', workspaceId: workspace.id, prompt: 'second' }, device);
+
+  assert.equal(second.status, 'queued');
+
+  manager.recordAdapterEvent(manager.getRun(first.id, device), { type: eventTypes.RUN_COMPLETED });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(manager.getRun(second.id, device).status, 'running');
+
+  const followed = manager.followUp(first.id, { prompt: 'first again' }, device);
+
+  assert.equal(followed.status, 'queued');
+  assert.equal(manager.getRun(first.id, device).status, 'queued');
+  assert.equal(manager.getRun(second.id, device).status, 'running');
+  assert.deepEqual(runQueue.list().map((item) => item.runId), [first.id]);
+  assert.equal(startedPrompts.includes('first again'), false);
+  assert.equal(eventStore.list(first.id, 0).some((event) => event.type === eventTypes.RUN_QUEUED), true);
+
+  manager.recordAdapterEvent(manager.getRun(second.id, device), { type: eventTypes.RUN_COMPLETED });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(manager.getRun(first.id, device).status, 'running');
+  assert.equal(startedPrompts.includes('first again'), true);
+});
+
 test('V1 run approval response awaits provider failures and keeps approval retryable', async () => {
   let failReply = true;
   const decisions = [];

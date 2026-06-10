@@ -338,6 +338,23 @@
   lower than the requested cursor.
 - Last verified: 2026-06-09
 
+## Risk: V1 Run Follow-Ups Can Bypass Workspace Queue Serialization
+
+- Level: medium
+- Impact: follow-up prompts resume an existing run but still perform workspace
+  writes. If a completed, failed, or cancelled V1 run starts its follow-up
+  directly while another run is active in the same workspace, two adapter
+  processes can run concurrently against a workspace that the queue contract
+  intends to serialize.
+- Evidence: `daemon/src/run-manager.js` submits eligible follow-up restarts
+  through `RunQueue` before starting the adapter process. `scripts/run-tests.js`
+  covers a completed run follow-up re-entering the workspace queue while a
+  second run is active, then starting only after the active run completes.
+- Mitigation: any path that restarts or resumes a V1 run after a terminal state
+  must go through `RunQueue.submit` rather than calling `startRunProcess`
+  directly.
+- Last verified: 2026-06-10
+
 ## Risk: Approval Response Options Need Daemon-Side Enforcement
 
 - Level: medium
