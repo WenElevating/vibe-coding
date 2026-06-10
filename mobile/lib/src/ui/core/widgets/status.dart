@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart' as theme;
 
-String displayVersion(String? version) =>
-    version == null || version.isEmpty ? 'unknown' : version;
+String displayVersion(String? version, {required String unknownLabel}) =>
+    version == null || version.isEmpty ? unknownLabel : version;
 
 Color toolColor(String tool) {
   final lower = tool.toLowerCase();

@@ -284,6 +284,7 @@
   "adaptersNoExtensions": "暂无扩展信息",
   "adaptersNotInstalled": "未安装",
   "adaptersStatusOk": "状态正常",
+  "adaptersVersionUnknown": "版本未知",
   "adaptersCapabilitiesLabel": "能力",
   "diagnosticsTitle": "诊断",
   "diagnosticsDescription": "导出已脱敏的诊断包，用于排查问题",

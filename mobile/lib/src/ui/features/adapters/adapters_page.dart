@@ -33,7 +33,10 @@ class AdaptersPage extends StatelessWidget {
               subtitle: adapter.available
                   ? l10n.adaptersStatusOk
                   : adapter.statusText,
-              trailing: displayVersion(adapter.version),
+              trailing: displayVersion(
+                adapter.version,
+                unknownLabel: l10n.adaptersVersionUnknown,
+              ),
               color: adapter.available ? toolColor(adapter.adapter) : theme.red,
               healthy: adapter.available,
             ),

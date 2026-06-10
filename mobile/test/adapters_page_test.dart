@@ -64,22 +64,54 @@ void main() {
     expect(find.text('codex'), findsOneWidget);
     expect(find.text('claude'), findsOneWidget);
     expect(find.text('Status OK'), findsOneWidget);
+    expect(find.text('Version unknown'), findsOneWidget);
     expect(find.textContaining('missing binary'), findsOneWidget);
     expect(find.textContaining('Status OK\nmissing binary'), findsNothing);
     expect(find.text('GitHub'), findsOneWidget);
     expect(find.text('not installed'), findsOneWidget);
   });
+
+  testWidgets('adapters page localizes missing adapter version',
+      (tester) async {
+    final viewModel = await _viewModel(
+      adapters: const <AdapterStatus>[
+        AdapterStatus(
+          adapter: 'claude',
+          available: true,
+          status: 'available',
+        ),
+      ],
+    );
+    addTearDown(viewModel.dispose);
+
+    await tester.pumpWidget(_Harness(
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+        countryCode: 'CN',
+      ),
+      viewModel: viewModel,
+    ));
+
+    expect(find.text('版本未知'), findsOneWidget);
+    expect(find.text('Version unknown'), findsNothing);
+  });
 }
 
 class _Harness extends StatelessWidget {
-  const _Harness({required this.viewModel, this.onBack});
+  const _Harness({
+    required this.viewModel,
+    this.onBack,
+    this.locale = const Locale('en', 'US'),
+  });
 
   final AdaptersViewModel viewModel;
   final VoidCallback? onBack;
+  final Locale locale;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        locale: const Locale('en', 'US'),
+        locale: locale,
         supportedLocales: appSupportedLocales,
         localizationsDelegates: appLocalizationsDelegates,
         theme: theme.buildAppTheme(),

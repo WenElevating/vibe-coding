@@ -101,51 +101,58 @@ class _AdapterChoiceRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-          decoration: BoxDecoration(
-              color: selected
-                  ? const Color(0xFF1A212A)
-                  : Colors.white.withValues(alpha: .03),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                  color: selected
-                      ? theme.activeStroke.withValues(alpha: .75)
-                      : theme.stroke)),
-          child: Row(children: [
-            _AdapterBrandIcon(adapter: adapter.adapter),
-            const SizedBox(width: 10),
-            Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(adapter.adapter,
-                      style: const TextStyle(
-                          color: theme.text,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0)),
-                  const SizedBox(height: 2),
-                  Text(displayVersion(adapter.version),
-                      style:
-                          const TextStyle(color: theme.muted, fontSize: 11.5))
-                ])),
-            if (selected)
-              Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .06),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: theme.activeStroke.withValues(alpha: .7))),
-                  child: const Icon(Icons.check_rounded,
-                      color: theme.active, size: 12))
-          ])));
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+            decoration: BoxDecoration(
+                color: selected
+                    ? const Color(0xFF1A212A)
+                    : Colors.white.withValues(alpha: .03),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: selected
+                        ? theme.activeStroke.withValues(alpha: .75)
+                        : theme.stroke)),
+            child: Row(children: [
+              _AdapterBrandIcon(adapter: adapter.adapter),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(adapter.adapter,
+                        style: const TextStyle(
+                            color: theme.text,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0)),
+                    const SizedBox(height: 2),
+                    Text(
+                        displayVersion(
+                          adapter.version,
+                          unknownLabel: l10n.adaptersVersionUnknown,
+                        ),
+                        style:
+                            const TextStyle(color: theme.muted, fontSize: 11.5))
+                  ])),
+              if (selected)
+                Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .06),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: theme.activeStroke.withValues(alpha: .7))),
+                    child: const Icon(Icons.check_rounded,
+                        color: theme.active, size: 12))
+            ])));
+  }
 }
 
 class _AdapterBrandIcon extends StatelessWidget {

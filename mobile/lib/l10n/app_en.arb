@@ -284,6 +284,7 @@
   "adaptersNoExtensions": "No extension information",
   "adaptersNotInstalled": "not installed",
   "adaptersStatusOk": "Status OK",
+  "adaptersVersionUnknown": "Version unknown",
   "adaptersCapabilitiesLabel": "Capabilities",
   "diagnosticsTitle": "Diagnostics",
   "diagnosticsDescription": "Export a redacted diagnostics bundle for troubleshooting",

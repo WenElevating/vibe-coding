@@ -69,6 +69,9 @@
   `ApprovalResponse.toJson()` semantics through the conversation repository.
   `legacyDecision` is only for V1 run approvals and local legacy projection;
   using it for conversation sends collapses `cancel` into `deny`.
+- User-visible fallback labels in shared UI helpers must come from
+  `AppLocalizations` at the call site; do not hardcode English placeholders
+  such as missing adapter versions inside core widgets.
 - Add focused widget/unit tests for user-visible UI behavior and reducer state.
 - Before claiming architecture-sensitive Flutter work is complete, run
   `dart run tool\check_architecture_imports.dart` plus the relevant analyze/test
