@@ -441,9 +441,10 @@ class CodexAppServerClient {
   }
 
   startReview(options = {}) {
-    return this.sendRequest('review/start', compactObject({
-      workspacePath: options.workspacePath,
-      maxItems: options.maxItems
+    return this.sendRequest('review/start', compactDefinedObject({
+      threadId: options.threadId,
+      target: options.target,
+      delivery: options.delivery
     }), options);
   }
 

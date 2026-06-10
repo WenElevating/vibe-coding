@@ -861,3 +861,25 @@
   Do not add it back to the upstream `fs/readFile` payload unless generated
   schema fixtures and route tests change together.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Review Diagnostic Route Needs Thread Scope
+
+- Level: medium
+- Impact: `review/start` is diagnostic-only, but it still calls the upstream
+  app-server method. The provider schema requires `threadId` and a structured
+  `target`; workspace-only compatibility fields such as `workspacePath` and
+  `maxItems` are not accepted. Calling review without verifying the thread's
+  workspace can also run a diagnostic review against a thread outside the
+  authorized mobile workspace.
+- Evidence: `daemon/src/codex-app-server/client.js` sends `review/start` with
+  only `threadId`, `target`, and optional `delivery`.
+  `daemon/src/codex-app-server/routes.js` rejects legacy review bodies, parses
+  schema targets, and runs the standard thread workspace ownership preflight
+  before dispatch. `scripts/run-tests.js` covers typed client payloads,
+  diagnostic route audit behavior, preflight read, and malformed request
+  rejection.
+- Mitigation: keep review diagnostics schema-first even while product review UX
+  remains incomplete. Do not reintroduce `workspacePath` or `maxItems` into the
+  upstream `review/start` payload unless generated schemas and route tests
+  change together.
+- Last verified: 2026-06-10

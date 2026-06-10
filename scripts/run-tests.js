@@ -7163,7 +7163,13 @@ test('Codex app-server client sends typed filesystem requests', async () => {
   await client.startFuzzyFileSearchSession({ sessionId: 'fuzzy_1', roots: ['D:\\Repo'], query: 'src' });
   await client.updateFuzzyFileSearchSession({ sessionId: 'fuzzy_1', query: 'daemon', roots: ['D:\\Repo'], limit: 5 });
   await client.stopFuzzyFileSearchSession({ sessionId: 'fuzzy_1', roots: ['D:\\Repo'] });
-  await client.startReview({ workspacePath: 'D:\\Repo', maxItems: 20 });
+  await client.startReview({
+    threadId: 'thread_1',
+    target: { type: 'uncommittedChanges' },
+    delivery: 'detached',
+    workspacePath: 'D:\\Repo',
+    maxItems: 20
+  });
   await client.generateAttestation({ workspacePath: 'D:\\Repo', challenge: 'nonce' });
   await client.listRealtimeVoices();
 
@@ -7178,7 +7184,7 @@ test('Codex app-server client sends typed filesystem requests', async () => {
     { method: 'fuzzyFileSearch/sessionStart', params: { sessionId: 'fuzzy_1', roots: ['D:\\Repo'] } },
     { method: 'fuzzyFileSearch/sessionUpdate', params: { sessionId: 'fuzzy_1', query: 'daemon' } },
     { method: 'fuzzyFileSearch/sessionStop', params: { sessionId: 'fuzzy_1' } },
-    { method: 'review/start', params: { workspacePath: 'D:\\Repo', maxItems: 20 } },
+    { method: 'review/start', params: { threadId: 'thread_1', target: { type: 'uncommittedChanges' }, delivery: 'detached' } },
     { method: 'attestation/generate', params: { workspacePath: 'D:\\Repo', challenge: 'nonce' } },
     { method: 'thread/realtime/listVoices', params: {} }
   ]);
@@ -8882,12 +8888,17 @@ test('Codex app-server review and attestation diagnostic routes audit workspace-
     async withWorkspaceClient(workspace, callback) {
       calls.push({ method: 'withWorkspaceClient', workspace });
       return callback({
+        async readThread(options) {
+          calls.push({ method: 'readThread', options });
+          return { thread: { id: options.threadId, workspacePath: app.workspace.path } };
+        },
         async startReview(options) {
           calls.push({ method: 'startReview', options });
           return {
             review: {
               findings: [{ severity: 'medium', message: 'Check route validation' }],
-              maxItems: options.maxItems
+              threadId: options.threadId,
+              target: options.target
             }
           };
         },
@@ -8903,8 +8914,9 @@ test('Codex app-server review and attestation diagnostic routes audit workspace-
 
   try {
     const review = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
-      maxItems: 25,
-      workspacePath: 'D:\\Untrusted'
+      threadId: 'thread_1',
+      target: { type: 'uncommittedChanges' },
+      delivery: 'detached'
     });
     const attestation = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/attestation/generate`, {
       challenge: 'nonce',
@@ -8914,13 +8926,15 @@ test('Codex app-server review and attestation diagnostic routes audit workspace-
     assert.equal(review.status, 200);
     assert.deepEqual(review.body.review, {
       findings: [{ severity: 'medium', message: 'Check route validation' }],
-      maxItems: 25
+      threadId: 'thread_1',
+      target: { type: 'uncommittedChanges' }
     });
     assert.equal(attestation.status, 200);
     assert.deepEqual(attestation.body.attestation, { workspacePath: app.workspace.path, token: 'attested' });
     assert.deepEqual(calls, [
       { method: 'withWorkspaceClient', workspace: app.workspace },
-      { method: 'startReview', options: { workspacePath: app.workspace.path, maxItems: 25 } },
+      { method: 'readThread', options: { threadId: 'thread_1' } },
+      { method: 'startReview', options: { threadId: 'thread_1', target: { type: 'uncommittedChanges' }, delivery: 'detached' } },
       { method: 'withWorkspaceClient', workspace: app.workspace },
       { method: 'generateAttestation', options: { workspacePath: app.workspace.path, challenge: 'nonce' } }
     ]);
@@ -8939,7 +8953,7 @@ test('Codex app-server review and attestation diagnostic routes audit workspace-
   }
 });
 
-test('Codex app-server review diagnostic route validates maxItems before service access', async () => {
+test('Codex app-server review diagnostic route validates schema body before service access', async () => {
   let serviceCalls = 0;
   const app = await createCodexAppServerRouteTestApp({
     service: {
@@ -8951,17 +8965,21 @@ test('Codex app-server review diagnostic route validates maxItems before service
   });
 
   try {
-    const invalidType = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
-      maxItems: '25'
-    });
-    const tooLarge = await app.post(`/api/codex-app-server/workspaces/${app.workspace.id}/review/start`, {
-      maxItems: 201
-    });
-
-    assert.equal(invalidType.status, 400);
-    assert.equal(invalidType.body.error.code, 'BAD_REQUEST');
-    assert.equal(tooLarge.status, 400);
-    assert.equal(tooLarge.body.error.code, 'BAD_REQUEST');
+    const base = `/api/codex-app-server/workspaces/${app.workspace.id}/review/start`;
+    for (const body of [
+      {},
+      { target: { type: 'uncommittedChanges' } },
+      { threadId: 'thread_1' },
+      { threadId: 'thread_1', target: { type: 'unknown' } },
+      { threadId: 'thread_1', target: { type: 'baseBranch' } },
+      { threadId: 'thread_1', target: { type: 'commit', sha: 'abc', extra: true } },
+      { threadId: 'thread_1', target: { type: 'custom', instructions: 'check' }, maxItems: 25 },
+      { threadId: 'thread_1', target: { type: 'custom', instructions: 'check' }, workspacePath: 'D:\\Untrusted' }
+    ]) {
+      const response = await app.post(base, body);
+      assert.equal(response.status, 400, JSON.stringify(body));
+      assert.equal(response.body.error.code, 'BAD_REQUEST', JSON.stringify(body));
+    }
     assert.equal(serviceCalls, 0);
   } finally {
     await app.close();

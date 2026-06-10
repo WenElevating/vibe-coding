@@ -566,17 +566,17 @@ async function tryHandleCodexAppServerRoute({ method, url, json, readJson, conte
   if (method === 'POST' && workspaceReviewStart) {
     const workspace = context.workspaces.getAuthorized(decodePathParam(workspaceReviewStart[1]), context.device);
     const body = await readJson();
-    const maxItems = parseOptionalPositiveInteger(body?.maxItems, 'maxItems') || 50;
-    if (maxItems > 200) throw badRequest('maxItems must be at most 200');
+    const request = parseReviewStartBody(body);
     return auditedDiagnosticRoute(context, json, {
       workspace,
+      threadId: request.threadId,
       method: 'review/start',
       risk: 'permission',
       event: 'review_start',
-      action: (client) => client.startReview({
-        workspacePath: workspaceRoot(workspace),
-        maxItems
-      })
+      action: async (client) => {
+        await preflightThreadWorkspaceOwnership({ client, workspace, threadId: request.threadId });
+        return client.startReview(request);
+      }
     });
   }
 
@@ -1141,12 +1141,13 @@ async function highRiskMutationRoute(context, json, { workspace = null, method, 
   }
 }
 
-async function auditedDiagnosticRoute(context, json, { workspace, method, risk, event, action }) {
+async function auditedDiagnosticRoute(context, json, { workspace, threadId, method, risk, event, action }) {
   const correlationId = createCorrelationId();
   const metadata = {
     method,
     workspaceId: workspace?.id || workspace?.workspaceId || null,
     workspacePath: workspace ? workspaceRoot(workspace) : undefined,
+    threadId,
     deviceId: context.device?.id || null,
     risk,
     correlationId
@@ -1567,6 +1568,50 @@ function parseThreadGoalTokenBudget(value) {
   if (value === null) return null;
   if (!Number.isInteger(value) || value < 0) throw badRequest('goal.tokenBudget must be a nonnegative integer');
   return value;
+}
+
+function parseReviewStartBody(body) {
+  const request = parseRequiredObject(body, 'body');
+  assertAllowedKeys(request, ['threadId', 'target', 'delivery'], 'review');
+  return compactDefinedObject({
+    threadId: parseRequiredBodyString(request.threadId, 'threadId'),
+    target: parseReviewTarget(request.target),
+    delivery: parseReviewDelivery(request.delivery)
+  });
+}
+
+function parseReviewDelivery(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const delivery = parseRequiredBodyString(value, 'delivery');
+  if (delivery !== 'inline' && delivery !== 'detached') throw badRequest('delivery must be inline or detached');
+  return delivery;
+}
+
+function parseReviewTarget(value) {
+  const target = parseRequiredObject(value, 'target');
+  const type = parseRequiredBodyString(target.type, 'target.type');
+  if (type === 'uncommittedChanges') {
+    assertAllowedKeys(target, ['type'], 'target');
+    return { type };
+  }
+  if (type === 'baseBranch') {
+    assertAllowedKeys(target, ['type', 'branch'], 'target');
+    return { type, branch: parseRequiredBodyString(target.branch, 'target.branch') };
+  }
+  if (type === 'commit') {
+    assertAllowedKeys(target, ['type', 'sha', 'title'], 'target');
+    return compactDefinedObject({
+      type,
+      sha: parseRequiredBodyString(target.sha, 'target.sha'),
+      title: parseOptionalNullableBodyString(target.title, 'target.title')
+    });
+  }
+  if (type === 'custom') {
+    assertAllowedKeys(target, ['type', 'instructions'], 'target');
+    return { type, instructions: parseRequiredBodyString(target.instructions, 'target.instructions') };
+  }
+  throw badRequest('target.type is invalid');
 }
 
 function assertAllowedKeys(value, allowed, name) {
