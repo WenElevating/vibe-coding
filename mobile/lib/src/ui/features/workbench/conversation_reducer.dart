@@ -163,7 +163,9 @@ class ConversationViewState {
       nextSeq = event.seq;
       switch (event.type) {
         case 'conversation.status_changed':
-          nextStatus = event.raw['status'] as String? ?? nextStatus;
+          final normalizedStatus =
+              normalizeConversationStatus(event.raw['status'] as String?);
+          nextStatus = normalizedStatus.isEmpty ? nextStatus : normalizedStatus;
           break;
         case 'assistant.thinking':
           if ((event.text ?? '').trim().isNotEmpty) {

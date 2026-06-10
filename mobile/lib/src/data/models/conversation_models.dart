@@ -7,10 +7,14 @@ bool conversationEventCompletesTurn(ConversationEvent event) {
   return event.raw['turnFinal'] != false;
 }
 
+String normalizeConversationStatus(String? status) =>
+    status?.trim().toLowerCase() ?? '';
+
 bool conversationStatusCanResumeAfterApprovalResolution(String? status) {
-  return status == 'sending' ||
-      status == 'running' ||
-      status == 'waiting_approval';
+  final normalized = normalizeConversationStatus(status);
+  return normalized == 'sending' ||
+      normalized == 'running' ||
+      normalized == 'waiting_approval';
 }
 
 bool conversationBlockingItemMatchesCancellation(
@@ -42,11 +46,12 @@ ConversationBlockingItem? conversationBlockingItemForStatusChange(
   ConversationBlockingItem? blockingItem,
   String? status,
 ) {
-  if (status == 'waiting_approval' &&
+  final normalized = normalizeConversationStatus(status);
+  if (normalized == 'waiting_approval' &&
       blockingItem?.type == 'approval_request') {
     return blockingItem;
   }
-  if (status == 'waiting_input' && blockingItem?.type == 'input_request') {
+  if (normalized == 'waiting_input' && blockingItem?.type == 'input_request') {
     return blockingItem;
   }
   return null;

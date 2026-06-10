@@ -649,6 +649,42 @@ void main() {
       expect(viewModel.pendingQuestionId, isNull);
     });
 
+    test('status events normalize external daemon status casing', () {
+      final viewModel = _workbenchViewModel(
+        adapters: const <AdapterStatus>[_claudeAvailable],
+      );
+      viewModel.updateActiveConversation(
+        _conversation(
+          adapter: 'claude',
+          status: ' Running ',
+        ),
+      );
+
+      viewModel.applyConversationEvents(
+        <ConversationEvent>[
+          ConversationEvent.fromJson(const <String, Object?>{
+            'seq': 1,
+            'conversationId': 'conv_1',
+            'type': 'conversation.status_changed',
+            'createdAt': '2026-05-18T00:00:02.000Z',
+            'status': ' Waiting_Input ',
+          }),
+          ConversationEvent.fromJson(const <String, Object?>{
+            'seq': 2,
+            'conversationId': 'conv_1',
+            'type': 'assistant.question',
+            'createdAt': '2026-05-18T00:00:03.000Z',
+            'questionId': 'question_1',
+            'text': 'Pick one',
+          }),
+        ],
+        streamOutput: false,
+      );
+
+      expect(viewModel.effectiveConversationStatus, 'waiting_input');
+      expect(viewModel.pendingQuestionId, 'question_1');
+    });
+
     test('pre-commit attachment failure keeps draft and client message id',
         () async {
       final repository = _FakeConversationRepository()

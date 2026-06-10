@@ -5,19 +5,21 @@ import '../../../models/protocol.dart';
 export 'workbench_route_state.dart';
 
 bool canSendInConversationStatus(String? status) {
-  return status == null ||
-      status == 'idle' ||
-      status == 'waiting_input' ||
-      status == 'cancelled' ||
-      status == 'failed' ||
-      status == 'interrupted';
+  final normalized = normalizeConversationStatus(status);
+  return normalized.isEmpty ||
+      normalized == 'idle' ||
+      normalized == 'waiting_input' ||
+      normalized == 'cancelled' ||
+      normalized == 'failed' ||
+      normalized == 'interrupted';
 }
 
 bool isActiveConversationStatus(String? status) {
-  return status == 'sending' ||
-      status == 'running' ||
-      status == 'waiting_input' ||
-      status == 'waiting_approval';
+  final normalized = normalizeConversationStatus(status);
+  return normalized == 'sending' ||
+      normalized == 'running' ||
+      normalized == 'waiting_input' ||
+      normalized == 'waiting_approval';
 }
 
 bool shouldApplyConversationSendAcknowledgement({

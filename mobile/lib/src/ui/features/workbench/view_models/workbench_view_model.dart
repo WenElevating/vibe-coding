@@ -187,7 +187,7 @@ class WorkbenchViewModel extends ChangeNotifier {
   String? get pendingQuestionId {
     final conversation = _activeConversation;
     final blockingItem = conversation?.blockingItem;
-    if (conversation?.status == 'waiting_input' &&
+    if (normalizeConversationStatus(conversation?.status) == 'waiting_input' &&
         blockingItem?.type == 'input_request') {
       return blockingItem?.questionId;
     }
@@ -1494,7 +1494,10 @@ class WorkbenchViewModel extends ChangeNotifier {
     var status = current.status;
     ConversationBlockingItem? blockingItem = current.blockingItem;
     if (event.type == 'conversation.status_changed') {
-      status = event.raw['status'] as String? ?? status;
+      final nextStatus = normalizeConversationStatus(
+        event.raw['status'] as String?,
+      );
+      if (nextStatus.isNotEmpty) status = nextStatus;
       blockingItem = conversationBlockingItemForStatusChange(
         blockingItem,
         status,
@@ -1528,7 +1531,9 @@ class WorkbenchViewModel extends ChangeNotifier {
         return;
       }
       if (blockingItem == null) {
-        if (status != 'waiting_approval') status = 'running';
+        if (normalizeConversationStatus(status) != 'waiting_approval') {
+          status = 'running';
+        }
       } else if (blockingItem.type == 'approval_request' &&
           event.approvalId != null &&
           event.approvalId == blockingItem.approvalId) {
@@ -1873,11 +1878,12 @@ class WorkbenchViewModel extends ChangeNotifier {
       );
 
   static String _runStatusFromConversation(String status) {
-    if (status == 'idle') return 'completed';
-    if (status == 'cancelled' ||
-        status == 'failed' ||
-        status == 'interrupted') {
-      return status;
+    final normalized = normalizeConversationStatus(status);
+    if (normalized == 'idle') return 'completed';
+    if (normalized == 'cancelled' ||
+        normalized == 'failed' ||
+        normalized == 'interrupted') {
+      return normalized;
     }
     return 'running';
   }
@@ -1944,7 +1950,7 @@ bool shouldShowConversationInSessionList(
   bool isOptimistic = false,
 }) {
   if (isOptimistic) return true;
-  if (conversation.status == 'idle' &&
+  if (normalizeConversationStatus(conversation.status) == 'idle' &&
       conversation.cliSessionId == null &&
       conversation.userMessageCount == 0) {
     return false;
@@ -1953,7 +1959,8 @@ bool shouldShowConversationInSessionList(
 }
 
 bool _isPendingSnapshotConversation(ConversationSummary conversation) =>
-    conversation.status == 'idle' && conversation.userMessageCount == 0;
+    normalizeConversationStatus(conversation.status) == 'idle' &&
+    conversation.userMessageCount == 0;
 
 RunSummary runSummaryFromConversation(ConversationSummary conversation) {
   return RunSummary(
@@ -1966,9 +1973,12 @@ RunSummary runSummaryFromConversation(ConversationSummary conversation) {
 }
 
 String runStatusFromConversation(String status) {
-  if (status == 'idle') return 'completed';
-  if (status == 'cancelled' || status == 'failed' || status == 'interrupted') {
-    return status;
+  final normalized = normalizeConversationStatus(status);
+  if (normalized == 'idle') return 'completed';
+  if (normalized == 'cancelled' ||
+      normalized == 'failed' ||
+      normalized == 'interrupted') {
+    return normalized;
   }
   return 'running';
 }

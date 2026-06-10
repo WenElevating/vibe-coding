@@ -5,8 +5,10 @@ import '../../../data/models/approval_models.dart';
 import '../../../models/protocol.dart';
 import 'conversation_reducer.dart';
 
-bool shouldRestartEventsAfterApproval(ConversationSummary conversation) =>
-    conversation.status == 'running' || conversation.status == 'waiting_input';
+bool shouldRestartEventsAfterApproval(ConversationSummary conversation) {
+  final status = normalizeConversationStatus(conversation.status);
+  return status == 'running' || status == 'waiting_input';
+}
 
 bool hasExplicitWorkspaceSelectionState({
   required bool workspaceConfirmedForSession,
@@ -17,12 +19,19 @@ bool hasExplicitWorkspaceSelectionState({
 
 String conversationPendingStatusText(
     AppLocalizations l10n, String status, Iterable<ConversationEvent> events) {
-  if (status == 'interrupted') return l10n.workbenchPendingInterrupted;
-  if (status == 'waiting_input') return l10n.workbenchPendingWaitingInput;
-  if (status == 'waiting_approval') {
+  final normalizedStatus = normalizeConversationStatus(status);
+  if (normalizedStatus == 'interrupted') {
+    return l10n.workbenchPendingInterrupted;
+  }
+  if (normalizedStatus == 'waiting_input') {
+    return l10n.workbenchPendingWaitingInput;
+  }
+  if (normalizedStatus == 'waiting_approval') {
     return l10n.workbenchPendingWaitingApproval;
   }
-  if (status != 'running' && status != 'sending') return '';
+  if (normalizedStatus != 'running' && normalizedStatus != 'sending') {
+    return '';
+  }
   final list = events.toList(growable: false);
   if (list.isEmpty) return l10n.workbenchPendingStarting;
   final activeToolUseIds = <String>{};
@@ -105,15 +114,19 @@ DateTime? conversationPendingStartedAt(
   return startedAt;
 }
 
-bool _isPendingTimerStatus(String status) =>
-    status == 'sending' || status == 'running';
+bool _isPendingTimerStatus(String status) {
+  final normalized = normalizeConversationStatus(status);
+  return normalized == 'sending' || normalized == 'running';
+}
 
-bool _isInactiveConversationStatus(String status) =>
-    status == 'idle' ||
-    status == 'completed' ||
-    status == 'cancelled' ||
-    status == 'failed' ||
-    status == 'interrupted';
+bool _isInactiveConversationStatus(String status) {
+  final normalized = normalizeConversationStatus(status);
+  return normalized == 'idle' ||
+      normalized == 'completed' ||
+      normalized == 'cancelled' ||
+      normalized == 'failed' ||
+      normalized == 'interrupted';
+}
 
 String _pendingToolLabel(AppLocalizations l10n, ConversationEvent event) {
   final command = event.input['command'];
@@ -149,7 +162,8 @@ String _compactCommandLabel(String command) {
 List<ConversationMessage> messagesForConversationSnapshot(
     List<ConversationMessage> messages, ConversationSummary? conversation) {
   final blockingItem = conversation?.blockingItem;
-  if (conversation?.status != 'waiting_approval' ||
+  if (normalizeConversationStatus(conversation?.status) !=
+          'waiting_approval' ||
       blockingItem?.type != 'approval_request') {
     return messages
         .where((message) => message.role != 'approval')

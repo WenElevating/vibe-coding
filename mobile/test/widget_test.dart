@@ -7296,6 +7296,32 @@ void main() {
     expect(items, isEmpty);
   });
 
+  test('conversation session projection normalizes daemon status values', () {
+    final items = mergeSessionItems(
+      const <String, SessionItem>{},
+      <ConversationSummary>[
+        _conversationSummary(
+          id: 'conv_empty',
+          workspaceId: 'workspace_1',
+          status: ' Idle ',
+          sessionBinding: 'unknown',
+          userMessageCount: 0,
+        ),
+        _conversationSummary(
+          id: 'conv_failed',
+          workspaceId: 'workspace_1',
+          status: ' Failed ',
+          sessionBinding: 'unknown',
+          userMessageCount: 1,
+        ),
+      ],
+      const <RunSummary>[],
+    );
+
+    expect(items.map((item) => item.id), const <String>['conv_failed']);
+    expect(items.single.run.status, 'failed');
+  });
+
   test('approval response restarts events only for active conversations', () {
     const capabilities = ConversationCapabilities(
       longLivedProcess: true,
@@ -7308,7 +7334,7 @@ void main() {
       id: 'conv_running',
       workspaceId: 'workspace_1',
       adapter: 'claude',
-      status: 'running',
+      status: ' Running ',
       capabilities: capabilities,
       createdAt: '2026-05-03T00:00:00.000Z',
       updatedAt: '2026-05-03T00:00:01.000Z',
