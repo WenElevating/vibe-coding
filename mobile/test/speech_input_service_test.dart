@@ -228,6 +228,24 @@ void main() {
     expect(recognizer.canceled, isTrue);
   });
 
+  test('audio stream errors stop recorder and cancel recognizer', () async {
+    final recorder = FakeSpeechRecorder();
+    final recognizer = FakeSpeechRecognizer()..partials.add('partial');
+    final service = SherpaSpeechInputService(
+      modelDirectory: 'unused',
+      permissionFactory: () => FakeSpeechPermission(),
+      recorderFactory: () => recorder,
+      recognizerFactory: (_) => recognizer,
+    );
+
+    await service.start(onPartial: (_) {});
+    recorder.controller.addError(StateError('microphone stream failed'));
+    await pumpEventQueue();
+
+    expect(recorder.stopped, isTrue);
+    expect(recognizer.canceled, isTrue);
+  });
+
   test('stop cancels subscription and returns final text', () async {
     final recorder = FakeSpeechRecorder();
     final recognizer = FakeSpeechRecognizer()

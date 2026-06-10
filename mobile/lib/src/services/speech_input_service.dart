@@ -126,11 +126,17 @@ class SherpaSpeechInputService implements SpeechInputService {
         await _recorder.stop().catchError((Object _) => null);
         return;
       }
-      _audioSubscription = audioStream.listen((data) {
-        if (_disposed) return;
-        _latestText = recognizer.acceptWaveform(data);
-        onPartial(_latestText);
-      });
+      _audioSubscription = audioStream.listen(
+        (data) {
+          if (_disposed) return;
+          _latestText = recognizer.acceptWaveform(data);
+          onPartial(_latestText);
+        },
+        onError: (_) {
+          if (_disposed) return;
+          unawaited(cancel().catchError((Object _) {}));
+        },
+      );
       _started = true;
     } catch (_) {
       await _cleanupFailedStart();

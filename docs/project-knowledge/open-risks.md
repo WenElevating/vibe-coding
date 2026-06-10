@@ -1308,3 +1308,18 @@
 - Mitigation: treat disabled tracing as a run-boundary cleanup event, not only
   as a publisher toggle.
 - Last verified: 2026-06-11
+
+## Risk: Voice Input Audio Stream Errors Need Lifecycle Cleanup
+
+- Level: medium
+- Impact: microphone/audio recorder streams can emit asynchronous errors after
+  recording has started. Without an `onError` handler, those errors can surface
+  as unhandled async exceptions and leave recorder or recognizer state active.
+- Evidence:
+  `mobile/lib/src/services/speech_input_service.dart` handles audio stream
+  errors by best-effort cancelling the active recording.
+  `mobile/test/speech_input_service_test.dart` covers an audio stream error
+  stopping the recorder and cancelling the recognizer.
+- Mitigation: every long-lived audio stream listener should consume stream
+  errors and route them through the same lifecycle cleanup used by cancel/stop.
+- Last verified: 2026-06-11
