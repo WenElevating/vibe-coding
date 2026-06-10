@@ -11977,6 +11977,57 @@ test('notification websocket closes when the access token expires', async () => 
   }
 });
 
+test('notification hub removes subscriptions immediately when token expiry closes connection', async () => {
+  const sentFrames = [];
+  let closed = null;
+  const ws = new EventEmitter();
+  ws.readyState = WebSocket.OPEN;
+  ws.bufferedAmount = 0;
+  ws.send = (data, callback) => {
+    sentFrames.push(JSON.parse(String(data)));
+    if (callback) callback();
+  };
+  ws.close = (code, reason) => {
+    closed = { code, reason };
+    ws.readyState = WebSocket.CLOSING;
+  };
+  const hub = new NotificationHub({
+    auth: null,
+    conversations: {
+      requireConversation: () => ({ id: 'conv_1' }),
+      listEvents: () => []
+    },
+    conversationEventStore: { onAppend() { return () => {}; } },
+    version: { daemonVersion: 'test' },
+    heartbeatIntervalMs: 0,
+    websocketMaxConnectionAgeMs: 10
+  });
+
+  hub.acceptConnection(ws, { id: 'device_1', allowedWorkspaceIds: new Set(['default']) });
+  const connection = Array.from(hub.connections.values())[0];
+  hub.addSubscription(connection, {
+    key: subscriptionKey('conversation.events', { conversationId: 'conv_1' }),
+    generation: 1,
+    topic: 'conversation.events',
+    scope: { conversationId: 'conv_1' },
+    conversationId: 'conv_1',
+    replaying: false,
+    queuedLiveEvents: []
+  });
+
+  for (let attempt = 0; attempt < 20 && !closed; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(sentFrames.some((frame) => frame.type === 'error' && frame.code === notificationErrorCodes.TOKEN_EXPIRED), true);
+  assert.deepEqual(closed, { code: 1008, reason: notificationErrorCodes.TOKEN_EXPIRED });
+  assert.equal(connection.closed, true);
+  assert.equal(connection.authAgeTimer, null);
+  assert.equal(connection.subscriptions.size, 0);
+  assert.equal(hub.connections.has(connection.id), false);
+  assert.equal(hub.conversationSubscriptions.has('conv_1'), false);
+});
+
 test('notification websocket hub closes active connections during teardown', async () => {
   const app = createApp({ port: 0, devAdapters: true, appDbPath: tempConversationDbPath('app-db-ws-close-') });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));

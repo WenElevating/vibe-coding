@@ -126,6 +126,7 @@ class NotificationHub {
         }, { bypassBackpressure: true });
       } finally {
         this.closeWebSocket(connection, 1008, notificationErrorCodes.TOKEN_EXPIRED);
+        this.closeConnection(connection);
       }
     }, this.connectionAuthTimeoutMs(connection.authExpiresAt));
     setImmediate(() => {

@@ -294,22 +294,23 @@
   events without rechecking current subscription authorization.
 - Last verified: 2026-06-10
 
-## Risk: Notification Backpressure Can Leave Stale Subscriptions
+## Risk: Server-Side Notification Closes Can Leave Stale Subscriptions
 
 - Level: medium
-- Impact: when a notification WebSocket exceeds buffered-byte or queued-frame
-  limits, the daemon sends a `BACKPRESSURE` error and starts closing the socket.
-  If local connection cleanup waits only for the later socket close event, the
-  hub can retain stale conversation subscriptions and keep trying to deliver
-  replay or live events to a connection that has already been rejected.
+- Impact: when the daemon explicitly closes a notification WebSocket for
+  reasons such as backpressure or token expiry, waiting only for the later
+  socket close event can leave hub connection and conversation subscription
+  indexes stale. The hub can then keep trying to deliver replay or live events
+  to a connection that has already been rejected.
 - Evidence: `daemon/src/notification-hub.js` now calls `closeConnection`
-  immediately after initiating a backpressure close, which removes the
-  connection and all conversation subscription indexes synchronously.
-  `scripts/run-tests.js` covers live publish hitting backpressure and leaving
-  no connection or subscription entries behind.
-- Mitigation: every explicit server-side WebSocket close caused by delivery
-  failure should either synchronously clean local hub indexes or prove that a
-  later close handler cannot allow additional sends first.
+  immediately after initiating backpressure and token-expiry closes, which
+  removes the connection and all conversation subscription indexes
+  synchronously. `scripts/run-tests.js` covers live publish hitting
+  backpressure and token expiry leaving no connection or subscription entries
+  behind.
+- Mitigation: every explicit server-side WebSocket close should either
+  synchronously clean local hub indexes or prove that a later close handler
+  cannot allow additional sends first.
 - Last verified: 2026-06-10
 
 ## Risk: Workbench History Pagination Requires Cursor Progress
