@@ -70,6 +70,27 @@
 - Related: `docs/superpowers/specs/2026-06-03-codex-app-server-adapter-design.md`
 - Last verified: 2026-06-03
 
+## Risk: Codex App-Server Fail-Closed Requests Must Terminate Local Turn State
+
+- Level: medium
+- Impact: unsupported inbound app-server server requests such as interactive
+  tool input and MCP elicitation are intentionally failed closed. If the
+  adapter only returns a JSON-RPC error and emits `run.error` without clearing
+  its local active turn and pending approval timers, the provider handle can
+  keep stale turn or approval state alive after the conversation has already
+  failed.
+- Evidence:
+  `daemon/src/codex-app-server-conversation-adapter.js` clears
+  `activeTurnId`, cancels pending approvals, and records a post-turn-start
+  run-error metric from the fail-closed server-request path.
+  `scripts/run-tests.js` covers unsupported interactive server requests
+  terminating local turn state and cancelling a pending approval.
+- Mitigation: keep fail-closed inbound server requests on the same local
+  termination boundary as provider terminal events and transport failures. Do
+  not add new unsupported server-request branches that emit `run.error` without
+  clearing active turn and blocking state.
+- Last verified: 2026-06-10
+
 ## Risk: OpenCode Prompt Dispatch Can Race Provider Events
 
 - Level: medium

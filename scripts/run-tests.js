@@ -7642,6 +7642,61 @@ test('Codex app-server conversation handle rejects interactive tool input server
   assert.equal(events.some((event) => /mcpServer\/elicitation\/request/.test(event.message)), true);
 });
 
+test('Codex app-server fail-closed server requests terminate local turn state', () => {
+  const { CodexAppServerConversationHandle } = require('../daemon/src/codex-app-server-conversation-adapter');
+  const errors = [];
+  const results = [];
+  const events = [];
+  const transport = new EventEmitter();
+  transport.sendRequest = async () => ({});
+  transport.sendNotification = () => {};
+  transport.sendError = (id, error) => errors.push({ id, error });
+  transport.sendResult = (id, result) => results.push({ id, result });
+  const handle = new CodexAppServerConversationHandle({
+    adapter: {
+      initializeTimeoutMs: 100,
+      approvalTimeoutMs: 100,
+      metrics: {
+        approvalRequestedCount: 0,
+        approvalTimeoutCount: 0,
+        approvalRoundTripLatencyMs: [],
+        transportCloseCount: 0,
+        runErrorAfterTurnStartedCount: 0
+      }
+    },
+    processHandle: { transport },
+    workspacePath: process.cwd(),
+    onEvent: (event) => events.push(event)
+  });
+  const timer = setTimeout(() => {}, 1000);
+  clearTimeout(timer);
+  handle.activeTurnId = 'turn_active';
+  handle.pendingApprovals.set('approval_active', {
+    approvalId: 'approval_active',
+    requestId: 'approval-request-1',
+    timer,
+    requestedAt: Date.now()
+  });
+
+  handle.handleServerRequest({ id: 'input-fail-closed', method: 'item/tool/requestUserInput', params: { prompt: 'secret' } });
+
+  assert.deepEqual(results, []);
+  assert.equal(errors.length, 1);
+  assert.equal(handle.activeTurnId, null);
+  assert.equal(handle.pendingApprovals.size, 0);
+  assert.equal(handle.resolvedApprovals.has('approval_active'), true);
+  assert.equal(events.some((event) => event.type === conversationEventTypes.RUN_ERROR), true);
+  assert.equal(
+    events.some((event) =>
+      event.type === conversationEventTypes.BLOCKING_REQUEST_CANCELLED &&
+      event.approvalId === 'approval_active' &&
+      event.reason === 'run_error'
+    ),
+    true
+  );
+  assert.equal(handle.adapter.metrics.runErrorAfterTurnStartedCount, 1);
+});
+
 test('Codex app-server method timeout classes distinguish streams and server requests', () => {
   const { classifyCodexAppServerTimeout } = require('../daemon/src/codex-app-server/timeouts');
   assert.equal(classifyCodexAppServerTimeout('model/list').kind, 'instant-rpc');

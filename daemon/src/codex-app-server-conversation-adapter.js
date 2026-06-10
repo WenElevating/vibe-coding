@@ -325,10 +325,21 @@ class CodexAppServerConversationHandle {
         message: reason
       });
     }
+    this.terminateLocalTurnState('run_error');
     this.onEvent({
       type: conversationEventTypes.RUN_ERROR,
       message: `${reason}: ${message?.method || 'unknown'}`
     });
+  }
+
+  terminateLocalTurnState(reason) {
+    const hadActiveTurn = !!this.activeTurnId;
+    this.activeTurnId = null;
+    this.cancelPendingApprovals(reason);
+    if (hadActiveTurn) {
+      this.adapter.metrics.runErrorAfterTurnStartedCount += 1;
+      this.turnHadRunError = true;
+    }
   }
 
   resolveApproval(approvalId, response, { timedOut = false } = {}) {
