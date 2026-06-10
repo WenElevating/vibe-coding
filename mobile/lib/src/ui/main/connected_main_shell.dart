@@ -83,7 +83,7 @@ class ConnectedMainShell extends StatelessWidget {
         body: MobileUiFrame(
           child: Stack(
             children: [
-              viewModel.activeRoute == RoutePage.tabs
+              viewModel.activeRoutePage == RoutePage.tabs
                   ? IndexedStack(
                       index: viewModel.activeTab.clamp(0, pages.length - 1),
                       children: pages,
@@ -102,7 +102,7 @@ class ConnectedMainShell extends StatelessWidget {
             ],
           ),
         ),
-        bottomNavigationBar: viewModel.activeRoute == RoutePage.tabs &&
+        bottomNavigationBar: viewModel.activeRoutePage == RoutePage.tabs &&
                 (viewModel.activeTab != MainShellViewModel.codingTabIndex ||
                     viewModel.codingSessionListOpen)
             ? BottomNav(

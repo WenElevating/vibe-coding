@@ -18,7 +18,7 @@ void main() {
     viewModel.selectTab(MainShellViewModel.codexTabIndex);
 
     expect(viewModel.activeTab, MainShellViewModel.codexTabIndex);
-    expect(viewModel.activeRoute, RoutePage.tabs);
+    expect(viewModel.activeRoutePage, RoutePage.tabs);
     expect(viewModel.openSessionListRequest, 0);
 
     viewModel.selectTab(MainShellViewModel.codingTabIndex);
@@ -41,6 +41,7 @@ void main() {
 
     viewModel.openOverlay(RoutePage.approval);
     expect(viewModel.isOverlayActive, isTrue);
+    expect(viewModel.activeRoutePage, RoutePage.approval);
 
     viewModel.closeOverlay();
     expect(viewModel.isOverlayActive, isFalse);

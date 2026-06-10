@@ -66,6 +66,30 @@ void main() {
       expect(factory.disposedRuns, const <RunSummary>[_runningRun]);
     });
 
+    testWidgets('selects requested run for detail route', (tester) async {
+      final factory = _RunDetailFactory();
+      final repositories = _repositories();
+      repositories.runRepository.replaceFromBootstrap(
+        workspaceId: _workspace.id,
+        runs: const <RunSummary>[_runningRun, _queuedRun],
+        queue: const <QueueItem>[],
+      );
+
+      await tester.pumpWidget(_OverlayHarness(
+        route: const AppRoute.detail(runId: 'run_2'),
+        connectedData: _connectedData(),
+        repositories: repositories,
+        featureDependencies: _featureDependencies(
+          createRunDetailViewModel: factory.create,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(factory.createdRuns, const <RunSummary>[_queuedRun]);
+      expect(find.text('queued'), findsOneWidget);
+      expect(find.text('running'), findsNothing);
+    });
+
     testWidgets('recreates run detail view model when repository scope changes',
         (tester) async {
       final factory = _RunDetailFactory();
@@ -117,7 +141,7 @@ void main() {
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        route: RoutePage.diagnostics,
+        route: const AppRoute(RoutePage.diagnostics),
         connectedData: connectedData,
         repositories: repositories,
         featureDependencies: featureDependencies,
@@ -140,7 +164,7 @@ void main() {
       );
 
       await tester.pumpWidget(_OverlayHarness(
-        route: RoutePage.adapters,
+        route: const AppRoute(RoutePage.adapters),
         connectedData: _connectedData(),
         repositories: repositories,
         featureDependencies: _featureDependencies(
@@ -175,6 +199,14 @@ const _completedRun = RunSummary(
   workspaceId: 'workspace_1',
   status: 'completed',
   cliSessionId: 'session_1',
+);
+
+const _queuedRun = RunSummary(
+  id: 'run_2',
+  tool: 'claude',
+  workspaceId: 'workspace_1',
+  status: 'queued',
+  cliSessionId: 'session_2',
 );
 
 const _codexAdapter = AdapterStatus(
@@ -230,13 +262,13 @@ FeatureDependencies _featureDependencies({
 
 class _OverlayHarness extends StatelessWidget {
   const _OverlayHarness({
-    this.route = RoutePage.detail,
+    this.route = const AppRoute.detail(),
     required this.connectedData,
     required this.repositories,
     required this.featureDependencies,
   });
 
-  final RoutePage route;
+  final AppRoute route;
   final ConnectedDataDependencies connectedData;
   final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;

@@ -22,7 +22,7 @@ class MainRouteOverlay extends StatefulWidget {
     required this.onBack,
   });
 
-  final RoutePage route;
+  final AppRoute route;
   final ConnectedDataDependencies connectedData;
   final ConnectedSessionRepositories repositories;
   final FeatureDependencies featureDependencies;
@@ -60,7 +60,7 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    return switch (widget.route) {
+    return switch (widget.route.page) {
       RoutePage.detail => _buildRunDetailPage(),
       RoutePage.approval => ApprovalPage(onBack: widget.onBack),
       RoutePage.adapters => _buildAdaptersPage(),
@@ -101,7 +101,10 @@ class _MainRouteOverlayState extends State<MainRouteOverlay> {
   }
 
   Widget _buildRunDetailContent() {
-    final selectedRun = _selectedRun(widget.repositories);
+    final selectedRun = _selectedRun(
+      widget.repositories,
+      runId: widget.route.runId,
+    );
     final viewModelKey = _RunDetailViewModelKey(
       run: selectedRun,
       scope: widget.connectedData,
@@ -185,8 +188,16 @@ class _RunDetailViewModelKey {
       );
 }
 
-RunSummary _selectedRun(ConnectedSessionRepositories repositories) {
+RunSummary _selectedRun(
+  ConnectedSessionRepositories repositories, {
+  String? runId,
+}) {
   final runs = repositories.runRepository.runs;
+  if (runId != null) {
+    for (final run in runs) {
+      if (run.id == runId) return run;
+    }
+  }
   if (runs.isNotEmpty) return runs.first;
   final selectedWorkspace = repositories.workspaceRepository.selectedWorkspace;
   final adapters = repositories.cliAdapterRepository.adapters;

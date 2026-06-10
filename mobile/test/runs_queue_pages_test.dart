@@ -11,7 +11,7 @@ import 'package:lan_ai_cli_control/src/ui/pages/runs_page.dart';
 void main() {
   testWidgets('runs page shows empty state and invokes detail callback',
       (tester) async {
-    final opened = <RoutePage>[];
+    final opened = <AppRoute>[];
     await tester.pumpWidget(_Harness(
       child: RunsPage(data: _snapshot(), open: opened.add),
     ));
@@ -23,7 +23,7 @@ void main() {
     );
 
     await tester.tap(find.byIcon(Icons.add_rounded));
-    expect(opened, <RoutePage>[RoutePage.detail]);
+    expect(opened, const <AppRoute>[AppRoute.detail()]);
   });
 
   testWidgets('runs page search placeholder uses active locale',
@@ -61,7 +61,7 @@ void main() {
 
   testWidgets('runs page shows populated rows and opens detail',
       (tester) async {
-    final opened = <RoutePage>[];
+    final opened = <AppRoute>[];
     await tester.pumpWidget(_Harness(
       child: RunsPage(
         data: _snapshot(runs: const <RunSummary>[
@@ -80,7 +80,7 @@ void main() {
     expect(find.text('codex'), findsOneWidget);
 
     await tester.tap(find.text('run_1'));
-    expect(opened, <RoutePage>[RoutePage.detail]);
+    expect(opened, const <AppRoute>[AppRoute.detail(runId: 'run_1')]);
   });
 
   testWidgets('queue page shows empty and populated states', (tester) async {

@@ -9,14 +9,14 @@ import 'run_status_color.dart';
 
 class RunsPage extends StatelessWidget {
   const RunsPage({super.key, required this.open, required this.data});
-  final ValueChanged<RoutePage> open;
+  final ValueChanged<AppRoute> open;
   final AppSnapshot data;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return PageScroll(
-      floating: FloatingPlus(onTap: () => open(RoutePage.detail)),
+      floating: FloatingPlus(onTap: () => open(const AppRoute.detail())),
       children: [
         TopBar(title: l10n.runsTitle),
         const SizedBox(height: 20),
@@ -42,7 +42,7 @@ class RunsPage extends StatelessWidget {
                 status: run.status,
                 progress: run.status == 'completed' ? 1 : .48,
                 statusColor: runStatusColor(run.status),
-                onTap: () => open(RoutePage.detail)),
+                onTap: () => open(AppRoute.detail(runId: run.id))),
             const SizedBox(height: 10),
           ],
       ],

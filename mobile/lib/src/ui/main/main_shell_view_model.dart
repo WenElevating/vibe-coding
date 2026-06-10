@@ -15,7 +15,7 @@ class MainShellViewModel extends ChangeNotifier {
   String _permissionMode = 'default';
   bool _codingSessionListOpen = true;
   int _openSessionListRequest = 0;
-  RoutePage _activeRoute = RoutePage.tabs;
+  AppRoute _activeRoute = const AppRoute.tabs();
 
   int get activeTab => _activeTab;
   bool get streamOutput => _streamOutput;
@@ -24,22 +24,27 @@ class MainShellViewModel extends ChangeNotifier {
   String get permissionMode => _permissionMode;
   bool get codingSessionListOpen => _codingSessionListOpen;
   int get openSessionListRequest => _openSessionListRequest;
-  RoutePage get activeRoute => _activeRoute;
-  bool get isOverlayActive => _activeRoute != RoutePage.tabs;
+  AppRoute get activeRoute => _activeRoute;
+  RoutePage get activeRoutePage => _activeRoute.page;
+  bool get isOverlayActive => _activeRoute.page != RoutePage.tabs;
 
   void openOverlay(RoutePage route) {
+    openRoute(AppRoute(route));
+  }
+
+  void openRoute(AppRoute route) {
     _activeRoute = route;
     notifyListeners();
   }
 
   void closeOverlay() {
-    _activeRoute = RoutePage.tabs;
+    _activeRoute = const AppRoute.tabs();
     notifyListeners();
   }
 
   void selectTab(int index) {
     _activeTab = index.clamp(0, tabCount - 1);
-    _activeRoute = RoutePage.tabs;
+    _activeRoute = const AppRoute.tabs();
     if (_activeTab == codingTabIndex) {
       _codingSessionListOpen = true;
       _openSessionListRequest++;
