@@ -168,6 +168,9 @@ function isSensitiveAccountKey(key) {
   if (!normalized) return false;
   if (normalized.includes('token')) return true;
   if (normalized.includes('bearer')) return true;
+  if (normalized.includes('apikey')) return true;
+  if (normalized.includes('secret')) return true;
+  if (normalized.includes('password')) return true;
   if (normalized.includes('email')) return true;
   if (normalized.includes('filepath') || normalized === 'path' || normalized.endsWith('path')) return true;
   return false;

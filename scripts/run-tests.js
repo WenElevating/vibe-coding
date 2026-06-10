@@ -8979,6 +8979,9 @@ test('Codex app-server account read routes use discovery client and redact sensi
               accessToken: 'access-secret',
               refreshToken: 'refresh-secret',
               bearerToken: 'Bearer secret',
+              api_key: 'account-api-key-secret',
+              secretKey: 'account-secret-key',
+              password: 'account-password-secret',
               tokenInfo: { token: 'nested-secret', expiresAt: '2026-06-04T00:00:00.000Z' },
               authDetails: { token: 'nested-secret', expiresAt: '2026-06-04T00:00:00.000Z' },
               accountFilePath: 'C:\\Users\\Alice\\.codex\\auth.json',
@@ -8993,7 +8996,8 @@ test('Codex app-server account read routes use discovery client and redact sensi
               remaining: 5,
               resetAt: '2026-06-04T00:00:00.000Z',
               rawEmail: 'raw@example.test',
-              access_token: 'snake-secret'
+              access_token: 'snake-secret',
+              sessionSecret: 'rate-limit-secret'
             }
           };
         }
@@ -9016,6 +9020,9 @@ test('Codex app-server account read routes use discovery client and redact sensi
     assert.equal(account.body.account.accessToken, '[REDACTED]');
     assert.equal(account.body.account.refreshToken, '[REDACTED]');
     assert.equal(account.body.account.bearerToken, '[REDACTED]');
+    assert.equal(account.body.account.api_key, '[REDACTED]');
+    assert.equal(account.body.account.secretKey, '[REDACTED]');
+    assert.equal(account.body.account.password, '[REDACTED]');
     assert.equal(account.body.account.tokenInfo, '[REDACTED]');
     assert.equal(account.body.account.authDetails.token, '[REDACTED]');
     assert.equal(account.body.account.accountFilePath, '[REDACTED]');
@@ -9025,6 +9032,11 @@ test('Codex app-server account read routes use discovery client and redact sensi
     assert.equal(limits.body.rateLimits.remaining, 5);
     assert.equal(limits.body.rateLimits.rawEmail, '[REDACTED]');
     assert.equal(limits.body.rateLimits.access_token, '[REDACTED]');
+    assert.equal(limits.body.rateLimits.sessionSecret, '[REDACTED]');
+    const publicJson = JSON.stringify({ account: account.body, limits: limits.body });
+    for (const leaked of ['account-api-key-secret', 'account-secret-key', 'account-password-secret', 'rate-limit-secret']) {
+      assert.equal(publicJson.includes(leaked), false, `${leaked} leaked in account DTO response`);
+    }
     assert.deepEqual(calls.map((call) => call.method), [
       'withDiscoveryClient',
       'readAccount',

@@ -627,3 +627,20 @@
   transport-only success checks unless the provider contract is re-smoked and
   tests are updated.
 - Last verified: 2026-06-09
+
+## Risk: Codex App-Server Account DTOs Can Leak Provider Credentials
+
+- Level: medium
+- Impact: `account/read` and `account/rateLimits/read` return provider-owned
+  account objects to paired mobile clients. If DTO redaction only covers
+  currently observed fields, future app-server schema drift can expose API
+  keys, secrets, or passwords under snake, kebab, or camel-case names.
+- Evidence: `daemon/src/codex-app-server/dtos.js` redacts account DTO fields
+  after normalizing key names. `scripts/run-tests.js` covers `api_key`,
+  `secretKey`, `password`, and nested rate-limit `sessionSecret` fields
+  returning `[REDACTED]` and not appearing in serialized account responses.
+- Mitigation: keep account DTO redaction based on normalized sensitive key
+  semantics, not a narrow list of observed provider fields. Any new app-server
+  account or rate-limit route must pass through the same redaction boundary
+  before returning JSON.
+- Last verified: 2026-06-10
