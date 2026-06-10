@@ -11,6 +11,7 @@ const DEFAULT_POOL_LIMITS = Object.freeze({
   conversation: DEFAULT_CONVERSATION_LIMIT,
   mutation: DEFAULT_MUTATION_LIMIT
 });
+const METRICS_CLIENT_PROXIES = new WeakMap();
 
 class CodexAppServerBusyError extends Error {
   constructor(message, { pool, key } = {}) {
@@ -329,7 +330,9 @@ function incrementEvictionMetric(metrics, pool, reason) {
 }
 
 function wrapClientWithMetrics(client, metrics, pool, now) {
-  if (!client || client.__codexAppServerMetricsWrapped) return client;
+  if (!client) return client;
+  const cached = METRICS_CLIENT_PROXIES.get(client);
+  if (cached) return cached;
   const proxy = new Proxy(client, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
@@ -350,10 +353,7 @@ function wrapClientWithMetrics(client, metrics, pool, now) {
       };
     }
   });
-  Object.defineProperty(proxy, '__codexAppServerMetricsWrapped', {
-    value: true,
-    enumerable: false
-  });
+  METRICS_CLIENT_PROXIES.set(client, proxy);
   return proxy;
 }
 

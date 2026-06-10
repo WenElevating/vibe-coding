@@ -940,3 +940,19 @@
 - Mitigation: keep account mutation routes schema-first. Do not treat
   add-credits nudge as a bodyless operation unless the generated schema changes.
 - Last verified: 2026-06-10
+
+## Risk: Codex App-Server Metrics Wrapping Must Not Mutate Cached Clients
+
+- Level: medium
+- Impact: discovery clients are intentionally cached and reused within TTL. If
+  the metrics wrapper writes its "already wrapped" marker onto the raw cached
+  client, later cache hits can bypass the proxy and silently stop recording
+  method latency/error metrics for reused clients.
+- Evidence: `daemon/src/codex-app-server/service.js` now stores metrics proxies
+  in a `WeakMap` keyed by the raw client instead of defining marker properties
+  through the proxy. `scripts/run-tests.js` verifies two cached
+  `model/list` discovery calls emit two latency samples.
+- Mitigation: keep service-level instrumentation side-effect-free on provider
+  client instances. If instrumentation state is needed, store it outside the
+  client object so cache reuse does not change observability behavior.
+- Last verified: 2026-06-10

@@ -7452,6 +7452,7 @@ test('Codex app-server diagnostics expose sanitized operational metrics', async 
   assert.equal(samples.some((sample) => sample.name === 'codex_app_server_discovery_cache_hit_total' && sample.value === 1), true);
   assert.equal(samples.some((sample) => sample.name === 'codex_app_server_discovery_cache_miss_total' && sample.value === 1), true);
   assert.equal(samples.some((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'model/list' && sample.labels.pool === 'discovery'), true);
+  assert.equal(samples.filter((sample) => sample.name === 'codex_app_server_method_latency_ms' && sample.labels.method === 'model/list' && sample.labels.pool === 'discovery').length, 2);
   assert.equal(samples.some((sample) => sample.name === 'codex_app_server_method_error_total' && sample.labels.method === 'account/logout' && sample.labels.pool === 'mutation' && sample.value === 1), true);
   assert.equal(JSON.stringify(metrics).includes('secret-token-should-not-appear'), false);
 });
