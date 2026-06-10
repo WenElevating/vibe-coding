@@ -54,6 +54,11 @@ class WorkspaceRegistry {
     return Array.from(this.workspaces.values()).filter((workspace) => device.allowedWorkspaceIds.has(workspace.id));
   }
 
+  count() {
+    if (this.store) return this.store.listWorkspaces().length;
+    return this.workspaces.size;
+  }
+
   get(workspaceId) {
     return this.store ? this.store.getWorkspace(workspaceId) : this.workspaces.get(workspaceId);
   }

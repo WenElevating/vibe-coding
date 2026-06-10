@@ -1157,3 +1157,19 @@
   guard tests near asset/download route tests when a full race reproduction
   would risk crashing the test process.
 - Last verified: 2026-06-10
+
+## Risk: Diagnostics Should Not Read Registry Storage Internals
+
+- Level: medium
+- Impact: diagnostic health counts are production observability. If
+  `DiagnosticsService` reads `WorkspaceRegistry.workspaces.size` directly, the
+  count is correct only for the in-memory registry and reports `0` for the
+  SQLite-backed production registry even after the default workspace is seeded.
+- Evidence: `WorkspaceRegistry.count()` now abstracts in-memory versus
+  SQLite-backed counting, and `DiagnosticsService.status()` uses that method.
+  `scripts/run-tests.js` verifies `/api/health` reports one seeded workspace in
+  a production-style `createApp()` path.
+- Mitigation: diagnostics should call public registry/service APIs instead of
+  reading implementation-specific fields. Add a store-backed health assertion
+  when exposing future counts.
+- Last verified: 2026-06-10

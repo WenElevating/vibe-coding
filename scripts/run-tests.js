@@ -25348,6 +25348,7 @@ test('V1.3 health and version expose release readiness without secrets', async (
     const health = await request(port, 'GET', '/api/health');
     assert.equal(health.status, 200);
     assert.equal(health.body.daemonVersion, '1.3.0');
+    assert.equal(health.body.counts.workspaces, 1);
     assert.equal(health.body.security.ptyEnabled, false);
     assert.equal(Object.prototype.hasOwnProperty.call(health.body, 'adapters'), false);
     assert.equal(JSON.stringify(health.body).includes('Bearer'), false);
