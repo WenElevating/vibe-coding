@@ -277,6 +277,10 @@ class CachedConversationRepository extends ChangeNotifier
         return event;
       });
 
+  void applySyncedConversationEventStatus(ConversationEvent event) {
+    _applyConversationEventStatus(event);
+  }
+
   @override
   Future<ConversationSummary> answerConversationQuestion(
     String conversationId,

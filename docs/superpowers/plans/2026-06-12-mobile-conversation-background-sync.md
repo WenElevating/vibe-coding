@@ -13,7 +13,9 @@
 - Foreground route-independent sync is implemented in commit `9239dcb`.
 - Android background continuation is implemented as a native foreground-service
   process/notification anchor while Dart remains the transport/auth owner.
-- iOS degraded-resume native cleanup is not implemented yet.
+- Dart degraded-resume backfill is implemented for foreground returns after
+  app-background non-keepalive sync stops. Native iOS cleanup is not implemented
+  because this repository currently has no `mobile/ios` target.
 
 ---
 
@@ -162,5 +164,16 @@ degraded-resume work.
 
 ### Task 5: iOS Degraded-Resume Cleanup
 
-- [ ] Not started. Implement only after the Android anchor slice is verified and
-  committed.
+- [x] **Step 1: Add Dart degraded-resume backfill**
+
+When app-background sync stops because keep-alive is disabled or the native
+anchor falls back, foreground resume stops any stale watcher, fetches daemon
+events after the tracked cursor, applies cached conversation status projection,
+and restarts the watcher from the advanced cursor.
+
+- [ ] **Step 2: Add native iOS `beginBackgroundTask` cleanup bridge**
+
+Blocked by repository shape: `mobile/` has Android, web, and Windows targets,
+but no `mobile/ios` Runner/AppDelegate target to host an iOS native bridge.
+Do not claim native iOS background cleanup until an iOS target exists and the
+bridge is implemented and verified on-device.

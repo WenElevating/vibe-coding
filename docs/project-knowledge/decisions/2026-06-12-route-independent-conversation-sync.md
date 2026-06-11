@@ -46,7 +46,12 @@ notification action that stops background live sync.
 
 iOS continuous background sync is not implemented. The accepted product
 contract remains degraded resume/backfill rather than promising suspended
-WebSocket delivery.
+WebSocket delivery. On foreground resume after app-background sync was stopped,
+the coordinator stops any stale watcher, fetches daemon events after the last
+tracked cursor, applies local conversation status projection for those replayed
+events, and restarts the watcher from the advanced cursor. Native iOS
+`beginBackgroundTask` cleanup is still not implemented because this repository
+currently has no `mobile/ios` Runner/AppDelegate target.
 
 ## Alternatives
 
@@ -80,6 +85,9 @@ WebSocket delivery.
   owns the Android foreground service and user-visible notification anchor.
 - `mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundConversationSyncChannels.kt`
   reports native anchor snapshots back to Dart.
+- `mobile/test/conversation_sync_coordinator_test.dart` covers foreground
+  resume backfill before watcher restart and restart behavior after backfill
+  failure.
 - Detailed design rationale remains in
   `docs/superpowers/specs/2026-06-11-mobile-conversation-background-sync-design.md`.
 
@@ -99,7 +107,8 @@ dart run tool\check_architecture_imports.dart
 ## Re-evaluate When
 
 - Android foreground-service behavior is validated or fails on real OEM devices.
-- iOS resume/backfill behavior gains a native background-task bridge.
+- An iOS target is added and resume/backfill behavior can gain a native
+  background-task bridge.
 - Product requires native background transport/auth ownership instead of a Dart
   process anchor.
 - Conversation event fan-out needs multiple simultaneous foreground rendering

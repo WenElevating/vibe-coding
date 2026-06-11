@@ -400,6 +400,81 @@ void main() {
     await coordinator.dispose();
   });
 
+  test('foreground resume backfills before restarting watcher after background',
+      () async {
+    final delegate = _FakeConversationRepository()
+      ..backfillEvents = <ConversationEvent>[
+        _event(seq: 2, conversationId: 'conv_1', type: 'assistant.delta'),
+        _event(seq: 3, conversationId: 'conv_1', type: 'assistant.question'),
+      ];
+    final repository = CachedConversationRepository(delegate: delegate)
+      ..replaceFromBootstrap(
+        workspaceId: 'workspace_1',
+        conversations: <ConversationSummary>[
+          _conversation(id: 'conv_1', status: 'running'),
+        ],
+      );
+    final coordinator = ConversationSyncCoordinator(
+      conversationRepository: repository,
+      policy: const ConversationSyncPolicy(
+        backgroundDisconnectGrace: Duration(milliseconds: 10),
+      ),
+    );
+
+    coordinator.trackConversation(
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      afterSeq: 1,
+      status: 'running',
+    );
+    await pumpEventQueue();
+
+    coordinator.setAppForeground(false, keepAliveInBackground: false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    coordinator.setAppForeground(true, keepAliveInBackground: false);
+    await pumpEventQueue();
+
+    expect(delegate.fetchCalls, <String>['conv_1:1']);
+    expect(delegate.afterSeqs, <int>[1, 3]);
+    expect(repository.conversations.single.status, 'waiting_input');
+    await coordinator.dispose();
+  });
+
+  test('foreground resume restarts watcher when backfill fails', () async {
+    final delegate = _FakeConversationRepository()
+      ..backfillError = StateError('daemon unavailable');
+    final repository = CachedConversationRepository(delegate: delegate)
+      ..replaceFromBootstrap(
+        workspaceId: 'workspace_1',
+        conversations: <ConversationSummary>[
+          _conversation(id: 'conv_1', status: 'running'),
+        ],
+      );
+    final coordinator = ConversationSyncCoordinator(
+      conversationRepository: repository,
+      policy: const ConversationSyncPolicy(
+        backgroundDisconnectGrace: Duration(milliseconds: 10),
+      ),
+    );
+
+    coordinator.trackConversation(
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      afterSeq: 4,
+      status: 'running',
+    );
+    await pumpEventQueue();
+
+    coordinator.setAppForeground(false, keepAliveInBackground: false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    coordinator.setAppForeground(true, keepAliveInBackground: false);
+    await pumpEventQueue();
+
+    expect(delegate.fetchCalls, <String>['conv_1:4']);
+    expect(delegate.afterSeqs, <int>[4, 4]);
+    await coordinator.dispose();
+  });
+
   test('approval events are published without a foreground lease', () async {
     final delegate = _FakeConversationRepository();
     final repository = CachedConversationRepository(delegate: delegate)
@@ -515,6 +590,9 @@ class _FakeConversationRepository implements ConversationRepository {
   final List<StreamController<ConversationEvent>> _watchers =
       <StreamController<ConversationEvent>>[];
   final List<int> afterSeqs = <int>[];
+  final List<String> fetchCalls = <String>[];
+  List<ConversationEvent> backfillEvents = const <ConversationEvent>[];
+  Object? backfillError;
   int watchCalls = 0;
   int cancelCalls = 0;
 
@@ -590,8 +668,15 @@ class _FakeConversationRepository implements ConversationRepository {
   Future<List<ConversationEvent>> fetchConversationEvents(
     String conversationId, {
     int afterSeq = 0,
-  }) async =>
-      const <ConversationEvent>[];
+  }) async {
+    fetchCalls.add('$conversationId:$afterSeq');
+    final error = backfillError;
+    if (error != null) throw error;
+    return backfillEvents
+        .where((event) =>
+            event.conversationId == conversationId && event.seq > afterSeq)
+        .toList(growable: false);
+  }
 
   @override
   Future<ConversationEventPage> fetchConversationEventPage(

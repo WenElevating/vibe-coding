@@ -58,6 +58,7 @@ class ConversationSyncCoordinator {
   bool _appForeground = true;
   bool _keepAliveInBackground = false;
   bool _backgroundAnchorActive = false;
+  bool _needsResumeBackfill = false;
   bool _disposed = false;
 
   void updateEventBus(MobileAppEventBus? eventBus) {
@@ -146,9 +147,7 @@ class ConversationSyncCoordinator {
     _backgroundDisconnectTimer = null;
     if (_appForeground) {
       _stopBackgroundAnchor();
-      for (final target in _tracked.values) {
-        _ensureWatcher(target);
-      }
+      _resumeTrackedTargets();
       return;
     }
     if (_keepAliveInBackground) {
@@ -158,6 +157,7 @@ class ConversationSyncCoordinator {
       }
       return;
     }
+    _needsResumeBackfill = true;
     _backgroundDisconnectTimer = Timer(_policy.backgroundDisconnectGrace, () {
       _backgroundDisconnectTimer = null;
       if (_disposed || _appForeground || _keepAliveInBackground) return;
@@ -191,6 +191,7 @@ class ConversationSyncCoordinator {
 
   void _ensureWatcher(_TrackedConversation target) {
     if (_disposed || target.subscription != null) return;
+    if (target.resumeBackfill != null) return;
     if (!_appForeground && !_keepAliveInBackground) return;
     target.stopping = false;
     target.subscription = _conversationRepository
@@ -369,6 +370,60 @@ class ConversationSyncCoordinator {
     _refreshBackgroundAnchor();
   }
 
+  void _resumeTrackedTargets() {
+    if (!_needsResumeBackfill) {
+      for (final target in _tracked.values) {
+        _ensureWatcher(target);
+      }
+      return;
+    }
+    _needsResumeBackfill = false;
+    for (final target in _tracked.values.toList(growable: false)) {
+      _startResumeBackfill(target);
+    }
+  }
+
+  void _startResumeBackfill(_TrackedConversation target) {
+    if (_disposed || target.resumeBackfill != null) return;
+    late final Future<void> backfill;
+    backfill = _runResumeBackfill(target).whenComplete(() {
+      if (identical(target.resumeBackfill, backfill)) {
+        target.resumeBackfill = null;
+      }
+      if (_tracked[target.conversationId] == target &&
+          _shouldKeepWatcher(target)) {
+        _ensureWatcher(target);
+      }
+    });
+    target.resumeBackfill = backfill;
+    unawaited(backfill);
+  }
+
+  Future<void> _runResumeBackfill(_TrackedConversation target) async {
+    try {
+      await _stopWatcher(target);
+      if (_disposed || _tracked[target.conversationId] != target) return;
+      final events = await _conversationRepository.fetchConversationEvents(
+        target.conversationId,
+        afterSeq: target.lastSeq,
+      );
+      final sorted = events
+          .where((event) =>
+              event.conversationId == target.conversationId &&
+              event.seq > target.lastSeq)
+          .toList(growable: false)
+        ..sort((left, right) => left.seq.compareTo(right.seq));
+      for (final event in sorted) {
+        if (_disposed || _tracked[target.conversationId] != target) return;
+        _conversationRepository.applySyncedConversationEventStatus(event);
+        _handleEvent(target, event);
+      }
+    } catch (_) {
+      // Resume backfill is a repair path. Foreground watcher restart still
+      // proceeds and can recover through the notification client's backfill.
+    }
+  }
+
   Future<void> _startBackgroundAnchorIfNeeded() async {
     final bridge = _backgroundSyncBridge;
     if (bridge == null || _backgroundAnchorActive || _disposed) return;
@@ -535,6 +590,7 @@ class _TrackedConversation {
   String status;
   final Set<_ConversationSyncLease> leases = <_ConversationSyncLease>{};
   StreamSubscription<ConversationEvent>? subscription;
+  Future<void>? resumeBackfill;
   Timer? terminalTimer;
   bool stopping = false;
 }
