@@ -1,7 +1,7 @@
 # Build And Test
 
 - Status: active seed
-- Last verified: 2026-05-29
+- Last verified: 2026-06-11
 
 ## Daemon Checks
 
@@ -14,8 +14,12 @@ npm run lint
 git diff --check
 ```
 
-`node scripts/run-tests.js`, `node scripts/check-project-knowledge.js`, and
-`npm run lint` were verified on 2026-05-22.
+`npm run lint` runs `scripts/check-js.js`, which syntax-checks daemon source,
+daemon tests, and repository JS scripts recursively with `node --check`.
+
+`npm run lint`, `node scripts/check-project-knowledge.js`, and `git diff
+--check` were verified on 2026-06-11. `node scripts/run-tests.js` remains the
+full daemon regression gate but was not rerun in that verification slice.
 
 ## OpenCode Server Smoke Helper
 
