@@ -19,10 +19,18 @@ function fakeSpawnSync(_cmd, args) {
   return { status: 0, stdout: '--output-format stream-json --input-format stream-json --verbose --include-partial-messages --resume --permission-prompt-tool', stderr: '' };
 }
 
-const spawnedArgs = [];
-const stdinWrites = [];
+function createFakeClaudeRecorder() {
+  const spawnedArgs = [];
+  const stdinWrites = [];
+  return {
+    spawnedArgs,
+    stdinWrites,
+    spawnFn: (_cmd, args) => fakeSpawn(_cmd, args, { spawnedArgs, stdinWrites })
+  };
+}
 
-function fakeSpawn(_cmd, args) {
+function fakeSpawn(_cmd, args, recorder) {
+  const { spawnedArgs, stdinWrites } = recorder;
   spawnedArgs.push(args);
   const child = new EventEmitter();
   const permissionMode = args[args.indexOf('--permission-mode') + 1];
@@ -117,10 +125,11 @@ test('app sqlite migration adds workspace soft-delete columns before partial ind
 });
 
 test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 terminal boundary', async () => {
+  const fakeClaude = createFakeClaudeRecorder();
   const app = createApp({ port: 0, appDbPath: tempAppDbPath('lan-ai-server-api-') });
   const claude = app.adapterRegistry.get('claude');
   claude.spawnSyncFn = fakeSpawnSync;
-  claude.spawnFn = fakeSpawn;
+  claude.spawnFn = fakeClaude.spawnFn;
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
 
@@ -136,9 +145,9 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
 
     const created = await request(port, 'POST', '/api/runs', { tool: 'claude', workspaceId: 'default', prompt: 'hello', permissionMode: 'auto' }, token);
     assert.equal(created.status, 201);
-    assert.equal(spawnedArgs.at(-1).includes('--input-format'), true);
+    assert.equal(fakeClaude.spawnedArgs.at(-1).includes('--input-format'), true);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(stdinWrites.some((item) => /\"type\":\"user\"/.test(item)), true);
+    assert.equal(fakeClaude.stdinWrites.some((item) => /\"type\":\"user\"/.test(item)), true);
 
     const events = await request(port, 'GET', `/api/runs/${created.body.id}/events?afterSeq=0`, null, token);
     assert.equal(events.status, 200);
@@ -151,10 +160,10 @@ test('HTTP API enforces pairing, workspace ACL, run creation, replay, and V1 ter
     const followUp = await request(port, 'POST', `/api/runs/${created.body.id}/input`, { prompt: 'continue with the same context' }, token);
     assert.equal(followUp.status, 200);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const resumedArgs = spawnedArgs.at(-1);
+    const resumedArgs = fakeClaude.spawnedArgs.at(-1);
     assert.equal(resumedArgs.includes('--resume'), true);
     assert.equal(resumedArgs[resumedArgs.indexOf('--resume') + 1], 'claude-session-1');
-    assert.match(stdinWrites.at(-1), /continue with the same context/);
+    assert.match(fakeClaude.stdinWrites.at(-1), /continue with the same context/);
 
     const cancelled = await request(port, 'POST', `/api/runs/${created.body.id}/cancel`, {}, token);
     assert.equal(cancelled.status, 200);
@@ -206,10 +215,11 @@ test('Claude adapter filters SDK hook output frames', () => {
 });
 
 test('Claude default permission mode emits approval and writes control response', async () => {
+  const fakeClaude = createFakeClaudeRecorder();
   const app = createApp({ port: 0, appDbPath: tempAppDbPath('lan-ai-approval-') });
   const claude = app.adapterRegistry.get('claude');
   claude.spawnSyncFn = fakeSpawnSync;
-  claude.spawnFn = fakeSpawn;
+  claude.spawnFn = fakeClaude.spawnFn;
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port;
 
@@ -229,8 +239,8 @@ test('Claude default permission mode emits approval and writes control response'
 
     const response = await request(port, 'POST', '/api/approvals/approval_1/respond', { decision: 'allow' }, token);
     assert.equal(response.status, 200);
-    assert.match(stdinWrites.at(-1), /control_response/);
-    assert.match(stdinWrites.at(-1), /allow/);
+    assert.match(fakeClaude.stdinWrites.at(-1), /control_response/);
+    assert.match(fakeClaude.stdinWrites.at(-1), /allow/);
   } finally {
     await new Promise((resolve) => app.server.close(resolve));
   }
