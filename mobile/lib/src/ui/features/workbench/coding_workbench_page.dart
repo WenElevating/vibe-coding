@@ -210,7 +210,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       if (workspace == null) return false;
       _workbenchViewModel.showSessions(workspace.id);
       _navigatorKey.currentState?.pushNamedAndRemoveUntil(
-          _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+        _routeSessions,
+        (route) => route.settings.name == _routeWorkspaces,
+      );
       return false;
     }
     await _openSession(item);
@@ -238,16 +240,21 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _goToWorkspaces() {
     unawaited(_cancelConversationEventSubscription());
-    _navigatorKey.currentState
-        ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      _routeWorkspaces,
+      (route) => false,
+    );
   }
 
   void _openWorkspaceList() {
     if (_isRunningCli) {
       final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text(l10n.workbenchWorkspaceSwitchBlocked),
-          duration: Duration(seconds: 2)));
+          duration: Duration(seconds: 2),
+        ),
+      );
       return;
     }
     _goToWorkspaces();
@@ -283,7 +290,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return false;
     }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        _routeSessions, (route) => route.settings.name == _routeWorkspaces);
+      _routeSessions,
+      (route) => route.settings.name == _routeWorkspaces,
+    );
     return true;
   }
 
@@ -294,13 +303,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _workbenchViewModel.showConversation(workspace.id);
     }
     _navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        _routeConversation, (route) => route.settings.name == _routeSessions);
+      _routeConversation,
+      (route) => route.settings.name == _routeSessions,
+    );
     _markTrace(
       'conversation.page.opened',
       conversationId: _activeConversationId,
-      metadata: <String, Object?>{
-        'route': _routeConversation,
-      },
+      metadata: <String, Object?>{'route': _routeConversation},
     );
   }
 
@@ -319,7 +328,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted) return;
     setState(() {
       _resetConversationState(
-          bottomAnchorTranscript: item.conversation != null);
+        bottomAnchorTranscript: item.conversation != null,
+      );
       _workbenchViewModel.openSession(item, notify: false);
       _trackActiveConversation();
       _workbenchViewModel.clearOperationError(notify: false);
@@ -331,7 +341,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _scheduleInitialConversationPendingReveal();
     }
     _workbenchViewModel.showConversationRoute(
-        _workspaceForId(item.run.workspaceId).id, item.conversation?.id ?? '');
+      _workspaceForId(item.run.workspaceId).id,
+      item.conversation?.id ?? '',
+    );
     final conversation = item.conversation;
     _goToConversation();
     _scrollToBottom(jump: true);
@@ -392,11 +404,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   void _scheduleInitialConversationPendingReveal() {
     _cancelInitialConversationPendingReveal();
-    _initialConversationPendingRevealTimer =
-        Timer(const Duration(milliseconds: 650), () {
-      if (!mounted || !_loadingInitialConversationEvents) return;
-      setState(() => _showPendingDuringInitialConversationLoad = true);
-    });
+    _initialConversationPendingRevealTimer = Timer(
+      const Duration(milliseconds: 650),
+      () {
+        if (!mounted || !_loadingInitialConversationEvents) return;
+        setState(() => _showPendingDuringInitialConversationLoad = true);
+      },
+    );
   }
 
   void _cancelInitialConversationPendingReveal() {
@@ -446,17 +460,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           'history.first_page.applied',
           conversationId: conversationId,
           critical: true,
-          metadata: <String, Object?>{
-            'eventCount': _conversationEvents.length,
-          },
+          metadata: <String, Object?>{'eventCount': _conversationEvents.length},
         );
         _markTraceAfterFrame(
           'event.frame.rendered',
           conversationId: conversationId,
           critical: true,
-          metadata: <String, Object?>{
-            'eventCount': _conversationEvents.length,
-          },
+          metadata: <String, Object?>{'eventCount': _conversationEvents.length},
         );
       },
     );
@@ -471,9 +481,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       'history.backfill.completed',
       conversationId: conversationId,
       critical: true,
-      metadata: <String, Object?>{
-        'eventCount': _conversationEvents.length,
-      },
+      metadata: <String, Object?>{'eventCount': _conversationEvents.length},
     );
   }
 
@@ -506,8 +514,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       final conversation = result.conversation;
       if (!mounted) return;
       setState(() {
-        _workbenchViewModel.setCancelledConversationDisplayStatus(conversation,
-            run: run, notify: false);
+        _workbenchViewModel.setCancelledConversationDisplayStatus(
+          conversation,
+          run: run,
+          notify: false,
+        );
         _trackActiveConversation();
       });
       await _cancelConversationEventSubscription();
@@ -589,6 +600,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       fallbackBody: l10n.workbenchApprovalCardTitle,
       additionalApprovalsBody: l10n.notificationsAdditionalApprovalsWaiting,
     );
+    widget.dependencies.conversationSyncCoordinator
+        .updateBackgroundNotificationText(title: l10n.appTitle);
   }
 
   void _handleCodingPreferencesChanged() {
@@ -683,8 +696,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     _voiceErrorDialogOpen = true;
     try {
       await showDialog<void>(
-          context: context,
-          builder: (context) => VoiceInputErrorDialog(kind: kind));
+        context: context,
+        builder: (context) => VoiceInputErrorDialog(kind: kind),
+      );
     } catch (_) {
       // Voice error presentation must not introduce a secondary async failure.
     } finally {
@@ -701,8 +715,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             ? readyState.modelDirectory
             : await _showAsrDownloadDialog();
         if (modelDirectory == null || !mounted) return;
-        final nextService =
-            widget.dependencies.speechInputServiceBuilder(modelDirectory);
+        final nextService = widget.dependencies.speechInputServiceBuilder(
+          modelDirectory,
+        );
         _ownedSpeechInputService = nextService;
         _voiceInput.updateService(nextService);
       }
@@ -715,10 +730,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<String?> _showAsrDownloadDialog() {
     return showDialog<String>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) =>
-            AsrModelDownloadDialog(manager: _asrModelManager));
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AsrModelDownloadDialog(manager: _asrModelManager),
+    );
   }
 
   Future<void> _stopVoiceInput() async {
@@ -791,8 +806,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final loadKey = _slashLoadKey(normalized, workspaceId);
     if (normalized == null ||
         _loadingSlashAdapters.contains(loadKey) ||
-        widget.dependencies.slashCommandCatalogRepository
-            .hasLoadedAdapter(normalized, workspaceId: workspaceId)) {
+        widget.dependencies.slashCommandCatalogRepository.hasLoadedAdapter(
+          normalized,
+          workspaceId: workspaceId,
+        )) {
       return;
     }
     _loadingSlashAdapters.add(loadKey);
@@ -821,11 +838,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     unawaited(_ensureSlashCommandsLoaded(adapter));
-    final commands =
-        widget.dependencies.slashCommandCatalogRepository.commandsForAdapter(
-      adapter,
-      workspaceId: _routeWorkspace?.id,
-    );
+    final commands = widget.dependencies.slashCommandCatalogRepository
+        .commandsForAdapter(adapter, workspaceId: _routeWorkspace?.id);
     final query = token.query.toLowerCase();
     final prefixMatches = <SlashCommand>[];
     final containsMatches = <SlashCommand>[];
@@ -837,14 +851,16 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         containsMatches.add(command);
       }
     }
-    _setSlashCommands(
-      <SlashCommand>[...prefixMatches, ...containsMatches],
-      token,
-    );
+    _setSlashCommands(<SlashCommand>[
+      ...prefixMatches,
+      ...containsMatches,
+    ], token);
   }
 
   void _setSlashCommands(
-      List<SlashCommand> commands, SlashCommandToken? token) {
+    List<SlashCommand> commands,
+    SlashCommandToken? token,
+  ) {
     final changed = !_sameSlashCommandList(_visibleSlashCommands, commands) ||
         _activeSlashToken != token;
     if (!changed) return;
@@ -876,8 +892,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       SlashCommandMenuController.activeTokenFor(value);
 
   Future<void> _finishVoiceInputForSend() async {
-    final merged =
-        await _voiceInput.finishForSendValue(currentPrompt: _prompt.value);
+    final merged = await _voiceInput.finishForSendValue(
+      currentPrompt: _prompt.value,
+    );
     if (merged != null && mounted) {
       _applyingVoiceText = true;
       _prompt.value = merged;
@@ -908,7 +925,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (_sending || _workbenchViewModel.modelUpdating) return true;
     if (_activeConversationId == null) return false;
     return isActiveConversationStatus(
-        _workbenchViewModel.effectiveConversationStatus);
+      _workbenchViewModel.effectiveConversationStatus,
+    );
   }
 
   bool get _isModelSelectionDisabled =>
@@ -924,46 +942,53 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final adapters = _availableAdapters;
     if (adapters.isEmpty || _isConversationAdapterLocked) return;
     showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => AdapterPickerSheet(
-            adapters: adapters,
-            selected: _workbenchViewModel.selectedAdapter,
-            onSelected: (adapter) {
-              _workbenchViewModel.setSelectedAdapter(adapter);
-              Navigator.of(context).pop();
-            }));
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AdapterPickerSheet(
+        adapters: adapters,
+        selected: _workbenchViewModel.selectedAdapter,
+        onSelected: (adapter) {
+          _workbenchViewModel.setSelectedAdapter(adapter);
+          Navigator.of(context).pop();
+        },
+      ),
+    );
   }
 
   void _showModelPicker() {
     if (_isModelSelectionLocked) return;
     _workbenchViewModel.clearModelNotice();
     showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (sheetContext) => AnimatedBuilder(
-            animation: _workbenchViewModel,
-            builder: (context, _) {
-              final status = _workbenchViewModel.selectedAdapterStatus;
-              final models = status?.canSelectModel == true
-                  ? _workbenchViewModel.availableModels
-                  : const <AdapterModelOption>[];
-              return ModelPickerSheet(
-                  models: models,
-                  selected: _workbenchViewModel.selectedModel,
-                  updating: _workbenchViewModel.modelUpdating,
-                  selectionDisabled: _isModelSelectionDisabled,
-                  pendingModel: null,
-                  errorText: _modelUpdateErrorLabel(context),
-                  onSelected: (model) =>
-                      unawaited(_selectModelFromPicker(sheetContext, model)));
-            }));
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => AnimatedBuilder(
+        animation: _workbenchViewModel,
+        builder: (context, _) {
+          final status = _workbenchViewModel.selectedAdapterStatus;
+          final models = status?.canSelectModel == true
+              ? _workbenchViewModel.availableModels
+              : const <AdapterModelOption>[];
+          return ModelPickerSheet(
+            models: models,
+            selected: _workbenchViewModel.selectedModel,
+            updating: _workbenchViewModel.modelUpdating,
+            selectionDisabled: _isModelSelectionDisabled,
+            pendingModel: null,
+            errorText: _modelUpdateErrorLabel(context),
+            onSelected: (model) =>
+                unawaited(_selectModelFromPicker(sheetContext, model)),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _selectModelFromPicker(
-      BuildContext sheetContext, String? model) async {
+    BuildContext sheetContext,
+    String? model,
+  ) async {
     final changed = await _workbenchViewModel.selectModel(model);
     if (!mounted) return;
     if (changed && sheetContext.mounted) {
@@ -999,21 +1024,25 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
   Future<void> _showCreateWorkspaceFromWorkspaceList() async {
     final request = await showModalBottomSheet<WorkspaceCreationRequest>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => AddWorkspaceSheet(
-              workspaceRepository: widget.dependencies.workspaceRepository,
-            ));
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AddWorkspaceSheet(
+        workspaceRepository: widget.dependencies.workspaceRepository,
+      ),
+    );
     if (request == null || !mounted) return;
     _workbenchViewModel.showCreatingWorkspace(
-        requestLabel: request.name ?? request.path);
+      requestLabel: request.name ?? request.path,
+    );
     setState(() {
       _resetConversationState();
       _workbenchViewModel.clearOperationError(notify: false);
     });
-    _navigatorKey.currentState
-        ?.pushNamedAndRemoveUntil(_routeWorkspaces, (route) => false);
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      _routeWorkspaces,
+      (route) => false,
+    );
 
     final outcome = await _workbenchViewModel.createWorkspace(
       path: request.path,
@@ -1024,9 +1053,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
 
     switch (outcome) {
       case CreateWorkspaceSuccess(:final workspace):
-        _workbenchViewModel.confirmWorkspaceCreated(
-          workspaceId: workspace.id,
-        );
+        _workbenchViewModel.confirmWorkspaceCreated(workspaceId: workspace.id);
         setState(() {
           _resetConversationState();
           _workbenchViewModel.clearOperationError(notify: false);
@@ -1060,8 +1087,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       case CreateWorkspaceFailure(:final error):
         _workbenchViewModel.cancelWorkspaceCreation();
         setState(() {
-          _workbenchViewModel.setOperationError(error.toString(),
-              notify: false);
+          _workbenchViewModel.setOperationError(
+            error.toString(),
+            notify: false,
+          );
         });
         await _showWorkspaceCreationDialog(
           title: l10n.workbenchWorkspaceCreationFailedTitle,
@@ -1076,21 +1105,26 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }) async {
     if (!mounted) return;
     await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: Text(title),
-              content: Text(message),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(AppLocalizations.of(context).commonOk)),
-              ],
-            ));
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(AppLocalizations.of(context).commonOk),
+          ),
+        ],
+      ),
+    );
   }
 
   String _pendingStatusText(AppLocalizations l10n) =>
-      conversationPendingStatusText(l10n,
-          _workbenchViewModel.effectiveConversationStatus, _conversationEvents);
+      conversationPendingStatusText(
+        l10n,
+        _workbenchViewModel.effectiveConversationStatus,
+        _conversationEvents,
+      );
 
   void _applyConversationSendAcknowledgement(
     ConversationSummary conversation, {
@@ -1196,25 +1230,24 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       'send.tap',
       conversationId: _activeConversationId,
       critical: true,
-      metadata: <String, Object?>{
-        'route': sendRoute,
-      },
+      metadata: <String, Object?>{'route': sendRoute},
     );
     setState(() {
       _clearInitialConversationLoadingGate();
       _workbenchViewModel.beginOperation(notify: false);
       if (prompt.isNotEmpty || validDraftAttachmentCount > 0) {
-        _workbenchViewModel.addUserMessage(prompt,
-            includeDraftAttachments: true, notify: false);
+        _workbenchViewModel.addUserMessage(
+          prompt,
+          includeDraftAttachments: true,
+          notify: false,
+        );
       }
       _prompt.clear();
     });
     _markTraceAfterFrame(
       'send.optimistic.rendered',
       conversationId: _activeConversationId,
-      metadata: <String, Object?>{
-        'route': sendRoute,
-      },
+      metadata: <String, Object?>{'route': sendRoute},
     );
     _scrollToBottom();
     ConversationSummary? restoreConversationAfterExistingSendFailure;
@@ -1241,9 +1274,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         if (!mounted) return;
         setState(() {
           _workbenchViewModel.prepareNewConversationSend(
-              result.runningConversation,
-              run: result.run,
-              notify: false);
+            result.runningConversation,
+            run: result.run,
+            notify: false,
+          );
           _trackActiveConversation();
         });
         if (mounted) _goToConversation();
@@ -1254,9 +1288,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             'send.http.completed',
             conversationId: updated.id,
             critical: true,
-            metadata: <String, Object?>{
-              'route': 'new',
-            },
+            metadata: <String, Object?>{'route': 'new'},
           );
           setState(() {
             _applyConversationSendAcknowledgement(
@@ -1282,13 +1314,13 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           'send.http.completed',
           conversationId: conversation.id,
           critical: true,
-          metadata: <String, Object?>{
-            'route': 'answer',
-          },
+          metadata: <String, Object?>{'route': 'answer'},
         );
         setState(() {
-          _workbenchViewModel.updateActiveConversation(conversation,
-              notify: false);
+          _workbenchViewModel.updateActiveConversation(
+            conversation,
+            notify: false,
+          );
           _trackActiveConversation();
           _workbenchViewModel.removeQuestionMessages(notify: false);
         });
@@ -1314,9 +1346,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             'send.http.completed',
             conversationId: conversation.id,
             critical: true,
-            metadata: <String, Object?>{
-              'route': 'existing',
-            },
+            metadata: <String, Object?>{'route': 'existing'},
           );
           setState(() {
             _applyConversationSendAcknowledgement(
@@ -1359,16 +1389,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       setState(() {
         if (_prompt.text.isEmpty && draft.isNotEmpty) {
           _prompt.value = TextEditingValue(
-              text: draft,
-              selection: TextSelection.collapsed(offset: draft.length));
+            text: draft,
+            selection: TextSelection.collapsed(offset: draft.length),
+          );
         }
         if (conversationToRestore != null &&
             conversationToRestore.id == _activeConversationId) {
-          _workbenchViewModel.updateActiveConversation(conversationToRestore,
-              notify: false);
+          _workbenchViewModel.updateActiveConversation(
+            conversationToRestore,
+            notify: false,
+          );
         }
-        _workbenchViewModel.setOperationError(traced.message,
-            traceId: traced.traceId, notify: false);
+        _workbenchViewModel.setOperationError(
+          traced.message,
+          traceId: traced.traceId,
+          notify: false,
+        );
       });
     } finally {
       if (mounted) _workbenchViewModel.finishOperation();
@@ -1442,33 +1478,42 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     );
     _conversationSyncLease = lease;
     _conversationEventSubscription = lease.events
-        .asyncMap((event) => _applyConversationEventFromStream(
-              event,
+        .asyncMap(
+      (event) => _applyConversationEventFromStream(
+        event,
+        conversationId: conversationId,
+        runId: runId,
+        generation: generation,
+      ),
+    )
+        .listen(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        if (generation != _conversationEventSubscriptionGeneration) return;
+        if (error is ConversationSyncConsumerLagged) {
+          unawaited(
+            _recoverLaggedConversationConsumer(
               conversationId: conversationId,
               runId: runId,
               generation: generation,
-            ))
-        .listen((_) {}, onError: (Object error, StackTrace stack) {
-      if (generation != _conversationEventSubscriptionGeneration) return;
-      if (error is ConversationSyncConsumerLagged) {
-        unawaited(_recoverLaggedConversationConsumer(
-          conversationId: conversationId,
-          runId: runId,
-          generation: generation,
-        ));
-        return;
-      }
-      unawaited(_workbenchViewModel
-          .recordException(
-            message: error.toString(),
-            stack: stack.toString(),
-            path: '/api/notifications/ws',
-            conversationId: conversationId,
-            runId: runId,
-            operation: 'watchConversationEvents',
-          )
-          .catchError((Object _) => ''));
-    });
+            ),
+          );
+          return;
+        }
+        unawaited(
+          _workbenchViewModel
+              .recordException(
+                message: error.toString(),
+                stack: stack.toString(),
+                path: '/api/notifications/ws',
+                conversationId: conversationId,
+                runId: runId,
+                operation: 'watchConversationEvents',
+              )
+              .catchError((Object _) => ''),
+        );
+      },
+    );
   }
 
   Future<void> _recoverLaggedConversationConsumer({
@@ -1506,16 +1551,18 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       )) {
         return;
       }
-      unawaited(_workbenchViewModel
-          .recordException(
-            message: error.toString(),
-            stack: stack.toString(),
-            path: '/api/conversations/$conversationId/events',
-            conversationId: conversationId,
-            runId: runId,
-            operation: 'recoverLaggedConversationConsumer',
-          )
-          .catchError((Object _) => ''));
+      unawaited(
+        _workbenchViewModel
+            .recordException(
+              message: error.toString(),
+              stack: stack.toString(),
+              path: '/api/conversations/$conversationId/events',
+              conversationId: conversationId,
+              runId: runId,
+              operation: 'recoverLaggedConversationConsumer',
+            )
+            .catchError((Object _) => ''),
+      );
     }
   }
 
@@ -1549,9 +1596,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         'reducer.applied',
         event,
         critical: true,
-        metadata: <String, Object?>{
-          'eventCount': _conversationEvents.length,
-        },
+        metadata: <String, Object?>{'eventCount': _conversationEvents.length},
       );
       _scrollToBottom();
       _markTraceAfterFrame(
@@ -1561,9 +1606,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         eventType: event.type,
         correlationId: _conversationEventCorrelationId(event),
         critical: true,
-        metadata: <String, Object?>{
-          'eventCount': _conversationEvents.length,
-        },
+        metadata: <String, Object?>{'eventCount': _conversationEvents.length},
       );
     }
   }
@@ -1608,8 +1651,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           approvalId: approvalId,
           response: response,
         );
-        _workbenchViewModel.updateActiveConversation(conversation,
-            notify: false);
+        _workbenchViewModel.updateActiveConversation(
+          conversation,
+          notify: false,
+        );
       } else {
         await _workbenchViewModel.respondRunApproval(
           approvalId: approvalId,
@@ -1618,8 +1663,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       }
       setState(() {
         _workbenchViewModel.applyApprovalResponse(
-            event, response.legacyDecision,
-            notify: false);
+          event,
+          response.legacyDecision,
+          notify: false,
+        );
       });
       final conversation = _activeConversation;
       _trackActiveConversation();
@@ -1661,8 +1708,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       );
       if (!mounted) return;
       setState(() {
-        _workbenchViewModel.updateActiveConversation(conversation,
-            notify: false);
+        _workbenchViewModel.updateActiveConversation(
+          conversation,
+          notify: false,
+        );
         _workbenchViewModel.removeQuestionMessages(notify: false);
       });
       _scrollToBottom();
@@ -1675,10 +1724,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       if (!mounted) return;
       setState(() {
         _prompt.value = TextEditingValue(
-            text: answer,
-            selection: TextSelection.collapsed(offset: answer.length));
-        _workbenchViewModel.setOperationError(traced.message,
-            traceId: traced.traceId, notify: false);
+          text: answer,
+          selection: TextSelection.collapsed(offset: answer.length),
+        );
+        _workbenchViewModel.setOperationError(
+          traced.message,
+          traceId: traced.traceId,
+          notify: false,
+        );
       });
     } finally {
       if (mounted) _workbenchViewModel.finishOperation();
@@ -1821,7 +1874,8 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     final canSend = adapter != null &&
         !_sending &&
         canSendInConversationStatus(
-            _workbenchViewModel.effectiveConversationStatus) &&
+          _workbenchViewModel.effectiveConversationStatus,
+        ) &&
         (pendingQuestionCanSendAttachments ||
             _workbenchViewModel.draftAttachments.isEmpty) &&
         _workbenchViewModel.canSendComposer(text: _prompt.text);
@@ -1842,8 +1896,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       draftAttachments: _workbenchViewModel.draftAttachments,
       slashCommands: _visibleSlashCommands,
       promptController: _prompt,
-      messageList:
-          _buildMessageList(adapter, l10n, hiddenApproval: pendingApproval),
+      messageList: _buildMessageList(
+        adapter,
+        l10n,
+        hiddenApproval: pendingApproval,
+      ),
       approvalPrompt: pendingApproval == null
           ? null
           : ApprovalComposerPrompt(
@@ -1856,8 +1913,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               },
             ),
       adapterStatusBanner: _adapterStatusBanner(compact: true),
-      onBack: () => _navigatorKey.currentState
-          ?.popUntil((route) => route.settings.name == _routeSessions),
+      onBack: () => _navigatorKey.currentState?.popUntil(
+        (route) => route.settings.name == _routeSessions,
+      ),
       onSlashCommandSelected: _insertSlashCommand,
       onAttachmentTap: () => unawaited(_pickAttachments()),
       onRemoveAttachment: _workbenchViewModel.removeDraftAttachment,
@@ -1933,7 +1991,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       runErrorTraceId: _errorTraceId,
       pendingStatusText: _pendingStatusText(l10n),
       pendingStartedAt: conversationPendingStartedAt(
-          _workbenchViewModel.effectiveConversationStatus, _conversationEvents),
+        _workbenchViewModel.effectiveConversationStatus,
+        _conversationEvents,
+      ),
       pendingActions: _recentActionSummaries,
       expandThinking: widget.expandThinking,
       expandToolDetails: widget.expandToolDetails,
@@ -2010,67 +2070,69 @@ class _AdapterStatusBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withValues(alpha: .075)),
         ),
-        child: Row(children: [
-          Icon(icon, color: theme.muted, size: 17),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: theme.text,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (!compact) ...[
-                  const SizedBox(height: 3),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.muted, size: 17),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    detail,
-                    maxLines: 2,
+                    title,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: theme.muted,
-                      fontSize: 11.5,
-                      height: 1.35,
+                      color: theme.text,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
+                  if (!compact) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      detail,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: theme.muted,
+                        fontSize: 11.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          if (actionLabel != null) ...[
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: onAction,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                height: 30,
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .055),
-                  borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: .08)),
-                ),
-                child: Text(
-                  actionLabel!,
-                  style: const TextStyle(
-                    color: theme.text,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
+            if (actionLabel != null) ...[
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: onAction,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  height: 30,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .055),
+                    borderRadius: BorderRadius.circular(10),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: .08)),
+                  ),
+                  child: Text(
+                    actionLabel!,
+                    style: const TextStyle(
+                      color: theme.text,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
-        ]),
+        ),
       );
 }
 
@@ -2124,10 +2186,7 @@ String _slashLoadKey(String? adapterId, String? workspaceId) {
   return workspace.isEmpty ? adapter : '$adapter\u0000$workspace';
 }
 
-bool _sameSlashCommandList(
-  List<SlashCommand> left,
-  List<SlashCommand> right,
-) {
+bool _sameSlashCommandList(List<SlashCommand> left, List<SlashCommand> right) {
   if (identical(left, right)) return true;
   if (left.length != right.length) return false;
   for (var index = 0; index < left.length; index += 1) {

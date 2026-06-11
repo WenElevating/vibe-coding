@@ -6,6 +6,7 @@ import '../../../data/repositories/slash_command_catalog_repository.dart';
 import '../../../data/repositories/workspace_repository.dart';
 import '../../../domain/repositories/diagnostics_repository.dart';
 import '../../../services/asr_model_manager.dart';
+import '../../../services/background_conversation_sync_bridge.dart';
 import '../../../services/mobile_app_event_bus.dart';
 import '../../../services/performance_trace_publisher.dart';
 import '../../../services/speech_input_contract.dart';
@@ -25,6 +26,7 @@ class WorkbenchDependencies {
     required this.speechInputServiceBuilder,
     required this.workspaceRepository,
     ConversationSyncCoordinator? conversationSyncCoordinator,
+    BackgroundConversationSyncBridge? backgroundConversationSyncBridge,
     this.workspaceOpeningUseCase,
     this.attachmentPreviewCache = const NoopAttachmentPreviewCache(),
     this.mobileAppEventBus,
@@ -34,6 +36,7 @@ class WorkbenchDependencies {
         conversationSyncCoordinator = conversationSyncCoordinator ??
             ConversationSyncCoordinator(
               conversationRepository: conversationRepository,
+              backgroundSyncBridge: backgroundConversationSyncBridge,
             ),
         slashCommandCatalogRepository = slashCommandCatalogRepository ??
             SlashCommandCatalogRepository(

@@ -13,6 +13,7 @@ import 'package:lan_ai_cli_control/src/domain/repositories/daemon_connection_con
 import 'package:lan_ai_cli_control/src/domain/repositories/diagnostics_repository.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/run_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/services/background_conversation_sync_bridge.dart';
 import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_notification_client.dart';
@@ -41,25 +42,27 @@ void main() {
     expect(notificationClient.closeCalls, 1);
   });
 
-  test('connected data disposal suppresses notification close failures',
-      () async {
-    final notificationClient = _FailingCloseNotificationClient();
-    final data = DataDependencies(
-      connectionConfigRepository: _FakeConnectionConfigRepository(),
-      createNotificationClient: (_) => notificationClient,
-    );
-    final client = DaemonClient(
-      baseUri: Uri.parse('http://127.0.0.1:4317'),
-      tokenStore: MemoryTokenStore(),
-    );
-    final connectedData = data.forDaemonClient(client);
+  test(
+    'connected data disposal suppresses notification close failures',
+    () async {
+      final notificationClient = _FailingCloseNotificationClient();
+      final data = DataDependencies(
+        connectionConfigRepository: _FakeConnectionConfigRepository(),
+        createNotificationClient: (_) => notificationClient,
+      );
+      final client = DaemonClient(
+        baseUri: Uri.parse('http://127.0.0.1:4317'),
+        tokenStore: MemoryTokenStore(),
+      );
+      final connectedData = data.forDaemonClient(client);
 
-    await connectedData.dispose();
-    await connectedData.dispose();
-    client.close();
+      await connectedData.dispose();
+      await connectedData.dispose();
+      client.close();
 
-    expect(notificationClient.closeCalls, 1);
-  });
+      expect(notificationClient.closeCalls, 1);
+    },
+  );
 
   test('workbench uses the same warmed CLI adapter repository', () async {
     final data = DataDependencies(
@@ -89,8 +92,10 @@ void main() {
       tokenStore: MemoryTokenStore(),
     );
 
-    final workbenchDependencies =
-        features.createWorkbenchDependencies(client, connectedData);
+    final workbenchDependencies = features.createWorkbenchDependencies(
+      client,
+      connectedData,
+    );
     await connectedData.cliAdapterRepository.probe();
     final viewModel = WorkbenchViewModel(
       workspaceRepository: connectedData.workspaceRepository,
@@ -138,6 +143,30 @@ void main() {
 
     expect(features.backgroundDownloadBridge, isA<BackgroundDownloadBridge>());
   });
+
+  test(
+    'default feature dependencies provide a background conversation bridge',
+    () {
+      final data = DataDependencies(
+        connectionConfigRepository: _FakeConnectionConfigRepository(),
+      );
+      final features = FeatureDependencies.createDefault(
+        data: data,
+        domain: DomainDependencies.createDefault(
+          data: data,
+          network: NetworkDependencies(
+            tokenStore: MemoryTokenStore(),
+            deviceIdentityStore: MemoryDeviceIdentityStore(deviceId: 'device'),
+          ),
+        ),
+      );
+
+      expect(
+        features.backgroundConversationSyncBridge,
+        isA<BackgroundConversationSyncBridge>(),
+      );
+    },
+  );
 }
 
 class _FakeConnectionConfigRepository

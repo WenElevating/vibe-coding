@@ -36,6 +36,18 @@ Approval request/resolution events are now published to `MobileAppEventBus`
 from the coordinator so off-route events still reach the mobile notification
 handler.
 
+Android background continuation uses a native foreground-service bridge as a
+process and user-visible notification anchor. The Dart coordinator still owns
+the daemon notification transport, auth refresh path, event cursor, cache
+backfill, and stop policy. If native reports denied, failed, stopped, or emits
+an error, the coordinator falls back to the normal background disconnect grace.
+The Android service keeps the anchor through terminal grace and exposes a
+notification action that stops background live sync.
+
+iOS continuous background sync is not implemented. The accepted product
+contract remains degraded resume/backfill rather than promising suspended
+WebSocket delivery.
+
 ## Alternatives
 
 - Keep page-owned subscriptions and reload on route return: rejected because it
@@ -45,6 +57,10 @@ handler.
 - Native Android service owns a separate WebSocket stack in the first slice:
   rejected because this slice fixes foreground route-independent sync without
   duplicating Dart auth, cursor, and backfill logic.
+- Android native service owns auth/cursor/cache in the background: rejected
+  because the existing Dart repository and notification client already own
+  those semantics and the first Android slice only needs a foreground-service
+  lifetime anchor.
 
 ## Evidence
 
@@ -56,6 +72,14 @@ handler.
 - `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` attaches and
   disposes foreground leases while leaving transport lifetime to the
   coordinator.
+- `mobile/lib/src/services/background_conversation_sync_bridge.dart` defines
+  the Dart/native background anchor contract.
+- `mobile/lib/src/services/method_channel_background_conversation_sync_bridge.dart`
+  maps the bridge to Android MethodChannel/EventChannel traffic.
+- `mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundConversationSyncService.kt`
+  owns the Android foreground service and user-visible notification anchor.
+- `mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundConversationSyncChannels.kt`
+  reports native anchor snapshots back to Dart.
 - Detailed design rationale remains in
   `docs/superpowers/specs/2026-06-11-mobile-conversation-background-sync-design.md`.
 
@@ -66,13 +90,17 @@ git diff --check
 node scripts/check-project-knowledge.js
 cd mobile
 flutter test --no-pub test\conversation_sync_coordinator_test.dart
+flutter test --no-pub test\background_conversation_sync_bridge_test.dart
+flutter test --no-pub test\app_dependencies_test.dart
 flutter test --no-pub test\widget_test.dart --plain-name "foreground route changes keep conversation event sync alive"
 dart run tool\check_architecture_imports.dart
 ```
 
 ## Re-evaluate When
 
-- Android foreground-service support moves from design to implementation.
+- Android foreground-service behavior is validated or fails on real OEM devices.
 - iOS resume/backfill behavior gains a native background-task bridge.
+- Product requires native background transport/auth ownership instead of a Dart
+  process anchor.
 - Conversation event fan-out needs multiple simultaneous foreground rendering
   owners with different recovery behavior.

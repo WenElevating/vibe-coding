@@ -39,12 +39,15 @@ import '../services/android_package_installer.dart';
 import '../services/app_update_client.dart';
 import '../services/app_update_download_manager.dart';
 import '../services/asr_model_manager.dart';
+import '../services/background_conversation_sync_bridge.dart';
 import '../services/background_download_bridge.dart';
 import '../services/daemon_client.dart';
 import '../services/daemon_connection_config_store.dart';
 import '../services/daemon_notification_client.dart';
 import '../services/device_identity_store.dart';
+import '../services/method_channel_background_conversation_sync_bridge.dart';
 import '../services/method_channel_background_download_bridge.dart';
+import '../services/noop_background_conversation_sync_bridge.dart';
 import '../services/noop_background_download_bridge.dart';
 import '../services/performance_trace_client.dart';
 import '../services/performance_trace_startup_buffer.dart';
@@ -65,8 +68,7 @@ import '../workflows/conversation_sync/conversation_sync_coordinator.dart';
 import 'connected_session_scope.dart';
 
 typedef NotificationClientFactory = DaemonNotificationClient Function(
-  DaemonClient client,
-);
+    DaemonClient client);
 
 class AppDependencies {
   AppDependencies({
@@ -114,10 +116,8 @@ class AppDependencies {
     final sessionScope = _createConnectedSessionScope(
       connectedData,
       codingPreferencesRepository: data.codingPreferencesRepository,
-      loadWorkspaceBootstrap: ({
-        required workspaces,
-        required workspace,
-      }) async =>
+      loadWorkspaceBootstrap: (
+              {required workspaces, required workspace}) async =>
           (await loadWorkspaceBootstrap(
         client,
         health: initialData.health,
@@ -146,10 +146,8 @@ class AppDependencies {
                 workspaceOpeningUseCase: sessionScope.useCases.openWorkspace,
               ),
       featureDependencies: features,
-      createAppUpdateViewModel: ({
-        required installedVersionCode,
-        required installedVersionName,
-      }) =>
+      createAppUpdateViewModel: (
+              {required installedVersionCode, required installedVersionName}) =>
           features.createAppUpdateViewModel(
         client: client,
         connectedData: connectedData,
@@ -289,11 +287,13 @@ class DataDependencies {
     final codingPreferencesRepository = CodingPreferencesRepository();
     final recentAddressStore = RecentDaemonAddressStore();
     return DataDependencies(
-      connectionConfigRepository:
-          StoreDaemonConnectionConfigRepository(store: connectionConfigStore),
+      connectionConfigRepository: StoreDaemonConnectionConfigRepository(
+        store: connectionConfigStore,
+      ),
       codingPreferencesRepository: codingPreferencesRepository,
-      recentAddressRepository:
-          StoreRecentDaemonAddressRepository(store: recentAddressStore),
+      recentAddressRepository: StoreRecentDaemonAddressRepository(
+        store: recentAddressStore,
+      ),
     );
   }
 
@@ -328,9 +328,7 @@ class DataDependencies {
       eventCache: conversationEventCacheStore,
       eventCacheNamespace: _conversationEventCacheNamespace(client.baseUri),
     );
-    final runRepository = CachedRunRepository(
-      delegate: rawRunRepository,
-    );
+    final runRepository = CachedRunRepository(delegate: rawRunRepository);
     return ConnectedDataDependencies(
       authRepository: DaemonAuthRepository(client: client),
       adapterRepository: rawAdapterRepository,
@@ -468,12 +466,9 @@ class ConnectedDataDependencies {
     String severity = 'info',
     String? path,
   }) {
-    unawaited(_recordDiagnosticEvent(
-      event,
-      metadata,
-      severity: severity,
-      path: path,
-    ));
+    unawaited(
+      _recordDiagnosticEvent(event, metadata, severity: severity, path: path),
+    );
   }
 
   Future<void> _recordDiagnosticEvent(
@@ -526,15 +521,13 @@ class _UnavailableCodexAppServerRepository implements CodexAppServerRepository {
 }
 
 DaemonNotificationClient _createDefaultNotificationClient(
-        DaemonClient client) =>
+  DaemonClient client,
+) =>
     DaemonNotificationClient(
       baseUri: client.baseUri,
       tokenProvider: () => client.currentToken,
       fetchBackfill: (conversationId, {required afterSeq}) =>
-          client.fetchConversationEvents(
-        conversationId,
-        afterSeq: afterSeq,
-      ),
+          client.fetchConversationEvents(conversationId, afterSeq: afterSeq),
       refreshAuth: client.refreshToken,
     );
 
@@ -575,10 +568,15 @@ class FeatureDependencies {
     required this.createAppUpdateViewModel,
     required this.createWorkbenchDependencies,
     BackgroundDownloadBridge? backgroundDownloadBridge,
-  }) : backgroundDownloadBridge = backgroundDownloadBridge ??
+    BackgroundConversationSyncBridge? backgroundConversationSyncBridge,
+  })  : backgroundDownloadBridge = backgroundDownloadBridge ??
             (Platform.isAndroid
                 ? MethodChannelBackgroundDownloadBridge()
-                : UnsupportedBackgroundDownloadBridge());
+                : UnsupportedBackgroundDownloadBridge()),
+        backgroundConversationSyncBridge = backgroundConversationSyncBridge ??
+            (Platform.isAndroid
+                ? MethodChannelBackgroundConversationSyncBridge()
+                : UnsupportedBackgroundConversationSyncBridge());
 
   factory FeatureDependencies.createDefault({
     required DataDependencies data,
@@ -587,6 +585,9 @@ class FeatureDependencies {
     final backgroundDownloadBridge = Platform.isAndroid
         ? MethodChannelBackgroundDownloadBridge()
         : UnsupportedBackgroundDownloadBridge();
+    final backgroundConversationSyncBridge = Platform.isAndroid
+        ? MethodChannelBackgroundConversationSyncBridge()
+        : UnsupportedBackgroundConversationSyncBridge();
     return FeatureDependencies(
       createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
         configRepository: data.connectionConfigRepository,
@@ -619,9 +620,8 @@ class FeatureDependencies {
         gitStatus: gitStatus,
         extensionsCount: extensionsCount,
       ),
-      createDiagnosticsViewModel: (connectedData) => DiagnosticsViewModel(
-        repository: connectedData.diagnosticsRepository,
-      ),
+      createDiagnosticsViewModel: (connectedData) =>
+          DiagnosticsViewModel(repository: connectedData.diagnosticsRepository),
       createRunDetailViewModel: (connectedData, run) => RunDetailViewModel(
         run: run,
         runRepository: connectedData.runRepository,
@@ -672,6 +672,7 @@ class FeatureDependencies {
       createWorkbenchDependencies: (client, connectedData) {
         final conversationSyncCoordinator = ConversationSyncCoordinator(
           conversationRepository: connectedData.conversationRepository,
+          backgroundSyncBridge: backgroundConversationSyncBridge,
         );
         return WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
@@ -689,10 +690,12 @@ class FeatureDependencies {
               SherpaSpeechInputService(modelDirectory: modelDirectory),
           workspaceRepository: connectedData.workspaceRepository,
           conversationSyncCoordinator: conversationSyncCoordinator,
+          backgroundConversationSyncBridge: backgroundConversationSyncBridge,
           attachmentPreviewCache: LocalAttachmentPreviewCache(),
         );
       },
       backgroundDownloadBridge: backgroundDownloadBridge,
+      backgroundConversationSyncBridge: backgroundConversationSyncBridge,
     );
   }
 
@@ -727,4 +730,5 @@ class FeatureDependencies {
     ConnectedDataDependencies connectedData,
   ) createWorkbenchDependencies;
   final BackgroundDownloadBridge backgroundDownloadBridge;
+  final BackgroundConversationSyncBridge backgroundConversationSyncBridge;
 }

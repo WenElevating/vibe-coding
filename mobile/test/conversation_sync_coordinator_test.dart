@@ -5,14 +5,277 @@ import 'package:lan_ai_cli_control/src/data/repositories/cached_conversation_rep
 import 'package:lan_ai_cli_control/src/domain/models/approval_response.dart';
 import 'package:lan_ai_cli_control/src/domain/repositories/conversation_repository.dart';
 import 'package:lan_ai_cli_control/src/models/protocol.dart';
+import 'package:lan_ai_cli_control/src/services/background_conversation_sync_bridge.dart';
 import 'package:lan_ai_cli_control/src/services/mobile_app_event_bus.dart';
 import 'package:lan_ai_cli_control/src/workflows/conversation_sync/conversation_sync_coordinator.dart';
 import 'package:lan_ai_cli_control/src/workflows/conversation_sync/conversation_sync_policy.dart';
 
 void main() {
-  test('detaching foreground lease keeps watcher alive while app is foreground',
-      () async {
+  test(
+    'detaching foreground lease keeps watcher alive while app is foreground',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        policy: const ConversationSyncPolicy(
+          backgroundDisconnectGrace: Duration(milliseconds: 30),
+        ),
+      );
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      final lease = coordinator.attachForegroundConsumer(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+      );
+      final received = <ConversationEvent>[];
+      final sub = lease.events.listen(received.add);
+      await pumpEventQueue();
+
+      expect(delegate.watchCalls, 1);
+      expect(delegate.cancelCalls, 0);
+
+      await lease.dispose();
+      await sub.cancel();
+      await pumpEventQueue();
+
+      expect(delegate.cancelCalls, 0);
+
+      delegate.emit(
+        _event(
+          seq: 1,
+          conversationId: 'conv_1',
+          type: 'conversation.status_changed',
+          raw: const <String, Object?>{'status': 'waiting_input'},
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(delegate.cancelCalls, 0);
+      expect(repository.conversations.single.status, 'waiting_input');
+      await coordinator.dispose();
+    },
+  );
+
+  test(
+    'background grace cancels watcher when keep-live setting is disabled',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        policy: const ConversationSyncPolicy(
+          backgroundDisconnectGrace: Duration(milliseconds: 10),
+        ),
+      );
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      await pumpEventQueue();
+      expect(delegate.watchCalls, 1);
+
+      coordinator.setAppForeground(false, keepAliveInBackground: false);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(delegate.cancelCalls, 1);
+      await coordinator.dispose();
+    },
+  );
+
+  test(
+    'background keep-live starts platform anchor for tracked conversations',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final backgroundBridge = _FakeBackgroundConversationSyncBridge();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        backgroundSyncBridge: backgroundBridge,
+      )..updateBackgroundNotificationText(title: 'Vibe Coding');
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      coordinator.setAppForeground(false, keepAliveInBackground: true);
+      await pumpEventQueue();
+
+      expect(delegate.cancelCalls, 0);
+      expect(backgroundBridge.startRequests, hasLength(1));
+      expect(backgroundBridge.startRequests.single.runningCount, 1);
+      expect(backgroundBridge.startRequests.single.waitingApprovalCount, 0);
+      expect(
+        backgroundBridge.startRequests.single.notificationTitle,
+        'Vibe Coding',
+      );
+
+      await coordinator.dispose();
+    },
+  );
+
+  test(
+    'background anchor denial falls back to normal disconnect grace',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final backgroundBridge = _FakeBackgroundConversationSyncBridge(
+        startStatus: BackgroundConversationSyncStatus.denied,
+      );
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        backgroundSyncBridge: backgroundBridge,
+        policy: const ConversationSyncPolicy(
+          backgroundDisconnectGrace: Duration(milliseconds: 10),
+        ),
+      );
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      coordinator.setAppForeground(false, keepAliveInBackground: true);
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(backgroundBridge.startRequests, hasLength(1));
+      expect(delegate.cancelCalls, 1);
+
+      await coordinator.dispose();
+    },
+  );
+
+  test(
+    'background anchor stop event falls back to normal disconnect grace',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final backgroundBridge = _FakeBackgroundConversationSyncBridge();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        backgroundSyncBridge: backgroundBridge,
+        policy: const ConversationSyncPolicy(
+          backgroundDisconnectGrace: Duration(milliseconds: 10),
+        ),
+      );
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      coordinator.setAppForeground(false, keepAliveInBackground: true);
+      await pumpEventQueue();
+
+      backgroundBridge.emit(
+        BackgroundConversationSyncSnapshot(
+          status: BackgroundConversationSyncStatus.stopped,
+          runningCount: 1,
+          waitingApprovalCount: 0,
+          message: 'Background sync stopped',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(backgroundBridge.startRequests, hasLength(1));
+      expect(delegate.cancelCalls, 1);
+
+      await coordinator.dispose();
+    },
+  );
+
+  test(
+    'background anchor stop event is ignored after foreground return',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final backgroundBridge = _FakeBackgroundConversationSyncBridge();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        backgroundSyncBridge: backgroundBridge,
+        policy: const ConversationSyncPolicy(
+          backgroundDisconnectGrace: Duration(milliseconds: 10),
+        ),
+      );
+
+      coordinator.trackConversation(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+        status: 'running',
+      );
+      coordinator.setAppForeground(false, keepAliveInBackground: true);
+      await pumpEventQueue();
+      coordinator.setAppForeground(true, keepAliveInBackground: true);
+      backgroundBridge.emit(
+        BackgroundConversationSyncSnapshot(
+          status: BackgroundConversationSyncStatus.stopped,
+          runningCount: 1,
+          waitingApprovalCount: 0,
+          message: 'Background sync stopped',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(delegate.cancelCalls, 0);
+
+      await coordinator.dispose();
+    },
+  );
+
+  test('background anchor stays active until terminal grace expires', () async {
     final delegate = _FakeConversationRepository();
+    final backgroundBridge = _FakeBackgroundConversationSyncBridge();
     final repository = CachedConversationRepository(delegate: delegate)
       ..replaceFromBootstrap(
         workspaceId: 'workspace_1',
@@ -22,8 +285,9 @@ void main() {
       );
     final coordinator = ConversationSyncCoordinator(
       conversationRepository: repository,
+      backgroundSyncBridge: backgroundBridge,
       policy: const ConversationSyncPolicy(
-        backgroundDisconnectGrace: Duration(milliseconds: 30),
+        terminalGrace: Duration(milliseconds: 30),
       ),
     );
 
@@ -33,67 +297,20 @@ void main() {
       afterSeq: 0,
       status: 'running',
     );
-    final lease = coordinator.attachForegroundConsumer(
-      conversationId: 'conv_1',
-      runId: 'run_1',
-      afterSeq: 0,
-    );
-    final received = <ConversationEvent>[];
-    final sub = lease.events.listen(received.add);
+    coordinator.setAppForeground(false, keepAliveInBackground: true);
     await pumpEventQueue();
 
-    expect(delegate.watchCalls, 1);
-    expect(delegate.cancelCalls, 0);
-
-    await lease.dispose();
-    await sub.cancel();
-    await pumpEventQueue();
-
-    expect(delegate.cancelCalls, 0);
-
-    delegate.emit(_event(
-      seq: 1,
-      conversationId: 'conv_1',
-      type: 'conversation.status_changed',
-      raw: const <String, Object?>{'status': 'waiting_input'},
-    ));
-    await pumpEventQueue();
-
-    expect(delegate.cancelCalls, 0);
-    expect(repository.conversations.single.status, 'waiting_input');
-    await coordinator.dispose();
-  });
-
-  test('background grace cancels watcher when keep-live setting is disabled',
-      () async {
-    final delegate = _FakeConversationRepository();
-    final repository = CachedConversationRepository(delegate: delegate)
-      ..replaceFromBootstrap(
-        workspaceId: 'workspace_1',
-        conversations: <ConversationSummary>[
-          _conversation(id: 'conv_1', status: 'running'),
-        ],
-      );
-    final coordinator = ConversationSyncCoordinator(
-      conversationRepository: repository,
-      policy: const ConversationSyncPolicy(
-        backgroundDisconnectGrace: Duration(milliseconds: 10),
-      ),
-    );
-
-    coordinator.trackConversation(
-      conversationId: 'conv_1',
-      runId: 'run_1',
-      afterSeq: 0,
-      status: 'running',
+    delegate.emit(
+      _event(seq: 1, conversationId: 'conv_1', type: 'conversation.completed'),
     );
     await pumpEventQueue();
-    expect(delegate.watchCalls, 1);
 
-    coordinator.setAppForeground(false, keepAliveInBackground: false);
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(backgroundBridge.stopCalls, 0);
 
-    expect(delegate.cancelCalls, 1);
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+
+    expect(backgroundBridge.stopCalls, 1);
+
     await coordinator.dispose();
   });
 
@@ -126,11 +343,9 @@ void main() {
     );
     await pumpEventQueue();
 
-    delegate.emit(_event(
-      seq: 1,
-      conversationId: 'conv_1',
-      type: 'conversation.completed',
-    ));
+    delegate.emit(
+      _event(seq: 1, conversationId: 'conv_1', type: 'conversation.completed'),
+    );
     await pumpEventQueue();
     await lease.dispose();
     await pumpEventQueue();
@@ -172,11 +387,9 @@ void main() {
       status: 'running',
     );
     await pumpEventQueue();
-    delegate.emit(_event(
-      seq: 4,
-      conversationId: 'conv_1',
-      type: 'assistant.delta',
-    ));
+    delegate.emit(
+      _event(seq: 4, conversationId: 'conv_1', type: 'assistant.delta'),
+    );
     await pumpEventQueue();
 
     delegate.failActiveWatcher(StateError('socket closed'));
@@ -214,14 +427,16 @@ void main() {
       afterSeq: 0,
       status: 'running',
     );
-    delegate.emit(_event(
-      seq: 1,
-      conversationId: 'conv_1',
-      type: 'approval.requested',
-      approvalId: 'approval_1',
-      toolName: 'Bash',
-      summary: 'npm test',
-    ));
+    delegate.emit(
+      _event(
+        seq: 1,
+        conversationId: 'conv_1',
+        type: 'approval.requested',
+        approvalId: 'approval_1',
+        toolName: 'Bash',
+        summary: 'npm test',
+      ),
+    );
     await pumpEventQueue();
 
     expect(approvals, hasLength(1));
@@ -236,59 +451,64 @@ void main() {
     await eventBus.dispose();
   });
 
-  test('slow foreground consumer gets lagged signal without stopping watcher',
-      () async {
-    final delegate = _FakeConversationRepository();
-    final repository = CachedConversationRepository(delegate: delegate)
-      ..replaceFromBootstrap(
-        workspaceId: 'workspace_1',
-        conversations: <ConversationSummary>[
-          _conversation(id: 'conv_1', status: 'running'),
-        ],
+  test(
+    'slow foreground consumer gets lagged signal without stopping watcher',
+    () async {
+      final delegate = _FakeConversationRepository();
+      final repository = CachedConversationRepository(delegate: delegate)
+        ..replaceFromBootstrap(
+          workspaceId: 'workspace_1',
+          conversations: <ConversationSummary>[
+            _conversation(id: 'conv_1', status: 'running'),
+          ],
+        );
+      final coordinator = ConversationSyncCoordinator(
+        conversationRepository: repository,
+        policy: const ConversationSyncPolicy(consumerLagQueueLimit: 2),
       );
-    final coordinator = ConversationSyncCoordinator(
-      conversationRepository: repository,
-      policy: const ConversationSyncPolicy(consumerLagQueueLimit: 2),
-    );
 
-    final lease = coordinator.attachForegroundConsumer(
-      conversationId: 'conv_1',
-      runId: 'run_1',
-      afterSeq: 0,
-    );
-    final received = <ConversationEvent>[];
-    final errors = <Object>[];
-    final sub = lease.events.listen(
-      received.add,
-      onError: errors.add,
-    );
-    sub.pause();
-    await pumpEventQueue();
+      final lease = coordinator.attachForegroundConsumer(
+        conversationId: 'conv_1',
+        runId: 'run_1',
+        afterSeq: 0,
+      );
+      final received = <ConversationEvent>[];
+      final errors = <Object>[];
+      final sub = lease.events.listen(received.add, onError: errors.add);
+      sub.pause();
+      await pumpEventQueue();
 
-    delegate
-      ..emit(_event(seq: 1, conversationId: 'conv_1', type: 'assistant.delta'))
-      ..emit(_event(seq: 2, conversationId: 'conv_1', type: 'assistant.delta'))
-      ..emit(_event(seq: 3, conversationId: 'conv_1', type: 'assistant.delta'));
-    await pumpEventQueue();
+      delegate
+        ..emit(
+          _event(seq: 1, conversationId: 'conv_1', type: 'assistant.delta'),
+        )
+        ..emit(
+          _event(seq: 2, conversationId: 'conv_1', type: 'assistant.delta'),
+        )
+        ..emit(
+          _event(seq: 3, conversationId: 'conv_1', type: 'assistant.delta'),
+        );
+      await pumpEventQueue();
 
-    expect(delegate.cancelCalls, 0);
-    expect(repository.conversations.single.status, 'running');
-    expect(errors, isEmpty);
+      expect(delegate.cancelCalls, 0);
+      expect(repository.conversations.single.status, 'running');
+      expect(errors, isEmpty);
 
-    sub.resume();
-    await pumpEventQueue();
+      sub.resume();
+      await pumpEventQueue();
 
-    expect(received, isEmpty);
-    expect(errors, hasLength(1));
-    expect(errors.single, isA<ConversationSyncConsumerLagged>());
-    final lagged = errors.single as ConversationSyncConsumerLagged;
-    expect(lagged.conversationId, 'conv_1');
-    expect(lagged.droppedAfterSeq, 3);
-    expect(delegate.cancelCalls, 0);
-    await lease.dispose();
-    await sub.cancel();
-    await coordinator.dispose();
-  });
+      expect(received, isEmpty);
+      expect(errors, hasLength(1));
+      expect(errors.single, isA<ConversationSyncConsumerLagged>());
+      final lagged = errors.single as ConversationSyncConsumerLagged;
+      expect(lagged.conversationId, 'conv_1');
+      expect(lagged.droppedAfterSeq, 3);
+      expect(delegate.cancelCalls, 0);
+      await lease.dispose();
+      await sub.cancel();
+      await coordinator.dispose();
+    },
+  );
 }
 
 class _FakeConversationRepository implements ConversationRepository {
@@ -405,6 +625,55 @@ class _FakeConversationRepository implements ConversationRepository {
   @override
   Future<ConversationSummary> cancelConversation(String conversationId) async =>
       _conversation(id: conversationId, status: 'cancelled');
+}
+
+class _FakeBackgroundConversationSyncBridge
+    implements BackgroundConversationSyncBridge {
+  _FakeBackgroundConversationSyncBridge({
+    this.supported = true,
+    this.startStatus = BackgroundConversationSyncStatus.active,
+  });
+
+  final bool supported;
+  final BackgroundConversationSyncStatus startStatus;
+  final List<BackgroundConversationSyncRequest> startRequests =
+      <BackgroundConversationSyncRequest>[];
+  final StreamController<BackgroundConversationSyncSnapshot> _controller =
+      StreamController<BackgroundConversationSyncSnapshot>.broadcast();
+  int stopCalls = 0;
+
+  @override
+  Future<bool> get isSupported async => supported;
+
+  @override
+  Stream<BackgroundConversationSyncSnapshot> get events => _controller.stream;
+
+  @override
+  Future<BackgroundConversationSyncSnapshot> start(
+    BackgroundConversationSyncRequest request,
+  ) async {
+    startRequests.add(request);
+    final snapshot = BackgroundConversationSyncSnapshot(
+      status: startStatus,
+      runningCount: request.runningCount,
+      waitingApprovalCount: request.waitingApprovalCount,
+      message: request.notificationBody,
+    );
+    _controller.add(snapshot);
+    return snapshot;
+  }
+
+  @override
+  Future<BackgroundConversationSyncSnapshot?> snapshot() async => null;
+
+  @override
+  Future<void> stop() async {
+    stopCalls += 1;
+  }
+
+  void emit(BackgroundConversationSyncSnapshot snapshot) {
+    _controller.add(snapshot);
+  }
 }
 
 ConversationSummary _conversation({

@@ -130,6 +130,7 @@ class MainActivity : FlutterActivity() {
         })
 
         BackgroundDownloadChannels.register(this, flutterEngine)
+        BackgroundConversationSyncChannels.register(this, flutterEngine)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
