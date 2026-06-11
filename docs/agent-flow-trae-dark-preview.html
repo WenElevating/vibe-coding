@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>暗色 Trae 风格 Agent 流预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(14% 0.01 245);
+      --surface: oklch(16.5% 0.012 245);
+      --surface-2: oklch(20% 0.012 245);
+      --line: oklch(28% 0.012 245);
+      --line-soft: oklch(24% 0.01 245);
+      --text: oklch(91% 0.006 245);
+      --muted: oklch(68% 0.009 245);
+      --quiet: oklch(52% 0.009 245);
+      --faint: oklch(42% 0.009 245);
+      --green: oklch(76% 0.16 154);
+      --green-soft: oklch(26% 0.045 154);
+      --violet: oklch(63% 0.17 291);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: start center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; }
+
+    .phone {
+      width: min(100vw, 390px);
+      min-height: 100vh;
+      position: relative;
+      background:
+        radial-gradient(circle at 50% -12%, oklch(26% 0.035 255 / 0.42), transparent 250px),
+        linear-gradient(180deg, oklch(15.5% 0.011 245), oklch(12.8% 0.01 245));
+      overflow: hidden;
+    }
+
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      height: 68px;
+      display: grid;
+      grid-template-columns: 54px 1fr 54px;
+      align-items: center;
+      padding: 9px 14px 7px;
+      border-bottom: 1px solid var(--line-soft);
+      background: oklch(14% 0.01 245 / 0.96);
+    }
+
+    .back {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: oklch(18% 0.011 245);
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .title {
+      text-align: center;
+      min-width: 0;
+    }
+
+    .title h1 {
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 4px 0 0;
+      color: var(--quiet);
+      font-size: 11px;
+    }
+
+    .feed {
+      padding: 17px 32px 148px;
+    }
+
+    .context {
+      margin: 0 0 16px;
+      color: var(--quiet);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .assistant,
+    .user {
+      margin: 0 0 17px;
+      font-size: 13px;
+      line-height: 1.52;
+      color: var(--text);
+    }
+
+    .user {
+      padding-left: 26px;
+      color: oklch(87% 0.007 245);
+    }
+
+    .assistant strong,
+    .result strong,
+    li strong {
+      color: oklch(96% 0.004 245);
+      font-weight: 780;
+    }
+
+    .minor-link {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      margin: 7px 0 12px;
+      color: var(--quiet);
+      font-size: 12px;
+    }
+
+    .run-list {
+      display: grid;
+      gap: 14px;
+      margin: 10px 0 24px;
+    }
+
+    .run-row {
+      display: grid;
+      grid-template-columns: 27px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+
+    .check {
+      width: 23px;
+      height: 23px;
+      margin-top: 1px;
+      border: 2px solid var(--green);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: var(--green);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .check.active {
+      border-color: oklch(66% 0.12 154);
+      background: var(--green-soft);
+      box-shadow: 0 0 0 4px oklch(76% 0.16 154 / 0.08);
+      font-size: 0;
+    }
+
+    .check.active::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .check.pending {
+      border-color: var(--line);
+      color: var(--faint);
+    }
+
+    .run-main { min-width: 0; }
+
+    .run-toggle {
+      width: 100%;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .run-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      line-height: 1.28;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    .chev {
+      color: var(--muted);
+      font-size: 12px;
+      transform: translateY(1px);
+      transition: transform 160ms ease-out;
+    }
+
+    .run-row.open .chev { transform: rotate(180deg) translateY(-1px); }
+
+    .run-meta {
+      margin-top: 2px;
+      color: var(--quiet);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .run-detail {
+      display: none;
+      margin: 7px 0 0;
+      padding-left: 13px;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.52;
+    }
+
+    .run-row.open .run-detail { display: block; }
+
+    .detail-item {
+      margin: 5px 0;
+      color: var(--quiet);
+    }
+
+    .detail-item.primary { color: var(--muted); }
+
+    .inline-code {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: oklch(80% 0.08 154);
+    }
+
+    .result {
+      margin: 23px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.58;
+    }
+
+    .result ul {
+      margin: 13px 0 0;
+      padding-left: 19px;
+    }
+
+    .result li {
+      margin: 8px 0;
+      padding-left: 4px;
+    }
+
+    .result li::marker { color: var(--green); }
+
+    .composer {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      width: min(calc(100vw - 28px), 362px);
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 23px;
+      background: oklch(19% 0.011 245 / 0.98);
+      box-shadow: 0 18px 60px rgb(0 0 0 / 0.46);
+    }
+
+    .composer input {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .composer input::placeholder { color: var(--quiet); }
+
+    .tool-btn,
+    .send {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: transparent;
+      font-size: 20px;
+    }
+
+    .send {
+      color: oklch(16% 0.01 245);
+      background: oklch(93% 0.005 245);
+      font-size: 20px;
+      font-weight: 760;
+    }
+
+    .adapter {
+      position: fixed;
+      left: 50%;
+      bottom: 80px;
+      width: min(calc(100vw - 48px), 350px);
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .adapter strong { color: var(--text); }
+
+    @media (min-width: 860px) {
+      body { padding: 30px 0; }
+      .phone {
+        min-height: 860px;
+        border: 1px solid var(--line);
+        border-radius: 34px;
+        box-shadow: 0 28px 90px rgb(0 0 0 / 0.42);
+      }
+      .composer,
+      .adapter {
+        position: absolute;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone">
+    <header class="header">
+      <button class="back" type="button" aria-label="返回">‹</button>
+      <div class="title">
+        <h1>这个项目是干嘛的？</h1>
+        <p>Cloud · vibe-coding</p>
+      </div>
+      <span></span>
+    </header>
+
+    <section class="feed" aria-label="会话消息">
+      <p class="context">浏览 1 个工作区 ›</p>
+
+      <p class="user">这个项目是干嘛的？先读一下项目文件和配置，告诉我核心用途。</p>
+
+      <div class="minor-link">调用 3 个工具 ›</div>
+
+      <div class="run-list">
+        <article class="run-row open">
+          <div class="check">✓</div>
+          <div class="run-main">
+            <button class="run-toggle" type="button" aria-expanded="true">
+              <span class="run-title">读取 package.json</span>
+              <span class="chev">⌄</span>
+            </button>
+            <div class="run-meta">工具调用 · Read · ok</div>
+            <div class="run-detail">
+              <div class="detail-item primary">读取项目根目录的 <span class="inline-code">package.json</span>。</div>
+              <div class="detail-item">发现 daemon、测试脚本、LAN 控制相关命令。</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="run-row open">
+          <div class="check">✓</div>
+          <div class="run-main">
+            <button class="run-toggle" type="button" aria-expanded="true">
+              <span class="run-title">读取 mobile/pubspec.yaml</span>
+              <span class="chev">⌄</span>
+            </button>
+            <div class="run-meta">运行命令 · 1.3s · ok</div>
+            <div class="run-detail">
+              <div class="detail-item primary">确认 Flutter 客户端名称为 <span class="inline-code">lan_ai_cli_control</span>。</div>
+              <div class="detail-item">版本号 1.3.0+1，包含移动端控制界面依赖。</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="run-row">
+          <div class="check active"></div>
+          <div class="run-main">
+            <button class="run-toggle" type="button" aria-expanded="false">
+              <span class="run-title">总结项目用途</span>
+              <span class="chev">⌄</span>
+            </button>
+            <div class="run-meta">思考过程 · 正在整理</div>
+            <div class="run-detail">
+              <div class="detail-item primary">把 daemon、mobile、adapter、安全边界合并成一个用户可读解释。</div>
+              <div class="detail-item">这里用缩进细线承载内容，不再使用大卡片。</div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="result">
+        <p>这是一个 <strong>LAN AI CLI 控制面板项目</strong>，用 Flutter 做手机端界面，通过局域网远程控制桌面上的 AI 编码工具。</p>
+        <p>核心功能：</p>
+        <ul>
+          <li><strong>手机端控制：</strong>选择工作区、启动或恢复编码会话、查看运行状态和输出</li>
+          <li><strong>安全边界：</strong>配对认证、Token 鉴权、工作区白名单、审批审计</li>
+          <li><strong>多适配器：</strong>支持 Claude、Codex、OpenCode 等 CLI 工具</li>
+          <li><strong>Node.js 守护进程：</strong>在 Windows 桌面端运行，负责 API、队列和会话持久化</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="adapter"><span>☁ <strong>vibe-coding</strong></span><span>codex</span></div>
+    <form class="composer">
+      <input aria-label="反馈" placeholder="Add feedback...">
+      <button class="tool-btn" type="button" aria-label="添加">＋</button>
+      <button class="tool-btn" type="button" aria-label="快捷键">⌘</button>
+      <button class="send" type="button" aria-label="发送">↑</button>
+    </form>
+  </main>
+
+  <script>
+    document.querySelectorAll('.run-toggle').forEach((button) => {
+      button.addEventListener('click', () => {
+        const row = button.closest('.run-row');
+        const open = row.classList.toggle('open');
+        button.setAttribute('aria-expanded', String(open));
+      });
+    });
+  </script>
+</body>
+</html>

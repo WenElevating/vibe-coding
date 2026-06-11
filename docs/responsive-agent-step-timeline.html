@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>暗色消息流 Agent 步骤折叠原型</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(15% 0.014 245);
+      --paper: oklch(19% 0.014 245);
+      --paper-soft: oklch(21.5% 0.014 245);
+      --ink: oklch(91% 0.008 245);
+      --muted: oklch(68% 0.01 245);
+      --quiet: oklch(53% 0.011 245);
+      --hairline: oklch(31% 0.012 245);
+      --hairline-soft: oklch(27% 0.011 245);
+      --accent: oklch(74% 0.11 166);
+      --accent-dim: oklch(33% 0.045 166);
+      --purple: oklch(64% 0.16 292);
+      --warning: oklch(77% 0.12 82);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 50% -18%, oklch(27% 0.045 260 / 0.38), transparent 38rem),
+        linear-gradient(180deg, oklch(17% 0.014 245), var(--bg));
+      color: var(--ink);
+      font-family: var(--font);
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; }
+
+    .page {
+      width: min(1360px, 100%);
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .brief {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 22px;
+    }
+
+    .brief h1 {
+      max-width: 720px;
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.06;
+      letter-spacing: 0;
+      font-weight: 720;
+    }
+
+    .brief p {
+      max-width: 720px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .context-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 6px 10px;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      color: var(--muted);
+      background: oklch(20% 0.012 245 / 0.78);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pill strong { color: var(--ink); font-weight: 650; }
+
+    .stage {
+      display: grid;
+      grid-template-columns: 390px minmax(0, 1fr);
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .phone-shell, .desktop-shell {
+      border: 1px solid var(--hairline);
+      background: var(--paper);
+      box-shadow: 0 26px 90px rgb(0 0 0 / 0.4);
+      overflow: hidden;
+    }
+
+    .phone-shell {
+      border-radius: 42px;
+      padding: 10px;
+    }
+
+    .phone-screen {
+      min-height: 812px;
+      border: 1px solid var(--hairline-soft);
+      border-radius: 32px;
+      background: linear-gradient(180deg, oklch(19.5% 0.014 245), oklch(17% 0.014 245));
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .statusbar {
+      display: flex;
+      justify-content: space-between;
+      padding: 14px 18px 6px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 16px 12px;
+    }
+
+    .top-actions { display: flex; gap: 8px; }
+
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--hairline);
+      border-radius: 16px;
+      color: var(--ink);
+      background: oklch(22% 0.013 245);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .title h2 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 690;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      color: var(--quiet);
+      font-size: 12px;
+    }
+
+    .cloud {
+      width: 14px;
+      height: 9px;
+      border: 1.5px solid currentColor;
+      border-radius: 999px;
+      position: relative;
+      opacity: 0.9;
+    }
+
+    .cloud::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: -5px;
+      width: 7px;
+      height: 7px;
+      border: 1.5px solid currentColor;
+      border-bottom: 0;
+      border-radius: 999px 999px 0 0;
+      background: var(--paper);
+    }
+
+    .feed {
+      flex: 1;
+      padding: 8px 18px 20px;
+      overflow: auto;
+    }
+
+    .soft-link {
+      margin: 7px 0 16px;
+      color: var(--quiet);
+      font-size: 13px;
+    }
+
+    .message {
+      margin: 0 0 18px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    .message.muted { color: var(--muted); }
+
+    .user-message {
+      color: var(--ink);
+      padding: 0 0 0 38px;
+    }
+
+    .assistant-text {
+      margin: 0 0 18px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    .event-caption {
+      margin: 18px 0 10px;
+      color: var(--quiet);
+      font-size: 13px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      column-gap: 10px;
+      align-items: start;
+    }
+
+    .mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      background: oklch(18% 0.02 166);
+      font-size: 16px;
+      font-weight: 820;
+      line-height: 1;
+      margin-top: 1px;
+    }
+
+    .mark.active {
+      color: var(--ink);
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      box-shadow: 0 0 0 5px oklch(74% 0.11 166 / 0.09);
+    }
+
+    .mark.pending {
+      color: var(--quiet);
+      border-color: var(--hairline);
+      background: transparent;
+    }
+
+    .step-body {
+      min-width: 0;
+    }
+
+    .step-head {
+      width: 100%;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+      cursor: pointer;
+      min-height: 31px;
+    }
+
+    .step-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 16px;
+      font-weight: 560;
+      letter-spacing: 0;
+    }
+
+    .chev {
+      color: var(--muted);
+      font-size: 18px;
+      transform: translateY(-1px);
+      transition: transform 160ms ease-out;
+    }
+
+    .step.open .chev { transform: rotate(180deg) translateY(1px); }
+
+    .step-kind {
+      margin: 1px 0 0;
+      color: var(--quiet);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .step-detail {
+      display: none;
+      margin: 2px 0 2px;
+      padding: 2px 0 2px 14px;
+      border-left: 1px solid var(--hairline);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.72;
+    }
+
+    .step.open .step-detail { display: block; }
+
+    .detail-line {
+      margin: 7px 0;
+      color: var(--muted);
+    }
+
+    .detail-label {
+      color: var(--quiet);
+      margin-right: 6px;
+    }
+
+    .code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: oklch(81% 0.055 166);
+      background: oklch(15% 0.012 245);
+      border: 1px solid var(--hairline-soft);
+      border-radius: 8px;
+      padding: 2px 6px;
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 13px 14px 16px;
+      border-top: 1px solid var(--hairline-soft);
+      background: oklch(17% 0.014 245);
+    }
+
+    .composer input {
+      min-width: 0;
+      border: 0;
+      outline: none;
+      border-radius: 22px;
+      padding: 13px 15px;
+      color: var(--ink);
+      background: oklch(23% 0.013 245);
+    }
+
+    .composer input::placeholder { color: var(--quiet); }
+
+    .send {
+      color: oklch(96% 0.006 292);
+      background: var(--purple);
+      border-color: var(--purple);
+    }
+
+    .desktop-shell {
+      border-radius: 28px;
+      min-height: 812px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .desktop-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--hairline-soft);
+      background: oklch(18% 0.014 245);
+    }
+
+    .desktop-main {
+      display: grid;
+      grid-template-columns: minmax(430px, 0.95fr) minmax(330px, 0.66fr);
+      min-height: 0;
+    }
+
+    .desktop-feed {
+      padding: 22px 26px;
+      overflow: auto;
+      border-right: 1px solid var(--hairline-soft);
+    }
+
+    .desktop-feed .timeline {
+      max-width: 760px;
+    }
+
+    .inspector {
+      padding: 22px;
+      background: oklch(16.5% 0.014 245);
+      overflow: auto;
+    }
+
+    .inspector h3 {
+      margin: 0 0 4px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .inspector-subtitle {
+      margin: 0 0 22px;
+      color: var(--quiet);
+      font-size: 13px;
+    }
+
+    .inspect-section {
+      padding: 14px 0;
+      border-top: 1px solid var(--hairline-soft);
+    }
+
+    .inspect-section h4 {
+      margin: 0 0 9px;
+      color: var(--quiet);
+      font-size: 12px;
+      font-weight: 680;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .inspect-section p {
+      margin: 0;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .inspect-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 12px;
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .inspect-grid dt { color: var(--quiet); }
+    .inspect-grid dd { margin: 0; color: var(--ink); min-width: 0; }
+
+    .log {
+      margin: 0;
+      color: oklch(78% 0.045 166);
+      font: 12px/1.65 var(--mono);
+      white-space: pre-wrap;
+    }
+
+    @media (max-width: 1120px) {
+      .page { padding: 22px; }
+      .brief { display: block; }
+      .context-pills { justify-content: flex-start; margin-top: 16px; }
+      .stage { grid-template-columns: 1fr; }
+      .phone-shell { width: min(390px, 100%); margin: 0 auto; }
+    }
+
+    @media (max-width: 720px) {
+      .page { padding: 14px; }
+      .brief { margin-bottom: 14px; }
+      .phone-shell { border-radius: 34px; padding: 8px; }
+      .phone-screen { min-height: 780px; }
+      .desktop-shell { display: none; }
+      .user-message { padding-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="brief">
+      <div>
+        <h1>暗色主题里，更像聊天流的 Agent 执行轨迹</h1>
+        <p>不再堆大卡片。消息正文是主角，思考和工具调用只是轻量折叠行，完成后给明确对勾，展开时用缩进和细线承载细节。</p>
+      </div>
+      <div class="context-pills" aria-label="执行上下文">
+        <span class="pill"><strong>Workspace</strong> D:\AiProject\vibe-coding</span>
+        <span class="pill"><strong>Adapter</strong> codex</span>
+        <span class="pill"><strong>Boundary</strong> workspace-write</span>
+      </div>
+    </section>
+
+    <section class="stage">
+      <article class="phone-shell" aria-label="移动端暗色会话流">
+        <div class="phone-screen">
+          <div class="statusbar"><span>14:29</span><span>5G 45%</span></div>
+          <header class="topbar">
+            <button class="icon-btn" type="button" aria-label="返回">‹</button>
+            <div class="title">
+              <h2>设计步骤折叠</h2>
+              <div class="subtitle"><span class="cloud"></span><span>Cloud · codex</span></div>
+            </div>
+            <div class="top-actions">
+              <button class="icon-btn" type="button" aria-label="新建">＋</button>
+              <button class="icon-btn" type="button" aria-label="更多">···</button>
+            </div>
+          </header>
+
+          <div class="feed">
+            <div class="soft-link">浏览 1 个工作区 ›</div>
+            <p class="message user-message">我想让思考过程和工具调用像参考图一样折叠，成功后前面显示对勾，但整体仍然是我们的暗色主题。</p>
+            <p class="assistant-text">明白。暗色不变，我只学习它的消息组织方式：正文保持自然阅读，执行步骤压成可扫读的轻量行。</p>
+            <div class="event-caption">调用 4 个步骤 ›</div>
+            <div class="timeline" data-render="mobile"></div>
+          </div>
+
+          <form class="composer">
+            <button class="icon-btn" type="button" aria-label="添加">＋</button>
+            <input aria-label="消息" placeholder="发消息或按住说话…">
+            <button class="icon-btn" type="button" aria-label="语音">⌕</button>
+            <button class="icon-btn send" type="button" aria-label="发送">↵</button>
+          </form>
+        </div>
+      </article>
+
+      <article class="desktop-shell" aria-label="桌面端暗色工作台">
+        <header class="desktop-header">
+          <div class="title">
+            <h2>Agent Run · 步骤折叠预览</h2>
+            <div class="subtitle"><span class="cloud"></span><span>D:\AiProject\vibe-coding · paired device trusted</span></div>
+          </div>
+          <div class="context-pills">
+            <span class="pill"><strong>Status</strong> running</span>
+            <span class="pill"><strong>Approval</strong> safe</span>
+          </div>
+        </header>
+        <div class="desktop-main">
+          <div class="desktop-feed">
+            <p class="message muted">桌面端沿用同一套消息流，只把选中步骤的细节放到右侧，主线不会被大面积展开内容打断。</p>
+            <p class="assistant-text">下面这组步骤保留参考图的阅读节奏：标题直接、图标先反馈、展开内容只占必要空间。</p>
+            <div class="timeline" data-render="desktop"></div>
+          </div>
+          <aside class="inspector" aria-label="步骤详情">
+            <h3 id="panel-title">步骤详情</h3>
+            <p class="inspector-subtitle" id="panel-status">selected</p>
+            <section class="inspect-section">
+              <h4>摘要</h4>
+              <p id="panel-summary"></p>
+            </section>
+            <section class="inspect-section">
+              <h4>上下文</h4>
+              <dl class="inspect-grid" id="panel-grid"></dl>
+            </section>
+            <section class="inspect-section">
+              <h4>输出</h4>
+              <pre class="log" id="panel-log"></pre>
+            </section>
+          </aside>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const steps = [
+      {
+        id: 'intent',
+        status: 'done',
+        title: '确认暗色主题不变，只重做消息流',
+        kind: '思考过程',
+        meta: '根据用户反馈修正方向',
+        summary: '保留项目暗色控制台气质，但把原型从卡片式工作台改成轻量聊天流。折叠行学习参考图的节奏，而不是复制浅色视觉。',
+        fields: { Theme: 'dark', Layout: 'message-first', Change: 'timeline style only' },
+        log: 'direction fixed\nkeep dark theme\nreduce card weight\nmake steps read like chat flow'
+      },
+      {
+        id: 'docs',
+        status: 'done',
+        title: '生成设计规格和实现计划',
+        kind: '工具调用',
+        meta: 'docs/superpowers · 2 个文件',
+        summary: '规格继续作为落地依据，但这次视觉实现更贴近参考图的轻量折叠列表。',
+        fields: { Spec: 'responsive-agent-step-timeline-design.md', Plan: 'responsive-agent-step-timeline.md', Scope: 'prototype' },
+        log: 'created design spec\ncreated implementation plan\nprototype target: docs/responsive-agent-step-timeline.html'
+      },
+      {
+        id: 'prototype',
+        status: 'active',
+        title: '重写 HTML 原型的折叠行样式',
+        kind: '执行 1 条命令',
+        meta: '暗色消息流 · 轻量缩进详情',
+        summary: '去掉厚重卡片、发光大面板和过强边框。完成状态是清晰绿勾，展开内容用细线缩进，像参考图那样嵌在对话里。',
+        fields: { File: 'docs/responsive-agent-step-timeline.html', Accent: 'green check', Detail: 'indented inline body' },
+        log: 'replace heavy cards with inline rows\nuse transparent step heads\nkeep desktop inspector secondary'
+      },
+      {
+        id: 'verify',
+        status: 'pending',
+        title: '测试折叠交互和响应式布局',
+        kind: '测试和验证',
+        meta: '待验证 · 本地 HTML',
+        summary: '确认窄屏只显示手机会话流，宽屏显示手机和桌面双态，点击步骤可展开并同步右侧详情。',
+        fields: { Markup: 'UTF-8', Script: 'inline JS parse', Responsive: 'mobile + desktop' },
+        log: 'expected: no replacement chars\nexpected: inline script parses\nexpected: selected detail updates'
+      }
+    ];
+
+    function glyph(status) {
+      if (status === 'done') return '✓';
+      if (status === 'active') return '•';
+      return '○';
+    }
+
+    function markClass(status) {
+      if (status === 'done') return '';
+      if (status === 'active') return 'active';
+      return 'pending';
+    }
+
+    function renderStep(step, scope) {
+      const row = document.createElement('article');
+      row.className = `step ${step.id === 'prototype' ? 'open' : ''}`;
+      row.dataset.stepId = step.id;
+      row.dataset.scope = scope;
+      row.innerHTML = `
+        <div class="mark ${markClass(step.status)}" aria-label="${step.status}">${glyph(step.status)}</div>
+        <div class="step-body">
+          <button class="step-head" type="button" aria-expanded="${step.id === 'prototype'}">
+            <span class="step-title">${step.title}</span>
+            <span class="chev" aria-hidden="true">⌄</span>
+          </button>
+          <div class="step-kind">${step.kind} · ${step.meta}</div>
+          <div class="step-detail">
+            <div>${step.summary}</div>
+            ${Object.entries(step.fields).map(([key, value]) => `<div class="detail-line"><span class="detail-label">${key}</span><span class="code">${value}</span></div>`).join('')}
+          </div>
+        </div>
+      `;
+      row.querySelector('.step-head').addEventListener('click', () => {
+        const open = row.classList.toggle('open');
+        row.querySelector('.step-head').setAttribute('aria-expanded', String(open));
+        selectStep(step.id, scope);
+      });
+      return row;
+    }
+
+    function render(scope) {
+      const target = document.querySelector(`[data-render="${scope}"]`);
+      steps.forEach((step) => target.appendChild(renderStep(step, scope)));
+    }
+
+    function selectStep(stepId, scope) {
+      if (scope !== 'desktop') return;
+      const step = steps.find((item) => item.id === stepId);
+      document.getElementById('panel-title').textContent = step.title;
+      document.getElementById('panel-status').textContent = `${step.kind} · ${step.status}`;
+      document.getElementById('panel-summary').textContent = step.summary;
+      document.getElementById('panel-grid').innerHTML = Object.entries(step.fields)
+        .map(([key, value]) => `<dt>${key}</dt><dd><span class="code">${value}</span></dd>`)
+        .join('');
+      document.getElementById('panel-log').textContent = step.log;
+    }
+
+    render('mobile');
+    render('desktop');
+    selectStep('prototype', 'desktop');
+  </script>
+</body>
+</html>
