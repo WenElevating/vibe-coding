@@ -126,7 +126,7 @@ class ConversationSyncCoordinator {
         conversationId: conversationId,
         seq: target.lastSeq,
         metadata: <String, Object?>{
-          'status': normalizeConversationStatus(status) ?? status,
+          'status': normalizeConversationStatus(status),
           'runId': runId,
         },
       );
@@ -250,7 +250,7 @@ class ConversationSyncCoordinator {
       seq: target.lastSeq,
       metadata: <String, Object?>{
         'runId': target.runId,
-        'status': normalizeConversationStatus(target.status) ?? target.status,
+        'status': normalizeConversationStatus(target.status),
         'appForeground': _appForeground,
         'keepAliveInBackground': _keepAliveInBackground,
       },
@@ -444,7 +444,7 @@ class ConversationSyncCoordinator {
       seq: target.lastSeq,
       metadata: <String, Object?>{
         'runId': target.runId,
-        'status': normalizeConversationStatus(target.status) ?? target.status,
+        'status': normalizeConversationStatus(target.status),
       },
     );
     _refreshBackgroundAnchor();
@@ -818,7 +818,7 @@ class _ConversationSyncLease implements ConversationSyncLease {
     _pendingEvents.clear();
     await _release();
     if (!_controller.isClosed) {
-      await _controller.close();
+      unawaited(_controller.close());
     }
   }
 

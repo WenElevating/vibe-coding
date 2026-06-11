@@ -1,6 +1,6 @@
 # Decision: Active conversation sync is route independent
 
-- Status: accepted; implementation in progress
+- Status: accepted; implemented with platform validation pending
 - Date: 2026-06-12
 - Last verified: 2026-06-12
 
@@ -54,9 +54,11 @@ contract remains degraded resume/backfill rather than promising suspended
 WebSocket delivery. On foreground resume after app-background sync was stopped,
 the coordinator stops any stale watcher, fetches daemon events after the last
 tracked cursor, applies local conversation status projection for those replayed
-events, and restarts the watcher from the advanced cursor. Native iOS
-`beginBackgroundTask` cleanup is still not implemented because this repository
-currently has no `mobile/ios` Runner/AppDelegate target.
+events, and restarts the watcher from the advanced cursor. The iOS Runner now
+registers the shared background conversation sync MethodChannel/EventChannel
+and uses `UIApplication.beginBackgroundTask` only as a short cleanup window. It
+reports `stopped` promptly so Dart falls back to the existing resume/backfill
+path instead of claiming continuous iOS background socket delivery.
 
 ## Alternatives
 
@@ -90,6 +92,8 @@ currently has no `mobile/ios` Runner/AppDelegate target.
   owns the Android foreground service and user-visible notification anchor.
 - `mobile/android/app/src/main/kotlin/com/example/lan_ai_cli_control/BackgroundConversationSyncChannels.kt`
   reports native anchor snapshots back to Dart.
+- `mobile/ios/Runner/BackgroundConversationSyncChannels.swift` registers the
+  iOS cleanup bridge and reports stopped snapshots for degraded resume/backfill.
 - `mobile/test/conversation_sync_coordinator_test.dart` covers foreground
   resume backfill before watcher restart and restart behavior after backfill
   failure, plus content-free coordinator lifecycle trace marks.
@@ -112,8 +116,7 @@ dart run tool\check_architecture_imports.dart
 ## Re-evaluate When
 
 - Android foreground-service behavior is validated or fails on real OEM devices.
-- An iOS target is added and resume/backfill behavior can gain a native
-  background-task bridge.
+- iOS cleanup behavior is validated or fails on real iOS devices.
 - Product requires native background transport/auth ownership instead of a Dart
   process anchor.
 - Conversation event fan-out needs multiple simultaneous foreground rendering

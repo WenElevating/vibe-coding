@@ -122,6 +122,58 @@ void main() {
   );
 
   test(
+    'method channel bridge parses stopped acknowledgement for iOS cleanup mode',
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const methodChannel = MethodChannel(
+        'lan_ai_cli_control/background_conversation_sync',
+      );
+      const eventChannel = EventChannel(
+        'lan_ai_cli_control/background_conversation_sync/events',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methodChannel, (call) async {
+        if (call.method == 'start') {
+          return <String, Object?>{
+            'status': 'stopped',
+            'runningCount': 1,
+            'waitingApprovalCount': 0,
+            'message':
+                'iOS uses resume backfill instead of continuous background sync',
+          };
+        }
+        return true;
+      });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(eventChannel.name, (_) async => null);
+
+      final bridge = MethodChannelBackgroundConversationSyncBridge(
+        methodChannel: methodChannel,
+        eventChannel: eventChannel,
+      );
+      final result = await bridge.start(
+        const BackgroundConversationSyncRequest(
+          runningCount: 1,
+          waitingApprovalCount: 0,
+          notificationTitle: 'Vibe Coding',
+          notificationBody: '1 task running',
+        ),
+      );
+
+      expect(result.status, BackgroundConversationSyncStatus.stopped);
+      expect(
+        result.message,
+        'iOS uses resume backfill instead of continuous background sync',
+      );
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methodChannel, null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(eventChannel.name, null);
+    },
+  );
+
+  test(
     'method channel bridge keeps stream alive after malformed native event',
     () async {
       TestWidgetsFlutterBinding.ensureInitialized();

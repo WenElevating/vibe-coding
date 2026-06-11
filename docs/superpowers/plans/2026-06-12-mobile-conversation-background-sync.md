@@ -14,8 +14,9 @@
 - Android background continuation is implemented as a native foreground-service
   process/notification anchor while Dart remains the transport/auth owner.
 - Dart degraded-resume backfill is implemented for foreground returns after
-  app-background non-keepalive sync stops. Native iOS cleanup is not implemented
-  because this repository currently has no `mobile/ios` target.
+  app-background non-keepalive sync stops. Native iOS now has a
+  `beginBackgroundTask` cleanup bridge, but the product contract still remains
+  degraded resume/backfill rather than continuous background sync.
 
 ---
 
@@ -153,13 +154,13 @@ the app, and add a stop action that stops the background anchor.
 
 - [x] **Step 4: Wire defaults through app dependencies**
 
-Use `MethodChannelBackgroundConversationSyncBridge` on Android and
+Use `MethodChannelBackgroundConversationSyncBridge` on Android and iOS, and
 `UnsupportedBackgroundConversationSyncBridge` elsewhere.
 
 - [x] **Step 5: Verify and commit**
 
 Run the feasible Dart/Flutter and repository checks, then commit with Lore
-trailers that distinguish Android anchor support from unfinished iOS native
+trailers that distinguish Android anchor support from iOS cleanup-only
 degraded-resume work.
 
 ### Task 5: iOS Degraded-Resume Cleanup
@@ -171,12 +172,14 @@ anchor falls back, foreground resume stops any stale watcher, fetches daemon
 events after the tracked cursor, applies cached conversation status projection,
 and restarts the watcher from the advanced cursor.
 
-- [ ] **Step 2: Add native iOS `beginBackgroundTask` cleanup bridge**
+- [x] **Step 2: Add native iOS `beginBackgroundTask` cleanup bridge**
 
-Blocked by repository shape: `mobile/` has Android, web, and Windows targets,
-but no `mobile/ios` Runner/AppDelegate target to host an iOS native bridge.
-Do not claim native iOS background cleanup until an iOS target exists and the
-bridge is implemented and verified on-device.
+Generate the `mobile/ios` Runner target, register the shared
+`background_conversation_sync` MethodChannel/EventChannel contract in Swift,
+and use `UIApplication.beginBackgroundTask` only for short local cleanup. The
+native bridge must report cleanup completion promptly instead of pretending
+iOS can keep the daemon socket alive indefinitely. On-device iOS verification
+remains a follow-up because this repository is being edited from Windows.
 
 ### Task 6: Sync Observability
 

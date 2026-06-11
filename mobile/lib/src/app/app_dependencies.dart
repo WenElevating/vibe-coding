@@ -70,6 +70,23 @@ import 'connected_session_scope.dart';
 typedef NotificationClientFactory = DaemonNotificationClient Function(
     DaemonClient client);
 
+BackgroundDownloadBridge createDefaultBackgroundDownloadBridge({
+  bool? isAndroid,
+}) {
+  return (isAndroid ?? Platform.isAndroid)
+      ? MethodChannelBackgroundDownloadBridge()
+      : UnsupportedBackgroundDownloadBridge();
+}
+
+BackgroundConversationSyncBridge createDefaultBackgroundConversationSyncBridge({
+  bool? isAndroid,
+  bool? isIOS,
+}) {
+  return ((isAndroid ?? Platform.isAndroid) || (isIOS ?? Platform.isIOS))
+      ? MethodChannelBackgroundConversationSyncBridge()
+      : UnsupportedBackgroundConversationSyncBridge();
+}
+
 class AppDependencies {
   AppDependencies({
     required this.network,
@@ -569,25 +586,18 @@ class FeatureDependencies {
     required this.createWorkbenchDependencies,
     BackgroundDownloadBridge? backgroundDownloadBridge,
     BackgroundConversationSyncBridge? backgroundConversationSyncBridge,
-  })  : backgroundDownloadBridge = backgroundDownloadBridge ??
-            (Platform.isAndroid
-                ? MethodChannelBackgroundDownloadBridge()
-                : UnsupportedBackgroundDownloadBridge()),
+  })  : backgroundDownloadBridge =
+            backgroundDownloadBridge ?? createDefaultBackgroundDownloadBridge(),
         backgroundConversationSyncBridge = backgroundConversationSyncBridge ??
-            (Platform.isAndroid
-                ? MethodChannelBackgroundConversationSyncBridge()
-                : UnsupportedBackgroundConversationSyncBridge());
+            createDefaultBackgroundConversationSyncBridge();
 
   factory FeatureDependencies.createDefault({
     required DataDependencies data,
     required DomainDependencies domain,
   }) {
-    final backgroundDownloadBridge = Platform.isAndroid
-        ? MethodChannelBackgroundDownloadBridge()
-        : UnsupportedBackgroundDownloadBridge();
-    final backgroundConversationSyncBridge = Platform.isAndroid
-        ? MethodChannelBackgroundConversationSyncBridge()
-        : UnsupportedBackgroundConversationSyncBridge();
+    final backgroundDownloadBridge = createDefaultBackgroundDownloadBridge();
+    final backgroundConversationSyncBridge =
+        createDefaultBackgroundConversationSyncBridge();
     return FeatureDependencies(
       createDaemonConnectionViewModel: () => DaemonConnectionViewModel(
         configRepository: data.connectionConfigRepository,

@@ -18,6 +18,7 @@ import 'package:lan_ai_cli_control/src/services/background_download_bridge.dart'
 import 'package:lan_ai_cli_control/src/services/daemon_client.dart';
 import 'package:lan_ai_cli_control/src/services/daemon_notification_client.dart';
 import 'package:lan_ai_cli_control/src/services/device_identity_store.dart';
+import 'package:lan_ai_cli_control/src/services/method_channel_background_conversation_sync_bridge.dart';
 import 'package:lan_ai_cli_control/src/ui/features/workbench/view_models/workbench_view_model.dart';
 
 void main() {
@@ -167,6 +168,15 @@ void main() {
       );
     },
   );
+
+  test('iOS uses the method-channel background conversation bridge', () {
+    final bridge = createDefaultBackgroundConversationSyncBridge(
+      isAndroid: false,
+      isIOS: true,
+    );
+
+    expect(bridge, isA<MethodChannelBackgroundConversationSyncBridge>());
+  });
 }
 
 class _FakeConnectionConfigRepository

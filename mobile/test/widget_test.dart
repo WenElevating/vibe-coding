@@ -5212,8 +5212,7 @@ void main() {
     expect(conversationRepository.cancelCalls, 1);
   });
 
-  testWidgets(
-      'foreground route changes keep conversation event sync alive',
+  testWidgets('foreground route changes keep conversation event sync alive',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -5228,6 +5227,18 @@ void main() {
     Future<void> pumpUntilWatchCalls(int expected) async {
       for (var attempt = 0;
           attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpUntilConversationDetailVisible() async {
+      for (var attempt = 0;
+          attempt < 20 &&
+              find
+                  .byKey(const ValueKey('coding-workbench-detail'))
+                  .evaluate()
+                  .isEmpty;
           attempt += 1) {
         await tester.pump(const Duration(milliseconds: 50));
       }
@@ -5294,6 +5305,9 @@ void main() {
     await pumpNavigationFrame();
     await tester.tap(find.text('Route sync task'));
     await pumpUntilWatchCalls(1);
+    await pumpUntilConversationDetailVisible();
+    expect(
+        find.byKey(const ValueKey('coding-workbench-detail')), findsOneWidget);
     expect(conversationRepository.cancelCalls, 0);
 
     await tester.binding.handlePopRoute();

@@ -791,11 +791,9 @@ class _FakeConversationRepository implements ConversationRepository {
 class _FakeBackgroundConversationSyncBridge
     implements BackgroundConversationSyncBridge {
   _FakeBackgroundConversationSyncBridge({
-    this.supported = true,
     this.startStatus = BackgroundConversationSyncStatus.active,
   });
 
-  final bool supported;
   final BackgroundConversationSyncStatus startStatus;
   final List<BackgroundConversationSyncRequest> startRequests =
       <BackgroundConversationSyncRequest>[];
@@ -804,7 +802,7 @@ class _FakeBackgroundConversationSyncBridge
   int stopCalls = 0;
 
   @override
-  Future<bool> get isSupported async => supported;
+  Future<bool> get isSupported async => true;
 
   @override
   Stream<BackgroundConversationSyncSnapshot> get events => _controller.stream;
