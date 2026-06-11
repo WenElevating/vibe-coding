@@ -400,6 +400,82 @@ void main() {
     await coordinator.dispose();
   });
 
+  test('conversation sync coordinator records lifecycle trace marks', () async {
+    final delegate = _FakeConversationRepository();
+    final marks = <_TraceMark>[];
+    final repository = CachedConversationRepository(delegate: delegate)
+      ..replaceFromBootstrap(
+        workspaceId: 'workspace_1',
+        conversations: <ConversationSummary>[
+          _conversation(id: 'conv_1', status: 'running'),
+        ],
+      );
+    final coordinator = ConversationSyncCoordinator(
+      conversationRepository: repository,
+      traceRecorder: (
+        String name, {
+        String? conversationId,
+        int? seq,
+        String? eventType,
+        String? correlationId,
+        required bool critical,
+        required Map<String, Object?> metadata,
+      }) {
+        marks.add(
+          _TraceMark(
+            name,
+            conversationId: conversationId,
+            seq: seq,
+            eventType: eventType,
+            metadata: metadata,
+          ),
+        );
+      },
+    );
+
+    coordinator.trackConversation(
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      afterSeq: 0,
+      status: 'running',
+    );
+    final lease = coordinator.attachForegroundConsumer(
+      conversationId: 'conv_1',
+      runId: 'run_1',
+      afterSeq: 0,
+    );
+    final subscription = lease.events.listen((_) {});
+    await pumpEventQueue();
+
+    delegate.emit(
+      _event(seq: 1, conversationId: 'conv_1', type: 'assistant.delta'),
+    );
+    await pumpEventQueue();
+    await lease.dispose();
+    await subscription.cancel();
+    await coordinator.dispose();
+
+    expect(
+      marks.map((mark) => mark.name),
+      containsAllInOrder(<String>[
+        'conversation_sync.target.tracked',
+        'conversation_sync.watcher.started',
+        'conversation_sync.consumer.attached',
+        'conversation_sync.event.received',
+        'conversation_sync.consumer.detached',
+        'conversation_sync.watcher.stopped',
+      ]),
+    );
+    final eventMark = marks.singleWhere(
+      (mark) => mark.name == 'conversation_sync.event.received',
+    );
+    expect(eventMark.conversationId, 'conv_1');
+    expect(eventMark.seq, 1);
+    expect(eventMark.eventType, 'assistant.delta');
+    expect(eventMark.metadata.containsKey('text'), isFalse);
+    expect(eventMark.metadata.containsKey('raw'), isFalse);
+  });
+
   test('foreground resume backfills before restarting watcher after background',
       () async {
     final delegate = _FakeConversationRepository()
@@ -759,6 +835,22 @@ class _FakeBackgroundConversationSyncBridge
   void emit(BackgroundConversationSyncSnapshot snapshot) {
     _controller.add(snapshot);
   }
+}
+
+class _TraceMark {
+  const _TraceMark(
+    this.name, {
+    this.conversationId,
+    this.seq,
+    this.eventType,
+    this.metadata = const <String, Object?>{},
+  });
+
+  final String name;
+  final String? conversationId;
+  final int? seq;
+  final String? eventType;
+  final Map<String, Object?> metadata;
 }
 
 ConversationSummary _conversation({

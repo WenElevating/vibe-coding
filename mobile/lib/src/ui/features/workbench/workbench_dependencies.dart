@@ -67,6 +67,30 @@ class WorkbenchDependencies {
   }) {
     final nextEventBus = mobileAppEventBus ?? this.mobileAppEventBus;
     conversationSyncCoordinator.updateEventBus(nextEventBus);
+    final nextTracePublisher =
+        performanceTracePublisher ?? this.performanceTracePublisher;
+    conversationSyncCoordinator.updateTraceRecorder(
+      nextTracePublisher == null
+          ? null
+          : (
+              String name, {
+              String? conversationId,
+              int? seq,
+              String? eventType,
+              String? correlationId,
+              required bool critical,
+              required Map<String, Object?> metadata,
+            }) =>
+              nextTracePublisher.mark(
+                name,
+                conversationId: conversationId,
+                seq: seq,
+                eventType: eventType,
+                correlationId: correlationId,
+                critical: critical,
+                metadata: metadata,
+              ),
+    );
     return WorkbenchDependencies(
       adapterRepository: adapterRepository,
       asrModelManager: asrModelManager,
@@ -84,8 +108,7 @@ class WorkbenchDependencies {
           workspaceOpeningUseCase ?? this.workspaceOpeningUseCase,
       attachmentPreviewCache: attachmentPreviewCache,
       mobileAppEventBus: nextEventBus,
-      performanceTracePublisher:
-          performanceTracePublisher ?? this.performanceTracePublisher,
+      performanceTracePublisher: nextTracePublisher,
     );
   }
 }

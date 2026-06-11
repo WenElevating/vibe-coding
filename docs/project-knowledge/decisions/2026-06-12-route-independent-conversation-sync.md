@@ -32,6 +32,11 @@ If a foreground consumer exceeds `ConversationSyncPolicy.consumerLagQueueLimit`,
 the lease emits `ConversationSyncConsumerLagged`; UI recovery reloads through
 the existing cache/daemon event-page path and attaches a fresh lease.
 
+The coordinator records best-effort, content-free performance trace marks for
+sync lifecycle diagnosis. Trace collection is injected as a callback from the
+workbench dependency boundary and must not affect watcher lifetime, event
+delivery, cache writes, or approval publication.
+
 Approval request/resolution events are now published to `MobileAppEventBus`
 from the coordinator so off-route events still reach the mobile notification
 handler.
@@ -87,7 +92,7 @@ currently has no `mobile/ios` Runner/AppDelegate target.
   reports native anchor snapshots back to Dart.
 - `mobile/test/conversation_sync_coordinator_test.dart` covers foreground
   resume backfill before watcher restart and restart behavior after backfill
-  failure.
+  failure, plus content-free coordinator lifecycle trace marks.
 - Detailed design rationale remains in
   `docs/superpowers/specs/2026-06-11-mobile-conversation-background-sync-design.md`.
 

@@ -177,3 +177,12 @@ Blocked by repository shape: `mobile/` has Android, web, and Windows targets,
 but no `mobile/ios` Runner/AppDelegate target to host an iOS native bridge.
 Do not claim native iOS background cleanup until an iOS target exists and the
 bridge is implemented and verified on-device.
+
+### Task 6: Sync Observability
+
+- [x] **Step 1: Add coordinator lifecycle trace marks**
+
+The coordinator records content-free sync trace marks for target tracking,
+foreground consumer attach/detach, watcher start/stop, event receipt,
+background anchor outcomes, and resume backfill start/completion. Trace
+recording is best-effort and must not affect sync lifetime or event delivery.

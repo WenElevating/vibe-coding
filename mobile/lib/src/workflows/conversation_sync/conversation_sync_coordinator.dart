@@ -30,20 +30,33 @@ class ConversationSyncConsumerLagged implements Exception {
       'droppedAfterSeq: $droppedAfterSeq)';
 }
 
+typedef ConversationSyncTraceRecorder = void Function(
+  String name, {
+  String? conversationId,
+  int? seq,
+  String? eventType,
+  String? correlationId,
+  required bool critical,
+  required Map<String, Object?> metadata,
+});
+
 class ConversationSyncCoordinator {
   ConversationSyncCoordinator({
     required CachedConversationRepository conversationRepository,
     MobileAppEventBus? eventBus,
     BackgroundConversationSyncBridge? backgroundSyncBridge,
+    ConversationSyncTraceRecorder? traceRecorder,
     ConversationSyncPolicy policy = const ConversationSyncPolicy(),
   })  : _conversationRepository = conversationRepository,
         _eventBus = eventBus,
         _backgroundSyncBridge = backgroundSyncBridge,
+        _traceRecorder = traceRecorder,
         _policy = policy;
 
   final CachedConversationRepository _conversationRepository;
   MobileAppEventBus? _eventBus;
   final BackgroundConversationSyncBridge? _backgroundSyncBridge;
+  ConversationSyncTraceRecorder? _traceRecorder;
   final ConversationSyncPolicy _policy;
   String _approvalTitle = 'Approval required';
   String _approvalFallbackBody = 'Approval requested';
@@ -63,6 +76,10 @@ class ConversationSyncCoordinator {
 
   void updateEventBus(MobileAppEventBus? eventBus) {
     _eventBus = eventBus;
+  }
+
+  void updateTraceRecorder(ConversationSyncTraceRecorder? traceRecorder) {
+    _traceRecorder = traceRecorder;
   }
 
   void updateApprovalText({
@@ -86,19 +103,34 @@ class ConversationSyncCoordinator {
     required String status,
   }) {
     if (_disposed) return;
+    var createdTarget = false;
     final target = _tracked.putIfAbsent(
       conversationId,
-      () => _TrackedConversation(
-        conversationId: conversationId,
-        runId: runId,
-        lastSeq: afterSeq,
-        status: status,
-      ),
+      () {
+        createdTarget = true;
+        return _TrackedConversation(
+          conversationId: conversationId,
+          runId: runId,
+          lastSeq: afterSeq,
+          status: status,
+        );
+      },
     );
     target
       ..runId = runId
       ..lastSeq = afterSeq > target.lastSeq ? afterSeq : target.lastSeq
       ..status = status;
+    if (createdTarget) {
+      _recordTrace(
+        'conversation_sync.target.tracked',
+        conversationId: conversationId,
+        seq: target.lastSeq,
+        metadata: <String, Object?>{
+          'status': normalizeConversationStatus(status) ?? status,
+          'runId': runId,
+        },
+      );
+    }
     _cancelTerminalTimer(target);
     if (_isTrackedStatus(status)) {
       _ensureWatcher(target);
@@ -128,10 +160,28 @@ class ConversationSyncCoordinator {
       queueLimit: _policy.consumerLagQueueLimit,
       onDispose: () async {
         if (!target.leases.remove(lease)) return;
+        _recordTrace(
+          'conversation_sync.consumer.detached',
+          conversationId: conversationId,
+          seq: target.lastSeq,
+          metadata: <String, Object?>{
+            'leaseCount': target.leases.length,
+            'runId': runId,
+          },
+        );
         _maybeStopConversation(target);
       },
     );
     target.leases.add(lease);
+    _recordTrace(
+      'conversation_sync.consumer.attached',
+      conversationId: conversationId,
+      seq: target.lastSeq,
+      metadata: <String, Object?>{
+        'leaseCount': target.leases.length,
+        'runId': runId,
+      },
+    );
     _ensureWatcher(target);
     return lease;
   }
@@ -194,6 +244,17 @@ class ConversationSyncCoordinator {
     if (target.resumeBackfill != null) return;
     if (!_appForeground && !_keepAliveInBackground) return;
     target.stopping = false;
+    _recordTrace(
+      'conversation_sync.watcher.started',
+      conversationId: target.conversationId,
+      seq: target.lastSeq,
+      metadata: <String, Object?>{
+        'runId': target.runId,
+        'status': normalizeConversationStatus(target.status) ?? target.status,
+        'appForeground': _appForeground,
+        'keepAliveInBackground': _keepAliveInBackground,
+      },
+    );
     target.subscription = _conversationRepository
         .watchConversationEvents(
       target.conversationId,
@@ -246,11 +307,21 @@ class ConversationSyncCoordinator {
       await subscription?.cancel();
     } catch (_) {
       // Cleanup is best-effort for lifecycle transitions.
+    } finally {
+      if (subscription != null) {
+        _recordTrace(
+          'conversation_sync.watcher.stopped',
+          conversationId: target.conversationId,
+          seq: target.lastSeq,
+          metadata: <String, Object?>{'runId': target.runId},
+        );
+      }
     }
   }
 
   void _handleEvent(_TrackedConversation target, ConversationEvent event) {
     if (_disposed || event.conversationId != target.conversationId) return;
+    _recordTraceForEvent('conversation_sync.event.received', event);
     if (event.seq > target.lastSeq) {
       target.lastSeq = event.seq;
     }
@@ -367,6 +438,15 @@ class ConversationSyncCoordinator {
     if (target.leases.isNotEmpty) return;
     unawaited(_stopWatcher(target));
     _tracked.remove(target.conversationId);
+    _recordTrace(
+      'conversation_sync.target.untracked',
+      conversationId: target.conversationId,
+      seq: target.lastSeq,
+      metadata: <String, Object?>{
+        'runId': target.runId,
+        'status': normalizeConversationStatus(target.status) ?? target.status,
+      },
+    );
     _refreshBackgroundAnchor();
   }
 
@@ -385,6 +465,12 @@ class ConversationSyncCoordinator {
 
   void _startResumeBackfill(_TrackedConversation target) {
     if (_disposed || target.resumeBackfill != null) return;
+    _recordTrace(
+      'conversation_sync.resume_backfill.started',
+      conversationId: target.conversationId,
+      seq: target.lastSeq,
+      metadata: <String, Object?>{'runId': target.runId},
+    );
     late final Future<void> backfill;
     backfill = _runResumeBackfill(target).whenComplete(() {
       if (identical(target.resumeBackfill, backfill)) {
@@ -392,6 +478,12 @@ class ConversationSyncCoordinator {
       }
       if (_tracked[target.conversationId] == target &&
           _shouldKeepWatcher(target)) {
+        _recordTrace(
+          'conversation_sync.resume_backfill.completed',
+          conversationId: target.conversationId,
+          seq: target.lastSeq,
+          metadata: <String, Object?>{'runId': target.runId},
+        );
         _ensureWatcher(target);
       }
     });
@@ -437,15 +529,21 @@ class ConversationSyncCoordinator {
     _backgroundSyncSubscription ??= bridge.events.listen(
       (snapshot) {
         if (snapshot.status == BackgroundConversationSyncStatus.stopped) {
+          _recordBackgroundAnchorTrace('stopped', snapshot);
           _disableBackgroundKeepAlive();
           return;
         }
         if (snapshot.status == BackgroundConversationSyncStatus.denied ||
             snapshot.status == BackgroundConversationSyncStatus.failed) {
+          _recordBackgroundAnchorTrace(snapshot.status.wireName, snapshot);
           _disableBackgroundKeepAlive();
         }
       },
       onError: (_) {
+        _recordTrace(
+          'conversation_sync.background_anchor.error',
+          metadata: <String, Object?>{'reason': 'eventStreamError'},
+        );
         _disableBackgroundKeepAlive();
       },
     );
@@ -469,11 +567,16 @@ class ConversationSyncCoordinator {
           notificationBody: _backgroundNotificationBody(counts),
         ),
       );
+      _recordBackgroundAnchorTrace('started', snapshot);
       if (snapshot.status == BackgroundConversationSyncStatus.denied ||
           snapshot.status == BackgroundConversationSyncStatus.failed) {
         _disableBackgroundKeepAlive();
       }
     } catch (_) {
+      _recordTrace(
+        'conversation_sync.background_anchor.error',
+        metadata: <String, Object?>{'reason': 'startFailed'},
+      );
       _disableBackgroundKeepAlive();
     }
   }
@@ -505,6 +608,7 @@ class ConversationSyncCoordinator {
   void _stopBackgroundAnchor() {
     if (!_backgroundAnchorActive && _backgroundSyncSubscription == null) return;
     _backgroundAnchorActive = false;
+    _recordTrace('conversation_sync.background_anchor.stopped');
     unawaited(_backgroundSyncSubscription?.cancel());
     _backgroundSyncSubscription = null;
     unawaited(_backgroundSyncBridge?.stop());
@@ -573,6 +677,54 @@ class ConversationSyncCoordinator {
     }
     if (event.type == 'blocking.request_cancelled') return 'running';
     return null;
+  }
+
+  void _recordBackgroundAnchorTrace(
+    String outcome,
+    BackgroundConversationSyncSnapshot snapshot,
+  ) {
+    _recordTrace(
+      'conversation_sync.background_anchor.$outcome',
+      metadata: <String, Object?>{
+        'status': snapshot.status.wireName,
+        'runningCount': snapshot.runningCount,
+        'waitingApprovalCount': snapshot.waitingApprovalCount,
+      },
+    );
+  }
+
+  void _recordTraceForEvent(String name, ConversationEvent event) {
+    _recordTrace(
+      name,
+      conversationId: event.conversationId,
+      seq: event.seq,
+      eventType: event.type,
+      correlationId: event.approvalId ?? event.toolUseId,
+    );
+  }
+
+  void _recordTrace(
+    String name, {
+    String? conversationId,
+    int? seq,
+    String? eventType,
+    String? correlationId,
+    bool critical = false,
+    Map<String, Object?> metadata = const <String, Object?>{},
+  }) {
+    try {
+      _traceRecorder?.call(
+        name,
+        conversationId: conversationId,
+        seq: seq,
+        eventType: eventType,
+        correlationId: correlationId,
+        critical: critical,
+        metadata: metadata,
+      );
+    } catch (_) {
+      // Trace collection must not affect sync lifetime or event delivery.
+    }
   }
 }
 
