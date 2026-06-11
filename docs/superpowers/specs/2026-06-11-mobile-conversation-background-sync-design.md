@@ -63,12 +63,23 @@ expects the task to continue. WorkManager may also host long-running work, but
 it still relies on foreground-service behavior for user-visible long tasks and
 does not remove the notification requirement.
 
+Android also constrains when foreground services may be started. On modern
+targets, the service should be started while the app is transitioning from a
+user-visible state, not later from an already-idle background process. Android
+14+ also requires an explicit foreground-service type. The first implementation
+should use the closest supported type for daemon event synchronization, likely
+`dataSync`, and validate target-SDK behavior before release.
+
 Useful official references:
 
 - Foreground services:
   `https://developer.android.com/develop/background-work/services/fgs`
 - Long-running workers:
   `https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running`
+- Background-start restrictions:
+  `https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start`
+- Required foreground-service types:
+  `https://developer.android.com/about/versions/14/changes/fgs-types-required`
 
 ### iOS
 
@@ -82,6 +93,10 @@ Useful official references:
 
 - Background task strategies:
   `https://developer.apple.com/documentation/backgroundtasks/choosing-background-strategies-for-your-app`
+- Extending foreground work after background transition:
+  `https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time`
+- `UIApplication.beginBackgroundTask(expirationHandler:)`:
+  `https://developer.apple.com/documentation/uikit/uiapplication/beginbackgroundtask%28expirationhandler%3A%29`
 
 ## Accepted Direction
 
@@ -151,7 +166,8 @@ Ownership rules:
 - `CodingWorkbenchPage` owns rendering, route transitions, scroll anchoring, and
   conversation interaction UI.
 - `WorkbenchViewModel` owns feature presentation state and tells the coordinator
-  which conversation is foreground-active.
+  which conversation is foreground-active through an idempotent lease. The
+  signal must be resilient to ViewModel rebuilds and route-generation changes.
 - `ConversationSyncCoordinator` owns sync lifetime, tracked conversation policy,
   and underlying stream subscriptions.
 - `CachedConversationRepository` remains the source of mobile-side cache writes
@@ -175,6 +191,32 @@ mobile/android/app/src/main/kotlin/.../BackgroundConversationSyncService.kt
 The exact folder names may be adjusted to match existing local conventions, but
 the responsibilities should remain separated in this way.
 
+### ConversationSyncPolicy
+
+Sync timing must be centralized in a policy object so tests do not duplicate
+magic durations.
+
+Required defaults:
+
+```text
+terminalGrace = 45 seconds
+backgroundDisconnectGrace = 30 seconds
+consumerLagQueueLimit = 256 events
+```
+
+`terminalGrace` is the post-terminal period during which a tracked conversation
+keeps its watcher alive for late final events. The default is intentionally
+longer than a short UI frame delay and shorter than a background service that
+would feel stuck. It controls:
+
+- fake-timer expectations in coordinator tests;
+- Android foreground-service stop timing after all targets become terminal;
+- iOS cleanup budget decisions when the app backgrounds near a terminal event.
+
+If a future developer setting or remote policy exposes this value, clamp it to
+`15 seconds <= terminalGrace <= 120 seconds`. The first implementation should
+not expose it as a user setting.
+
 ### Core Model: Tracked Conversations
 
 The coordinator tracks only conversations that still matter for continuity:
@@ -182,7 +224,7 @@ The coordinator tracks only conversations that still matter for continuity:
 - `running`
 - `waiting_input`
 - `waiting_approval`
-- a short post-terminal grace period for late final events
+- a `terminalGrace` post-terminal period for late final events
 
 It does not keep idle historical conversations subscribed forever.
 
@@ -202,6 +244,11 @@ lastEventAt
 `lastSeq` is the cursor boundary. The coordinator never invents event history;
 it always reconnects through the existing `afterSeq` + REST backfill model.
 
+`runId` is not the durable event identity and must not be used as an event
+cursor. It exists for stale async guards, diagnostics, and route/session
+correlation while the current UI still models workbench sessions with both run
+and conversation ids. `conversationId` remains the event and cache identity.
+
 ### Core Rule: One Underlying Watcher Per Tracked Conversation
 
 The coordinator owns the single underlying
@@ -213,7 +260,7 @@ Instead:
 
 1. The page loads the initial event page from the repository/cache.
 2. The page registers itself as a foreground consumer of that conversation with
-   the coordinator.
+   the coordinator and receives a disposable `ConversationSyncLease`.
 3. The coordinator starts or reuses the single watcher for that conversation.
 4. The coordinator fans streamed events out to any current foreground listeners
    and keeps the repository stream alive when policy says the conversation
@@ -221,6 +268,35 @@ Instead:
 
 This prevents duplicate transport watchers for the same conversation while still
 allowing the current route to update live.
+
+### Foreground Consumer Leases
+
+Do not implement foreground attachment as a bare mutable reference count.
+`foregroundConsumerCount` should be derived from active lease records owned by
+the coordinator.
+
+Attach API shape:
+
+```dart
+abstract class ConversationSyncLease {
+  String get conversationId;
+  Stream<ConversationEvent> get events;
+  Future<void> dispose();
+}
+```
+
+Rules:
+
+- `dispose()` is idempotent.
+- `WorkbenchViewModel` stores the active lease and disposes it when the
+  conversation route changes, the ViewModel is disposed, or a new generation of
+  the route replaces the old one.
+- `CodingWorkbenchPage.dispose()` and route-pop paths must indirectly release
+  the lease through ViewModel disposal or an explicit ViewModel command.
+- The coordinator should tag leases with an owner/generation id. When
+  `WorkbenchViewModel` switches route generation, it can ask the coordinator to
+  release all leases for the previous owner generation as a defensive cleanup.
+- No design should rely on Dart garbage collection to stop a watcher.
 
 ### Cache Semantics
 
@@ -235,6 +311,37 @@ In this design, "write to cache" means:
 
 The daemon remains authoritative. Mobile cache is still a synced local copy, not
 the source of truth.
+
+Cursor durability should be tied to cache durability. Each accepted event write
+must update the durable newest synced cursor for that conversation as part of
+the same serialized cache update, or derive the cursor from the cache record's
+newest event on restart. This is necessary for force-quit recovery on mobile
+platforms where no background callback is guaranteed.
+
+### Event Fan-Out And Slow Consumers
+
+The underlying watcher has one durable responsibility: feed events through
+`CachedConversationRepository` so cache and summary projection advance. UI
+consumers are secondary observers.
+
+Do not use a single `StreamController.broadcast()` as the durability boundary.
+Broadcast streams do not provide the right slow-consumer semantics for the
+foreground transcript.
+
+Use per-lease single-subscription event streams with bounded queues:
+
+- every foreground lease has its own queue;
+- the default queue limit is `ConversationSyncPolicy.consumerLagQueueLimit`
+  (`256` events);
+- coordinator delivery to one slow lease must not block cache writes, summary
+  projection, or other leases;
+- if a lease queue overflows, the coordinator marks that lease as lagged,
+  stops direct event delivery to that lease, and emits a recoverable
+  `ConsumerLagged` signal;
+- the ViewModel responds by reloading from the local cache/daemon backfill using
+  its last applied `seq`, then reattaches a fresh lease.
+
+This gives slow UI code a clear recovery path without silently dropping content.
 
 ### Foreground Route Behavior
 
@@ -273,6 +380,14 @@ The existing `coding.keepConversationEventsInBackground` setting should be
 redefined to control only **app background continuation**, not in-app route
 changes. In-app route changes should keep sync without consulting this setting.
 
+This is a user-visible semantic change. Existing stored preference values remain
+valid; there is no data migration. A stored `false` still means "do not keep
+sync running after the app backgrounds." It no longer means "stop syncing when
+the user leaves the conversation detail page while the app is still foreground."
+The settings subtitle and release notes should call out the new interpretation.
+Approving this design is product acceptance for foreground route-independent
+sync being always on for tracked active conversations.
+
 ### Android Background Design
 
 #### Accepted Direction
@@ -286,6 +401,12 @@ likely to be reclaimed while tracked conversations remain active.
 This first design intentionally avoids building a parallel native Kotlin
 WebSocket stack. That would duplicate notification protocol logic, auth refresh,
 cursor semantics, and backfill behavior that already exist in Dart.
+
+The service should be started while the app is still user-visible or during the
+immediate transition to background. If Android rejects a start request with a
+foreground-service start restriction, the coordinator records background sync as
+unavailable for that lifecycle turn, stops the background watcher after normal
+grace, and relies on daemon backfill when the app returns.
 
 #### Foreground Notification Contract
 
@@ -328,6 +449,28 @@ download. Reuse those conventions for:
 - notification channel management;
 - status snapshot reporting back into Dart.
 
+#### Auth And Process Lifetime
+
+The first Android version keeps auth refresh in the existing Dart
+notification-client path. The foreground service is a process/lifetime anchor;
+it does not own credentials and does not open a separate native WebSocket.
+
+Rules:
+
+- `DaemonNotificationClient` continues to call its existing token provider and
+  `refreshAuth` callback when the WebSocket reports auth expiration or closes
+  for auth reasons.
+- The coordinator must use the same connection-scoped repositories and services
+  that foreground workbench code uses, so token refresh and daemon base URI
+  state are not duplicated.
+- The foreground service must report service start/stop/failure events back to
+  Dart, but it must not mutate auth state directly.
+- If the Android process is killed, the foreground service is not expected to
+  resurrect a full Dart sync graph by itself in the first version. On next app
+  launch, mobile reads cached cursor state and backfills from the daemon.
+- If Android restarts the service without the Dart coordinator alive, the
+  service should stop itself and leave recovery to normal app launch/backfill.
+
 ### iOS Degraded-Resume Design
 
 The iOS path should be intentionally conservative.
@@ -335,12 +478,35 @@ The iOS path should be intentionally conservative.
 Accepted behavior:
 
 - on background, flush the latest known cursor and cache state immediately;
-- request short background execution time only for finishing in-flight local
-  cleanup or last backfill writes, not for promising indefinite socket uptime;
+- call `UIApplication.beginBackgroundTask(withName:expirationHandler:)` only to
+  finish in-flight local cleanup or last backfill writes, not to promise
+  indefinite socket uptime;
 - on resume, immediately backfill every tracked conversation from its stored
   `lastSeq`, then restore the realtime watcher;
 - keep approval/system state consistent through replayed conversation events
   rather than relying on persistent background sockets.
+
+The first iOS version should not schedule `BGAppRefreshTask`,
+`BGProcessingTask`, or background `URLSession` work for conversation live sync.
+Those APIs have different semantics: refresh/processing tasks are
+system-scheduled background opportunities, and background URLSession is for
+transfers. This feature needs short cleanup on background transition and fast
+resume backfill.
+
+Expiration handler behavior:
+
+- mark the iOS live-sync tail as expired;
+- cancel any nonessential socket/listener work;
+- allow the serialized cache/cursor write currently in progress to complete if
+  there is still time;
+- stop scheduling new backfill work;
+- call `endBackgroundTask` promptly.
+
+iOS force-quit gives no reliable callback. Recovery must therefore depend on
+cursor persistence during normal event processing, not only on the background
+transition. If the app is force-quit after an event reaches Dart but before the
+cache write completes, daemon backfill from the last durable `seq` replays the
+missing event; duplicate delivery is handled by `conversationId + seq` dedupe.
 
 Rejected behavior:
 
@@ -383,6 +549,15 @@ Coordinator rules:
 - contain watcher failures and re-enter the existing notification-client
   reconnect/backfill path rather than inventing a second recovery system.
 
+Force-quit and process-death rules:
+
+- daemon persistence is the recovery source;
+- mobile stores the latest durable cursor as part of every accepted cache write;
+- on app launch, the coordinator derives resume cursors from cache before
+  subscribing;
+- duplicate replayed rows are harmless and must be deduped by
+  `conversationId + seq`.
+
 ### Observability
 
 Add explicit sync trace marks for:
@@ -393,6 +568,7 @@ Add explicit sync trace marks for:
 - watcher started/reused/stopped;
 - background service started/stopped;
 - Android background policy denied or unavailable;
+- auth refresh requested/succeeded/failed while background sync is active;
 - iOS resume backfill started/completed.
 
 This feature should be diagnosable without guessing whether a conversation was
@@ -412,6 +588,19 @@ Settings should communicate the platform split honestly:
 Session list behavior should improve automatically once repository summaries stay
 current; no separate refresh button or polling affordance is required for this
 feature.
+
+## Known Limitations
+
+- Android foreground services are still subject to OS and vendor power
+  management. Some OEM Android builds, especially heavily customized domestic
+  devices, may still kill or throttle a foreground service. The app must recover
+  through daemon backfill rather than claiming uninterrupted delivery.
+- iOS background behavior is degraded by design. The app can request a short
+  cleanup window with `beginBackgroundTask`, but it cannot honestly promise
+  continuous LAN WebSocket mirroring while suspended or force-quit.
+- If the whole mobile process dies, the first version does not keep a native
+  Android WebSocket alive independently. The daemon continues executing and
+  mobile catches up on next launch.
 
 ## Alternatives Considered
 
@@ -442,7 +631,14 @@ problem.
 - adding a second foreground consumer reuses the watcher;
 - leaving the conversation route detaches the consumer without stopping sync
   while the app is still foregrounded;
-- terminal grace stops the watcher after the deadline;
+- terminal grace stops the watcher after
+  `ConversationSyncPolicy.terminalGrace`;
+- route teardown without an explicit "open session list" call still releases
+  the foreground lease through ViewModel/page disposal;
+- duplicate lease disposal is harmless;
+- a slow foreground consumer that exceeds `consumerLagQueueLimit` receives a
+  lagged signal and recovers through cache/backfill instead of silent event
+  loss;
 - disabling background live sync while backgrounded stops Android continuation.
 
 ### Repository / Cache Tests
@@ -466,11 +662,26 @@ problem.
 - bridge starts the foreground service when policy requires it;
 - bridge updates notification content as tracked conversation counts change;
 - bridge stops cleanly when no tracked conversations remain.
+- foreground-service start denial is reported and falls back to resume backfill;
+- token refresh while background sync is active keeps using the existing Dart
+  auth path.
+
+### Android Device Tests
+
+- validate foreground-service survival and recovery on at least one stock or
+  near-stock Android device/emulator;
+- validate on representative domestic OEM devices when available, especially
+  Huawei, Xiaomi, OPPO, or Vivo builds with aggressive battery management;
+- verify that killing the app/process does not lose daemon-side events and that
+  mobile backfills on next launch.
 
 ### iOS Tests
 
 - background transition preserves cursor state;
+- `beginBackgroundTask` expiration cancels nonessential work and ends the task;
 - resume triggers immediate backfill for tracked conversations;
+- force-quit recovery derives `lastSeq` from persisted cache and backfills from
+  daemon;
 - no platform branch falsely reports guaranteed background continuation.
 
 ### Verification Commands
@@ -489,13 +700,16 @@ background download bridge.
 
 ## Rollout Plan
 
-1. Introduce the coordinator and move watcher ownership out of
-   `CodingWorkbenchPage`.
-2. Keep foreground route-independent sync working with no Android background
-   service dependency.
-3. Add the Android foreground-service bridge and hook it to coordinator policy.
-4. Refine settings copy and lifecycle behavior for Android versus iOS.
-5. Add trace coverage and regression tests.
+1. Introduce the coordinator skeleton, policy constants, target model, and lease
+   API behind existing behavior.
+2. Move foreground watcher ownership from `CodingWorkbenchPage` to the
+   coordinator and make foreground route-independent sync functional without any
+   Android background-service dependency.
+3. Add slow-consumer recovery, trace marks, and cache/cursor durability tests.
+4. Add the Android foreground-service bridge and hook it to coordinator
+   background policy.
+5. Add iOS `beginBackgroundTask` cleanup/resume-backfill handling.
+6. Refine settings copy, release-note wording, and platform-specific UX.
 
 This ordering fixes the largest product flaw first: route changes while the app
 is still in active use.
