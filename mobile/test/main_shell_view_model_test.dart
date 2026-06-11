@@ -47,6 +47,21 @@ void main() {
     expect(viewModel.isOverlayActive, isFalse);
   });
 
+  test('route payload is cleared when returning to tabs', () {
+    final viewModel = MainShellViewModel();
+    addTearDown(viewModel.dispose);
+
+    viewModel.openRoute(const AppRoute.detail(runId: 'run_2'));
+
+    expect(viewModel.isOverlayActive, isTrue);
+    expect(viewModel.activeRoute, const AppRoute.detail(runId: 'run_2'));
+
+    viewModel.selectTab(MainShellViewModel.codexTabIndex);
+
+    expect(viewModel.activeRoute, const AppRoute.tabs());
+    expect(viewModel.activeRoute.runId, isNull);
+  });
+
   test('defaults new coding sessions to default permission mode', () {
     final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
