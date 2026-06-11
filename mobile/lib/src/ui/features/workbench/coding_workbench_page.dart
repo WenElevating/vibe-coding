@@ -7,13 +7,14 @@ import '../../../domain/models/approval_response.dart';
 import '../../../domain/repositories/conversation_repository.dart';
 import '../../../models/protocol.dart';
 import '../../../services/asr_model_manager.dart';
-import '../../core/theme/theme.dart' as theme;
+import '../../../workflows/conversation_sync/conversation_sync_coordinator.dart';
 import '../../../workflows/workspace/create_workspace_workflow.dart'
     show
         CreateWorkspaceFailure,
         CreateWorkspaceNotConfirmed,
         CreateWorkspaceSuccess,
         CreateWorkspaceTimeout;
+import '../../core/theme/theme.dart' as theme;
 import 'attachments/attachment_picker.dart';
 import 'controllers/slash_command_menu_controller.dart';
 import 'dialogs/asr_model_download_dialog.dart';
@@ -72,8 +73,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   static const String _routeConversation = 'conversation';
   static const int _conversationTitleMaxLength = 18;
   static const int _conversationHistoryPageSize = 80;
-  static const Duration _backgroundEventDisconnectDelay = Duration(seconds: 30);
-
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _prompt = TextEditingController();
   final _scrollController = ScrollController();
@@ -82,10 +81,9 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   late final WorkbenchAttachmentPicker _attachmentPicker;
   SpeechInputService? _ownedSpeechInputService;
   late final WorkbenchViewModel _workbenchViewModel;
+  ConversationSyncLease? _conversationSyncLease;
   StreamSubscription<void>? _conversationEventSubscription;
-  Timer? _backgroundEventDisconnectTimer;
   Timer? _initialConversationPendingRevealTimer;
-  bool _conversationEventsSuspendedForBackground = false;
   int _conversationEventSubscriptionGeneration = 0;
   VoiceInputErrorKind? _lastVoiceErrorNotice;
   bool _voiceErrorDialogOpen = false;
@@ -238,7 +236,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  // Slice 3 subscription ownership: route reset cancels active conversation event stream.
   void _goToWorkspaces() {
     unawaited(_cancelConversationEventSubscription());
     _navigatorKey.currentState
@@ -308,7 +305,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
   }
 
   void _resetConversationState({bool bottomAnchorTranscript = false}) {
-    unawaited(_cancelConversationEventSubscription());
     _bottomAnchorTranscript = bottomAnchorTranscript;
     _bottomAnchorTranscriptUnderflow = false;
     _cancelInitialConversationPendingReveal();
@@ -325,6 +321,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _resetConversationState(
           bottomAnchorTranscript: item.conversation != null);
       _workbenchViewModel.openSession(item, notify: false);
+      _trackActiveConversation();
       _workbenchViewModel.clearOperationError(notify: false);
       _loadingInitialConversationEvents = item.conversation != null;
       _showPendingDuringInitialConversationLoad = false;
@@ -511,6 +508,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       setState(() {
         _workbenchViewModel.setCancelledConversationDisplayStatus(conversation,
             run: run, notify: false);
+        _trackActiveConversation();
       });
       await _cancelConversationEventSubscription();
     } catch (err) {
@@ -543,7 +541,10 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       _handleCodingPreferencesChanged,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _setCurrentRoute(_routeWorkspaces);
+      if (mounted) {
+        _setCurrentRoute(_routeWorkspaces);
+        _syncConversationCoordinatorText();
+      }
     });
   }
 
@@ -560,6 +561,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       );
       _handleCodingPreferencesChanged();
     }
+    _syncConversationCoordinatorText();
     if (widget.openSessionListRequest == _handledOpenSessionListRequest) return;
     _handledOpenSessionListRequest = widget.openSessionListRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -580,10 +582,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (mounted) setState(() {});
   }
 
+  void _syncConversationCoordinatorText() {
+    final l10n = AppLocalizations.of(context);
+    widget.dependencies.conversationSyncCoordinator.updateApprovalText(
+      title: l10n.notificationsApprovalRequired,
+      fallbackBody: l10n.workbenchApprovalCardTitle,
+      additionalApprovalsBody: l10n.notificationsAdditionalApprovalsWaiting,
+    );
+  }
+
   void _handleCodingPreferencesChanged() {
     if (widget.dependencies.codingPreferencesRepository
         .keepConversationEventsInBackground) {
-      _cancelBackgroundEventDisconnectTimer();
+      widget.dependencies.conversationSyncCoordinator.setAppForeground(
+        true,
+        keepAliveInBackground: true,
+      );
     }
   }
 
@@ -622,12 +636,12 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
     switch (state) {
       case AppLifecycleState.resumed:
-        final shouldRestartEvents = _conversationEventsSuspendedForBackground;
-        _conversationEventsSuspendedForBackground = false;
-        _cancelBackgroundEventDisconnectTimer();
-        if (shouldRestartEvents) {
-          unawaited(_restartConversationEventSubscription());
-        }
+        widget.dependencies.conversationSyncCoordinator.setAppForeground(
+          true,
+          keepAliveInBackground: widget.dependencies.codingPreferencesRepository
+              .keepConversationEventsInBackground,
+        );
+        unawaited(_restartConversationEventSubscription());
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
@@ -1091,6 +1105,22 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     );
     if (!shouldApply) return;
     _workbenchViewModel.updateActiveConversation(conversation, notify: false);
+    _trackActiveConversation();
+  }
+
+  void _trackActiveConversation() {
+    final runId = _activeRunId;
+    final conversationId = _activeConversationId;
+    final conversation = _activeConversation;
+    if (runId == null || conversationId == null || conversation == null) {
+      return;
+    }
+    widget.dependencies.conversationSyncCoordinator.trackConversation(
+      conversationId: conversationId,
+      runId: runId,
+      afterSeq: _workbenchViewModel.lastSeq,
+      status: conversation.status,
+    );
   }
 
   List<String> get _recentActionSummaries {
@@ -1214,6 +1244,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
               result.runningConversation,
               run: result.run,
               notify: false);
+          _trackActiveConversation();
         });
         if (mounted) _goToConversation();
         await _restartConversationEventSubscription();
@@ -1258,6 +1289,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         setState(() {
           _workbenchViewModel.updateActiveConversation(conversation,
               notify: false);
+          _trackActiveConversation();
           _workbenchViewModel.removeQuestionMessages(notify: false);
         });
       } else {
@@ -1365,47 +1397,29 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     }
   }
 
-  Future<void> _cancelConversationEventSubscription({
-    bool suspendedForBackground = false,
-  }) async {
-    _cancelBackgroundEventDisconnectTimer();
-    _conversationEventsSuspendedForBackground = suspendedForBackground;
+  Future<void> _cancelConversationEventSubscription() async {
     _conversationEventSubscriptionGeneration += 1;
     final subscription = _conversationEventSubscription;
     _conversationEventSubscription = null;
+    final lease = _conversationSyncLease;
+    _conversationSyncLease = null;
     try {
       await subscription?.cancel();
+      await lease?.dispose();
     } catch (_) {
       // Cleanup is best-effort; cancellation failures must not escape lifecycle changes.
     }
   }
 
-  void _cancelBackgroundEventDisconnectTimer() {
-    _backgroundEventDisconnectTimer?.cancel();
-    _backgroundEventDisconnectTimer = null;
-  }
-
-  // Slice 3 subscription ownership: background preference suspends or keeps the stream.
   void _scheduleBackgroundEventDisconnect() {
-    if (widget.dependencies.codingPreferencesRepository
-        .keepConversationEventsInBackground) {
-      _cancelBackgroundEventDisconnectTimer();
-      return;
-    }
-    if (_conversationEventSubscription == null ||
-        _backgroundEventDisconnectTimer != null) {
-      return;
-    }
-    _backgroundEventDisconnectTimer =
-        Timer(_backgroundEventDisconnectDelay, () {
-      _backgroundEventDisconnectTimer = null;
-      unawaited(_cancelConversationEventSubscription(
-        suspendedForBackground: true,
-      ));
-    });
+    final keepAlive = widget.dependencies.codingPreferencesRepository
+        .keepConversationEventsInBackground;
+    widget.dependencies.conversationSyncCoordinator.setAppForeground(
+      false,
+      keepAliveInBackground: keepAlive,
+    );
   }
 
-  // Slice 3 subscription ownership: this is the live event subscription owner before controller extraction.
   Future<void> _restartConversationEventSubscription() async {
     await _cancelConversationEventSubscription();
     final runId = _activeRunId;
@@ -1413,9 +1427,21 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
     if (!mounted || runId == null || conversationId == null) return;
     final afterSeq = _workbenchViewModel.lastSeq;
     final generation = _conversationEventSubscriptionGeneration;
-    _conversationEventSubscription = _workbenchViewModel
-        .watchConversationEvents(
-            conversationId: conversationId, afterSeq: afterSeq)
+    final coordinator = widget.dependencies.conversationSyncCoordinator;
+    final status = _workbenchViewModel.effectiveConversationStatus;
+    coordinator.trackConversation(
+      conversationId: conversationId,
+      runId: runId,
+      afterSeq: afterSeq,
+      status: status,
+    );
+    final lease = coordinator.attachForegroundConsumer(
+      conversationId: conversationId,
+      runId: runId,
+      afterSeq: afterSeq,
+    );
+    _conversationSyncLease = lease;
+    _conversationEventSubscription = lease.events
         .asyncMap((event) => _applyConversationEventFromStream(
               event,
               conversationId: conversationId,
@@ -1424,6 +1450,14 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             ))
         .listen((_) {}, onError: (Object error, StackTrace stack) {
       if (generation != _conversationEventSubscriptionGeneration) return;
+      if (error is ConversationSyncConsumerLagged) {
+        unawaited(_recoverLaggedConversationConsumer(
+          conversationId: conversationId,
+          runId: runId,
+          generation: generation,
+        ));
+        return;
+      }
       unawaited(_workbenchViewModel
           .recordException(
             message: error.toString(),
@@ -1435,6 +1469,54 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           )
           .catchError((Object _) => ''));
     });
+  }
+
+  Future<void> _recoverLaggedConversationConsumer({
+    required String conversationId,
+    required String runId,
+    required int generation,
+  }) async {
+    if (!_isCurrentConversationEventTarget(
+      conversationId: conversationId,
+      runId: runId,
+      generation: generation,
+    )) {
+      return;
+    }
+    try {
+      await _loadInitialConversationEventPage(
+        conversationId: conversationId,
+        runId: runId,
+        generation: generation,
+        streamOutput: widget.streamOutput,
+      );
+      if (!_isCurrentConversationEventTarget(
+        conversationId: conversationId,
+        runId: runId,
+        generation: generation,
+      )) {
+        return;
+      }
+      await _restartConversationEventSubscription();
+    } catch (error, stack) {
+      if (!_isCurrentConversationEventTarget(
+        conversationId: conversationId,
+        runId: runId,
+        generation: generation,
+      )) {
+        return;
+      }
+      unawaited(_workbenchViewModel
+          .recordException(
+            message: error.toString(),
+            stack: stack.toString(),
+            path: '/api/conversations/$conversationId/events',
+            conversationId: conversationId,
+            runId: runId,
+            operation: 'recoverLaggedConversationConsumer',
+          )
+          .catchError((Object _) => ''));
+    }
   }
 
   Future<void> _applyConversationEventFromStream(
@@ -1462,6 +1544,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       return;
     }
     if (changed) {
+      _trackActiveConversation();
       _markTraceForEvent(
         'reducer.applied',
         event,
@@ -1470,7 +1553,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           'eventCount': _conversationEvents.length,
         },
       );
-      _publishApprovalNotificationEvent(event);
       _scrollToBottom();
       _markTraceAfterFrame(
         'event.frame.rendered',
@@ -1483,50 +1565,6 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
           'eventCount': _conversationEvents.length,
         },
       );
-    }
-  }
-
-  void _publishApprovalNotificationEvent(ConversationEvent event) {
-    final approvalId = event.approvalId;
-    final conversation = _workbenchViewModel.activeConversation;
-    final conversationId = conversation?.id ?? event.conversationId;
-    if (conversationId.isEmpty) return;
-    switch (event.type) {
-      case 'approval.requested':
-        if (approvalId == null || approvalId.isEmpty) return;
-        final workspaceId = conversation?.workspaceId ??
-            _routeWorkspace?.id ??
-            (_workspaces.isNotEmpty ? _workspaces.first.id : '');
-        if (workspaceId.isEmpty) return;
-        final l10n = AppLocalizations.of(context);
-        final body = event.summary?.trim().isNotEmpty == true
-            ? event.summary!.trim()
-            : event.toolName?.trim().isNotEmpty == true
-                ? event.toolName!.trim()
-                : l10n.workbenchApprovalCardTitle;
-        widget.dependencies.publishApprovalRequested(
-          workspaceId: workspaceId,
-          conversationId: conversationId,
-          approvalId: approvalId,
-          title: l10n.notificationsApprovalRequired,
-          body: body,
-          createdAt: event.createdAt,
-          additionalApprovalsBody: l10n.notificationsAdditionalApprovalsWaiting,
-          conversationTitle: conversation?.title,
-          toolName: event.toolName,
-          summary: event.summary,
-        );
-        break;
-      case 'approval.resolved':
-      case 'blocking.request_cancelled':
-      case 'conversation.completed':
-      case 'conversation.cancelled':
-      case 'run.error':
-        widget.dependencies.publishApprovalResolved(
-          conversationId: conversationId,
-          approvalId: approvalId,
-        );
-        break;
     }
   }
 
@@ -1584,6 +1622,7 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
             notify: false);
       });
       final conversation = _activeConversation;
+      _trackActiveConversation();
       if (conversation != null &&
           shouldRestartEventsAfterApproval(conversation)) {
         await _restartConversationEventSubscription();

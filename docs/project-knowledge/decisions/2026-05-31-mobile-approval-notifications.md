@@ -14,23 +14,25 @@ notification aggregation.
 
 ## Decision
 
-Approval notifications are handled inside the mobile app. `CodingWorkbenchPage`
-publishes approval lifecycle events to the app-wide `MobileAppEventBus` only
-from the live conversation event stream. `ApprovalNotificationHandler` observes
-app lifecycle state and shows local Android notifications only when the app is
-not resumed. If an approval was first received while the app was resumed and is
-still pending when the app later moves to a non-resumed lifecycle state, the
-handler emits the local notification once for that pending approval.
+Approval notifications are handled inside the mobile app.
+`ConversationSyncCoordinator` publishes approval lifecycle events to the
+app-wide `MobileAppEventBus` from the live conversation event stream, including
+events received while the conversation route is not visible.
+`ApprovalNotificationHandler` observes app lifecycle state and shows local
+Android notifications only when the app is not resumed. If an approval was
+first received while the app was resumed and is still pending when the app later
+moves to a non-resumed lifecycle state, the handler emits the local
+notification once for that pending approval.
 
 The daemon protocol, `conversation.events`, and approval response APIs are
 unchanged.
 
-Mobile defaults to cancelling the open conversation event subscription after the
-existing 30-second background grace period. Users can opt into keeping the
-current open conversation live in the background through
-`coding.keepConversationEventsInBackground`; the setting is persisted in
-`CodingPreferencesRepository` and read directly by `CodingWorkbenchPage` through
-`WorkbenchDependencies`.
+Mobile defaults to stopping app-background conversation sync after the existing
+30-second grace period. Users can opt into keeping active conversations live in
+the background through `coding.keepConversationEventsInBackground`; the setting
+is persisted in `CodingPreferencesRepository` and passed into
+`ConversationSyncCoordinator` through `WorkbenchDependencies`. Foreground
+in-app route changes no longer consult this setting.
 
 ## Alternatives
 
@@ -46,8 +48,10 @@ current open conversation live in the background through
   event bus.
 - `mobile/lib/src/services/approval_notification_handler.dart` owns foreground
   suppression, approval id dedupe, notification ids, and tap forwarding.
-- `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` publishes
-  approval events only after live stream events are applied.
+- `mobile/lib/src/workflows/conversation_sync/conversation_sync_coordinator.dart`
+  publishes approval events received from the live stream.
+- `mobile/lib/src/ui/features/workbench/coding_workbench_page.dart` attaches a
+  foreground rendering lease but no longer gates off-route approval publication.
 - `mobile/lib/src/data/repositories/coding_preferences_repository.dart` owns the
   background live-session preference used by the workbench lifecycle policy.
 

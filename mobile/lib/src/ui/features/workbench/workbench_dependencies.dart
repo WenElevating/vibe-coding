@@ -10,6 +10,7 @@ import '../../../services/mobile_app_event_bus.dart';
 import '../../../services/performance_trace_publisher.dart';
 import '../../../services/speech_input_contract.dart';
 import '../../../workflows/connection/open_workspace_use_case.dart';
+import '../../../workflows/conversation_sync/conversation_sync_coordinator.dart';
 import 'attachments/attachment_preview_cache.dart';
 
 class WorkbenchDependencies {
@@ -23,12 +24,17 @@ class WorkbenchDependencies {
     required this.runRepository,
     required this.speechInputServiceBuilder,
     required this.workspaceRepository,
+    ConversationSyncCoordinator? conversationSyncCoordinator,
     this.workspaceOpeningUseCase,
     this.attachmentPreviewCache = const NoopAttachmentPreviewCache(),
     this.mobileAppEventBus,
     this.performanceTracePublisher,
   })  : codingPreferencesRepository =
             codingPreferencesRepository ?? CodingPreferencesRepository(),
+        conversationSyncCoordinator = conversationSyncCoordinator ??
+            ConversationSyncCoordinator(
+              conversationRepository: conversationRepository,
+            ),
         slashCommandCatalogRepository = slashCommandCatalogRepository ??
             SlashCommandCatalogRepository(
               client: (_, {workspaceId}) async => const [],
@@ -44,45 +50,10 @@ class WorkbenchDependencies {
   final CachedRunRepository runRepository;
   final SpeechInputServiceBuilder speechInputServiceBuilder;
   final WorkspaceRepository workspaceRepository;
+  final ConversationSyncCoordinator conversationSyncCoordinator;
   final WorkspaceOpeningUseCase? workspaceOpeningUseCase;
   final MobileAppEventBus? mobileAppEventBus;
   final PerformanceTracePublisher? performanceTracePublisher;
-
-  void publishApprovalRequested({
-    required String workspaceId,
-    required String conversationId,
-    required String approvalId,
-    required String title,
-    required String body,
-    required DateTime createdAt,
-    MobileApprovalExtraBodyBuilder? additionalApprovalsBody,
-    String? conversationTitle,
-    String? toolName,
-    String? summary,
-  }) {
-    mobileAppEventBus?.publish(MobileApprovalRequested(
-      workspaceId: workspaceId,
-      conversationId: conversationId,
-      approvalId: approvalId,
-      title: title,
-      body: body,
-      createdAt: createdAt,
-      additionalApprovalsBody: additionalApprovalsBody,
-      conversationTitle: conversationTitle,
-      toolName: toolName,
-      summary: summary,
-    ));
-  }
-
-  void publishApprovalResolved({
-    required String conversationId,
-    String? approvalId,
-  }) {
-    mobileAppEventBus?.publish(MobileApprovalResolved(
-      conversationId: conversationId,
-      approvalId: approvalId,
-    ));
-  }
 
   WorkbenchDependencies copyWith({
     CodingPreferencesRepository? codingPreferencesRepository,
@@ -91,6 +62,8 @@ class WorkbenchDependencies {
     MobileAppEventBus? mobileAppEventBus,
     PerformanceTracePublisher? performanceTracePublisher,
   }) {
+    final nextEventBus = mobileAppEventBus ?? this.mobileAppEventBus;
+    conversationSyncCoordinator.updateEventBus(nextEventBus);
     return WorkbenchDependencies(
       adapterRepository: adapterRepository,
       asrModelManager: asrModelManager,
@@ -103,10 +76,11 @@ class WorkbenchDependencies {
       runRepository: runRepository,
       speechInputServiceBuilder: speechInputServiceBuilder,
       workspaceRepository: workspaceRepository,
+      conversationSyncCoordinator: conversationSyncCoordinator,
       workspaceOpeningUseCase:
           workspaceOpeningUseCase ?? this.workspaceOpeningUseCase,
       attachmentPreviewCache: attachmentPreviewCache,
-      mobileAppEventBus: mobileAppEventBus ?? this.mobileAppEventBus,
+      mobileAppEventBus: nextEventBus,
       performanceTracePublisher:
           performanceTracePublisher ?? this.performanceTracePublisher,
     );

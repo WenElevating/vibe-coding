@@ -27,6 +27,12 @@ short background grace period and restarts it from the current cursor on resume.
 Short app lifecycle interruptions that do not reach the grace period keep the
 existing subscription.
 
+Superseded lifecycle boundary: as of 2026-06-12, foreground route-independent
+sync is owned by `ConversationSyncCoordinator`. The workbench page attaches a
+foreground rendering lease, but it no longer owns whether active conversations
+continue syncing across foreground route changes. See
+[route-independent conversation sync](2026-06-12-route-independent-conversation-sync.md).
+
 ## Constraints
 
 - The daemon must register live subscriptions before replaying stored events so

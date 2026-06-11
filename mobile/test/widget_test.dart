@@ -1460,6 +1460,8 @@ class _LifecycleConversationRepository implements ConversationRepository {
   Object? sendError;
   Completer<ConversationSummary>? sendCompleter;
   final List<ConversationEvent> events;
+  final List<StreamController<ConversationEvent>> _watchers =
+      <StreamController<ConversationEvent>>[];
   final List<int> afterSeqs = <int>[];
   int cancelCalls = 0;
   int watchCalls = 0;
@@ -1470,6 +1472,12 @@ class _LifecycleConversationRepository implements ConversationRepository {
   String? approvalId;
   String? approvalDecision;
   ApprovalDecision? approvalResponseDecision;
+
+  void emitEvent(ConversationEvent event) {
+    for (final watcher in _watchers.toList(growable: false)) {
+      if (!watcher.isClosed) watcher.add(event);
+    }
+  }
 
   @override
   Future<ConversationSummary> answerConversationQuestion(
@@ -1538,12 +1546,14 @@ class _LifecycleConversationRepository implements ConversationRepository {
     late final StreamController<ConversationEvent> controller;
     controller = StreamController<ConversationEvent>(
       onListen: () {
+        _watchers.add(controller);
         for (final event in events.where((event) => event.seq > afterSeq)) {
           controller.add(event);
         }
       },
       onCancel: () {
         cancelCalls += 1;
+        _watchers.remove(controller);
         final error = cancelError;
         if (error != null) throw error;
       },
@@ -5200,6 +5210,126 @@ void main() {
     await tester.pump();
 
     expect(conversationRepository.cancelCalls, 1);
+  });
+
+  testWidgets(
+      'foreground route changes keep conversation event sync alive',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+        <String, Object>{AppLanguage.storageKey: 'en-US'});
+    final dependencies = AppDependencies.createDefault();
+    final conversationRepository = _LifecycleConversationRepository();
+
+    Future<void> pumpNavigationFrame() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> pumpUntilWatchCalls(int expected) async {
+      for (var attempt = 0;
+          attempt < 20 && conversationRepository.watchCalls < expected;
+          attempt += 1) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    final conversations = <ConversationSummary>[
+      _conversationSummary(
+        id: 'conv_route_sync',
+        workspaceId: 'workspace_1',
+        status: 'running',
+        sessionBinding: 'confirmed',
+        userMessageCount: 1,
+        title: 'Route sync task',
+      ),
+    ];
+    final client = _AdapterRefreshClient(conversations: conversations);
+    final connectedData = dependencies.data.forDaemonClient(client);
+    final workbenchDependencies = dependencies.features
+        .createWorkbenchDependencies(client, connectedData);
+    final cachedConversationRepository =
+        _cachedConversationRepositoryForWorkbenchTest(
+      delegate: conversationRepository,
+      conversations: conversations,
+    );
+    final testDependencies = AppDependencies(
+      network: dependencies.network,
+      data: dependencies.data,
+      domain: dependencies.domain,
+      features: _testFeatureDependencies(
+        createDaemonConnectionViewModel:
+            dependencies.features.createDaemonConnectionViewModel,
+        createDiagnosticsViewModel:
+            dependencies.features.createDiagnosticsViewModel,
+        createRunDetailViewModel:
+            dependencies.features.createRunDetailViewModel,
+        createAppUpdateViewModel:
+            dependencies.features.createAppUpdateViewModel,
+        createWorkbenchDependencies: (_, connectedData) =>
+            WorkbenchDependencies(
+          adapterRepository: connectedData.cliAdapterRepository,
+          asrModelManager: workbenchDependencies.asrModelManager,
+          conversationRepository: cachedConversationRepository,
+          diagnosticsRepository: connectedData.diagnosticsRepository,
+          runRepository: connectedData.runRepository,
+          speechInputServiceBuilder:
+              workbenchDependencies.speechInputServiceBuilder,
+          workspaceRepository: connectedData.workspaceRepository,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _MainHarness(
+        client: client,
+        dependencies: testDependencies,
+        snapshot: _testSnapshot(conversations: conversations),
+      ),
+    );
+    await pumpNavigationFrame();
+
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Current Project'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Route sync task'));
+    await pumpUntilWatchCalls(1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    await tester.binding.handlePopRoute();
+    await pumpNavigationFrame();
+
+    expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    await tester.tap(find.text('Settings'));
+    await pumpNavigationFrame();
+    await tester.tap(find.text('Coding'));
+    await pumpNavigationFrame();
+
+    expect(find.byKey(const ValueKey('coding-workbench-detail')), findsNothing);
+    expect(conversationRepository.watchCalls, 1);
+    expect(conversationRepository.cancelCalls, 0);
+
+    conversationRepository.emitEvent(ConversationEvent.fromJson(
+      const <String, Object?>{
+        'seq': 1,
+        'conversationId': 'conv_route_sync',
+        'type': 'approval.requested',
+        'createdAt': '2026-06-12T00:00:01.000Z',
+        'approvalId': 'approval_route_sync',
+        'toolName': 'Bash',
+        'summary': 'npm test'
+      },
+    ));
+    await tester.pump();
+
+    expect(conversationRepository.cancelCalls, 0);
+    expect(cachedConversationRepository.conversations.single.status,
+        'waiting_approval');
+
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('app update recovery runs on create and resume',

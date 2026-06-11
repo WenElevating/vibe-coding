@@ -14,3 +14,4 @@ choice.
 - [2026-05-22 mobile-owned attachment preview cache](2026-05-22-mobile-owned-attachment-preview-cache.md)
 - [2026-05-23 WebSocket notification gateway](2026-05-23-websocket-notification-gateway.md)
 - [2026-05-24 private Android APK update channel](2026-05-24-private-android-apk-update-channel.md)
+- [2026-06-12 route-independent conversation sync](2026-06-12-route-independent-conversation-sync.md)

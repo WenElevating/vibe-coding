@@ -465,6 +465,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   void _disposeWorkbenchDependencies(WorkbenchDependencies dependencies) {
     dependencies.asrModelManager.dispose();
+    unawaited(dependencies.conversationSyncCoordinator.dispose());
   }
 
   void _disposeWorkbenchDependenciesAfterBuild(

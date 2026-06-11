@@ -61,6 +61,7 @@ import '../ui/main/home/home.dart';
 import '../workflows/app_update_workflow.dart';
 import '../workflows/connection/daemon_connection_workflow.dart';
 import '../workflows/connection/open_workspace_use_case.dart';
+import '../workflows/conversation_sync/conversation_sync_coordinator.dart';
 import 'connected_session_scope.dart';
 
 typedef NotificationClientFactory = DaemonNotificationClient Function(
@@ -669,6 +670,9 @@ class FeatureDependencies {
         );
       },
       createWorkbenchDependencies: (client, connectedData) {
+        final conversationSyncCoordinator = ConversationSyncCoordinator(
+          conversationRepository: connectedData.conversationRepository,
+        );
         return WorkbenchDependencies(
           adapterRepository: connectedData.cliAdapterRepository,
           asrModelManager: AsrModelManager(
@@ -684,6 +688,7 @@ class FeatureDependencies {
           speechInputServiceBuilder: (modelDirectory) =>
               SherpaSpeechInputService(modelDirectory: modelDirectory),
           workspaceRepository: connectedData.workspaceRepository,
+          conversationSyncCoordinator: conversationSyncCoordinator,
           attachmentPreviewCache: LocalAttachmentPreviewCache(),
         );
       },
