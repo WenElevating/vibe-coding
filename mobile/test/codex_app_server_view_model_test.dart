@@ -217,6 +217,98 @@ void main() {
     expect(find.text('Available'), findsWidgets);
   });
 
+  testWidgets('Codex app-server page keeps chrome inside the safe area',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 24);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPadding);
+
+    final viewModel = CodexAppServerViewModel(
+      repository: FakeCodexAppServerRepository(
+        capabilities: const CodexAppServerCapabilities(
+          raw: {},
+          routes: [
+            {'method': 'thread/list'},
+          ],
+          totalMethods: 1,
+        ),
+        threads: const [
+          CodexAppServerThreadSummary(
+            id: '019eb6d1-0699-7342-9b74-0c987dbbe1',
+            title: '',
+            workspacePath: 'D:/Repo',
+            archived: false,
+            raw: {},
+          ),
+        ],
+      ),
+    );
+
+    await viewModel.load(workspaceId: 'workspace_1');
+    await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      home: CodexAppServerPage(
+        viewModel: viewModel,
+        workspace: const WorkspaceSummary(
+          id: 'workspace_1',
+          name: 'Repo',
+          path: 'D:/Repo',
+        ),
+      ),
+    ));
+
+    final codexTop = tester.getTopLeft(find.text('Codex')).dy;
+    final moreRight = tester.getTopRight(find.byIcon(Icons.more_horiz_rounded));
+
+    expect(codexTop, greaterThanOrEqualTo(40));
+    expect(moreRight.dx, lessThanOrEqualTo(374));
+  });
+
+  testWidgets('Codex app-server history uses readable untitled thread labels',
+      (tester) async {
+    final viewModel = CodexAppServerViewModel(
+      repository: FakeCodexAppServerRepository(
+        capabilities: const CodexAppServerCapabilities(
+          raw: {},
+          routes: [
+            {'method': 'thread/list'},
+          ],
+          totalMethods: 1,
+        ),
+        threads: const [
+          CodexAppServerThreadSummary(
+            id: '019eb6d1-0699-7342-9b74-0c987dbbe1',
+            title: '',
+            workspacePath: 'D:/Repo',
+            archived: false,
+            raw: {},
+          ),
+        ],
+      ),
+    );
+
+    await viewModel.load(workspaceId: 'workspace_1');
+    await tester.pumpWidget(MaterialApp(
+      supportedLocales: appSupportedLocales,
+      localizationsDelegates: appLocalizationsDelegates,
+      home: CodexAppServerPage(
+        viewModel: viewModel,
+        workspace: const WorkspaceSummary(
+          id: 'workspace_1',
+          name: 'Repo',
+          path: 'D:/Repo',
+        ),
+      ),
+    ));
+
+    expect(find.text('Thread 987dbbe1'), findsOneWidget);
+    expect(find.text('019eb6d1-0699-7342-9b74-0c987dbbe1'), findsNothing);
+  });
+
   testWidgets('Codex app-server page localizes no-workspace state',
       (tester) async {
     final viewModel = CodexAppServerViewModel(

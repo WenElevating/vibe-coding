@@ -777,6 +777,14 @@
   "codexAppServerNoThreadsDetail": "Thread history will appear here after app-server sessions run.",
   "codexAppServerRecentThreads": "Recent threads",
   "codexAppServerWorkspaceScoped": "Workspace scoped",
+  "codexAppServerThreadUntitled": "Thread {suffix}",
+  "@codexAppServerThreadUntitled": {
+    "placeholders": {
+      "suffix": {
+        "type": "String"
+      }
+    }
+  },
   "codexAppServerThreadArchived": "Archived",
   "codexAppServerThreadOpen": "Open",
   "codexAppServerStatusSection": "Status",

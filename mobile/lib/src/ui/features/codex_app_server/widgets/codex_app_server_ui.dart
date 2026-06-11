@@ -4,8 +4,10 @@ import '../../../core/theme/theme.dart' as theme;
 
 const codexPanel = Color(0xFF101113);
 const codexPanelHi = Color(0xFF15171A);
+const codexPanelRaised = Color(0xFF181A1D);
 const codexLine = Color(0x1FFFFFFF);
-const codexAccent = Color(0xFF8FBCFF);
+const codexLineStrong = Color(0x33FFFFFF);
+const codexAccent = Color(0xFF98B8FF);
 const codexSuccess = Color(0xFF6EE7B7);
 const codexWarning = Color(0xFFF1C76E);
 
@@ -51,12 +53,12 @@ class CodexSectionHeader extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            label.toUpperCase(),
+            label,
             style: const TextStyle(
               color: theme.faint,
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w800,
-              letterSpacing: .7,
+              letterSpacing: 0,
             ),
           ),
           const Spacer(),
@@ -88,10 +90,11 @@ class CodexStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: .08)),
       ),
       child: Text(
         label,
