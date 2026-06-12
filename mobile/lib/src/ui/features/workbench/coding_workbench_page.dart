@@ -1328,9 +1328,17 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
         if (_isRunningCli) return;
         final sendStartSeq = _workbenchViewModel.lastSeq;
         restoreConversationAfterExistingSendFailure = _activeConversation;
+        final needsEventSubscriptionRestart =
+            _conversationEventSubscription == null ||
+                _conversationSyncLease == null;
         setState(() {
           _workbenchViewModel.markConversationRunning(notify: false);
+          _trackActiveConversation();
         });
+        if (needsEventSubscriptionRestart) {
+          await _restartConversationEventSubscription();
+          if (!mounted) return;
+        }
         _markTrace(
           'send.http.started',
           conversationId: existingConversationId,
@@ -1993,6 +2001,11 @@ class CodingWorkbenchPageState extends State<CodingWorkbenchPage>
       pendingStartedAt: conversationPendingStartedAt(
         _workbenchViewModel.effectiveConversationStatus,
         _conversationEvents,
+      ),
+      elapsedSegments: conversationElapsedSegments(
+        _workbenchViewModel.effectiveConversationStatus,
+        _conversationEvents,
+        now: DateTime.now,
       ),
       pendingActions: _recentActionSummaries,
       expandThinking: widget.expandThinking,

@@ -2876,7 +2876,7 @@ void main() {
     expect(find.byType(BottomNav), findsOneWidget);
     expect(find.text('Home'), findsNothing);
     expect(find.text('Coding'), findsOneWidget);
-    expect(find.text('Codex'), findsOneWidget);
+    expect(find.text('Codex'), findsNothing);
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Workspaces'), findsOneWidget);
 
@@ -2997,14 +2997,7 @@ void main() {
       contains('/api/codex-app-server/workspaces/workspace_2/threads?limit=50'),
     );
 
-    await tester.tap(find.text('Codex'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.descendant(of: find.byType(TopBar), matching: find.text('Two')),
-      findsOneWidget,
-    );
-    expect(find.text('No workspace selected'), findsNothing);
+    expect(find.text('Codex'), findsNothing);
   });
 
   testWidgets('workspace bootstrap failure stays in main workspace state',
@@ -5894,7 +5887,8 @@ void main() {
     final pageState = tester
         .state<CodingWorkbenchPageState>(find.byType(CodingWorkbenchPage));
     expect(pageState.activeConversation?.status, 'running');
-    expect(find.text('00:00'), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-pending-transcript-status')),
+        findsOneWidget);
     expect(conversationRepository.sendCompleter!.isCompleted, isFalse);
 
     conversationRepository.sendCompleter!.complete(_conversationSummary(
@@ -7060,7 +7054,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('returning to coding tab from Codex shows workspace list',
+  testWidgets('returning to coding tab from settings shows workspace list',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(
         <String, Object>{AppLanguage.storageKey: 'en-US'});
@@ -7071,7 +7065,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('coding-session-list')), findsOneWidget);
 
-    await tester.tap(find.text('Codex'));
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Coding'));
     await tester.pumpAndSettle();

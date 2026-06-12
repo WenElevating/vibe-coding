@@ -519,7 +519,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       viewModel: viewModel,
       initialData: initialData,
       settingsViewModel: settingsViewModel,
-      codexAppServerViewModel: codexAppServerViewModel,
       appUpdateViewModel: _appUpdateViewModel,
       connectedData: _connectedData,
       repositories: _repositories,

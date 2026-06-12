@@ -25,6 +25,7 @@ class WorkbenchMessageList extends StatefulWidget {
     required this.runErrorTraceId,
     required this.pendingStatusText,
     required this.pendingStartedAt,
+    this.elapsedSegments = const <ConversationElapsedSegment>[],
     required this.pendingActions,
     required this.expandThinking,
     required this.expandToolDetails,
@@ -37,6 +38,7 @@ class WorkbenchMessageList extends StatefulWidget {
     required this.onApproval,
     required this.onSuggestion,
     required this.onScrollNotification,
+    this.now,
   });
 
   final ScrollController controller;
@@ -49,6 +51,7 @@ class WorkbenchMessageList extends StatefulWidget {
   final String? runErrorTraceId;
   final String pendingStatusText;
   final DateTime? pendingStartedAt;
+  final List<ConversationElapsedSegment> elapsedSegments;
   final List<String> pendingActions;
   final bool expandThinking;
   final bool expandToolDetails;
@@ -58,6 +61,7 @@ class WorkbenchMessageList extends StatefulWidget {
   final bool showStatus;
   final bool showError;
   final bool showPending;
+  final DateTime Function()? now;
   final Future<void> Function(AgentEvent event, ApprovalResponse response)
       onApproval;
   final ValueChanged<String> onSuggestion;
@@ -68,17 +72,27 @@ class WorkbenchMessageList extends StatefulWidget {
 }
 
 class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
+  static const double _listHorizontalPadding = 15;
+  static const double _listVerticalPadding = 16;
+
   final Set<String> _expandedCommandRuns = <String>{};
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final displayItems =
         projectWorkbenchTranscriptDisplayItems(widget.messages);
+    final hasActiveCommandActivity = displayItems.any(_isActiveCommandItem);
+    final displaySlots = _displaySlots(displayItems);
+    final showPendingTail = widget.showPending &&
+        !hasActiveCommandActivity &&
+        !isPendingTranscriptRunningTool(l10n, widget.pendingStatusText);
+    final displaySlotCount = displaySlots.length;
     final itemCount = (widget.loadingOlderConversationEvents ? 1 : 0) +
         (widget.showStatus ? 1 : 0) +
-        displayItems.length +
+        displaySlotCount +
         (widget.showError ? 1 : 0) +
-        (widget.showPending ? 1 : 0);
+        (showPendingTail ? 1 : 0);
     return NotificationListener<ScrollNotification>(
       onNotification: widget.onScrollNotification,
       child: ListView.builder(
@@ -87,7 +101,12 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
         ),
         controller: widget.controller,
         reverse: widget.useReverseTranscript,
-        padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
+        padding: const EdgeInsets.fromLTRB(
+          _listHorizontalPadding,
+          _listVerticalPadding,
+          _listHorizontalPadding,
+          _listVerticalPadding,
+        ),
         itemCount: itemCount,
         itemBuilder: (context, index) {
           final logicalIndex =
@@ -117,17 +136,26 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
             }
             messageIndex -= 1;
           }
-          if (messageIndex < displayItems.length) {
-            final displayItem = displayItems[messageIndex];
-            return Padding(
-              key: ValueKey(_displayItemKey(messageIndex, displayItem)),
-              padding: EdgeInsets.only(
-                bottom: _displayItemBottomPadding(displayItem),
-              ),
-              child: _buildDisplayItem(displayItem),
-            );
+          if (messageIndex < displaySlotCount) {
+            return switch (displaySlots[messageIndex]) {
+              _DisplayItemSlot(:final displayIndex, :final item) => Padding(
+                  key: ValueKey(_displayItemKey(displayIndex, item)),
+                  padding: EdgeInsets.only(
+                    bottom: _displayItemBottomPadding(item),
+                  ),
+                  child: _buildDisplayItem(item),
+                ),
+              _ElapsedSlot(:final segment) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: PendingTranscriptElapsedProgress(
+                    startedAt: segment.startedAt,
+                    endedAt: segment.endedAt,
+                    now: widget.now,
+                  ),
+                ),
+            };
           }
-          messageIndex -= displayItems.length;
+          messageIndex -= displaySlotCount;
           if (widget.showError) {
             if (messageIndex == 0) {
               return Padding(
@@ -145,12 +173,113 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
             child: PendingTranscriptTransition(
               statusText: widget.pendingStatusText,
               startedAt: widget.pendingStartedAt,
+              showElapsed: false,
+              now: widget.now,
             ),
           );
         },
       ),
     );
   }
+
+  List<_DisplaySlot> _displaySlots(
+      List<WorkbenchTranscriptDisplayItem> displayItems) {
+    final insertions = _elapsedSegmentsForDisplay(displayItems);
+    final slots = <_DisplaySlot>[];
+    for (var displayIndex = 0;
+        displayIndex <= displayItems.length;
+        displayIndex += 1) {
+      for (final segment in insertions[displayIndex] ??
+          const <ConversationElapsedSegment>[]) {
+        slots.add(_ElapsedSlot(segment));
+      }
+      if (displayIndex < displayItems.length) {
+        slots.add(_DisplayItemSlot(displayIndex, displayItems[displayIndex]));
+      }
+    }
+    return slots;
+  }
+
+  Map<int, List<ConversationElapsedSegment>> _elapsedSegmentsForDisplay(
+      List<WorkbenchTranscriptDisplayItem> displayItems) {
+    final insertions = <int, List<ConversationElapsedSegment>>{};
+    void addInsertion(int index, ConversationElapsedSegment segment) {
+      insertions
+          .putIfAbsent(index, () => <ConversationElapsedSegment>[])
+          .add(segment);
+    }
+
+    if (widget.elapsedSegments.isNotEmpty) {
+      for (final segment in widget.elapsedSegments) {
+        addInsertion(
+          _displayIndexAfterEventSeq(displayItems, segment.afterSeq),
+          segment,
+        );
+      }
+    }
+    final l10n = AppLocalizations.of(context);
+    final shouldInsertSingleElapsed = widget.showPending &&
+        (shouldShowPendingTranscriptElapsed(l10n, widget.pendingStatusText) ||
+            displayItems.any((item) =>
+                item is SingleCommandDisplayItem ||
+                item is CommandRunGroupDisplayItem));
+    final alreadyHasActiveElapsed = insertions.values
+        .expand((items) => items)
+        .any((segment) => segment.endedAt == null);
+    if (!shouldInsertSingleElapsed || alreadyHasActiveElapsed) {
+      return insertions;
+    }
+    addInsertion(
+      _pendingElapsedDisplayIndex(displayItems),
+      ConversationElapsedSegment(
+        afterSeq: _lastUserEventSeq(displayItems) ?? 0,
+        startedAt: widget.pendingStartedAt,
+      ),
+    );
+    return insertions;
+  }
+
+  int _pendingElapsedDisplayIndex(
+      List<WorkbenchTranscriptDisplayItem> displayItems) {
+    for (var index = displayItems.length - 1; index >= 0; index -= 1) {
+      final item = displayItems[index];
+      if (item is WorkbenchMessageDisplayItem && item.message.role == 'user') {
+        return index + 1;
+      }
+    }
+    return 0;
+  }
+
+  int? _lastUserEventSeq(List<WorkbenchTranscriptDisplayItem> displayItems) {
+    for (var index = displayItems.length - 1; index >= 0; index -= 1) {
+      final item = displayItems[index];
+      if (item is WorkbenchMessageDisplayItem && item.message.role == 'user') {
+        return item.message.eventSeq;
+      }
+    }
+    return null;
+  }
+
+  int _displayIndexAfterEventSeq(
+      List<WorkbenchTranscriptDisplayItem> displayItems, int afterSeq) {
+    for (var index = 0; index < displayItems.length; index += 1) {
+      final item = displayItems[index];
+      if (item is WorkbenchMessageDisplayItem &&
+          item.message.role == 'user' &&
+          item.message.eventSeq == afterSeq) {
+        return index + 1;
+      }
+    }
+    return 0;
+  }
+
+  bool _isActiveCommandItem(WorkbenchTranscriptDisplayItem item) =>
+      switch (item) {
+        SingleCommandDisplayItem(:final message) => !message.completed,
+        CommandRunGroupDisplayItem(:final messages) =>
+          messages.any((message) => !message.completed),
+        WorkbenchMessageDisplayItem() => false,
+      };
 
   Widget _buildDisplayItem(WorkbenchTranscriptDisplayItem item) {
     switch (item) {
@@ -261,6 +390,23 @@ class _HistoryLoadingRow extends StatelessWidget {
       ),
     );
   }
+}
+
+sealed class _DisplaySlot {
+  const _DisplaySlot();
+}
+
+class _DisplayItemSlot extends _DisplaySlot {
+  const _DisplayItemSlot(this.displayIndex, this.item);
+
+  final int displayIndex;
+  final WorkbenchTranscriptDisplayItem item;
+}
+
+class _ElapsedSlot extends _DisplaySlot {
+  const _ElapsedSlot(this.segment);
+
+  final ConversationElapsedSegment segment;
 }
 
 class _HistoryLoadingSpinner extends StatefulWidget {

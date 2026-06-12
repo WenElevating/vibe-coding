@@ -447,7 +447,6 @@ class WorkbenchViewModel extends ChangeNotifier {
       _conversationState = const ConversationViewState(status: 'cancelled');
       clearActiveConversation(notify: false);
     }
-    _lastSeq = 0;
     if (notify) _notifyListeners();
   }
 
@@ -456,7 +455,11 @@ class WorkbenchViewModel extends ChangeNotifier {
     final attachments = includeDraftAttachments
         ? _draftAttachmentsForOptimisticMessage()
         : const <CommittedAttachment>[];
-    _messages.add(WorkbenchMessage.user(prompt, attachments: attachments));
+    _messages.add(WorkbenchMessage.user(
+      prompt,
+      attachments: attachments,
+      eventSeq: _lastSeq + 1,
+    ));
     if (notify) _notifyListeners();
   }
 

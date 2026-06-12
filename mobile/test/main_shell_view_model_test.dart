@@ -7,6 +7,8 @@ void main() {
     final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
+    expect(MainShellViewModel.tabCount, 2);
+    expect(MainShellViewModel.settingsTabIndex, 1);
     expect(viewModel.activeTab, MainShellViewModel.codingTabIndex);
     expect(viewModel.openSessionListRequest, 0);
   });
@@ -15,9 +17,9 @@ void main() {
     final viewModel = MainShellViewModel();
     addTearDown(viewModel.dispose);
 
-    viewModel.selectTab(MainShellViewModel.codexTabIndex);
+    viewModel.selectTab(MainShellViewModel.settingsTabIndex);
 
-    expect(viewModel.activeTab, MainShellViewModel.codexTabIndex);
+    expect(viewModel.activeTab, MainShellViewModel.settingsTabIndex);
     expect(viewModel.activeRoutePage, RoutePage.tabs);
     expect(viewModel.openSessionListRequest, 0);
 
@@ -56,7 +58,7 @@ void main() {
     expect(viewModel.isOverlayActive, isTrue);
     expect(viewModel.activeRoute, const AppRoute.detail(runId: 'run_2'));
 
-    viewModel.selectTab(MainShellViewModel.codexTabIndex);
+    viewModel.selectTab(MainShellViewModel.settingsTabIndex);
 
     expect(viewModel.activeRoute, const AppRoute.tabs());
     expect(viewModel.activeRoute.runId, isNull);

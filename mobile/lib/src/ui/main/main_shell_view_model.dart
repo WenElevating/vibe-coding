@@ -4,9 +4,8 @@ import '../../shell/app_route.dart';
 
 class MainShellViewModel extends ChangeNotifier {
   static const int codingTabIndex = 0;
-  static const int codexTabIndex = 1;
-  static const int settingsTabIndex = 2;
-  static const int tabCount = 3;
+  static const int settingsTabIndex = 1;
+  static const int tabCount = 2;
 
   int _activeTab = 0;
   bool _streamOutput = false;

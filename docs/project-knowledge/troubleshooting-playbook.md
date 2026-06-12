@@ -845,6 +845,38 @@ node scripts/run-tests.js --plain-name "conversation cancel during adapter start
 
 - Last verified: 2026-06-08
 
+## Symptom: Paused Workbench Elapsed Timer Disappears Or Moves To The Next Turn
+
+- Symptom: cancelling/pausing a running workbench turn makes the transcript
+  `Processed...` / `已处理 ...` row disappear immediately, or the next resend
+  shows that elapsed row attached to the next user prompt instead of the paused
+  turn.
+- Action: treat elapsed display as turn-scoped transcript data, not as one
+  global pending footer. Build elapsed segments from conversation events so the
+  running turn renders one active segment after its own `user.message`, while a
+  cancelled/failed/interrupted turn keeps one frozen segment even if the UI has
+  already switched status before the terminal event reaches the local event
+  cache. Existing-conversation resend must also restart the foreground
+  conversation watcher only when the cancel path dropped it; otherwise daemon
+  resume events can persist while the current page stays visually idle.
+- Related files:
+  [workbench_messages.dart](../../mobile/lib/src/ui/features/workbench/workbench_messages.dart),
+  [workbench_message_list.dart](../../mobile/lib/src/ui/features/workbench/widgets/workbench_message_list.dart),
+  [coding_workbench_page.dart](../../mobile/lib/src/ui/features/workbench/coding_workbench_page.dart),
+  [workbench_view_model.dart](../../mobile/lib/src/ui/features/workbench/view_models/workbench_view_model.dart)
+- Verification:
+
+```powershell
+cd D:\AiProject\vibe-coding\mobile
+flutter test --no-pub test\workbench_pending_transcript_transition_test.dart -r expanded
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "existing conversation send can recover pending animation after daemon disconnect"
+flutter test --no-pub test\widget_test.dart -r expanded --plain-name "sending existing conversation keeps current event subscription"
+flutter test --no-pub test\coding_workbench_controller_test.dart -r expanded --plain-name "cancelled conversation display preserves processed event cursor"
+dart analyze lib\src\ui\features\workbench\workbench_messages.dart lib\src\ui\features\workbench\widgets\workbench_message_list.dart lib\src\ui\features\workbench\messages\pending_transcript_transition.dart lib\src\ui\features\workbench\coding_workbench_page.dart lib\src\ui\features\workbench\view_models\workbench_view_model.dart test\coding_workbench_controller_test.dart test\workbench_pending_transcript_transition_test.dart test\widget_test.dart
+```
+
+- Last verified: 2026-06-13
+
 ## Symptom: Missing Selected Workspace Shows Stale Scoped Data
 
 - Symptom: mobile starts connected with no selected workspace, but old

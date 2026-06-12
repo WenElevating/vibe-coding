@@ -114,6 +114,126 @@ DateTime? conversationPendingStartedAt(
   return startedAt;
 }
 
+class ConversationElapsedSegment {
+  const ConversationElapsedSegment({
+    required this.afterSeq,
+    required this.startedAt,
+    this.endedAt,
+  });
+
+  final int afterSeq;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+}
+
+List<ConversationElapsedSegment> conversationElapsedSegments(
+  String status,
+  Iterable<ConversationEvent> events, {
+  DateTime Function()? now,
+}) {
+  final list = events.toList(growable: false)
+    ..sort((a, b) => a.seq.compareTo(b.seq));
+  final segments = <ConversationElapsedSegment>[];
+  _MutableConversationElapsedSegment? current;
+
+  void finishCurrent(DateTime endedAt, {required bool preserve}) {
+    final segment = current;
+    if (segment == null) return;
+    if (preserve) segments.add(segment.freeze(endedAt: endedAt));
+    current = null;
+  }
+
+  for (final event in list) {
+    if (event.type == 'user.message') {
+      finishCurrent(event.createdAt, preserve: false);
+      current = _MutableConversationElapsedSegment(
+        afterSeq: event.seq,
+        startedAt: event.createdAt,
+      );
+      continue;
+    }
+    if (event.type == 'conversation.started') {
+      current ??= _MutableConversationElapsedSegment(
+        afterSeq: event.seq,
+        startedAt: event.createdAt,
+      );
+      continue;
+    }
+    if (event.type == 'conversation.status_changed') {
+      final nextStatus = event.raw['status'] as String? ?? '';
+      if (_isPendingTimerStatus(nextStatus)) {
+        current ??= _MutableConversationElapsedSegment(
+          afterSeq: event.seq,
+          startedAt: event.createdAt,
+        );
+      } else if (_isInactiveConversationStatus(nextStatus)) {
+        finishCurrent(
+          event.createdAt,
+          preserve: _shouldPreserveElapsedSegmentForStatus(nextStatus),
+        );
+      }
+      continue;
+    }
+    final terminalStatus = _terminalConversationEventStatus(event);
+    if (terminalStatus != null) {
+      finishCurrent(
+        event.createdAt,
+        preserve: _shouldPreserveElapsedSegmentForStatus(terminalStatus),
+      );
+    }
+  }
+
+  if (current != null && _isPendingTimerStatus(status)) {
+    segments.add(current!.freeze());
+  } else if (current != null &&
+      _shouldPreserveElapsedSegmentForStatus(status)) {
+    segments.add(current!.freeze(endedAt: (now ?? DateTime.now)()));
+  }
+
+  if (!_shouldShowElapsedSegmentsForStatus(status)) {
+    return const <ConversationElapsedSegment>[];
+  }
+
+  return List<ConversationElapsedSegment>.unmodifiable(segments);
+}
+
+String? _terminalConversationEventStatus(ConversationEvent event) {
+  if (event.type == 'conversation.completed') return 'idle';
+  if (event.type == 'conversation.cancelled') return 'cancelled';
+  if (event.type == 'run.error') return 'failed';
+  return null;
+}
+
+bool _shouldShowElapsedSegmentsForStatus(String status) {
+  final normalized = normalizeConversationStatus(status);
+  return _isPendingTimerStatus(normalized) ||
+      _shouldPreserveElapsedSegmentForStatus(normalized);
+}
+
+bool _shouldPreserveElapsedSegmentForStatus(String status) {
+  final normalized = normalizeConversationStatus(status);
+  return normalized == 'cancelled' ||
+      normalized == 'failed' ||
+      normalized == 'interrupted';
+}
+
+class _MutableConversationElapsedSegment {
+  const _MutableConversationElapsedSegment({
+    required this.afterSeq,
+    required this.startedAt,
+  });
+
+  final int afterSeq;
+  final DateTime startedAt;
+
+  ConversationElapsedSegment freeze({DateTime? endedAt}) =>
+      ConversationElapsedSegment(
+        afterSeq: afterSeq,
+        startedAt: startedAt,
+        endedAt: endedAt,
+      );
+}
+
 bool _isPendingTimerStatus(String status) {
   final normalized = normalizeConversationStatus(status);
   return normalized == 'sending' || normalized == 'running';
@@ -253,40 +373,48 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
     case 'user':
       return WorkbenchMessage.user(message.text,
           attachments: message.attachments,
-          clientMessageId: message.clientMessageId);
+          clientMessageId: message.clientMessageId,
+          eventSeq: message.eventSeq);
     case 'assistant':
       return WorkbenchMessage('assistant', 'CLI assistant', message.text,
-          event: event, runId: 'conversation');
+          event: event, runId: 'conversation', eventSeq: message.eventSeq);
     case 'thinking':
       return WorkbenchMessage('thinking', 'Thinking process', message.text,
-          event: event, runId: 'conversation');
+          event: event, runId: 'conversation', eventSeq: message.eventSeq);
     case 'assistant_stream':
       return WorkbenchMessage('assistant_stream', 'CLI assistant', message.text,
-          event: event, runId: 'conversation');
+          event: event, runId: 'conversation', eventSeq: message.eventSeq);
     case 'question':
       return WorkbenchMessage('question', 'Needs your direction', message.text,
           event: event,
           runId: 'conversation',
+          eventSeq: message.eventSeq,
           suggestions: message.suggestions);
     case 'notice':
       return WorkbenchMessage(
           'notice', _noticeTitleFallback(message), message.text,
-          event: event, runId: 'conversation', isError: message.isError);
+          event: event,
+          runId: 'conversation',
+          eventSeq: message.eventSeq,
+          isError: message.isError);
     case 'file_change':
       return WorkbenchMessage('file_change', 'File changes', message.text,
           event: event,
           runId: 'conversation',
+          eventSeq: message.eventSeq,
           fileChanges: message.fileChanges);
     case 'approval':
       return WorkbenchMessage(
           'approval', 'Permission confirmation', message.text,
           event: event,
           runId: 'conversation',
+          eventSeq: message.eventSeq,
           approvalOptions: message.approvalOptions);
     case 'command':
       return WorkbenchMessage('command', 'Run command', message.text,
           event: event,
           runId: 'conversation',
+          eventSeq: message.eventSeq,
           completed: message.completed,
           isError: message.isError,
           duration: _conversationCommandDuration(message));
@@ -294,6 +422,7 @@ WorkbenchMessage workbenchMessageFromConversation(ConversationMessage message) {
       return WorkbenchMessage('task_progress', 'Task progress', message.text,
           event: event,
           runId: 'conversation',
+          eventSeq: message.eventSeq,
           taskId: message.taskId,
           taskItems: message.taskItems,
           completedCount: message.completedCount,
@@ -359,6 +488,7 @@ class WorkbenchMessage {
   const WorkbenchMessage(this.role, this.title, this.body,
       {this.event,
       this.runId,
+      this.eventSeq,
       this.completed = false,
       this.isError = false,
       this.duration,
@@ -376,6 +506,7 @@ class WorkbenchMessage {
   final String body;
   final AgentEvent? event;
   final String? runId;
+  final int? eventSeq;
   final bool completed;
   final bool isError;
   final Duration? duration;
@@ -392,9 +523,12 @@ class WorkbenchMessage {
     String text, {
     List<CommittedAttachment> attachments = const <CommittedAttachment>[],
     String? clientMessageId,
+    int? eventSeq,
   }) =>
       WorkbenchMessage('user', 'You', text,
-          attachments: attachments, clientMessageId: clientMessageId);
+          eventSeq: eventSeq,
+          attachments: attachments,
+          clientMessageId: clientMessageId);
   factory WorkbenchMessage.status(String text) =>
       WorkbenchMessage('status', 'Run status', text);
   WorkbenchMessage copyWith(
@@ -404,10 +538,12 @@ class WorkbenchMessage {
           Duration? duration,
           List<CommittedAttachment>? attachments,
           String? clientMessageId,
-          List<ConversationFileChange>? fileChanges}) =>
+          List<ConversationFileChange>? fileChanges,
+          int? eventSeq}) =>
       WorkbenchMessage(role, title, body ?? this.body,
           event: event,
           runId: runId,
+          eventSeq: eventSeq ?? this.eventSeq,
           completed: completed ?? this.completed,
           isError: isError ?? this.isError,
           duration: duration ?? this.duration,
@@ -434,6 +570,7 @@ class WorkbenchMessage {
           'approval', 'Permission confirmation', visibleText ?? body,
           event: event,
           runId: event.runId,
+          eventSeq: event.seq,
           approvalOptions:
               ApprovalRequestOptions.fromJson(event.raw['approvalOptions']));
     }
@@ -443,6 +580,7 @@ class WorkbenchMessage {
           'question', 'Needs your direction', question.trim(),
           event: event,
           runId: event.runId,
+          eventSeq: event.seq,
           suggestions: _eventSuggestions(event));
     }
     if (visibleText != null && visibleText.trim().isNotEmpty) {
@@ -450,28 +588,28 @@ class WorkbenchMessage {
         if (!streamOutput) return null;
         return WorkbenchMessage(
             'assistant_stream', 'CLI assistant', visibleText,
-            event: event, runId: event.runId);
+            event: event, runId: event.runId, eventSeq: event.seq);
       }
       if (parsed?.kind == _VisibleTextKind.finalMessage) {
         return WorkbenchMessage(
             'assistant', 'CLI assistant', visibleText.trim(),
-            event: event, runId: event.runId);
+            event: event, runId: event.runId, eventSeq: event.seq);
       }
     }
     if (event.type == 'tool.started') {
       return WorkbenchMessage('command', 'Run command', toolEventBody(event),
-          event: event, runId: event.runId);
+          event: event, runId: event.runId, eventSeq: event.seq);
     }
     if (event.type == 'diff.summary' && event.diff != null) {
       final diff = event.diff!;
       return WorkbenchMessage('diff', 'File changes',
           '${diff.filePath}  +${diff.additions} -${diff.deletions}',
-          event: event, runId: event.runId);
+          event: event, runId: event.runId, eventSeq: event.seq);
     }
     if (event.type == 'run.cancelled') return null;
     if (event.type == 'run.failed') {
       return WorkbenchMessage('status', 'Run ended', visibleText ?? event.type,
-          event: event, runId: event.runId);
+          event: event, runId: event.runId, eventSeq: event.seq);
     }
     return null;
   }

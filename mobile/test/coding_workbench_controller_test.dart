@@ -686,6 +686,60 @@ void main() {
     expect(viewModel.isTerminalConversation, isTrue);
   });
 
+  test('cancelled conversation display preserves processed event cursor',
+      () async {
+    final viewModel = _workbenchViewModel();
+    viewModel.updateActiveConversation(_conversation(
+      id: 'conv_cancel_cursor',
+      workspaceId: _workspace.id,
+      status: 'running',
+    ));
+    await viewModel.applyConversationEventsAsync(
+      <ConversationEvent>[
+        _event(
+          seq: 7,
+          conversationId: 'conv_cancel_cursor',
+          type: 'assistant.partial',
+          text: 'working',
+        ),
+      ],
+      streamOutput: true,
+    );
+
+    viewModel.setCancelledConversationDisplayStatus(_conversation(
+      id: 'conv_cancel_cursor',
+      workspaceId: _workspace.id,
+      status: 'cancelled',
+    ));
+
+    expect(viewModel.lastSeq, 7);
+    expect(viewModel.effectiveConversationStatus, 'cancelled');
+  });
+
+  test('cancelled status preserves elapsed segment before terminal event lands',
+      () {
+    final now = DateTime.parse('2026-06-12T15:14:55.535Z');
+    final segments = conversationElapsedSegments(
+      'cancelled',
+      <ConversationEvent>[
+        ConversationEvent(
+          seq: 38,
+          conversationId: 'conv_cancel_cursor',
+          type: 'user.message',
+          createdAt: DateTime.parse('2026-06-12T15:14:47.796Z'),
+          text: '继续',
+        ),
+      ],
+      now: () => now,
+    );
+
+    expect(segments, hasLength(1));
+    expect(segments.single.afterSeq, 38);
+    expect(segments.single.startedAt,
+        DateTime.parse('2026-06-12T15:14:47.796Z'));
+    expect(segments.single.endedAt, now);
+  });
+
   test('committed attachment event binds cache identity', () async {
     const imageCapableAdapter = AdapterStatus(
       adapter: 'codex',

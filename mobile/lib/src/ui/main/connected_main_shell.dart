@@ -7,7 +7,6 @@ import '../../domain/models/daemon_initial_data.dart';
 import '../../models/protocol.dart';
 import '../../shell/app_route.dart';
 import '../core/widgets/widgets.dart';
-import '../features/codex_app_server/codex_app_server.dart';
 import '../features/settings/settings.dart'
     show AppUpdateViewModel, SettingsPage, SettingsViewModel;
 import '../main_route_overlay.dart';
@@ -23,7 +22,6 @@ class ConnectedMainShell extends StatelessWidget {
     required this.viewModel,
     required this.initialData,
     required this.settingsViewModel,
-    required this.codexAppServerViewModel,
     required this.appUpdateViewModel,
     required this.connectedData,
     required this.repositories,
@@ -40,7 +38,6 @@ class ConnectedMainShell extends StatelessWidget {
   final MainShellViewModel viewModel;
   final DaemonInitialData initialData;
   final SettingsViewModel settingsViewModel;
-  final CodexAppServerViewModel codexAppServerViewModel;
   final AppUpdateViewModel? appUpdateViewModel;
   final ConnectedDataDependencies connectedData;
   final ConnectedSessionRepositories repositories;
@@ -56,14 +53,8 @@ class ConnectedMainShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final selectedWorkspace =
-        repositories.workspaceRepository.selectedWorkspace;
     final pages = <Widget>[
       codingTab,
-      CodexAppServerPage(
-        viewModel: codexAppServerViewModel,
-        workspace: selectedWorkspace,
-      ),
       SettingsPage(
         open: viewModel.openOverlay,
         viewModel: settingsViewModel,
