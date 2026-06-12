@@ -4,8 +4,8 @@ import '../../../../../l10n/app_localizations.dart';
 import '../../../../domain/models/approval_response.dart';
 import '../../../../models/protocol.dart';
 import '../../../core/theme/theme.dart' as theme;
-import '../messages/pending_sentinel.dart';
 import '../messages/codex_command_run_card.dart';
+import '../messages/pending_transcript_transition.dart';
 import '../messages/workbench_message_card.dart';
 import '../workbench_messages.dart';
 import '../workbench_transcript_display_items.dart';
@@ -142,11 +142,9 @@ class _WorkbenchMessageListState extends State<WorkbenchMessageList> {
           }
           return Padding(
             padding: const EdgeInsets.only(top: 10),
-            child: PendingSentinel(
-              adapter: widget.adapter ?? 'CLI',
+            child: PendingTranscriptTransition(
               statusText: widget.pendingStatusText,
               startedAt: widget.pendingStartedAt,
-              actions: widget.pendingActions,
             ),
           );
         },

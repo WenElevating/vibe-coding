@@ -9,6 +9,8 @@ const workbenchMonoFontFallback = <String>[
 class WorkbenchTranscriptTypography {
   const WorkbenchTranscriptTypography._();
 
+  static const assistantAccent = Color(0xFF3A96DD);
+
   static const assistantBody = TextStyle(
     color: Color(0xFFD8DCE5),
     fontSize: 14.7,

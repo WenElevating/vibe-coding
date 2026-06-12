@@ -80,7 +80,9 @@ MarkdownStyleSheet buildAssistantMarkdownStyleSheet(BuildContext context) {
           color: Colors.white.withValues(alpha: .04),
           border: Border.all(color: theme.purple.withValues(alpha: .16)),
           borderRadius: BorderRadius.circular(8)),
-      a: const TextStyle(color: Color(0xFF7C8CFF), fontWeight: FontWeight.w800),
+      a: const TextStyle(
+          color: WorkbenchTranscriptTypography.assistantAccent,
+          fontWeight: FontWeight.w800),
       horizontalRuleDecoration: BoxDecoration(
           border: Border(
               top: BorderSide(color: Colors.white.withValues(alpha: .08)))),

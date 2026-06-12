@@ -11,9 +11,10 @@ void main() {
       (WidgetTester tester) async {
     await tester.pumpWidget(_styleHarness(const SizedBox.shrink()));
 
-    final assistantStyle = buildAssistantMarkdownStyleSheet(
+    final styleSheet = buildAssistantMarkdownStyleSheet(
       tester.element(find.byType(SizedBox)),
-    ).p!;
+    );
+    final assistantStyle = styleSheet.p!;
     final commandStyle = WorkbenchTranscriptTypography.commandSummary;
 
     expect(assistantStyle.fontSize, greaterThan(commandStyle.fontSize!));
@@ -23,6 +24,8 @@ void main() {
         lessThan(_luminance(assistantStyle.color!)));
     expect(_luminance(WorkbenchTranscriptTypography.toolTitle.color!),
         lessThan(_luminance(assistantStyle.color!)));
+    expect(styleSheet.a?.color, const Color(0xFF3A96DD));
+    expect(styleSheet.a?.fontWeight, FontWeight.w800);
   });
 
   testWidgets('running command status uses compact muted typography',

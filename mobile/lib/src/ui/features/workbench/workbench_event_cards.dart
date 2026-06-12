@@ -8,6 +8,7 @@ export 'messages/command_event_card.dart'
         buildLargeOutputCommandCardPreview,
         buildSubAgentCallCardPreview;
 export 'messages/pending_sentinel.dart';
+export 'messages/pending_transcript_transition.dart';
 export 'messages/sweeping_status_text.dart';
 export 'messages/task_progress_card.dart' show buildTaskProgressCardPreview;
 export 'messages/workbench_message_card.dart';
